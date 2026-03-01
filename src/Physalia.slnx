@@ -1,5 +1,4 @@
 <Solution>
   <Project Path="Physalia.Core/Physalia.Core.csproj" Id="d42eb6f3-f404-490d-bafd-6d0879e834d8" />
   <Project Path="Physalia.GH/Physalia.GH.csproj" />
-  <Project Path="Physalia.Sandbox/Physalia.Sandbox.csproj" Id="cdca2866-d84e-47c7-92f4-63fd94d90854" />
 </Solution>

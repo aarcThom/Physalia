@@ -1,7 +1,6 @@
-﻿using System;
+﻿using Grasshopper.Kernel;
+using System;
 using System.Drawing;
-using Grasshopper;
-using Grasshopper.Kernel;
 
 namespace Physalia.GH
 {

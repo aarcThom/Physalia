@@ -7,7 +7,7 @@
         Rhino 8 Windows: net48, net7.0, net7.0-windows, net7.0-windows10.0.22000.0, etc
         Rhino 8 Mac: net7.0, net7.0-macos, net7.0-macos12.0, etc
     -->
-    <TargetFrameworks>net7.0;net48</TargetFrameworks>
+    <TargetFramework>net7.0</TargetFramework>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <TargetExt>.gha</TargetExt>
     <NoWarn>NU1701</NoWarn>
@@ -23,6 +23,15 @@
   
   <ItemGroup>
     <PackageReference Include="Grasshopper" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+	<PackageReference Include="System.Drawing.Common" Version="7.0.0" />
   </ItemGroup>
+
+	<ItemGroup>
+		<!-- The Python script execution engine -->
+		<Reference Include="Rhino.Runtime.Code">
+			<HintPath>C:\Program Files\Rhino 8\System\Rhino.Runtime.Code.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+	</ItemGroup>
   
 </Project>

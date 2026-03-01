@@ -1,9 +1,9 @@
 ﻿using System.IO;
 using Rhino;
 
-namespace Physalia.GH
+namespace Physalia.GH.RunPython
 {
-    public static class GHHelpers
+    public static class Python3Lang
     {
         /// <summary>
         /// Loads Python3 by writing a temp .py file and loading it into the Rhino Script editor

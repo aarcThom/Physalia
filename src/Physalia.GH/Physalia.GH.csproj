@@ -25,6 +25,10 @@
     <PackageReference Include="Grasshopper" Version="8.0.23304.9001" ExcludeAssets="runtime" />
 	<PackageReference Include="System.Drawing.Common" Version="7.0.0" />
   </ItemGroup>
+  
+  <ItemGroup>
+    <ProjectReference Include="..\Physalia.Core\Physalia.Core.csproj" />
+  </ItemGroup>
 
 	<ItemGroup>
 		<!-- The Python script execution engine -->

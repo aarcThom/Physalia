@@ -6,7 +6,7 @@ using System.Linq;
 
 namespace Physalia.GH
 {
-    public class SandBox : GH_Component
+    public class TestComponent : GH_Component
     {
         /// <summary>
         /// Each implementation of GH_Component must provide a public 
@@ -15,7 +15,7 @@ namespace Physalia.GH
         /// Subcategory the panel. If you use non-existing tab or panel names, 
         /// new tabs/panels will automatically be created.
         /// </summary>
-        public SandBox()
+        public TestComponent()
           : base("Sandbox", "Phy",
             "An AI assisted code editor for Grasshopper",
             "Physalia", "Core")

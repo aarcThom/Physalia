@@ -1,33 +1,36 @@
-﻿using Physalia.Core.Config;
+﻿using Physalia.Core;
+using Physalia.Core.Config;
+using Physalia.Core.Providers;
 
-var keysPath = "C:/Users/rober/repos/Physalia/src/Physalia.Sandbox/test.json";
+// Setup
+var keysPath = "C:/test.json";
+var resolver = new ApiKeyResolver(keysPath);
+var apiKey = resolver.GetKey("Claude Code");
+var provider = new AnthropicProvider();
 
-Console.WriteLine($"Looking for keys at: {keysPath}");
+// One object, one call
+var client = new PhysaliaClient(provider, apiKey);
+
+Console.WriteLine("Sending prompt...");
 Console.WriteLine();
 
-var resolver = new ApiKeyResolver(keysPath);
+var result = await client.GenerateScriptAsync(
+    "Create a spiral curve. Inputs: center point, number of turns, radius, and height. Output: the spiral as a curve."
+);
 
-// Test 1: Read a valid key
-var claudeKey = resolver.GetKey("Claude Code");
-Console.WriteLine($"Test 1 (Claude Code): {claudeKey}");
-// Should print: sk-ant-test-12345
+Console.WriteLine("=== SCRIPT ===");
+Console.WriteLine(result.Script);
+Console.WriteLine();
 
-// Test 2: Read another valid key
-var openAiKey = resolver.GetKey("OpenAI");
-Console.WriteLine($"Test 2 (OpenAI): {openAiKey}");
-// Should print: sk-openai-test-67890
-
-// Test 3: Provider not in file — should throw
-try
+Console.WriteLine("=== INPUTS ===");
+foreach (var input in result.Inputs)
 {
-    resolver.GetKey("Groq");
-}
-catch (KeyNotFoundException ex)
-{
-    Console.WriteLine($"Test 3 (missing provider): {ex.Message} - GOOD");
+    Console.WriteLine($"  {input.Name} ({input.TypeHint}, {input.Access})");
 }
 
-// Test 4: List providers that have real keys (not YOUR_ placeholders)
-var available = resolver.GetAvailableProviders();
-Console.WriteLine($"Test 4 (available providers): {string.Join(", ", available)}");
-// Should print: Claude Code, OpenAI   (DeepSeek filtered out because it starts with YOUR_)
+Console.WriteLine();
+Console.WriteLine("=== OUTPUTS ===");
+foreach (var output in result.Outputs)
+{
+    Console.WriteLine($"  {output.Name} ({output.PrettyName})");
+}

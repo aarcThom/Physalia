@@ -1,6 +1,6 @@
 ﻿using System.Text.Json.Serialization;
 
-namespace Physalia.Core.Models;
+namespace Physalia.Core.Prompts;
 
 public class ScriptResponse
 {

@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
 using System.Text.RegularExpressions;
-using Physalia.Core.Models;
+using Physalia.Core.Prompts;
 
 namespace Physalia.Core.Parsing;
 

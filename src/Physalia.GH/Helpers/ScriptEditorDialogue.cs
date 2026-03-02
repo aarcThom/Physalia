@@ -16,6 +16,10 @@ public class ScriptEditorDialog : Dialog<string?>
     private readonly float _dynamicLineHeight; // the line height used to sync gutter and editor
     private HashSet<int> _errorLines = new HashSet<int>(); // Tracks broken lines
 
+
+    //TODO NEED TO HANDLE CHECKING LIBRARIES
+    // FOR INSTANCE THE EDITOR DOES NOT PICK UP THINGS LIKE Point3d.FakeProperty
+
     /// <summary>
     /// A simple code editor dialog for viewing and editing the generated Python script.
     /// Includes a problems panel that displays pyflakes lint diagnostics.
@@ -36,7 +40,8 @@ public class ScriptEditorDialog : Dialog<string?>
         // SETTING UP THE FONT ========================================================
         _editorFont = new Font(FontFamilies.Monospace, 10);
 
-        // Measuring the font size to set the line height for the editor
+        _dynamicLineHeight = _editorFont.LineHeight + 1;
+        /* Measuring the font size to set the line height for the editor
         // Create a  1x1 off-screen bitmap to borrow its Graphics context
         using (var bmp = new Bitmap(1, 1, PixelFormat.Format32bppRgba))
         using (var g = new Graphics(bmp))
@@ -47,6 +52,7 @@ public class ScriptEditorDialog : Dialog<string?>
             // Round up to the nearest whole pixel to ensure we don't clip the bottom
             _dynamicLineHeight = size.Height;
         }
+        */
 
         // COMPONENTS =========================================================
 
@@ -182,10 +188,13 @@ public class ScriptEditorDialog : Dialog<string?>
     {
         int lines = string.IsNullOrEmpty(_editor.Text) ? 1 : _editor.Text.Split('\n').Length;
 
+        // TODO I REALLY NEED TO FIGURE THIS OUT.... NEED TO GET GUTTER AND EDITOR WITH SAME LINE SPACING
+        float extraSpace = 2.5f;
+
         for (int i = 1; i <= lines; i++)
         {
             // Calculate the exact vertical pixel position of this line
-            float yPos = (i - 1) * _dynamicLineHeight - 1f;
+            float yPos = (i - 1) * (_dynamicLineHeight + extraSpace);
 
             // If this line has a pyflakes error, paint the background red!
             if (_errorLines.Contains(i))
@@ -207,7 +216,7 @@ public class ScriptEditorDialog : Dialog<string?>
     {
         int lines = string.IsNullOrEmpty(_editor.Text) ? 1 : _editor.Text.Split('\n').Length;
 
-        int requiredHeight = (lines + 2) * (int)_dynamicLineHeight;
+        int requiredHeight = (lines + 10) * (int)_dynamicLineHeight;
 
         _editor.Height = requiredHeight;
         _gutter.Height = requiredHeight;

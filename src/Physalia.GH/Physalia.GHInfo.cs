@@ -12,15 +12,15 @@ namespace Physalia.GH
         public override Bitmap Icon => null;
 
         //Return a short string describing the purpose of this GHA library.
-        public override string Description => "";
+        public override string Description => "An open-source LLM powered GH library.";
 
-        public override Guid Id => new Guid("d0040934-d7b4-464e-9aaf-38f5e9634275");
+        public override Guid Id => new Guid("862C53A2-69A1-4B56-A133-26E0BCEDE789");
 
         //Return a string identifying you or your company.
-        public override string AuthorName => "";
+        public override string AuthorName => "Thomas Gaudin";
 
         //Return a string representing your preferred contact details.
-        public override string AuthorContact => "";
+        public override string AuthorContact => "thomas@aarc.io";
 
         //Return a string representing the version.  This returns the same version as the assembly.
         public override string AssemblyVersion => GetType().Assembly.GetName().Version.ToString();

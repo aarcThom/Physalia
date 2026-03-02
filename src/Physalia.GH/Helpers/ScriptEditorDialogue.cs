@@ -1,6 +1,7 @@
 ﻿using Eto.Drawing;
 using Eto.Forms;
 using Physalia.GH.Helpers;
+using System;
 using System.Collections.Generic;
 
 public class ScriptEditorDialog : Dialog<string?>
@@ -10,6 +11,8 @@ public class ScriptEditorDialog : Dialog<string?>
     private readonly ListBox _problemsList;
     private readonly Label _statusLabel;
     private readonly List<string> _inputNames;
+
+    private readonly int _dynamicLineHeight; // the line height used to sync gutter and editor
 
     /// <summary>
     /// A simple code editor dialog for viewing and editing the generated Python script.
@@ -25,12 +28,23 @@ public class ScriptEditorDialog : Dialog<string?>
         Padding = 10;
         Resizable = true;
 
-        // The Line Height constant (Consolas 10pt is roughly 18 pixels high depending on the OS)
-        // You may need to tweak this integer slightly (16, 18, 20) to match your exact OS rendering.
-        int estimatedLineHeight = 18;
-
         _inputNames = inputNames ?? new List<string>();
 
+
+        // SETTING UP THE FONT ========================================================
+        var editorFont = new Font(FontFamilies.Monospace, 10);
+
+        // Measuring the font size to set the line height for the editor
+        // Create a  1x1 off-screen bitmap to borrow its Graphics context
+        using (var bmp = new Bitmap(1, 1, PixelFormat.Format32bppRgba))
+        using (var g = new Graphics(bmp))
+        {
+            // Measure a string with tall ascenders ('M') and deep descenders ('g')
+            var size = g.MeasureString(editorFont, "Mg");
+
+            // Round up to the nearest whole pixel to ensure we don't clip the bottom
+            _dynamicLineHeight = (int)Math.Ceiling(size.Height);
+        }
 
         // COMPONENTS =========================================================
 
@@ -38,7 +52,7 @@ public class ScriptEditorDialog : Dialog<string?>
         _editor = new TextArea
         {
             Text = script,
-            Font = new Font("Consolas", 10),
+            Font = editorFont,
             SpellCheck = false,
             Wrap = false,
             // TO DO - REMOVE BORDER ... maybe
@@ -48,7 +62,7 @@ public class ScriptEditorDialog : Dialog<string?>
         _lineNumbers = new TextArea
         {
             ReadOnly = true,
-            Font = new Font("Consolas", 10),
+            Font = editorFont,
             Wrap = false,
             BackgroundColor = Colors.WhiteSmoke,
             TextColor = Colors.Gray
@@ -189,10 +203,10 @@ public class ScriptEditorDialog : Dialog<string?>
 
     private void SyncEditorHeightAndGutter()
     {
-        // 1. Calculate how many lines exist
+        // Calculate how many lines exist
         int lines = string.IsNullOrEmpty(_editor.Text) ? 1 : _editor.Text.Split('\n').Length;
 
-        // 2. Generate the gutter text
+        // Generate the gutter text
         var sb = new System.Text.StringBuilder();
         for (int i = 1; i <= lines; i++)
         {
@@ -202,7 +216,7 @@ public class ScriptEditorDialog : Dialog<string?>
 
         // Calculate total required physical height
         // Add a few extra lines of padding at the bottom so it doesn't clip
-        int requiredHeight = (lines + 2) * 18; // 18 is our estimated line height
+        int requiredHeight = (lines + 2) * _dynamicLineHeight;
 
         // Force both controls to physically grow
         // We set the size so the Scrollable container knows exactly how big its children are

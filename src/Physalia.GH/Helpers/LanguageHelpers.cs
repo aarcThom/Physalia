@@ -3,7 +3,7 @@ using Rhino;
 
 namespace Physalia.GH.RunPython
 {
-    public static class Python3Lang
+    public static class LanguageHelpers
     {
         /// <summary>
         /// Loads Python3 by writing a temp .py file and loading it into the Rhino Script editor

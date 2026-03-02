@@ -7,12 +7,14 @@ using System.Collections.Generic;
 public class ScriptEditorDialog : Dialog<string?>
 {
     private readonly TextArea _editor; // the actual editor area
-    private readonly TextArea _lineNumbers; // the fake gutter for lines
+    private readonly Drawable _gutter; // drawable instead of TextArea so that we can color red upon errors
     private readonly ListBox _problemsList;
     private readonly Label _statusLabel;
     private readonly List<string> _inputNames;
 
-    private readonly int _dynamicLineHeight; // the line height used to sync gutter and editor
+    private readonly Font _editorFont; // Store the font so the canvas can use it
+    private readonly float _dynamicLineHeight; // the line height used to sync gutter and editor
+    private HashSet<int> _errorLines = new HashSet<int>(); // Tracks broken lines
 
     /// <summary>
     /// A simple code editor dialog for viewing and editing the generated Python script.
@@ -32,7 +34,7 @@ public class ScriptEditorDialog : Dialog<string?>
 
 
         // SETTING UP THE FONT ========================================================
-        var editorFont = new Font(FontFamilies.Monospace, 10);
+        _editorFont = new Font(FontFamilies.Monospace, 10);
 
         // Measuring the font size to set the line height for the editor
         // Create a  1x1 off-screen bitmap to borrow its Graphics context
@@ -40,10 +42,10 @@ public class ScriptEditorDialog : Dialog<string?>
         using (var g = new Graphics(bmp))
         {
             // Measure a string with tall ascenders ('M') and deep descenders ('g')
-            var size = g.MeasureString(editorFont, "Mg");
+            var size = g.MeasureString(_editorFont, "Mg");
 
             // Round up to the nearest whole pixel to ensure we don't clip the bottom
-            _dynamicLineHeight = (int)Math.Ceiling(size.Height);
+            _dynamicLineHeight = size.Height;
         }
 
         // COMPONENTS =========================================================
@@ -52,28 +54,22 @@ public class ScriptEditorDialog : Dialog<string?>
         _editor = new TextArea
         {
             Text = script,
-            Font = editorFont,
+            Font = _editorFont,
             SpellCheck = false,
             Wrap = false,
             // TO DO - REMOVE BORDER ... maybe
         };
 
         // GUTTER ------------------------------------
-        _lineNumbers = new TextArea
-        {
-            ReadOnly = true,
-            Font = editorFont,
-            Wrap = false,
-            BackgroundColor = Colors.WhiteSmoke,
-            TextColor = Colors.Gray
-        };
-
-        // hacky way to force the width of the gutter. Setting it above in _lineNumbers wasn't working....
-        var gutterContainer = new Panel
+        _gutter = new Drawable
         {
             Width = 32,
-            Content = _lineNumbers
+            BackgroundColor = Colors.WhiteSmoke
+            
         };
+
+
+
 
 
         // PROBLEMS LABEL ----------------------------
@@ -138,7 +134,7 @@ public class ScriptEditorDialog : Dialog<string?>
             Orientation = Orientation.Horizontal,
             Items =
             {
-                gutterContainer,
+                _gutter,
                 new StackLayoutItem(_editor, expand: true)
             }
         };
@@ -173,55 +169,51 @@ public class ScriptEditorDialog : Dialog<string?>
 
         // EVENTS AND FORMATTING
         // Update the line numbers whenever the text changes 
-        _editor.TextChanged += (s, e) => UpdateLineNumbers();
         _editor.TextChanged += (s, e) => RunLint();
         _editor.TextChanged += (s, e) => SyncEditorHeightAndGutter();
+        _gutter.Paint += PaintGutterCanvas;
 
         // RUN THESE ONCE AT THE OUTSET TO POPULATE GUTTER AND LINT
         RunLint();
-        UpdateLineNumbers(); // Call it once to populate the initial numbers
         SyncEditorHeightAndGutter(); // Run once on startup
     }
 
-    /// <summary>
-    /// Updates the numbers in the gutter.
-    /// TODO: THIS DOESN'T WORK WITH SCROLL. NEED TO FIGURE THIS OUT.
-    /// </summary>
-    private void UpdateLineNumbers()
+    private void PaintGutterCanvas(object sender, PaintEventArgs e)
     {
-        // Count how many lines exist in the main editor
         int lines = string.IsNullOrEmpty(_editor.Text) ? 1 : _editor.Text.Split('\n').Length;
 
-        var sb = new System.Text.StringBuilder();
         for (int i = 1; i <= lines; i++)
         {
-            sb.Append(i).Append("\n");
-        }
+            // Calculate the exact vertical pixel position of this line
+            float yPos = (i - 1) * _dynamicLineHeight - 1f;
 
-        _lineNumbers.Text = sb.ToString();
+            // If this line has a pyflakes error, paint the background red!
+            if (_errorLines.Contains(i))
+            {
+                // Draw a light red highlight box
+                e.Graphics.FillRectangle(Color.FromArgb(255, 200, 200), 0, yPos, _gutter.Width, _dynamicLineHeight);
+
+                // Draw a solid red warning bar on the far left edge
+                e.Graphics.FillRectangle(Colors.Red, 0, yPos, 4, _dynamicLineHeight);
+            }
+
+            // Draw the actual line number
+            // X=8 gives it a nice little padding from the left edge
+            e.Graphics.DrawText(_editorFont, Colors.Gray, new PointF(8, yPos), i.ToString());
+        }
     }
 
     private void SyncEditorHeightAndGutter()
     {
-        // Calculate how many lines exist
         int lines = string.IsNullOrEmpty(_editor.Text) ? 1 : _editor.Text.Split('\n').Length;
 
-        // Generate the gutter text
-        var sb = new System.Text.StringBuilder();
-        for (int i = 1; i <= lines; i++)
-        {
-            sb.Append(i).Append("\n");
-        }
-        _lineNumbers.Text = sb.ToString();
+        int requiredHeight = (lines + 2) * (int)_dynamicLineHeight;
 
-        // Calculate total required physical height
-        // Add a few extra lines of padding at the bottom so it doesn't clip
-        int requiredHeight = (lines + 2) * _dynamicLineHeight;
+        _editor.Height = requiredHeight;
+        _gutter.Height = requiredHeight;
 
-        // Force both controls to physically grow
-        // We set the size so the Scrollable container knows exactly how big its children are
-        _editor.Size = new Size(-1, requiredHeight);
-        _lineNumbers.Size = new Size(-1, requiredHeight);
+        // Tell the canvas "Your data changed, please redraw the numbers!"
+        _gutter.Invalidate();
     }
 
     /// <summary>
@@ -230,6 +222,7 @@ public class ScriptEditorDialog : Dialog<string?>
     private void RunLint()
     {
         _problemsList.Items.Clear();
+        _errorLines.Clear(); // Reset the errors
 
         var diagnostics = CodeChecker.Check(_editor.Text, _inputNames);
 
@@ -244,7 +237,15 @@ public class ScriptEditorDialog : Dialog<string?>
             foreach (var d in diagnostics)
             {
                 _problemsList.Items.Add(new ListItem { Text = d.ToString() });
+
+                // ADD THE LINE NUMBER TO OUR TRACKER
+                // Note: You may need to change 'd.Line' depending on how 
+                // you defined your pyflakes diagnostic object in CodeChecker!
+                _errorLines.Add(d.Line);
             }
         }
+
+        // Force the gutter to repaint so the red highlights show up
+        _gutter.Invalidate();
     }
 }

@@ -3,15 +3,17 @@ using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Parameters;
 using Physalia.Core.Prompts;
+using Physalia.Core.Providers;
 using Physalia.GH.Helpers;
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace Physalia.GH.Components;
 
 public class PhysaliaComponent : GH_Component, IGH_VariableParameterComponent
 {
-    private readonly ApiCaller _apiCaller = new();
+    private readonly ApiCaller _apiCaller = new ApiCaller(new AnthropicProvider()); // well need to make provider agnostic later
     private readonly ScriptRunner _scriptRunner = new();
 
     private ScriptResponse? _lastResponse;
@@ -20,6 +22,8 @@ public class PhysaliaComponent : GH_Component, IGH_VariableParameterComponent
 
     private const int FixedInputCount = 4;
     private const int FixedOutputCount = 1;
+
+    private Task? _pendingRequest; // needed to prevent duplicate requests
 
     public PhysaliaComponent()
         : base(
@@ -48,21 +52,7 @@ public class PhysaliaComponent : GH_Component, IGH_VariableParameterComponent
         pManager.AddTextParameter("Script", "Sc", "The generated Python script", GH_ParamAccess.item);
     }
 
-    public void OpenScriptEditor()
-    {
-        if (_lastResponse == null) return;
 
-        var inputNames = _lastResponse.Inputs.Select(i => i.Name).ToList();
-        var dialog = new ScriptEditorDialog(_lastResponse.Script, inputNames);
-        var result = dialog.ShowModal(Grasshopper.Instances.EtoDocumentEditor);
-
-        if (result != null)
-        {
-            _lastResponse.Script = result;
-            Message = "Edited";
-            ExpireSolution(true);
-        }
-    }
 
     protected override void SolveInstance(IGH_DataAccess DA)
     {
@@ -88,27 +78,12 @@ public class PhysaliaComponent : GH_Component, IGH_VariableParameterComponent
         }
 
         // --- SEND ---
-        if (send && !_apiCaller.IsWaiting && prompt != _lastPrompt)
+        //don't send if request in process or the prompt is idential to the last
+        if (send && (_pendingRequest == null || _pendingRequest.IsCompleted) && prompt != _lastPrompt)
         {
             Message = "Calling API...";
 
-            _apiCaller.SendAsync(prompt, keysPath,
-                onSuccess: result =>
-                {
-                    _lastResponse = result;
-                    _lastPrompt = prompt;
-                    ParameterBuilder.Rebuild(this, result, FixedInputCount, FixedOutputCount);
-                    Message = "Done";
-                    ExpireSolution(true);
-                },
-                onError: error =>
-                {
-                    _errorMsg = error;
-                    Message = "Error";
-                    ExpireSolution(true);
-                });
-
-            return;
+            _ = SendPromptAsync(prompt, keysPath);
         }
 
         // --- RUN ---
@@ -125,6 +100,51 @@ public class PhysaliaComponent : GH_Component, IGH_VariableParameterComponent
                     $"Script execution failed: {ex.Message}");
                 Message = "Script Error";
             }
+        }
+    }
+
+    public void OpenScriptEditor()
+    {
+        if (_lastResponse == null) return;
+
+        var inputNames = _lastResponse.Inputs.Select(i => i.Name).ToList();
+        var dialog = new ScriptEditorDialog(_lastResponse.Script, inputNames);
+        var result = dialog.ShowModal(Grasshopper.Instances.EtoDocumentEditor);
+
+        if (result != null)
+        {
+            _lastResponse.Script = result;
+            Message = "Edited";
+            ExpireSolution(true);
+        }
+    }
+    private async Task SendPromptAsync(string prompt, string keysPath)
+    {
+        // our task is currently being processed
+        if (_pendingRequest != null && !_pendingRequest.IsCompleted) return;
+
+        _pendingRequest = SendRequestAsync(prompt, keysPath);
+        await _pendingRequest;
+    }
+
+    private async Task SendRequestAsync(string prompt, string keysPath)
+    {
+        try
+        {
+            var result = await _apiCaller.SendAsync(prompt, keysPath);
+            _lastResponse = result;
+            _lastPrompt = prompt;
+
+            // rebuild the component
+            ParameterBuilder.Rebuild(this, result, FixedInputCount, FixedOutputCount);
+            Message = "Done";
+            ExpireSolution(true);
+        }
+        catch (Exception ex)
+        {
+            _errorMsg = ex.InnerException?.Message ?? ex.Message;
+            Message = "Error";
+            ExpireSolution(true);
         }
     }
 

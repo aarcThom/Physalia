@@ -31,18 +31,18 @@ public class ScriptRunner
     {
         EnsurePythonLoaded();
 
-        var ctx = new RunContext
+        var runCtx = new RunContext
         {
             AutoApplyParams = true
         };
 
-        CollectInputs(DA, response, fixedInputCount, ctx);
-        RegisterOutputs(response, ctx);
+        CollectInputs(DA, response, fixedInputCount, runCtx);
+        RegisterOutputs(response, runCtx);
 
         string fullScript = "#! python 3\n" + response.Script;
-        RhinoCode.RunScript(fullScript, ctx);
+        RhinoCode.RunScript(fullScript, runCtx);
 
-        SetOutputs(DA, response, fixedOutputCount, ctx);
+        SetOutputs(DA, response, fixedOutputCount, runCtx);
     }
 
     private void EnsurePythonLoaded()
@@ -56,7 +56,7 @@ public class ScriptRunner
         IGH_DataAccess DA,
         ScriptResponse response,
         int fixedInputCount,
-        RunContext ctx)
+        RunContext rhinoRunContext)
     {
         for (int i = 0; i < response.Inputs.Count; i++)
         {
@@ -69,7 +69,7 @@ public class ScriptRunner
                 if (DA.GetDataList(paramIndex, list))
                 {
                     var unwrapped = list.Select(UnwrapGhType).ToList();
-                    ctx.Inputs[inputDef.Name] = unwrapped;
+                    rhinoRunContext.Inputs[inputDef.Name] = unwrapped;
                 }
             }
             else
@@ -77,17 +77,17 @@ public class ScriptRunner
                 object value = null;
                 if (DA.GetData(paramIndex, ref value))
                 {
-                    ctx.Inputs[inputDef.Name] = UnwrapGhType(value);
+                    rhinoRunContext.Inputs[inputDef.Name] = UnwrapGhType(value);
                 }
             }
         }
     }
 
-    private static void RegisterOutputs(ScriptResponse response, RunContext ctx)
+    private static void RegisterOutputs(ScriptResponse response, RunContext runCtx)
     {
         foreach (var outputDef in response.Outputs)
         {
-            ctx.Outputs[outputDef.Name] = default(object);
+            runCtx.Outputs[outputDef.Name] = default(object);
         }
     }
 
@@ -95,14 +95,14 @@ public class ScriptRunner
         IGH_DataAccess DA,
         ScriptResponse response,
         int fixedOutputCount,
-        RunContext ctx)
+        RunContext runCtx)
     {
         for (int i = 0; i < response.Outputs.Count; i++)
         {
             var outputDef = response.Outputs[i];
             int paramIndex = fixedOutputCount + i;
 
-            var result = ctx.Outputs.Get<object>(outputDef.Name);
+            var result = runCtx.Outputs.Get<object>(outputDef.Name);
 
             if (result is System.Collections.IList resultList)
             {

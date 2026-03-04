@@ -7,10 +7,15 @@
         Rhino 8 Windows: net48, net7.0, net7.0-windows, net7.0-windows10.0.22000.0, etc
         Rhino 8 Mac: net7.0, net7.0-macos, net7.0-macos12.0, etc
     -->
-    <TargetFramework>net7.0</TargetFramework>
+    <TargetFramework>net7.0-windows</TargetFramework>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <TargetExt>.gha</TargetExt>
     <NoWarn>NU1701</NoWarn>
+	<!-- We need to supress the below to avoid the system.drawing warnings for Mac. Rhino implements system.drawing in Mac. 
+	https://discourse.mcneel.com/t/system-drawing-common-not-compatible-with-macos-anymore/166565 
+	-->
+	<NoWarn>$(NoWarn);CA1416</NoWarn>
+	<UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
   
   <PropertyGroup>

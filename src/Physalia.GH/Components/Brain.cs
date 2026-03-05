@@ -1,16 +1,24 @@
 ﻿using Grasshopper.Kernel;
+using Physalia.Core.Providers;
 using Physalia.GH.Attributes;
+using Physalia.GH.Helpers;
 using Rhino.Runtime.Code.Execution;
 using System;
+using System.Threading.Tasks;
 
 
 namespace Physalia.GH.Components
 {
     public class Brain : GH_Component
     {
+        private readonly ApiCaller _apiCaller = new ApiCaller(new AnthropicProvider()); // well need to make provider agnostic later
+        private Task? _pendingRequest;
+        private string? _errorMsg;
+        private string? _lastPrompt;
 
-        public GH_Component BodyComponent { get; set;} // the body to reference
-        private Guid _bodyGuid;
+
+        public Body BodyComponent { get; set;} // the body to reference
+        public Guid BodyGuid { get; set;} // the body's GUID
 
         /// <summary>
         /// Initializes a new instance of the MyComponent1 class.
@@ -27,8 +35,8 @@ namespace Physalia.GH.Components
         /// </summary>
         protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
         {
-            pManager.AddTextParameter("Model", "Mdl", "The model chosen to send the prompt to.", GH_ParamAccess.item);
             pManager.AddTextParameter("Prompt", "Prmpt", "The prompt", GH_ParamAccess.item);
+            pManager.AddTextParameter("Keys", "keys", "The API keys", GH_ParamAccess.item);
             pManager.AddBooleanParameter("Send", "Snd", "Send Prompt to defined model", GH_ParamAccess.item);
         }
 
@@ -45,6 +53,45 @@ namespace Physalia.GH.Components
         /// <param name="DA">The DA object is used to retrieve from inputs and store in outputs.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
+            string prompt = null, keysPath = null;
+            bool send = false;
+
+            if (!DA.GetData(0, ref prompt)) return;
+            if (!DA.GetData(1, ref keysPath)) return;
+            if (!DA.GetData(2, ref send)) return;
+
+            if (_errorMsg != null)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, _errorMsg);
+                _errorMsg = null;
+            }
+
+            if (BodyComponent == null) return; // no body linked yet
+
+            if (send && (_pendingRequest == null || _pendingRequest.IsCompleted) && prompt != _lastPrompt)
+            {
+                Message = "Calling API...";
+                _pendingRequest = SendRequestAsync(prompt, keysPath, BodyComponent);
+            }
+
+        }
+
+        private async Task SendRequestAsync(string prompt, string keysPath, Body body)
+        {
+            try
+            {
+                var result = await _apiCaller.SendAsync(prompt,keysPath);
+                _lastPrompt = prompt;
+                body.ReceiveResponse(result);  // Body handles rebuild + expire
+                Message = "Done";
+                ExpireSolution(true);
+            }
+            catch (Exception ex)
+            {
+                _errorMsg = ex.InnerException?.Message ?? ex.Message;
+                Message = "Error";
+                ExpireSolution(true);
+            }
         }
 
         /// <summary>
@@ -60,6 +107,7 @@ namespace Physalia.GH.Components
             }
         }
 
+        // set the attributes to the custom BrainAttrib
         public override void CreateAttributes() => m_attributes = new BrainAttrib(this);
 
 

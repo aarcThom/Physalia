@@ -3,6 +3,7 @@ using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Components;
+using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 
@@ -15,48 +16,49 @@ public class BrainAttrib : GH_ComponentAttributes
     private bool _isDragging; // is the user dragging the wire?
     private PointF _dragPoint; // the current positon of the drag
 
-    private RectangleF _componentGrabbableBounds; // the lower area of the component that can be grabbed as well. Needed so users don't have to be superexact
     private RectangleF _gripBounds; // the actual bounds of the grip
-                                    // NOTE: THE ABOVE DOUBLE GRABBABLE AREA CAN PROBABLY BE SIMPLIFIED.
+    private RectangleF _visualBounds; // the default bounds we want to render
 
-    /*BIG NOTE:
-     * I think I need to claim more space for the component but not expand the component rectangle height...
-     */
-
-
+    public Guid BodyGuid { get; set; } // the referenced body's GUID
 
     public BrainAttrib(Brain brain) : base(brain)
     {
         _brain = brain;
         
     }
-
-
     protected override void Layout()
     {
         base.Layout();
-        _componentGrabbableBounds = GetGripBounds();
+        _visualBounds = Bounds; // store the original layout
+
+        _gripBounds = new RectangleF(Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height + 10f); // get the expanded clickable bounds
+
+        Bounds = _gripBounds; // set the layout bounds to the expanded bounds
     }
+ 
 
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
     {
-
+        Bounds = _visualBounds; // SET THE BOUNDS BACK TO DEFAULT FOR RENDER PASS
 
         /* Render is called multiple times per canvas redraw — once for each rendering channel
         * (e.g.Wires, Objects, Overlay, etc.)
         * Only draw the custom bezier when GH wires are being drawn
         */
 
-    float gripCtrX = Bounds.Left + Bounds.Width / 2f;
+        // the grip is at the bottom of the component like galapagos
+        float gripCtrX = Bounds.Left + Bounds.Width / 2f;
         float gripCtrY = Bounds.Y + Bounds.Height;
+
+        // if drawing the objects draw the little white circle for the bottom grip
         if (channel == GH_CanvasChannel.Objects)
         {
             var gripRadius = 4f;
-            _gripBounds = new RectangleF(gripCtrX - gripRadius, gripCtrY - 2f, gripRadius * 2, gripRadius * 2);
+            var whiteCircleBounds = new RectangleF(gripCtrX - gripRadius, gripCtrY - 2f, gripRadius * 2, gripRadius * 2);
             using var fill = new SolidBrush(Color.White);
             using var border = new Pen(Color.Black, 2f);
-            graphics.FillEllipse(fill, _gripBounds);
-            graphics.DrawEllipse(border, _gripBounds);
+            graphics.FillEllipse(fill, whiteCircleBounds);
+            graphics.DrawEllipse(border, whiteCircleBounds);
         }
 
         
@@ -65,6 +67,7 @@ public class BrainAttrib : GH_ComponentAttributes
             if (_brain.BodyComponent == null && !_isDragging)
             {
                 base.Render(canvas, graphics, channel);
+                Bounds = _gripBounds; // revert back to expanded bounds for clickable grip
                 return;
             }
        
@@ -87,7 +90,13 @@ public class BrainAttrib : GH_ComponentAttributes
             // create the color gradient
             var phyBlue = Color.Blue;
             var phyPurple = Color.Purple;
-            using var gradient = new LinearGradientBrush(brainBottomPt, wireEnd, phyBlue, phyPurple);
+
+            // need to extend the gradient end points PAST the bezier curve otherwise weird clipping occurs.
+            // replace the below with something more elegant and not hardcoded
+            var gradStart = new PointF(brainBottomPt.X - 100f, brainBottomPt.Y - 100f);
+            var gradEnd = new PointF(wireEnd.X + 100f, wireEnd.Y + 100f);
+
+            using var gradient = new LinearGradientBrush(gradStart, wireEnd, phyBlue, phyPurple);
             using var pen = new Pen(gradient, 2f);
 
             // draw a bezier curver between the BRAIN and BODY
@@ -108,17 +117,10 @@ public class BrainAttrib : GH_ComponentAttributes
         }
 
         base.Render(canvas, graphics, channel);
-    }
-
-
-    private RectangleF GetGripBounds()
-    {
-        float boundsRadius = 10f;
-        float boundsCtrX = Bounds.Left + Bounds.Width / 2f;
-        float boundsCtrY = Bounds.Y + Bounds.Height;
-        return new RectangleF(boundsCtrX - boundsRadius, boundsCtrY - boundsRadius, boundsRadius * 2f, boundsRadius * 2f);
+        Bounds = _gripBounds; // reset the bounds to the expanded area after the render pass
 
     }
+
 
     // EVENT HANDLERS =======================================================================================
 
@@ -126,7 +128,7 @@ public class BrainAttrib : GH_ComponentAttributes
     public override GH_ObjectResponse RespondToMouseDown(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
 
-        if (_componentGrabbableBounds.Contains(e.CanvasLocation) || _gripBounds.Contains(e.CanvasLocation))
+        if (_gripBounds.Contains(e.CanvasLocation))
         {
             _isDragging = true;
             _dragPoint = e.CanvasLocation;
@@ -163,6 +165,8 @@ public class BrainAttrib : GH_ComponentAttributes
                 if (obj is Body body && body.Attributes.Bounds.Contains(e.CanvasLocation))
                 {
                     _brain.BodyComponent = body; // set the ref'd body
+                    _brain.BodyGuid = body.ComponentGuid;
+
                     break;
                 }
             }

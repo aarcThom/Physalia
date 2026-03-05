@@ -3,9 +3,9 @@ using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
 
-namespace Physalia.GH.Helpers;
+namespace Physalia.GH.Attributes;
 
-public class PhysaliaAttributes : GH_ComponentAttributes
+public class BodyAttrib : GH_ComponentAttributes
 {
     /// <summary>
     /// Custom attributes class for the Physalia component that intercepts
@@ -16,11 +16,11 @@ public class PhysaliaAttributes : GH_ComponentAttributes
     /// the user double-clicks, we delegate to PhysaliaComponent.OpenScriptEditor()
     /// to launch the Eto.Forms script editor dialog.
     /// </summary>
-    public PhysaliaAttributes(GH_Component owner) : base(owner) { }
+    public BodyAttrib(GH_Component owner) : base(owner) { }
 
     public override GH_ObjectResponse RespondToMouseDoubleClick(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
-        if (Owner is Components.PhysaliaComponent component)
+        if (Owner is Components.Body component)
         {
             component.OpenScriptEditor();
             return GH_ObjectResponse.Handled;

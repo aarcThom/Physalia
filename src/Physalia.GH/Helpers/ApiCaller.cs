@@ -23,18 +23,14 @@ public class ApiCaller
     /// <param name="prompt">The natural language description of the desired script.</param>
     /// <param name="keysPath">The file path to physaliaKeys.json containing API credentials.</param>
     /// <returns>A parsed <see cref="ScriptResponse"/> containing the generated Python cript and its input and output parameter definitions.</returns>
-    public async Task<ScriptResponse> SendAsync(string prompt, string keysPath)
+    public async Task<ScriptResponse> SendAsync(string prompt, LlmConfig llmConfig)
     {
         
-        // File I/O is synchronous, so push it onto another thread to not block Rhino UI
-        var apiKey = await Task.Run(() =>
-        {
-            var resolver = new ApiKeyResolver(keysPath);
-            return resolver.GetKey("Claude Code"); // TO DO: REMOVE HARDCODE
-        });
+        var apiKey = llmConfig.ApiKey;
+        var model = llmConfig.ModelId;
 
         // The HTTP request is async - ie. no thread blocked while waiting for LLM API
-        var client = new PhysaliaClient(_provider, apiKey);
+        var client = new PhysaliaClient(_provider, model, apiKey);
         return await client.GenerateScriptAsync(prompt);
     }
 }

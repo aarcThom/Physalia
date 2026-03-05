@@ -2,6 +2,8 @@
 using Physalia.Core.Config;
 using Physalia.Core.Providers;
 using Physalia.GH.Attributes;
+using Physalia.GH.Goo;
+using Physalia.GH.ParamTypes;
 using Rhino.Geometry;
 using System;
 using System.Collections.Generic;
@@ -43,7 +45,7 @@ namespace Physalia.GH.Components
         /// </summary>
         protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter("available providers", "avl", "test", GH_ParamAccess.item);
+            pManager.AddParameter(new Param_LlmConfig(), "Config", "Cfg", "Provider, model, and API key", GH_ParamAccess.item);
         }
 
         /// <summary>
@@ -61,7 +63,12 @@ namespace Physalia.GH.Components
                 _pendingModelFetch = FetchModelsAsync(SelectedProvider);
             }
 
-            DA.SetDataList(0, _apiKeyResolver.GetAvailableProviders());
+            if (!string.IsNullOrEmpty(SelectedProvider) && !string.IsNullOrEmpty(SelectedModel))
+            {
+                var key = _apiKeyResolver.GetKey(SelectedProvider);
+                var config = new LlmConfig { Provider = SelectedProvider, ModelId = SelectedModel, ApiKey = key };
+                DA.SetData(0, new GH_LlmConfig(config));
+            }
         }
 
         private async Task FetchModelsAsync(string provider)

@@ -9,10 +9,12 @@ public class PhysaliaClient
 {
     private readonly ILlmProvider _provider;
     private readonly string _apiKey;
+    private readonly string _model;
 
-    public PhysaliaClient(ILlmProvider provider, string apiKey)
+    public PhysaliaClient(ILlmProvider provider, string model, string apiKey)
     {
         _provider = provider;
+        _model = model;
         _apiKey = apiKey;
     }
 
@@ -31,6 +33,7 @@ public class PhysaliaClient
             SystemPrompt.Default,
             prompt,
             _apiKey,
+            _model,
             cancellationToken);
 
         return ResponseParser.Parse(rawResponse);

@@ -35,8 +35,14 @@ public class DreamAttrib : GH_ComponentAttributes
 
         float rowY1 = Bounds.Y + Padding;
         float rowY2 = rowY1 + RowHeight;
-        _providerRowBounds = new RectangleF(Bounds.X, rowY1, Bounds.Width, RowHeight);
-        _modelRowBounds = new RectangleF(Bounds.X, rowY2, Bounds.Width, RowHeight);
+        _providerRowBounds = new RectangleF(Bounds.X, rowY1, Bounds.Width-4f, RowHeight);
+        _modelRowBounds = new RectangleF(Bounds.X, rowY2, Bounds.Width-4f, RowHeight);
+
+        // the output grip
+        var outputParam = Owner.Params.Output[0];
+        float nubY = Bounds.Y + Bounds.Height / 2f;
+        outputParam.Attributes.Pivot = new PointF(Bounds.Right, nubY);
+        outputParam.Attributes.Bounds = new RectangleF(Bounds.Right - 3f, nubY - 3f, 6f, 6f);
     }
 
     protected override void Render(GH_Canvas canvas, Graphics g, GH_CanvasChannel channel)

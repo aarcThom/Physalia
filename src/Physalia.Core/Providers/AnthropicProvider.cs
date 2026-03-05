@@ -6,14 +6,8 @@ namespace Physalia.Core.Providers;
 
 public class AnthropicProvider : ILlmProvider
 {
-    /* WHY NO CONSTRUCTOR?
-     * IN C# if you create a class without a constructor, the compiler automatically generates
-     * default constructor with no arguments. (see: https://en.wikipedia.org/wiki/Default_constructor)
-     */
-
     private const string ApiUrl = "https://api.anthropic.com/v1/messages";
     private const string ApiVersion = "2023-06-01";
-    private const string DefaultModel = "claude-haiku-4-5";
 
     // HttpClient is designed to be long-lived and reused — one per provider,
     // shared across all calls. static ensures a single instance for the
@@ -25,12 +19,13 @@ public class AnthropicProvider : ILlmProvider
         string systemPrompt,
         string userPrompt,
         string apiKey,
+        string model,
         CancellationToken cancellationToken = default)
     {
         // Build the request body
         var requestBody = new AnthropicRequest
         {
-            Model = DefaultModel,
+            Model = model,
             MaxTokens = 4096,
             System = systemPrompt,
             Messages = new[]

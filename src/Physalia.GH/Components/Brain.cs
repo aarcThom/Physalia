@@ -2,7 +2,6 @@
 using Physalia.Core.Providers;
 using Physalia.GH.Attributes;
 using Physalia.GH.Helpers;
-using Rhino.Runtime.Code.Execution;
 using System;
 using System.Threading.Tasks;
 

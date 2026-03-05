@@ -3,9 +3,7 @@ using Grasshopper.Kernel.Parameters;
 using Physalia.Core.Prompts;
 using Physalia.GH.Attributes;
 using Physalia.GH.Helpers;
-using Rhino.Geometry;
 using System;
-using System.Collections.Generic;
 using System.Linq;
 
 namespace Physalia.GH.Components

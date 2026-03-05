@@ -74,6 +74,34 @@ public class AnthropicProvider : ILlmProvider
         return text;
     }
 
+    public async Task<List<string>> GetModelsAsync(string apiKey)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.anthropic.com/v1/models");
+        request.Headers.Add("x-api-key", apiKey);
+        request.Headers.Add("anthropic-version", ApiVersion);
+
+        using var response = await _http.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"Anthropic models error {(int)response.StatusCode}: {body}");
+
+        var parsed = JsonSerializer.Deserialize<ModelsResponse>(body);
+        return parsed?.Data.Select(m => m.Id).ToList() ?? new List<string>();
+    }
+
+    private class ModelsResponse
+    {
+        [JsonPropertyName("data")]
+        public List<ModelEntry> Data { get; set; } = new();
+    }
+
+    private class ModelEntry
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = "";
+    }
+
     // --- Internal DTOs that match the Anthropic API shape ---
 
     private class AnthropicRequest

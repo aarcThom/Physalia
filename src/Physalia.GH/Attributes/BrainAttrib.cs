@@ -19,8 +19,6 @@ public class BrainAttrib : GH_ComponentAttributes
     private RectangleF _gripBounds; // the actual bounds of the grip
     private RectangleF _visualBounds; // the default bounds we want to render
 
-    public Guid BodyGuid { get; set; } // the referenced body's GUID
-
     public BrainAttrib(Brain brain) : base(brain)
     {
         _brain = brain;
@@ -80,7 +78,7 @@ public class BrainAttrib : GH_ComponentAttributes
             else
             {
                 var bodyBounds = _brain.BodyComponent.Attributes.Bounds;
-                wireEnd = new PointF(bodyBounds.Left, bodyBounds.Y + bodyBounds.Height / 2f);
+                wireEnd = new PointF(bodyBounds.Left + bodyBounds.Width / 2f, bodyBounds.Y + bodyBounds.Height);
             }
              
             var brainBottomPt = new PointF(gripCtrX, gripCtrY);
@@ -101,18 +99,18 @@ public class BrainAttrib : GH_ComponentAttributes
 
             // draw a bezier curver between the BRAIN and BODY
             var bezPt1 = new PointF(brainBottomPt.X, brainBottomPt.Y + 80f);
-            var bezPt2 = new PointF(wireEnd.X - brainBodyMidPt, wireEnd.Y);
+            var bezPt2 = new PointF(wireEnd.X, wireEnd.Y + 80f);
             graphics.DrawBezier(pen, brainBottomPt, bezPt1, bezPt2, wireEnd);
 
             //draw the triangle at the tip
-            float triWidth = 8f;
-            float triHeight = triWidth / 2;
+            float triHeight = 8f;
+            float triWidth = triHeight / 2f;
 
-            var tip = new PointF(wireEnd.X + triWidth, wireEnd.Y);
-            var baseTop = new PointF(tip.X - triWidth, tip.Y - triHeight / 2);
-            var baseBot = new PointF(tip.X - triWidth, tip.Y + triHeight / 2);
+            var tip = new PointF(wireEnd.X, wireEnd.Y - triHeight);
+            var baseLeft = new PointF(tip.X - triWidth / 2f, tip.Y + triHeight);
+            var baseRight = new PointF(tip.X + triWidth / 2f, tip.Y + triHeight);
             using var triFill = new SolidBrush(phyPurple);
-            graphics.FillPolygon(triFill, new[] { tip, baseTop, baseBot });
+            graphics.FillPolygon(triFill, new[] { tip, baseLeft, baseRight });
             
         }
 
@@ -165,7 +163,7 @@ public class BrainAttrib : GH_ComponentAttributes
                 if (obj is Body body && body.Attributes.Bounds.Contains(e.CanvasLocation))
                 {
                     _brain.BodyComponent = body; // set the ref'd body
-                    _brain.BodyGuid = body.ComponentGuid;
+                    _brain.BodyGuid = body.InstanceGuid;
 
                     break;
                 }

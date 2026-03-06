@@ -2,6 +2,3 @@
 
 # SA1309: Field names should not begin with underscore
 dotnet_diagnostic.SA1309.severity = none
-
-# Default severity for all analyzer diagnostics
-dotnet_analyzer_diagnostic.severity = none

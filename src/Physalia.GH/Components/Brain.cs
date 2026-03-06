@@ -13,7 +13,7 @@ namespace Physalia.GH.Components
 {
     public class Brain : GH_Component
     {
-        private readonly ApiCaller _apiCaller = new ApiCaller(new AnthropicProvider()); // need to remove hardcoding
+        private readonly ApiCaller _apiCaller = new ApiCaller(new AnthropicProviderSS()); // need to remove hardcoding
         private Task? _pendingRequest;
         private string? _errorMsg;
         private string? _lastPrompt;

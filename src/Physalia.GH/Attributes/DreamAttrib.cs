@@ -74,7 +74,7 @@ public class DreamAttrib : GH_ComponentAttributes
 
         // 5. Draw both rows
         DrawRow(g, _providerRowBounds, "Provider", _dream.SelectedProvider);
-        DrawRow(g, _modelRowBounds, "Model", _dream.SelectedModel);
+        DrawRow(g, _modelRowBounds, "RequestModel", _dream.SelectedModel);
     }
 
     private void DrawRow(Graphics g, RectangleF row, string label, string value)

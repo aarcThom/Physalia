@@ -20,7 +20,7 @@ namespace Physalia.GH.Components
         public string SelectedProvider { get; set; } = "";
         public string SelectedModel { get; set; } = "";
 
-        private readonly AnthropicProvider _anthropicProvider = new();
+        private readonly AnthropicProviderSS _anthropicProvider = new();
         private Task? _pendingModelFetch;
         private string _lastFetchedProvider = "";
 

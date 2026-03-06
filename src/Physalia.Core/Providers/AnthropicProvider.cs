@@ -1,47 +1,89 @@
-﻿using System.Text;
+﻿// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Physalia.Core.Providers;
 
-public class AnthropicProvider : ILlmProvider
+internal class AnthropicProvider : LlmProvider
 {
+    // see: https://platform.claude.com/docs/en/api/overview
     private const string ApiUrl = "https://api.anthropic.com/v1/messages";
     private const string ApiVersion = "2023-06-01";
 
-    // HttpClient is designed to be long-lived and reused — one per provider,
-    // shared across all calls. static ensures a single instance for the
-    // lifetime of the plugin.
-    // https://learn.microsoft.com/en-us/dotnet/fundamentals/networking/http/httpclient-guidelines
-    private static readonly HttpClient _http = new HttpClient();
+    /// <summary>
+    /// The name of the Anthropic provider.
+    /// </summary>
+    public override string ProviderName => "Anthropic";
 
-    public async Task<string> SendPromptAsync(
-        string systemPrompt,
-        string userPrompt,
-        string apiKey,
-        string model,
-        CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Maximum number of tokens for Anthropic API requests.
+    /// </summary>
+    public override int MaxTokens => 4096; // seems like a good limit for GH ¯\_(ツ)_/¯
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="AnthropicProvider"/> class.
+    /// </summary>
+    /// <param name="apiKey">The API key used to authenticate requests to the Anthropic API.</param>
+    public AnthropicProvider(string apiKey) : base(apiKey)
+    {
+    }
+
+    /// <summary>
+    /// Fetches available Claude models from the Anthropic API and populates <see cref="_models"/>.
+    /// </summary>
+    /// <exception cref="HttpRequestException">Thrown when the API returns a non-success status code.</exception>
+    public override async Task GetModelsAsync()
+    {
+        // see: https://platform.claude.com/docs/en/api/csharp/beta/models/list (March 2026)
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.anthropic.com/v1/models");
+        request.Headers.Add("x-api-key", _apiKey);
+        request.Headers.Add("anthropic-version", ApiVersion);
+
+        using var response = await _http.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"Anthropic models error {(int)response.StatusCode}: {body}");
+
+        var parsed = JsonSerializer.Deserialize<ModelsResponse>(body);
+        _models = parsed?.Data.Select(m => m.Id).ToList() ?? new List<string>();
+    }
+
+    /// <summary>
+    /// Sends a system and user prompt to the Anthropic messages API and returns the raw response text.
+    /// </summary>
+    /// <param name="systemPrompt">The system prompt that defines the model's behavior and context.</param>
+    /// <param name="userPrompt">The user prompt containing the request to be processed.</param>
+    /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
+    /// <returns>The concatenated text content from all text blocks in the Anthropic response.</returns>
+    /// <exception cref="HttpRequestException">Thrown when the API returns a non-success status code.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the response cannot be deserialized.</exception>
+    protected override async Task<string> SendPromptCoreAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken)
     {
         // Build the request body
         var requestBody = new AnthropicRequest
         {
-            Model = model,
-            MaxTokens = 4096,
+            RequestModel = CurrentModel,
+            RequestMaxTokens = MaxTokens,
             System = systemPrompt,
             Messages = new[]
             {
-                new AnthropicMessage { Role = "user", Content = userPrompt }
-            }
+                  new AnthropicMessage { Role = "user", Content = userPrompt }
+              }
         };
 
-        var json = JsonSerializer.Serialize(requestBody);
+        var requestJson = JsonSerializer.Serialize(requestBody);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, ApiUrl)
         {
-            Content = new StringContent(json, Encoding.UTF8, "application/json")
+            Content = new StringContent(requestJson, Encoding.UTF8, "application/json")
         };
 
-        request.Headers.Add("x-api-key", apiKey);
+        request.Headers.Add("x-api-key", _apiKey);
         request.Headers.Add("anthropic-version", ApiVersion);
 
         // Send the request
@@ -59,7 +101,7 @@ public class AnthropicProvider : ILlmProvider
         var anthropicResponse = JsonSerializer.Deserialize<AnthropicResponse>(responseBody);
 
         if (anthropicResponse is null)
-            throw new Exception("Failed to deserialize Anthropic response.");
+            throw new InvalidOperationException("Failed to deserialize Anthropic response.");
 
         // Claude returns an array of content blocks — join all text blocks
         var text = string.Join("", anthropicResponse.Content
@@ -69,43 +111,37 @@ public class AnthropicProvider : ILlmProvider
         return text;
     }
 
-    public async Task<List<string>> GetModelsAsync(string apiKey)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.anthropic.com/v1/models");
-        request.Headers.Add("x-api-key", apiKey);
-        request.Headers.Add("anthropic-version", ApiVersion);
+    // see: https://platform.claude.com/docs/en/api/csharp/messages/create (march 2026)
 
-        using var response = await _http.SendAsync(request);
-        var body = await response.Content.ReadAsStringAsync();
-
-        if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"Anthropic models error {(int)response.StatusCode}: {body}");
-
-        var parsed = JsonSerializer.Deserialize<ModelsResponse>(body);
-        return parsed?.Data.Select(m => m.Id).ToList() ?? new List<string>();
-    }
-
+    /// <summary>
+    /// The envelope object returned by the Anthropic models API containing the list of available models.
+    /// </summary>
     private class ModelsResponse
     {
         [JsonPropertyName("data")]
         public List<ModelEntry> Data { get; set; } = new();
     }
 
+    /// <summary>
+    /// Represents a single model entry in the Anthropic models API response.
+    /// </summary>
     private class ModelEntry
     {
         [JsonPropertyName("id")]
         public string Id { get; set; } = "";
     }
 
-    // --- Internal DTOs that match the Anthropic API shape ---
-
+    /// <summary>
+    /// Request body DTO matching the Anthropic messages API shape.
+    /// See: https://docs.anthropic.com/en/api/messages
+    /// </summary>
     private class AnthropicRequest
     {
         [JsonPropertyName("model")]
-        public string Model { get; set; } = "";
+        public string RequestModel { get; set; } = "";
 
         [JsonPropertyName("max_tokens")]
-        public int MaxTokens { get; set; }
+        public int RequestMaxTokens { get; set; }
 
         [JsonPropertyName("system")]
         public string System { get; set; } = "";
@@ -114,6 +150,9 @@ public class AnthropicProvider : ILlmProvider
         public AnthropicMessage[] Messages { get; set; } = Array.Empty<AnthropicMessage>();
     }
 
+    /// <summary>
+    /// Represents a single message in the Anthropic messages API request.
+    /// </summary>
     private class AnthropicMessage
     {
         [JsonPropertyName("role")]
@@ -123,12 +162,18 @@ public class AnthropicProvider : ILlmProvider
         public string Content { get; set; } = "";
     }
 
+    /// <summary>
+    /// Response body DTO matching the Anthropic messages API shape.
+    /// </summary>
     private class AnthropicResponse
     {
         [JsonPropertyName("content")]
         public List<ContentBlock> Content { get; set; } = new();
     }
 
+    /// <summary>
+    /// Represents a single content block in the Anthropic messages API response.
+    /// </summary>
     private class ContentBlock
     {
         [JsonPropertyName("type")]

@@ -28,6 +28,10 @@
   
   <ItemGroup>
     <PackageReference Include="Grasshopper" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+    <PackageReference Include="StyleCop.Analyzers" Version="1.1.118">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
 	<PackageReference Include="System.Drawing.Common" Version="7.0.0" />
   </ItemGroup>
   
@@ -41,6 +45,10 @@
 			<HintPath>C:\Program Files\Rhino 8\System\Rhino.Runtime.Code.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
+	</ItemGroup>
+
+	<ItemGroup>
+		<AdditionalFiles Include="../stylecop.json" />
 	</ItemGroup>
   
 </Project>

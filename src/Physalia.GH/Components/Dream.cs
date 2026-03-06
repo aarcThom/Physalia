@@ -45,7 +45,7 @@ namespace Physalia.GH.Components
         /// </summary>
         protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
         {
-            pManager.AddParameter(new Param_LlmConfig(), "Config", "Cfg", "Provider, model, and API key", GH_ParamAccess.item);
+            pManager.AddParameter(new Param_LlmProvider(), "Config", "Cfg", "Provider, model, and API key", GH_ParamAccess.item);
         }
 
         /// <summary>
@@ -67,7 +67,7 @@ namespace Physalia.GH.Components
             {
                 var key = _apiKeyResolver.GetKey(SelectedProvider);
                 var config = new LlmConfig { Provider = SelectedProvider, ModelId = SelectedModel, ApiKey = key };
-                DA.SetData(0, new GH_LlmConfig(config));
+                DA.SetData(0, new GH_LlmProvider(config));
             }
         }
 

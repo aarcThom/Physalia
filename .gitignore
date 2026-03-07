@@ -416,4 +416,7 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Claude code stuff
 /src/CLAUDE.md
+/src/.claude

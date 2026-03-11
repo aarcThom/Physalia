@@ -1,14 +1,20 @@
-﻿using Grasshopper.Kernel;
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using System.Collections.Generic;
+using System.Linq;
+using Grasshopper.Kernel;
 using Grasshopper.Kernel.Types;
 using Physalia.Core.Parsing;
 using Physalia.GH.RunPython;
 using Rhino.Runtime.Code;
 using Rhino.Runtime.Code.Execution;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace Physalia.GH.Helpers;
 
+/// <summary>
+/// Executes the Python 3 script produced by the LLM inside Rhino's embedded CPython runtime.
+/// </summary>
 public class ScriptRunner
 {
     private bool _pythonLoaded;

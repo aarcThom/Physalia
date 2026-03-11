@@ -7,6 +7,10 @@ using System.Text.Json.Serialization;
 
 namespace Physalia.Core.Providers;
 
+/// <summary>
+/// Anthropic-specific implementation of <see cref="LlmProvider"/> that communicates
+/// with the Anthropic messages API to generate text and retrieve available Claude models.
+/// </summary>
 internal class AnthropicProvider : LlmProvider
 {
     // see: https://platform.claude.com/docs/en/api/overview

@@ -1,9 +1,17 @@
-﻿using Eto.Drawing;
-using Eto.Forms;
-using Physalia.GH.Helpers;
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 using System;
 using System.Collections.Generic;
+using Eto.Drawing;
+using Eto.Forms;
+using Physalia.GH.Helpers;
 
+/// <summary>
+/// A simple code editor dialog for viewing and editing the generated Python script.
+/// Includes a problems panel that displays pyflakes lint diagnostics.
+/// Returns the edited script on Save, or null on Cancel.
+/// </summary>
 public class ScriptEditorDialog : Dialog<string?>
 {
     private readonly TextArea _editor; // the actual editor area
@@ -21,9 +29,7 @@ public class ScriptEditorDialog : Dialog<string?>
     // FOR INSTANCE THE EDITOR DOES NOT PICK UP THINGS LIKE Point3d.FakeProperty
 
     /// <summary>
-    /// A simple code editor dialog for viewing and editing the generated Python script.
-    /// Includes a problems panel that displays pyflakes lint diagnostics.
-    /// Returns the edited script on Save, or null on Cancel.
+    /// Initializes a new instance of the <see cref="ScriptEditorDialog"/> class.
     /// </summary>
     /// <param name="script">The current Python script to display.</param>
     /// <param name="inputNames">Variable names injected as inputs at runtime, excluded from lint.</param>
@@ -71,12 +77,7 @@ public class ScriptEditorDialog : Dialog<string?>
         {
             Width = 32,
             BackgroundColor = Colors.WhiteSmoke
-            
         };
-
-
-
-
 
         // PROBLEMS LABEL ----------------------------
         _statusLabel = new Label
@@ -90,7 +91,6 @@ public class ScriptEditorDialog : Dialog<string?>
         {
             Height = 120
         };
-
 
         // BUTTONS -----------------------------------
 
@@ -110,7 +110,6 @@ public class ScriptEditorDialog : Dialog<string?>
             Result = null;
             Close();
         };
-
 
         // LAYOUT ===============================================================
 
@@ -172,9 +171,8 @@ public class ScriptEditorDialog : Dialog<string?>
         DefaultButton = saveButton;
         AbortButton = cancelButton;
 
-
         // EVENTS AND FORMATTING
-        // Update the line numbers whenever the text changes 
+        // Update the line numbers whenever the text changes
         _editor.TextChanged += (s, e) => RunLint();
         _editor.TextChanged += (s, e) => SyncEditorHeightAndGutter();
         _gutter.Paint += PaintGutterCanvas;
@@ -225,9 +223,6 @@ public class ScriptEditorDialog : Dialog<string?>
         _gutter.Invalidate();
     }
 
-    /// <summary>
-    /// Runs the Linter
-    /// </summary>
     private void RunLint()
     {
         _problemsList.Items.Clear();
@@ -248,7 +243,7 @@ public class ScriptEditorDialog : Dialog<string?>
                 _problemsList.Items.Add(new ListItem { Text = d.ToString() });
 
                 // ADD THE LINE NUMBER TO OUR TRACKER
-                // Note: You may need to change 'd.Line' depending on how 
+                // Note: You may need to change 'd.Line' depending on how
                 // you defined your pyflakes diagnostic object in CodeChecker!
                 _errorLines.Add(d.Line);
             }

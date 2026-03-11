@@ -1,7 +1,17 @@
-﻿namespace Physalia.Core.Prompts;
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
+namespace Physalia.Core.Prompts;
+
+/// <summary>
+/// Provides the default system prompt sent to the LLM on every request.
+/// </summary>
 public static class SystemPrompt
 {
+    /// <summary>
+    /// The default system prompt that instructs the LLM to act as a Grasshopper/Rhino developer
+    /// and return a strict JSON object containing the generated Python script and parameter definitions.
+    /// </summary>
     public const string Default = """
         You are an expert Grasshopper / Rhino developer. You generate Python 3 scripts
         that run inside a Grasshopper Script Component in Rhino (version 8+).

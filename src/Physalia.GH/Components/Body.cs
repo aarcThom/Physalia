@@ -1,22 +1,27 @@
-﻿using Grasshopper.Kernel;
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using System;
+using System.Linq;
+using Grasshopper.Kernel;
 using Grasshopper.Kernel.Parameters;
 using Physalia.Core.Parsing;
 using Physalia.GH.Attributes;
 using Physalia.GH.Helpers;
-using System;
-using System.Linq;
 
 namespace Physalia.GH.Components
 {
-    
+    /// <summary>
+    /// The BODY component receives a generated script from BRAIN, rebuilds its dynamic
+    /// parameters, and executes the script against the current Grasshopper inputs.
+    /// </summary>
     public class Body : GH_Component, IGH_VariableParameterComponent
     {
         private readonly ScriptRunner _scriptRunner = new ScriptRunner();
         private ScriptResponse? _lastResponse;
 
-
         /// <summary>
-        /// Initializes a new instance of the MyComponent1 class.
+        /// Initializes a new instance of the <see cref="Body"/> class.
         /// </summary>
         public Body()
           : base("BODY", "BODY",
@@ -57,6 +62,11 @@ namespace Physalia.GH.Components
             }
         }
 
+        /// <summary>
+        /// Stores the latest LLM response, rebuilds the component's dynamic parameters,
+        /// and schedules a solution refresh.
+        /// </summary>
+        /// <param name="response">The parsed LLM response containing the script and parameter definitions.</param>
         public void ReceiveResponse(ScriptResponse response)
         {
             _lastResponse = response;
@@ -64,6 +74,9 @@ namespace Physalia.GH.Components
             ExpireSolution(true);
         }
 
+        /// <summary>
+        /// Opens the Eto.Forms script editor dialog for the currently stored script.
+        /// </summary>
         public void OpenScriptEditor()
         {
             if (_lastResponse == null) return;
@@ -80,28 +93,51 @@ namespace Physalia.GH.Components
             }
         }
 
-        // set the attributes to the custom BodyAttrib
+        /// <summary>
+        /// Assigns the custom <see cref="BodyAttrib"/> attribute class to this component.
+        /// </summary>
         public override void CreateAttributes() => m_attributes = new BodyAttrib(this);
 
         /// <summary>
         /// Provides an Icon for the component.
         /// </summary>
-        protected override System.Drawing.Bitmap Icon
-        {
-            get
-            {
-                //You can add image files to your project resources and access them like this:
-                // return Resources.IconForThisComponent;
-                return null;
-            }
-        }
+        protected override System.Drawing.Bitmap Icon => null;
 
-        // --- IGH_VariableParameterComponent implementation ---
-
+        /// <summary>
+        /// Gets a value indicating whether a parameter can be inserted at the given index on the specified side.
+        /// </summary>
+        /// <param name="side">The parameter side (input or output).</param>
+        /// <param name="index">The index at which the parameter would be inserted.</param>
+        /// <returns>false — dynamic parameters are managed by BRAIN; manual insertion is not permitted.</returns>
         public bool CanInsertParameter(GH_ParameterSide side, int index) => false;
+
+        /// <summary>
+        /// Gets a value indicating whether a parameter can be removed at the given index on the specified side.
+        /// </summary>
+        /// <param name="side">The parameter side (input or output).</param>
+        /// <param name="index">The index of the parameter to remove.</param>
+        /// <returns>false — dynamic parameters are managed by BRAIN; manual removal is not permitted.</returns>
         public bool CanRemoveParameter(GH_ParameterSide side, int index) => false;
+
+        /// <summary>
+        /// Creates a default placeholder parameter for the given side and index.
+        /// </summary>
+        /// <param name="side">The parameter side (input or output).</param>
+        /// <param name="index">The index at which the parameter will be placed.</param>
+        /// <returns>A new generic object parameter.</returns>
         public IGH_Param CreateParameter(GH_ParameterSide side, int index) => new Param_GenericObject();
+
+        /// <summary>
+        /// Called when a parameter is removed; performs any necessary cleanup.
+        /// </summary>
+        /// <param name="side">The parameter side (input or output).</param>
+        /// <param name="index">The index of the parameter being removed.</param>
+        /// <returns>true.</returns>
         public bool DestroyParameter(GH_ParameterSide side, int index) => true;
+
+        /// <summary>
+        /// Called after parameters are added or removed; performs any required maintenance.
+        /// </summary>
         public void VariableParameterMaintenance() { }
 
         /// <summary>

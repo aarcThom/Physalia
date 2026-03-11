@@ -1,16 +1,23 @@
-﻿using Grasshopper;
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
+using Grasshopper;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Components;
-using System;
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.IO;
 
 namespace Physalia.GH.Attributes;
 
+/// <summary>
+/// Custom attributes for the DREAM component that render two inline dropdown rows
+/// (Provider and Model) directly on the Grasshopper canvas.
+/// </summary>
 public class DreamAttrib : GH_ComponentAttributes
 {
     private readonly Dream _dream;
@@ -22,11 +29,19 @@ public class DreamAttrib : GH_ComponentAttributes
     private const float IconWidth = 44f;
     private const float LabelWidth = 50f;
     private const float Padding = 6f;
-    public DreamAttrib(Dream dream) : base(dream) 
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DreamAttrib"/> class.
+    /// </summary>
+    /// <param name="dream">The DREAM component that owns these attributes.</param>
+    public DreamAttrib(Dream dream) : base(dream)
     {
         _dream = dream;
     }
 
+    /// <summary>
+    /// Computes the component bounds and positions the output parameter grip at the right-centre edge.
+    /// </summary>
     protected override void Layout()
     {
         float width = 200f;
@@ -35,8 +50,8 @@ public class DreamAttrib : GH_ComponentAttributes
 
         float rowY1 = Bounds.Y + Padding;
         float rowY2 = rowY1 + RowHeight;
-        _providerRowBounds = new RectangleF(Bounds.X, rowY1, Bounds.Width-4f, RowHeight);
-        _modelRowBounds = new RectangleF(Bounds.X, rowY2, Bounds.Width-4f, RowHeight);
+        _providerRowBounds = new RectangleF(Bounds.X, rowY1, Bounds.Width - 4f, RowHeight);
+        _modelRowBounds = new RectangleF(Bounds.X, rowY2, Bounds.Width - 4f, RowHeight);
 
         // the output grip
         var outputParam = Owner.Params.Output[0];
@@ -45,6 +60,12 @@ public class DreamAttrib : GH_ComponentAttributes
         outputParam.Attributes.Bounds = new RectangleF(Bounds.Right - 3f, nubY - 3f, 6f, 6f);
     }
 
+    /// <summary>
+    /// Renders the capsule background, column dividers, icon placeholder, and the two dropdown rows.
+    /// </summary>
+    /// <param name="canvas">The Grasshopper canvas being rendered.</param>
+    /// <param name="g">The GDI+ graphics context.</param>
+    /// <param name="channel">The current rendering channel.</param>
     protected override void Render(GH_Canvas canvas, Graphics g, GH_CanvasChannel channel)
     {
         if (channel != GH_CanvasChannel.Objects)
@@ -106,6 +127,12 @@ public class DreamAttrib : GH_ComponentAttributes
         g.FillPolygon(Brushes.DimGray, tri);
     }
 
+    /// <summary>
+    /// Handles left-click events on the Provider and Model rows to show the respective dropdown menus.
+    /// </summary>
+    /// <param name="sender">The Grasshopper canvas that raised the event.</param>
+    /// <param name="e">The mouse event data.</param>
+    /// <returns>Handled if a row was clicked; otherwise the base response.</returns>
     public override GH_ObjectResponse RespondToMouseDown(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
         if (e.Button != System.Windows.Forms.MouseButtons.Left)
@@ -156,6 +183,4 @@ public class DreamAttrib : GH_ComponentAttributes
         }
         menu.Show(System.Windows.Forms.Cursor.Position);
     }
-
-
 }

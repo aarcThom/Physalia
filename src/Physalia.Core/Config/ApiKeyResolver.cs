@@ -1,19 +1,34 @@
-﻿using System.Text.Json;
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using System.Text.Json;
 
 namespace Physalia.Core.Config
 {
+    /// <summary>
+    /// Reads API keys from a JSON file keyed by provider name.
+    /// </summary>
     public class ApiKeyResolver
     {
         private readonly string _keysFilePath;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ApiKeyResolver"/> class.
+        /// </summary>
+        /// <param name="keysFilePath">The path to the JSON file containing provider API keys.</param>
         public ApiKeyResolver(string keysFilePath)
         {
             _keysFilePath = keysFilePath;
         }
 
         /// <summary>
-        /// Reads the API key for the given provider name (e.g. "Claude Code", "OpenAI").
+        /// Reads the API key for the given provider name.
         /// </summary>
+        /// <param name="providerName">The provider name to look up, e.g. "anthropic".</param>
+        /// <returns>The API key string for the specified provider.</returns>
+        /// <exception cref="FileNotFoundException">Thrown when the keys file does not exist at the configured path.</exception>
+        /// <exception cref="KeyNotFoundException">Thrown when no entry exists for the given provider name.</exception>
+        /// <exception cref="Exception">Thrown when the file cannot be parsed or the key is empty.</exception>
         public string GetKey(string providerName)
         {
             if (!File.Exists(_keysFilePath))
@@ -38,9 +53,10 @@ namespace Physalia.Core.Config
         }
 
         /// <summary>
-        /// Returns all provider names that have a non-empty key.
-        /// Used for populating GH dropdown list
+        /// Returns all provider names that have a non-placeholder API key configured in the keys file.
+        /// Used to populate the provider dropdown in the DREAM component.
         /// </summary>
+        /// <returns>A list of valid provider names, or an empty list when the file cannot be read.</returns>
         public List<string> GetAvailableProviders()
         {
             if (!File.Exists(_keysFilePath))

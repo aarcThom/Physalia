@@ -19,7 +19,7 @@ namespace Physalia.GH.ParamTypes;
 public class LlmProviderGoo : GH_Goo<LlmProvider>
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="LlmProviderGoo"/> class.Initialises a new empty instance with no provider set.
+    /// Initializes a new instance of the <see cref="LlmProviderGoo"/> class with no provider set.
     /// </summary>
     public LlmProviderGoo() { }
 

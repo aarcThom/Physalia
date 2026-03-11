@@ -1,14 +1,21 @@
-﻿using Grasshopper;
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using Grasshopper;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Components;
-using System;
-using System.Drawing;
-using System.Drawing.Drawing2D;
 
 namespace Physalia.GH.Attributes;
 
+/// <summary>
+/// Custom attributes for the BRAIN component that render a drag-to-link bezier wire
+/// from BRAIN's bottom-centre grip to the linked BODY component.
+/// </summary>
 public class BrainAttrib : GH_ComponentAttributes
 {
     private readonly Brain _brain; // the brain component
@@ -19,11 +26,18 @@ public class BrainAttrib : GH_ComponentAttributes
     private RectangleF _gripBounds; // the actual bounds of the grip
     private RectangleF _visualBounds; // the default bounds we want to render
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="BrainAttrib"/> class.
+    /// </summary>
+    /// <param name="brain">The BRAIN component that owns these attributes.</param>
     public BrainAttrib(Brain brain) : base(brain)
     {
         _brain = brain;
-        
     }
+
+    /// <summary>
+    /// Lays out the component bounds, expanding them downward to include the bottom drag grip.
+    /// </summary>
     protected override void Layout()
     {
         base.Layout();
@@ -33,8 +47,14 @@ public class BrainAttrib : GH_ComponentAttributes
 
         Bounds = _gripBounds; // set the layout bounds to the expanded bounds
     }
- 
 
+    /// <summary>
+    /// Renders the component and, when a BODY is linked or a drag is in progress,
+    /// draws the bezier wire from the bottom grip to the BODY component.
+    /// </summary>
+    /// <param name="canvas">The Grasshopper canvas being rendered.</param>
+    /// <param name="graphics">The GDI+ graphics context.</param>
+    /// <param name="channel">The current rendering channel.</param>
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
     {
         Bounds = _visualBounds; // SET THE BOUNDS BACK TO DEFAULT FOR RENDER PASS
@@ -59,7 +79,6 @@ public class BrainAttrib : GH_ComponentAttributes
             graphics.DrawEllipse(border, whiteCircleBounds);
         }
 
-        
         if (channel == GH_CanvasChannel.Wires)
         {
             if (_brain.BodyComponent == null && !_isDragging)
@@ -68,7 +87,6 @@ public class BrainAttrib : GH_ComponentAttributes
                 Bounds = _gripBounds; // revert back to expanded bounds for clickable grip
                 return;
             }
-       
 
             PointF wireEnd;
             if (_isDragging)
@@ -80,7 +98,7 @@ public class BrainAttrib : GH_ComponentAttributes
                 var bodyBounds = _brain.BodyComponent.Attributes.Bounds;
                 wireEnd = new PointF(bodyBounds.Left + bodyBounds.Width / 2f, bodyBounds.Y + bodyBounds.Height);
             }
-             
+
             var brainBottomPt = new PointF(gripCtrX, gripCtrY);
 
             float brainBodyMidPt = (wireEnd.X - brainBottomPt.X) * 0.5f;
@@ -111,21 +129,22 @@ public class BrainAttrib : GH_ComponentAttributes
             var baseRight = new PointF(tip.X + triWidth / 2f, tip.Y + triHeight);
             using var triFill = new SolidBrush(phyPurple);
             graphics.FillPolygon(triFill, new[] { tip, baseLeft, baseRight });
-            
         }
 
         base.Render(canvas, graphics, channel);
         Bounds = _gripBounds; // reset the bounds to the expanded area after the render pass
-
     }
-
 
     // EVENT HANDLERS =======================================================================================
 
-    // start drag if grip is hit
+    /// <summary>
+    /// Begins a wire drag when the user presses the mouse button inside the bottom grip area.
+    /// </summary>
+    /// <param name="sender">The Grasshopper canvas that raised the event.</param>
+    /// <param name="e">The mouse event data.</param>
+    /// <returns>Capture if the grip was hit; otherwise the base response.</returns>
     public override GH_ObjectResponse RespondToMouseDown(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
-
         if (_gripBounds.Contains(e.CanvasLocation))
         {
             _isDragging = true;
@@ -137,7 +156,12 @@ public class BrainAttrib : GH_ComponentAttributes
         return base.RespondToMouseDown(sender, e);
     }
 
-    // update wire end location if being dragged
+    /// <summary>
+    /// Updates the wire end position as the user drags across the canvas.
+    /// </summary>
+    /// <param name="sender">The Grasshopper canvas that raised the event.</param>
+    /// <param name="e">The mouse event data.</param>
+    /// <returns>Handled if a drag is in progress; otherwise the base response.</returns>
     public override GH_ObjectResponse RespondToMouseMove(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
         if (_isDragging)
@@ -150,7 +174,12 @@ public class BrainAttrib : GH_ComponentAttributes
         return base.RespondToMouseMove(sender, e);
     }
 
-    // if released while dragging
+    /// <summary>
+    /// Completes the drag and links the BRAIN to a BODY component if the mouse was released over one.
+    /// </summary>
+    /// <param name="sender">The Grasshopper canvas that raised the event.</param>
+    /// <param name="e">The mouse event data.</param>
+    /// <returns>Handled if a drag was in progress; otherwise the base response.</returns>
     public override GH_ObjectResponse RespondToMouseUp(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
         if (_isDragging)
@@ -158,7 +187,7 @@ public class BrainAttrib : GH_ComponentAttributes
             _isDragging = false;
 
             // cycle through the components on the canvas
-            foreach(var obj in sender.Document.Objects)
+            foreach (var obj in sender.Document.Objects)
             {
                 if (obj is Body body && body.Attributes.Bounds.Contains(e.CanvasLocation))
                 {
@@ -173,8 +202,4 @@ public class BrainAttrib : GH_ComponentAttributes
         }
         return base.RespondToMouseUp(sender, e);
     }
-
-
-
-
 }

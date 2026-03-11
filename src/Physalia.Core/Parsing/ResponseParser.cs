@@ -1,8 +1,15 @@
-﻿using System.Text.Json;
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace Physalia.Core.Parsing;
 
+/// <summary>
+/// Parses raw LLM response text into a <see cref="ScriptResponse"/>,
+/// stripping any accidental markdown code fences before deserializing.
+/// </summary>
 public static class ResponseParser
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -11,6 +18,12 @@ public static class ResponseParser
         AllowTrailingCommas = true,
     };
 
+    /// <summary>
+    /// Strips markdown code fences from the raw response and deserializes the JSON into a <see cref="ScriptResponse"/>.
+    /// </summary>
+    /// <param name="rawText">The raw text returned by the LLM, which may contain markdown fences.</param>
+    /// <returns>A populated <see cref="ScriptResponse"/> instance.</returns>
+    /// <exception cref="Exception">Thrown when the raw text is empty or deserialization returns null.</exception>
     public static ScriptResponse Parse(string rawText)
     {
         if (string.IsNullOrWhiteSpace(rawText))
@@ -26,7 +39,6 @@ public static class ResponseParser
 
         return result;
     }
-
 
     private static string StripCodeFences(string text)
     {

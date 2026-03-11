@@ -1,4 +1,7 @@
-﻿using System;
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -8,22 +11,43 @@ using Physalia.Core.Providers;
 using Physalia.GH.Attributes;
 using Physalia.GH.ParamTypes;
 
-
 namespace Physalia.GH.Components
 {
+    /// <summary>
+    /// The DREAM component resolves API keys, lets the user select a provider and model
+    /// via inline dropdowns, and outputs a configured <see cref="LlmProvider"/> to BRAIN.
+    /// </summary>
     public class Dream : GH_Component
     {
-        private  ApiKeyResolver _apiKeyResolver;
+        private ApiKeyResolver _apiKeyResolver;
 
+        /// <summary>
+        /// Gets or sets the list of providers that have a valid API key configured.
+        /// </summary>
         public List<string> AvailableProviders { get; set; } = new();
+
+        /// <summary>
+        /// Gets or sets the list of model IDs available for the currently selected provider.
+        /// </summary>
         public List<string> AvailableModels { get; set; } = new();
+
+        /// <summary>
+        /// Gets or sets the provider name chosen by the user in the dropdown.
+        /// </summary>
         public string SelectedProvider { get; set; } = "";
+
+        /// <summary>
+        /// Gets or sets the model ID chosen by the user in the dropdown.
+        /// </summary>
         public string SelectedModel { get; set; } = "";
 
         private LlmProvider _llmProvider;
         private Task? _pendingModelFetch;
         private string _lastFetchedProvider = "";
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Dream"/> class.
+        /// </summary>
         public Dream()
           : base("Dream", "Nickname",
               "Description",
@@ -33,6 +57,9 @@ namespace Physalia.GH.Components
             _apiKeyResolver = new ApiKeyResolver(apiKeysPath);
         }
 
+        /// <summary>
+        /// Registers all the input parameters for this component.
+        /// </summary>
         protected override void RegisterInputParams(GH_InputParamManager pManager)
         {
         }
@@ -51,7 +78,6 @@ namespace Physalia.GH.Components
         /// <param name="DA">The DA object is used to retrieve from inputs and store in outputs.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-
             AvailableProviders = _apiKeyResolver.GetAvailableProviders();
 
             if (SelectedProvider != _lastFetchedProvider && !string.IsNullOrEmpty(SelectedProvider)
@@ -91,18 +117,12 @@ namespace Physalia.GH.Components
         /// <summary>
         /// Provides an Icon for the component.
         /// </summary>
-        protected override System.Drawing.Bitmap Icon
-        {
-            get
-            {
-                //You can add image files to your project resources and access them like this:
-                // return Resources.IconForThisComponent;
-                return null;
-            }
-        }
+        protected override System.Drawing.Bitmap Icon => null;
 
+        /// <summary>
+        /// Assigns the custom <see cref="DreamAttrib"/> attribute class to this component.
+        /// </summary>
         public override void CreateAttributes() => m_attributes = new DreamAttrib(this);
-
 
         /// <summary>
         /// Gets the unique ID for this component. Do not change this ID after release.

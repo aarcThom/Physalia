@@ -1,9 +1,16 @@
-﻿using Grasshopper.Kernel;
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using Grasshopper.Kernel;
 using Grasshopper.Kernel.Parameters;
 using Physalia.Core.Parsing;
 
 namespace Physalia.GH.Helpers;
 
+/// <summary>
+/// Rebuilds the dynamic input and output parameters of a Grasshopper component
+/// based on the parameter definitions returned in a <see cref="ScriptResponse"/>.
+/// </summary>
 public static class ParameterBuilder
 {
     /// <summary>

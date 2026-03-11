@@ -1,16 +1,22 @@
-﻿using System;
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using System;
 using System.Threading.Tasks;
 using Grasshopper.Kernel;
+using Physalia.Core.Config;
 using Physalia.Core.Parsing;
 using Physalia.Core.Prompts;
 using Physalia.Core.Providers;
 using Physalia.GH.Attributes;
 using Physalia.GH.ParamTypes;
 
-
-
 namespace Physalia.GH.Components
 {
+    /// <summary>
+    /// The BRAIN component receives an LLM provider from DREAM, accepts a user prompt,
+    /// calls the LLM API asynchronously, and forwards the parsed response to a linked BODY component.
+    /// </summary>
     public class Brain : GH_Component
     {
         private LlmProvider _llmProvider;
@@ -18,12 +24,18 @@ namespace Physalia.GH.Components
         private string? _errorMsg;
         private string? _lastPrompt;
 
-
-        public Body BodyComponent { get; set;} // the body to reference
-        public Guid BodyGuid { get; set;} // the body's GUID
+        /// <summary>
+        /// Gets or sets the BODY component that receives the LLM-generated script.
+        /// </summary>
+        public Body BodyComponent { get; set; }
 
         /// <summary>
-        /// Initializes a new instance of the MyComponent1 class.
+        /// Gets or sets the instance GUID of the linked BODY component, used for serialization and reconnection.
+        /// </summary>
+        public Guid BodyGuid { get; set; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Brain"/> class.
         /// </summary>
         public Brain()
           : base("BRAIN", "BRAIN",
@@ -78,7 +90,6 @@ namespace Physalia.GH.Components
                 Message = "Calling API...";
                 _pendingRequest = SendRequestAsync(prompt, llm, BodyComponent);
             }
-
         }
 
         private async Task SendRequestAsync(string prompt, LlmProvider llModel, Body body)
@@ -103,20 +114,12 @@ namespace Physalia.GH.Components
         /// <summary>
         /// Provides an Icon for the component.
         /// </summary>
-        protected override System.Drawing.Bitmap Icon
-        {
-            get
-            {
-                //You can add image files to your project resources and access them like this:
-                // return Resources.IconForThisComponent;
-                return null;
-            }
-        }
+        protected override System.Drawing.Bitmap Icon => null;
 
-        // set the attributes to the custom BrainAttrib
+        /// <summary>
+        /// Assigns the custom <see cref="BrainAttrib"/> attribute class to this component.
+        /// </summary>
         public override void CreateAttributes() => m_attributes = new BrainAttrib(this);
-
-
 
         /// <summary>
         /// Gets the unique ID for this component. Do not change this ID after release.

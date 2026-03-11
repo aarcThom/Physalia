@@ -1,12 +1,18 @@
-﻿using System.IO;
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using System.IO;
 using Rhino;
 
 namespace Physalia.GH.RunPython
 {
+    /// <summary>
+    /// Provides helper methods for initialising Rhino's embedded Python 3 runtime.
+    /// </summary>
     public static class LanguageHelpers
     {
         /// <summary>
-        /// Loads Python3 by writing a temp .py file and loading it into the Rhino Script editor
+        /// Loads Python 3 by writing a temporary script file and running it through the Rhino Script Editor.
         /// </summary>
         public static void LoadPython3()
         {

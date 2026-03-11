@@ -1,18 +1,19 @@
-﻿using Grasshopper.Kernel;
-using Physalia.Core.Config;
+﻿using System;
+using System.Threading.Tasks;
+using Grasshopper.Kernel;
+using Physalia.Core.Parsing;
+using Physalia.Core.Prompts;
 using Physalia.Core.Providers;
 using Physalia.GH.Attributes;
-using Physalia.GH.Helpers;
 using Physalia.GH.ParamTypes;
-using System;
-using System.Threading.Tasks;
+
 
 
 namespace Physalia.GH.Components
 {
     public class Brain : GH_Component
     {
-        private readonly ApiCaller _apiCaller = new ApiCaller(new AnthropicProviderSS()); // need to remove hardcoding
+        private LlmProvider _llmProvider;
         private Task? _pendingRequest;
         private string? _errorMsg;
         private string? _lastPrompt;
@@ -36,7 +37,7 @@ namespace Physalia.GH.Components
         /// </summary>
         protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
         {
-            pManager.AddParameter(new LlmProviderGhParam(), "Config", "Cfg", "LLM config from DREAM", GH_ParamAccess.item);
+            pManager.AddParameter(new LlmProviderGhParam(), "Llm", "Llm", "Large language model from DREAM", GH_ParamAccess.item);
             pManager.AddTextParameter("Prompt", "Prmpt", "The prompt", GH_ParamAccess.item);
             pManager.AddBooleanParameter("Send", "Snd", "Send Prompt to defined model", GH_ParamAccess.item);
         }
@@ -59,7 +60,7 @@ namespace Physalia.GH.Components
             bool send = false;
 
             if (!DA.GetData(0, ref llmGoo)) return;
-            var config = llmGoo.Value;
+            var llm = llmGoo.Value;
 
             if (!DA.GetData(1, ref prompt)) return;
             if (!DA.GetData(2, ref send)) return;
@@ -75,18 +76,19 @@ namespace Physalia.GH.Components
             if (send && (_pendingRequest == null || _pendingRequest.IsCompleted) && prompt != _lastPrompt)
             {
                 Message = "Calling API...";
-                _pendingRequest = SendRequestAsync(prompt, config, BodyComponent);
+                _pendingRequest = SendRequestAsync(prompt, llm, BodyComponent);
             }
 
         }
 
-        private async Task SendRequestAsync(string prompt, LlmConfig llmConfig, Body body)
+        private async Task SendRequestAsync(string prompt, LlmProvider llModel, Body body)
         {
             try
             {
-                var result = await _apiCaller.SendAsync(prompt, llmConfig);
+                var rawResult = await llModel.SendPromptAsync(SystemPrompt.Default, prompt);
+                var formattedResult = ResponseParser.Parse(rawResult);
                 _lastPrompt = prompt;
-                body.ReceiveResponse(result);  // Body handles rebuild + expire
+                body.ReceiveResponse(formattedResult);  // Body handles rebuild + expire
                 Message = "Done";
                 ExpireSolution(true);
             }

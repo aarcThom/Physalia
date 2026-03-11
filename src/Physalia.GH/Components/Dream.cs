@@ -1,12 +1,13 @@
-﻿using Grasshopper.Kernel;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Grasshopper.Kernel;
 using Physalia.Core.Config;
 using Physalia.Core.Providers;
 using Physalia.GH.Attributes;
 using Physalia.GH.ParamTypes;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+
 
 namespace Physalia.GH.Components
 {
@@ -61,7 +62,8 @@ namespace Physalia.GH.Components
 
             if (!string.IsNullOrEmpty(SelectedProvider) && !string.IsNullOrEmpty(SelectedModel))
             {
-                DA.SetData(0, _llmProvider);
+                _llmProvider.CurrentModel = SelectedModel; // set the model to user selection before sending to Brain
+                DA.SetData(0, new LlmProviderGoo(_llmProvider));
             }
         }
 
@@ -71,7 +73,7 @@ namespace Physalia.GH.Components
             {
                 var apiKey = _apiKeyResolver.GetKey(provider);
 
-                var _llmProvider = LlmProviderFactory.Create(provider, apiKey);
+                _llmProvider = LlmProviderFactory.Create(provider, apiKey);
                 await _llmProvider.GetModelsAsync();
 
                 AvailableModels = _llmProvider.Models.ToList();

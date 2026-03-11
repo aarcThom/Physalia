@@ -1,6 +1,6 @@
 ﻿using Grasshopper.Kernel;
 using Grasshopper.Kernel.Parameters;
-using Physalia.Core.Prompts;
+using Physalia.Core.Parsing;
 
 namespace Physalia.GH.Helpers;
 

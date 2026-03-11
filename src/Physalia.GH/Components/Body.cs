@@ -25,6 +25,7 @@ namespace Physalia.GH.Components
         /// </summary>
         public Body() : base("BODY", "BODY", "Description", "Physalia", "Core")
         {
+
         }
 
         /// <summary>

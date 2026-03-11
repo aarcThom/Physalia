@@ -31,7 +31,8 @@ internal class AnthropicProvider : LlmProvider
     /// Initializes a new instance of the <see cref="AnthropicProvider"/> class.
     /// </summary>
     /// <param name="apiKey">The API key used to authenticate requests to the Anthropic API.</param>
-    public AnthropicProvider(string apiKey) : base(apiKey)
+    public AnthropicProvider(string apiKey)
+        : base(apiKey)
     {
     }
 
@@ -51,7 +52,9 @@ internal class AnthropicProvider : LlmProvider
         var body = await response.Content.ReadAsStringAsync();
 
         if (!response.IsSuccessStatusCode)
+        {
             throw new HttpRequestException($"Anthropic models error {(int)response.StatusCode}: {body}");
+        }
 
         var parsed = JsonSerializer.Deserialize<ModelsResponse>(body);
         _models = parsed?.Data.Select(m => m.Id).ToList() ?? new List<string>();
@@ -76,15 +79,15 @@ internal class AnthropicProvider : LlmProvider
             System = systemPrompt,
             Messages = new[]
             {
-                  new AnthropicMessage { Role = "user", Content = userPrompt }
-              }
+                  new AnthropicMessage { Role = "user", Content = userPrompt },
+              },
         };
 
         var requestJson = JsonSerializer.Serialize(requestBody);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, ApiUrl)
         {
-            Content = new StringContent(requestJson, Encoding.UTF8, "application/json")
+            Content = new StringContent(requestJson, Encoding.UTF8, "application/json"),
         };
 
         request.Headers.Add("x-api-key", _apiKey);
@@ -102,13 +105,10 @@ internal class AnthropicProvider : LlmProvider
         }
 
         // Parse the Anthropic response to extract the text content
-        var anthropicResponse = JsonSerializer.Deserialize<AnthropicResponse>(responseBody);
-
-        if (anthropicResponse is null)
-            throw new InvalidOperationException("Failed to deserialize Anthropic response.");
+        var anthropicResponse = JsonSerializer.Deserialize<AnthropicResponse>(responseBody) ?? throw new InvalidOperationException("Failed to deserialize Anthropic response.");
 
         // Claude returns an array of content blocks — join all text blocks
-        var text = string.Join("", anthropicResponse.Content
+        var text = string.Join(string.Empty, anthropicResponse.Content
             .Where(c => c.Type == "text")
             .Select(c => c.Text));
 
@@ -123,7 +123,7 @@ internal class AnthropicProvider : LlmProvider
     private class ModelsResponse
     {
         [JsonPropertyName("data")]
-        public List<ModelEntry> Data { get; set; } = new();
+        public List<ModelEntry> Data { get; set; } = new ();
     }
 
     /// <summary>
@@ -132,7 +132,7 @@ internal class AnthropicProvider : LlmProvider
     private class ModelEntry
     {
         [JsonPropertyName("id")]
-        public string Id { get; set; } = "";
+        public string Id { get; set; } = string.Empty;
     }
 
     /// <summary>
@@ -142,13 +142,13 @@ internal class AnthropicProvider : LlmProvider
     private class AnthropicRequest
     {
         [JsonPropertyName("model")]
-        public string RequestModel { get; set; } = "";
+        public string RequestModel { get; set; } = string.Empty;
 
         [JsonPropertyName("max_tokens")]
         public int RequestMaxTokens { get; set; }
 
         [JsonPropertyName("system")]
-        public string System { get; set; } = "";
+        public string System { get; set; } = string.Empty;
 
         [JsonPropertyName("messages")]
         public AnthropicMessage[] Messages { get; set; } = Array.Empty<AnthropicMessage>();
@@ -160,10 +160,10 @@ internal class AnthropicProvider : LlmProvider
     private class AnthropicMessage
     {
         [JsonPropertyName("role")]
-        public string Role { get; set; } = "";
+        public string Role { get; set; } = string.Empty;
 
         [JsonPropertyName("content")]
-        public string Content { get; set; } = "";
+        public string Content { get; set; } = string.Empty;
     }
 
     /// <summary>
@@ -172,7 +172,7 @@ internal class AnthropicProvider : LlmProvider
     private class AnthropicResponse
     {
         [JsonPropertyName("content")]
-        public List<ContentBlock> Content { get; set; } = new();
+        public List<ContentBlock> Content { get; set; } = new ();
     }
 
     /// <summary>
@@ -181,9 +181,9 @@ internal class AnthropicProvider : LlmProvider
     private class ContentBlock
     {
         [JsonPropertyName("type")]
-        public string Type { get; set; } = "";
+        public string Type { get; set; } = string.Empty;
 
         [JsonPropertyName("text")]
-        public string Text { get; set; } = "";
+        public string Text { get; set; } = string.Empty;
     }
 }

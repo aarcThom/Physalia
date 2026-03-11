@@ -24,12 +24,12 @@ namespace Physalia.GH.Components
         /// <summary>
         /// Gets or sets the list of providers that have a valid API key configured.
         /// </summary>
-        public List<string> AvailableProviders { get; set; } = new();
+        public List<string> AvailableProviders { get; set; } = new ();
 
         /// <summary>
         /// Gets or sets the list of model IDs available for the currently selected provider.
         /// </summary>
-        public List<string> AvailableModels { get; set; } = new();
+        public List<string> AvailableModels { get; set; } = new ();
 
         /// <summary>
         /// Gets or sets the provider name chosen by the user in the dropdown.

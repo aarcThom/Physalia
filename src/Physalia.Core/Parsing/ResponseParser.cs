@@ -12,7 +12,7 @@ namespace Physalia.Core.Parsing;
 /// </summary>
 public static class ResponseParser
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions JsonOptions = new ()
     {
         PropertyNameCaseInsensitive = true,
         AllowTrailingCommas = true,
@@ -27,16 +27,14 @@ public static class ResponseParser
     public static ScriptResponse Parse(string rawText)
     {
         if (string.IsNullOrWhiteSpace(rawText))
+        {
             throw new Exception("Reponse is empty.");
+        }
 
         // LLMS sometimes wrap JSON in ```json...``` markdown fences.
         string json = StripCodeFences(rawText).Trim();
 
-        var result = JsonSerializer.Deserialize<ScriptResponse>(json, JsonOptions);
-
-        if (result is null)
-            throw new Exception("JSON deserialization returned null.");
-
+        var result = JsonSerializer.Deserialize<ScriptResponse>(json, JsonOptions) ?? throw new Exception("JSON deserialization returned null.");
         return result;
     }
 

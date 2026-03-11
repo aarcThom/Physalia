@@ -21,13 +21,13 @@ public class ScriptResponse
     /// Gets or sets the list of input parameter definitions derived from the LLM response.
     /// </summary>
     [JsonPropertyName("inputs")]
-    public List<ParamDefinition> Inputs { get; set; } = new();
+    public List<ParamDefinition> Inputs { get; set; } = new ();
 
     /// <summary>
     /// Gets or sets the list of output parameter definitions derived from the LLM response.
     /// </summary>
     [JsonPropertyName("outputs")]
-    public List<ParamDefinition> Outputs { get; set; } = new();
+    public List<ParamDefinition> Outputs { get; set; } = new ();
 }
 
 /// <summary>

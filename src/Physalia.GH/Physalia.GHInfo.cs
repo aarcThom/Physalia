@@ -30,7 +30,7 @@ namespace Physalia.GH
         /// <summary>
         /// Gets the unique identifier for this plugin assembly.
         /// </summary>
-        public override Guid Id => new Guid("862C53A2-69A1-4B56-A133-26E0BCEDE789");
+        public override Guid Id => new ("862C53A2-69A1-4B56-A133-26E0BCEDE789");
 
         /// <summary>
         /// Gets the name of the author or organisation responsible for this plugin.

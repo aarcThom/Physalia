@@ -22,7 +22,7 @@ public class LlmProviderGhParam : GH_Param<LlmProviderGoo>
     /// <summary>
     /// Gets the unique identifier for this parameter type.
     /// </summary>
-    public override Guid ComponentGuid => new Guid("DF372577-B98E-4440-9CD5-4001992324C0");
+    public override Guid ComponentGuid => new ("DF372577-B98E-4440-9CD5-4001992324C0");
 
     /// <summary>
     /// Gets the icon bitmap for this parameter type.

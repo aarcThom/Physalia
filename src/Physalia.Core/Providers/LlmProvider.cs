@@ -17,7 +17,7 @@ public abstract class LlmProvider
     /// instance for each inheriting class for the lifetime of the plugin.
     /// See: https://learn.microsoft.com/en-us/dotnet/fundamentals/networking/http/httpclient-guidelines
     /// </remarks>
-    protected readonly HttpClient _http = new();
+    protected readonly HttpClient _http = new ();
 
     /// <summary>
     /// The API key used to authenticate requests to the provider.
@@ -27,7 +27,7 @@ public abstract class LlmProvider
     /// <summary>
     /// The backing list of models available through the provider.
     /// </summary>
-    protected List<string> _models = new();
+    protected List<string> _models = new ();
 
     /// <summary>
     /// A read-only list of LLMs available through the provider.
@@ -81,13 +81,19 @@ public abstract class LlmProvider
     public Task<string> SendPromptAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(systemPrompt))
+        {
             throw new ArgumentException("System prompt must not be null or empty.", nameof(systemPrompt));
+        }
 
         if (string.IsNullOrWhiteSpace(userPrompt))
+        {
             throw new ArgumentException("User prompt must not be null or empty.", nameof(userPrompt));
+        }
 
         if (string.IsNullOrWhiteSpace(CurrentModel))
+        {
             throw new ArgumentException("Current model cannot be null or empty.", nameof(CurrentModel));
+        }
 
         return SendPromptCoreAsync(systemPrompt, userPrompt, cancellationToken);
     }

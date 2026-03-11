@@ -21,6 +21,7 @@ public static class LlmProviderFactory
         providerName switch
         {
             "anthropic" => new AnthropicProvider(apiKey),
+            "google" => new GeminiProvider(apiKey),
             //"openai" => new OpenAiProvider(apiKey),
             _ => throw new ArgumentException($"Unknown provider: {providerName}", nameof(providerName))
         };

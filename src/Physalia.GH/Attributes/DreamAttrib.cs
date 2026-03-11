@@ -120,9 +120,9 @@ public class DreamAttrib : GH_ComponentAttributes
         float cy = arrowRect.Y + arrowRect.Height / 2f;
         var tri = new PointF[]
         {
-          new(cx - 5f, cy - 3f),
-          new(cx + 5f, cy - 3f),
-          new(cx,      cy + 4f)
+          new (cx - 5f, cy - 3f),
+          new (cx + 5f, cy - 3f),
+          new (cx,      cy + 4f)
         };
         g.FillPolygon(Brushes.DimGray, tri);
     }
@@ -136,7 +136,9 @@ public class DreamAttrib : GH_ComponentAttributes
     public override GH_ObjectResponse RespondToMouseDown(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
         if (e.Button != System.Windows.Forms.MouseButtons.Left)
+        {
             return base.RespondToMouseDown(sender, e);
+        }
 
         if (_providerRowBounds.Contains(e.CanvasLocation))
         {

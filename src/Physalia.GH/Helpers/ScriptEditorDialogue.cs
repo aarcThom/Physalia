@@ -22,7 +22,7 @@ public class ScriptEditorDialog : Dialog<string?>
 
     private readonly Font _editorFont; // Store the font so the canvas can use it
     private readonly float _dynamicLineHeight; // the line height used to sync gutter and editor
-    private HashSet<int> _errorLines = new HashSet<int>(); // Tracks broken lines
+    private HashSet<int> _errorLines = new (); // Tracks broken lines
 
 
     //TODO NEED TO HANDLE CHECKING LIBRARIES

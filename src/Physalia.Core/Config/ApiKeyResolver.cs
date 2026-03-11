@@ -36,11 +36,7 @@ namespace Physalia.Core.Config
                     $"Keys file not found at: {_keysFilePath}");
 
             var json = File.ReadAllText(_keysFilePath);
-            var keys = JsonSerializer.Deserialize<Dictionary<string, ProviderEntry>>(json);
-
-            if (keys is null)
-                throw new Exception($"Failed to parse {_keysFilePath}");
-
+            var keys = JsonSerializer.Deserialize<Dictionary<string, ProviderEntry>>(json) ?? throw new Exception($"Failed to parse {_keysFilePath}");
             if (!keys.TryGetValue(providerName, out var entry))
                 throw new KeyNotFoundException(
                     $"No entry for '{providerName}' in {_keysFilePath}");
@@ -60,13 +56,17 @@ namespace Physalia.Core.Config
         public List<string> GetAvailableProviders()
         {
             if (!File.Exists(_keysFilePath))
+            {
                 return new List<string>();
+            }
 
             var json = File.ReadAllText(_keysFilePath);
             var keys = JsonSerializer.Deserialize<Dictionary<string, ProviderEntry>>(json);
 
             if (keys is null)
+            {
                 return new List<string>();
+            }
 
             return keys
                 .Where(kv => !string.IsNullOrWhiteSpace(kv.Value.ApiKey)

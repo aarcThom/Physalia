@@ -31,6 +31,18 @@ namespace Physalia.GH.Components
         }
 
         /// <summary>
+        /// Stores the latest LLM response, rebuilds the component's dynamic parameters,
+        /// and schedules a solution refresh.
+        /// </summary>
+        /// <param name="response">The parsed LLM response containing the script and parameter definitions.</param>
+        public void ReceiveResponse(ScriptResponse response)
+        {
+            _lastResponse = response;
+            ParameterBuilder.Rebuild(this, response, 0, 0);
+            ExpireSolution(true);
+        }
+
+        /// <summary>
         /// Registers all the input parameters for this component.
         /// </summary>
         protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
@@ -50,7 +62,10 @@ namespace Physalia.GH.Components
         /// <param name="DA">The DA object is used to retrieve from inputs and store in outputs.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-            if (_lastResponse == null) return;
+            if (_lastResponse == null)
+            {
+                return;
+            }
 
             try
             {
@@ -63,23 +78,14 @@ namespace Physalia.GH.Components
         }
 
         /// <summary>
-        /// Stores the latest LLM response, rebuilds the component's dynamic parameters,
-        /// and schedules a solution refresh.
-        /// </summary>
-        /// <param name="response">The parsed LLM response containing the script and parameter definitions.</param>
-        public void ReceiveResponse(ScriptResponse response)
-        {
-            _lastResponse = response;
-            ParameterBuilder.Rebuild(this, response, 0, 0);
-            ExpireSolution(true);
-        }
-
-        /// <summary>
         /// Opens the Eto.Forms script editor dialog for the currently stored script.
         /// </summary>
         public void OpenScriptEditor()
         {
-            if (_lastResponse == null) return;
+            if (_lastResponse == null)
+            {
+                return;
+            }
 
             var inputNames = _lastResponse.Inputs.Select(i => i.Name).ToList();
             var dialog = new ScriptEditorDialog(_lastResponse.Script, inputNames);

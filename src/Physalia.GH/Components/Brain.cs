@@ -19,7 +19,6 @@ namespace Physalia.GH.Components
     /// </summary>
     public class Brain : GH_Component
     {
-        private LlmProvider _llmProvider;
         private Task? _pendingRequest;
         private string? _errorMsg;
         private string? _lastPrompt;
@@ -71,11 +70,22 @@ namespace Physalia.GH.Components
             string prompt = null;
             bool send = false;
 
-            if (!DA.GetData(0, ref llmGoo)) return;
+            if (!DA.GetData(0, ref llmGoo))
+            {
+                return;
+            }
+
             var llm = llmGoo.Value;
 
-            if (!DA.GetData(1, ref prompt)) return;
-            if (!DA.GetData(2, ref send)) return;
+            if (!DA.GetData(1, ref prompt))
+            {
+                return;
+            }
+
+            if (!DA.GetData(2, ref send))
+            {
+                return;
+            }
 
             if (_errorMsg != null)
             {
@@ -83,7 +93,10 @@ namespace Physalia.GH.Components
                 _errorMsg = null;
             }
 
-            if (BodyComponent == null) return; // no body linked yet
+            if (BodyComponent == null)
+            {
+                return; // no body linked yet
+            }
 
             if (send && (_pendingRequest == null || _pendingRequest.IsCompleted) && prompt != _lastPrompt)
             {
@@ -112,7 +125,7 @@ namespace Physalia.GH.Components
         }
 
         /// <summary>
-        /// Provides an Icon for the component.
+        /// Gets an Icon for the component.
         /// </summary>
         protected override System.Drawing.Bitmap Icon => null;
 

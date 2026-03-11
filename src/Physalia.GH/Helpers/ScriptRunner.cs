@@ -53,7 +53,11 @@ public class ScriptRunner
 
     private void EnsurePythonLoaded()
     {
-        if (_pythonLoaded) return;
+        if (_pythonLoaded)
+        {
+            return;
+        }
+
         LanguageHelpers.LoadPython3();
         _pythonLoaded = true;
     }

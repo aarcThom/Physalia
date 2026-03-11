@@ -2,3 +2,7 @@
 
 # SA1309: Field names should not begin with underscore
 dotnet_diagnostic.SA1309.severity = none
+
+# SA1101. Ie. the properties must use this - since we are using field naming as above, public items are apparent.
+dotnet_diagnostic.SA1101.severity = none
+

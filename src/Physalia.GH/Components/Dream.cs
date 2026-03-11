@@ -2,11 +2,10 @@
 using Physalia.Core.Config;
 using Physalia.Core.Providers;
 using Physalia.GH.Attributes;
-using Physalia.GH.Goo;
 using Physalia.GH.ParamTypes;
-using Rhino.Geometry;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Physalia.GH.Components
@@ -20,13 +19,10 @@ namespace Physalia.GH.Components
         public string SelectedProvider { get; set; } = "";
         public string SelectedModel { get; set; } = "";
 
-        private readonly AnthropicProviderSS _anthropicProvider = new();
+        private LlmProvider _llmProvider;
         private Task? _pendingModelFetch;
         private string _lastFetchedProvider = "";
 
-        /// <summary>
-        /// Initializes a new instance of the Dream class.
-        /// </summary>
         public Dream()
           : base("Dream", "Nickname",
               "Description",
@@ -45,7 +41,7 @@ namespace Physalia.GH.Components
         /// </summary>
         protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
         {
-            pManager.AddParameter(new Param_LlmProvider(), "Config", "Cfg", "Provider, model, and API key", GH_ParamAccess.item);
+            pManager.AddParameter(new LlmProviderGhParam(), "Config", "Cfg", "Provider, model, and API key", GH_ParamAccess.item);
         }
 
         /// <summary>
@@ -57,7 +53,7 @@ namespace Physalia.GH.Components
 
             AvailableProviders = _apiKeyResolver.GetAvailableProviders();
 
-            if (SelectedProvider != _lastFetchedProvider && !string.IsNullOrEmpty(SelectedProvider) 
+            if (SelectedProvider != _lastFetchedProvider && !string.IsNullOrEmpty(SelectedProvider)
                 && (_pendingModelFetch == null || _pendingModelFetch.IsCompleted))
             {
                 _pendingModelFetch = FetchModelsAsync(SelectedProvider);
@@ -65,9 +61,7 @@ namespace Physalia.GH.Components
 
             if (!string.IsNullOrEmpty(SelectedProvider) && !string.IsNullOrEmpty(SelectedModel))
             {
-                var key = _apiKeyResolver.GetKey(SelectedProvider);
-                var config = new LlmConfig { Provider = SelectedProvider, ModelId = SelectedModel, ApiKey = key };
-                DA.SetData(0, new GH_LlmProvider(config));
+                DA.SetData(0, _llmProvider);
             }
         }
 
@@ -76,9 +70,11 @@ namespace Physalia.GH.Components
             try
             {
                 var apiKey = _apiKeyResolver.GetKey(provider);
-                // for now only anthropic is supported
-                var models = await _anthropicProvider.GetModelsAsync(apiKey);
-                AvailableModels = models;
+
+                var _llmProvider = LlmProviderFactory.Create(provider, apiKey);
+                await _llmProvider.GetModelsAsync();
+
+                AvailableModels = _llmProvider.Models.ToList();
                 _lastFetchedProvider = provider;
                 ExpireSolution(true); // re-render so model dropdown reflects new list
             }

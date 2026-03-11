@@ -2,7 +2,6 @@
 using Physalia.Core.Config;
 using Physalia.Core.Providers;
 using Physalia.GH.Attributes;
-using Physalia.GH.Goo;
 using Physalia.GH.Helpers;
 using Physalia.GH.ParamTypes;
 using System;
@@ -37,7 +36,7 @@ namespace Physalia.GH.Components
         /// </summary>
         protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
         {
-            pManager.AddParameter(new Param_LlmProvider(), "Config", "Cfg", "LLM config from DREAM", GH_ParamAccess.item);
+            pManager.AddParameter(new LlmProviderGhParam(), "Config", "Cfg", "LLM config from DREAM", GH_ParamAccess.item);
             pManager.AddTextParameter("Prompt", "Prmpt", "The prompt", GH_ParamAccess.item);
             pManager.AddBooleanParameter("Send", "Snd", "Send Prompt to defined model", GH_ParamAccess.item);
         }
@@ -55,7 +54,7 @@ namespace Physalia.GH.Components
         /// <param name="DA">The DA object is used to retrieve from inputs and store in outputs.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-            GH_LlmProvider llmGoo = null;
+            LlmProviderGoo llmGoo = null;
             string prompt = null;
             bool send = false;
 

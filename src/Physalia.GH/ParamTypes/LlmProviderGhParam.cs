@@ -3,17 +3,18 @@
 
 using System;
 using Grasshopper.Kernel;
-using Physalia.GH.Goo;
 
 namespace Physalia.GH.ParamTypes;
 
-public class Param_LlmProvider : GH_Param<GH_LlmProvider>
+public class LlmProviderGhParam : GH_Param<LlmProviderGoo>
 {
-    public Param_LlmProvider()
+    public LlmProviderGhParam()
         : base("LlmProvider", "LLM", "LLM provider and selected model",
                "Physalia", "Core", GH_ParamAccess.item)
     { }
 
     public override Guid ComponentGuid => new Guid("DF372577-B98E-4440-9CD5-4001992324C0");
     protected override System.Drawing.Bitmap Icon => null;
+
+    public override GH_Exposure Exposure => GH_Exposure.hidden;
 }

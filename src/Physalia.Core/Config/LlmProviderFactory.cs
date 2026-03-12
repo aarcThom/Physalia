@@ -22,6 +22,7 @@ public static class LlmProviderFactory
         {
             "anthropic" => new AnthropicProvider(apiKey),
             "google" => new GeminiProvider(apiKey),
+            "opencode zen" => new OpencodeZenProvider(apiKey),
             //"openai" => new OpenAiProvider(apiKey),
             _ => throw new ArgumentException($"Unknown provider: {providerName}", nameof(providerName))
         };

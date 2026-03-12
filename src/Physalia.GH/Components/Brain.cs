@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+#nullable enable
+
 using System;
 using System.Threading.Tasks;
 using Grasshopper.Kernel;
@@ -23,9 +25,17 @@ namespace Physalia.GH.Components
         private string? _lastPrompt;
 
         /// <summary>
+        /// Initializes a new instance of the <see cref="Brain"/> class.
+        /// </summary>
+        public Brain()
+            : base("BRAIN", "BRAIN", "Description", "Physalia", "Core")
+        {
+        }
+
+        /// <summary>
         /// Gets or sets the BODY component that receives the LLM-generated script.
         /// </summary>
-        public Body BodyComponent { get; set; }
+        public Body? BodyComponent { get; set; }
 
         /// <summary>
         /// Gets or sets the instance GUID of the linked BODY component, used for serialization and reconnection.
@@ -33,18 +43,27 @@ namespace Physalia.GH.Components
         public Guid BodyGuid { get; set; }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="Brain"/> class.
+        /// Gets the unique ID for this component. Do not change this ID after release.
         /// </summary>
-        public Brain()
-          : base("BRAIN", "BRAIN",
-              "Description",
-              "Physalia", "Core")
+        public override Guid ComponentGuid
         {
+            get { return new Guid("B904F3D0-72CC-4B43-A15E-497CE8478638"); }
         }
+
+        /// <summary>
+        /// Gets the icon for the component.
+        /// </summary>
+        protected override System.Drawing.Bitmap? Icon => null;
+
+        /// <summary>
+        /// Assigns the custom <see cref="BrainAttrib"/> attribute class to this component.
+        /// </summary>
+        public override void CreateAttributes() => m_attributes = new BrainAttrib(this);
 
         /// <summary>
         /// Registers all the input parameters for this component.
         /// </summary>
+        /// <param name="pManager">The GH_InputParamManager for registering input parameters.</param>
         protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
         {
             pManager.AddParameter(new LlmProviderGhParam(), "Llm", "Llm", "Large language model from DREAM", GH_ParamAccess.item);
@@ -55,6 +74,7 @@ namespace Physalia.GH.Components
         /// <summary>
         /// Registers all the output parameters for this component.
         /// </summary>
+        /// <param name="pManager">The GH_OutputParamManager for registering output parameters.</param>
         protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
         {
         }
@@ -65,8 +85,8 @@ namespace Physalia.GH.Components
         /// <param name="DA">The DA object is used to retrieve from inputs and store in outputs.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-            LlmProviderGoo llmGoo = null;
-            string prompt = null;
+            LlmProviderGoo? llmGoo = null;
+            string? prompt = null;
             bool send = false;
 
             if (!DA.GetData(0, ref llmGoo))
@@ -121,24 +141,6 @@ namespace Physalia.GH.Components
                 Message = "Error";
                 ExpireSolution(true);
             }
-        }
-
-        /// <summary>
-        /// Gets an Icon for the component.
-        /// </summary>
-        protected override System.Drawing.Bitmap Icon => null;
-
-        /// <summary>
-        /// Assigns the custom <see cref="BrainAttrib"/> attribute class to this component.
-        /// </summary>
-        public override void CreateAttributes() => m_attributes = new BrainAttrib(this);
-
-        /// <summary>
-        /// Gets the unique ID for this component. Do not change this ID after release.
-        /// </summary>
-        public override Guid ComponentGuid
-        {
-            get { return new Guid("B904F3D0-72CC-4B43-A15E-497CE8478638"); }
         }
     }
 }

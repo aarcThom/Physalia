@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+#nullable enable
+
 using System;
 using System.Linq;
 using Grasshopper.Kernel;
@@ -23,10 +25,23 @@ namespace Physalia.GH.Components
         /// <summary>
         /// Initializes a new instance of the <see cref="Body"/> class.
         /// </summary>
-        public Body() : base("BODY", "BODY", "Description", "Physalia", "Core")
+        public Body()
+            : base("BODY", "BODY", "Description", "Physalia", "Core")
         {
-
         }
+
+        /// <summary>
+        /// Gets the unique ID for this component. Do not change this ID after release.
+        /// </summary>
+        public override Guid ComponentGuid
+        {
+            get { return new Guid("EB60CC78-D8DE-4C8C-8FC7-ADE7FFD18E4C"); }
+        }
+
+        /// <summary>
+        /// Gets the icon for the component.
+        /// </summary>
+        protected override System.Drawing.Bitmap? Icon => null;
 
         /// <summary>
         /// Stores the latest LLM response, rebuilds the component's dynamic parameters,
@@ -38,41 +53,6 @@ namespace Physalia.GH.Components
             _lastResponse = response;
             ParameterBuilder.Rebuild(this, response, 0, 0);
             ExpireSolution(true);
-        }
-
-        /// <summary>
-        /// Registers all the input parameters for this component.
-        /// </summary>
-        protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
-        {
-        }
-
-        /// <summary>
-        /// Registers all the output parameters for this component.
-        /// </summary>
-        protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
-        {
-        }
-
-        /// <summary>
-        /// This is the method that actually does the work.
-        /// </summary>
-        /// <param name="DA">The DA object is used to retrieve from inputs and store in outputs.</param>
-        protected override void SolveInstance(IGH_DataAccess DA)
-        {
-            if (_lastResponse == null)
-            {
-                return;
-            }
-
-            try
-            {
-                _scriptRunner.Execute(DA, _lastResponse, 0, 0);
-            }
-            catch (Exception ex)
-            {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, $"Script execution failed: {ex.Message}");
-            }
         }
 
         /// <summary>
@@ -101,11 +81,6 @@ namespace Physalia.GH.Components
         /// Assigns the custom <see cref="BodyAttrib"/> attribute class to this component.
         /// </summary>
         public override void CreateAttributes() => m_attributes = new BodyAttrib(this);
-
-        /// <summary>
-        /// Provides an Icon for the component.
-        /// </summary>
-        protected override System.Drawing.Bitmap Icon => null;
 
         /// <summary>
         /// Gets a value indicating whether a parameter can be inserted at the given index on the specified side.
@@ -142,14 +117,45 @@ namespace Physalia.GH.Components
         /// <summary>
         /// Called after parameters are added or removed; performs any required maintenance.
         /// </summary>
-        public void VariableParameterMaintenance() { }
+        public void VariableParameterMaintenance()
+        {
+        }
 
         /// <summary>
-        /// Gets the unique ID for this component. Do not change this ID after release.
+        /// Registers all the input parameters for this component.
         /// </summary>
-        public override Guid ComponentGuid
+        /// <param name="pManager">The GH_InputParamManager for registering input parameters.</param>
+        protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
         {
-            get { return new Guid("EB60CC78-D8DE-4C8C-8FC7-ADE7FFD18E4C"); }
+        }
+
+        /// <summary>
+        /// Registers all the output parameters for this component.
+        /// </summary>
+        /// <param name="pManager">The GH_OutputParamManager for registering output parameters.</param>
+        protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
+        {
+        }
+
+        /// <summary>
+        /// This is the method that actually does the work.
+        /// </summary>
+        /// <param name="DA">The DA object is used to retrieve from inputs and store in outputs.</param>
+        protected override void SolveInstance(IGH_DataAccess DA)
+        {
+            if (_lastResponse == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _scriptRunner.Execute(DA, _lastResponse, 0, 0);
+            }
+            catch (Exception ex)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, $"Script execution failed: {ex.Message}");
+            }
         }
     }
 }

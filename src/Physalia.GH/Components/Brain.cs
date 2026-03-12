@@ -94,8 +94,6 @@ namespace Physalia.GH.Components
                 return;
             }
 
-            var llm = llmGoo.Value;
-
             if (!DA.GetData(1, ref prompt))
             {
                 return;
@@ -120,6 +118,8 @@ namespace Physalia.GH.Components
             if (send && (_pendingRequest == null || _pendingRequest.IsCompleted) && prompt != _lastPrompt)
             {
                 Message = "Calling API...";
+
+                var llm = llmGoo.Value;
                 _pendingRequest = SendRequestAsync(prompt, llm, BodyComponent);
             }
         }

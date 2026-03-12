@@ -52,7 +52,6 @@
 	</ItemGroup>
 
 	<ItemGroup>
-	  <Folder Include="Components\NewFolder\" />
 	  <Folder Include="Goo\" />
 	</ItemGroup>
   

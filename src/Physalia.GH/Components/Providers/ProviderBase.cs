@@ -1,22 +1,49 @@
-﻿using Grasshopper.Kernel;
-using Physalia.GH.ParamTypes;
-using Rhino.Geometry;
+﻿// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 using System;
-using System.Collections.Generic;
+using Grasshopper.Kernel;
+using Physalia.Core.Config;
+using Physalia.Core.Providers;
+using Physalia.GH.ParamTypes;
+using SiteReader.Components;
 
 namespace Physalia.GH.Components.Providers
 {
-    public abstract class ProviderBase : GH_Component
+    /// <summary>
+    /// A base class for all the provider componenets.
+    /// </summary>
+    public abstract class ProviderBase : PhyBase
     {
+        /// <summary>
+        /// The GUID for the inheriting component.
+        /// </summary>
         protected string _guidString;
 
         /// <summary>
-        /// Initializes a new instance of the ProviderBase class.
+        /// The output LlmProvider object.
         /// </summary>
-        public ProviderBase(string name, string nickname, string description, string guidString)
-          : base(name, nickname, description, "Physalia", "LLM Providers")
+        protected LlmProvider _llmProvider;
+
+        /// <summary>
+        /// The provider common name.
+        /// </summary>
+        private protected string _providerName;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ProviderBase"/> class.
+        /// The LlmProvider base class. Used for the input provider components.
+        /// </summary>
+        /// <param name="name">Component full name.</param>
+        /// <param name="nickname">Component Nickname.</param>
+        /// <param name="description">Descripton of the component.</param>
+        /// <param name="guidString">A GUID for the inheriting component.</param>
+        /// <param name="providerName">The provider name. Must match the entry in the API keys JSON.</param>
+        public ProviderBase(string name, string nickname, string description, string guidString, string providerName)
+          : base(name, nickname, description, "LLM Providers")
         {
             _guidString = guidString;
+            _providerName = providerName;
         }
 
         /// <summary>
@@ -41,19 +68,19 @@ namespace Physalia.GH.Components.Providers
         /// <param name="DA">The DA object is used to retrieve from inputs and store in outputs.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-        }
-
-        /// <summary>
-        /// Provides an Icon for the component.
-        /// </summary>
-        protected override System.Drawing.Bitmap Icon
-        {
-            get
+            try
             {
-                //You can add image files to your project resources and access them like this:
-                // return Resources.IconForThisComponent;
-                return null;
+                var apiKeyResolver = new ApiKeyResolver();
+                var apiKey = apiKeyResolver.GetKey(_providerName);
+
+                _llmProvider = LlmProviderFactory.Create(_providerName, apiKey);
             }
+            catch (Exception ex)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, ex.Message);
+            }
+
+            DA.SetData(0, new LlmProviderGoo(_llmProvider));
         }
 
         /// <summary>

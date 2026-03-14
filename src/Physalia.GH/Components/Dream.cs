@@ -53,8 +53,7 @@ namespace Physalia.GH.Components
               "Description",
               "Physalia", "Core")
         {
-            string apiKeysPath = "C:/test.json";
-            _apiKeyResolver = new ApiKeyResolver(apiKeysPath);
+            _apiKeyResolver = new ApiKeyResolver();
         }
 
         /// <summary>

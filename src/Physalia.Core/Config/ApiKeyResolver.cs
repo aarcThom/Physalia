@@ -10,16 +10,7 @@ namespace Physalia.Core.Config
     /// </summary>
     public class ApiKeyResolver
     {
-        private readonly string _keysFilePath;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ApiKeyResolver"/> class.
-        /// </summary>
-        /// <param name="keysFilePath">The path to the JSON file containing provider API keys.</param>
-        public ApiKeyResolver(string keysFilePath)
-        {
-            _keysFilePath = keysFilePath;
-        }
+        private readonly string _keysFilePath = "C:/test.json";
 
         /// <summary>
         /// Reads the API key for the given provider name.
@@ -32,18 +23,22 @@ namespace Physalia.Core.Config
         public string GetKey(string providerName)
         {
             if (!File.Exists(_keysFilePath))
-                throw new FileNotFoundException(
-                    $"Keys file not found at: {_keysFilePath}");
+            {
+                throw new FileNotFoundException($"Keys file not found at: {_keysFilePath}");
+            }
 
             var json = File.ReadAllText(_keysFilePath);
             var keys = JsonSerializer.Deserialize<Dictionary<string, ProviderEntry>>(json) ?? throw new Exception($"Failed to parse {_keysFilePath}");
+
             if (!keys.TryGetValue(providerName, out var entry))
-                throw new KeyNotFoundException(
-                    $"No entry for '{providerName}' in {_keysFilePath}");
+            {
+                throw new KeyNotFoundException($"No entry for '{providerName}' in {_keysFilePath}");
+            }
 
             if (string.IsNullOrWhiteSpace(entry.ApiKey))
-                throw new Exception(
-                    $"API key for '{providerName}' is empty in {_keysFilePath}");
+            {
+                throw new Exception($"API key for '{providerName}' is empty in {_keysFilePath}");
+            }
 
             return entry.ApiKey;
         }

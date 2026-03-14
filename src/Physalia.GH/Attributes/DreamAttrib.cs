@@ -1,16 +1,16 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-using System;
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.IO;
 using Grasshopper;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Components;
+using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
 
 namespace Physalia.GH.Attributes;
 
@@ -22,8 +22,7 @@ public class DreamAttrib : GH_ComponentAttributes
 {
     private readonly Dream _dream;
 
-    private RectangleF _providerRowBounds;  // full row hit area
-    private RectangleF _modelRowBounds;
+    private RectangleF _modelButton;
 
     private const float RowHeight = 26f;
     private const float IconWidth = 44f;
@@ -44,20 +43,28 @@ public class DreamAttrib : GH_ComponentAttributes
     /// </summary>
     protected override void Layout()
     {
-        float width = 200f;
-        float height = Padding + RowHeight + RowHeight + Padding;
-        Bounds = new RectangleF(Pivot.X - width / 2f, Pivot.Y - height / 2f, width, height);
+        base.Layout();
 
-        float rowY1 = Bounds.Y + Padding;
-        float rowY2 = rowY1 + RowHeight;
-        _providerRowBounds = new RectangleF(Bounds.X, rowY1, Bounds.Width - 4f, RowHeight);
-        _modelRowBounds = new RectangleF(Bounds.X, rowY2, Bounds.Width - 4f, RowHeight);
+        var ownerRectangle = GH_Convert.ToRectangle(Bounds);
+        ownerRectangle.Width += 80;
+        Bounds = ownerRectangle;
 
-        // the output grip
-        var outputParam = Owner.Params.Output[0];
-        float nubY = Bounds.Y + Bounds.Height / 2f;
-        outputParam.Attributes.Pivot = new PointF(Bounds.Right, nubY);
-        outputParam.Attributes.Bounds = new RectangleF(Bounds.Right - 3f, nubY - 3f, 6f, 6f);
+        // Reposition output param to the new right edge; zero-width bounds suppresses the label.
+        var op = Owner.Params.Output[0];
+        float midY = Bounds.Y + (Bounds.Height / 2f);
+        op.Attributes.Pivot = new PointF(Bounds.Right, midY);
+        op.Attributes.Bounds = new RectangleF(Bounds.Right, Bounds.Y, 0f, Bounds.Height);
+
+        // Position the model dropdown button in the space to the right of the icon + input area.
+        var inWidth = Owner.Params.InputWidth;
+        var iconWidth = Owner.Icon_24x24.Width;
+        var leftWidth = iconWidth + inWidth + 8;
+
+        var modelButtonX = Bounds.Left + leftWidth;
+        var modelButtonWidth = Bounds.Width - leftWidth - 4;
+        var modelButtonHeight = Bounds.Height - 8;
+
+        _modelButton = new RectangleF(modelButtonX, ownerRectangle.Y + 4, modelButtonWidth, modelButtonHeight);
     }
 
     /// <summary>
@@ -66,65 +73,59 @@ public class DreamAttrib : GH_ComponentAttributes
     /// <param name="canvas">The Grasshopper canvas being rendered.</param>
     /// <param name="g">The GDI+ graphics context.</param>
     /// <param name="channel">The current rendering channel.</param>
-    protected override void Render(GH_Canvas canvas, Graphics g, GH_CanvasChannel channel)
+    protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
     {
-        if (channel != GH_CanvasChannel.Objects)
+        base.Render(canvas, graphics, channel); // handle the wires, draw nickname, name, etc.
+
+        //the main component rendering channel
+        if (channel == GH_CanvasChannel.Objects)
         {
-            base.Render(canvas, g, channel);
-            return;
+            // declare the pens / brushes / pallets we will need to draw the custom objects
+            // - defaults for blank / message levels
+            Pen outLine = PhyPalette.BlankOutline;
+            GH_Palette palette = GH_Palette.Normal;
+
+            // retrieve the proper pens / brushes from our CompColors class
+            switch (Owner.RuntimeMessageLevel)
+            {
+                case GH_RuntimeMessageLevel.Warning:
+                    // assign warning values
+                    outLine = PhyPalette.WarnOutline;
+                    palette = GH_Palette.Warning;
+                    break;
+
+                case GH_RuntimeMessageLevel.Error:
+                    // assign warning values
+                    outLine = PhyPalette.ErrorOutline;
+                    palette = GH_Palette.Error;
+                    break;
+            }
+            graphics.FillRectangle(PhyPalette.SmallButton(_modelButton.Top, _modelButton.Bottom), _modelButton);
+            var border = outLine;
+            graphics.DrawRectangle(border, _modelButton);
+
+            // Dropdown arrow triangle
+            float cx = _modelButton.Left + 8f;
+            float cy = _modelButton.Top + _modelButton.Height / 2f;
+            var tri = new PointF[]
+            {
+            new (cx - 4f, cy - 4f),
+            new (cx + 4f, cy - 4f),
+            new (cx,      cy + 4f)
+            };
+            graphics.FillPolygon(Brushes.White, tri);
+
+
+            // the selected model
+            var labelRect = new RectangleF(_modelButton.Left + 12f, _modelButton.Top + 4f, _modelButton.Width - 12f, _modelButton.Height - 8f);
+
+            var fmt = new StringFormat
+            {
+                Alignment = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center
+            };
+            graphics.DrawString(_dream.SelectedModel, GH_FontServer.StandardAdjusted, Brushes.White, labelRect, fmt);
         }
-
-        // 1. Background capsule
-        var capsule = GH_Capsule.CreateCapsule(Bounds, GH_Palette.Normal);
-        capsule.AddOutputGrip(Bounds.Y + Bounds.Height / 2f); // single output nub
-        capsule.Render(g, Selected, Owner.Locked, false);
-        capsule.Dispose();
-
-        // 2. Divider between the two rows
-        float divY = Bounds.Y + Padding + RowHeight;
-        g.DrawLine(Pens.LightGray, Bounds.X + IconWidth, divY, Bounds.Right - 2f, divY);
-
-        // 3. Vertical divider between label and value columns
-        float colX = Bounds.X + IconWidth + LabelWidth;
-        g.DrawLine(Pens.LightGray, colX, Bounds.Y + Padding, colX, Bounds.Bottom - Padding);
-
-        // 4. Icon placeholder (red circle) — swap for real icon later
-        var iconRect = new RectangleF(Bounds.X + 6f, Bounds.Y + Padding + 4f,
-                                      IconWidth - 12f, Bounds.Height - Padding * 2f - 4f);
-        g.FillEllipse(Brushes.Red, iconRect);
-
-        // 5. Draw both rows
-        DrawRow(g, _providerRowBounds, "Provider", _dream.SelectedProvider);
-        DrawRow(g, _modelRowBounds, "RequestModel", _dream.SelectedModel);
-    }
-
-    private void DrawRow(Graphics g, RectangleF row, string label, string value)
-    {
-        var labelRect = new RectangleF(row.X + IconWidth, row.Y, LabelWidth, row.Height);
-        var colX = row.X + IconWidth + LabelWidth;
-        float arrowW = 20f;
-        var valueRect = new RectangleF(colX, row.Y, row.Width - IconWidth - LabelWidth - arrowW, row.Height);
-        var arrowRect = new RectangleF(row.Right - arrowW, row.Y, arrowW, row.Height);
-
-        var fmt = new StringFormat
-        {
-            Alignment = StringAlignment.Center,
-            LineAlignment = StringAlignment.Center
-        };
-
-        g.DrawString(label, GH_FontServer.StandardAdjusted, Brushes.Black, labelRect, fmt);
-        g.DrawString(value, GH_FontServer.StandardAdjusted, Brushes.Black, valueRect, fmt);
-
-        // Dropdown arrow triangle
-        float cx = arrowRect.X + arrowRect.Width / 2f;
-        float cy = arrowRect.Y + arrowRect.Height / 2f;
-        var tri = new PointF[]
-        {
-          new (cx - 5f, cy - 3f),
-          new (cx + 5f, cy - 3f),
-          new (cx,      cy + 4f)
-        };
-        g.FillPolygon(Brushes.DimGray, tri);
     }
 
     /// <summary>
@@ -140,34 +141,13 @@ public class DreamAttrib : GH_ComponentAttributes
             return base.RespondToMouseDown(sender, e);
         }
 
-        if (_providerRowBounds.Contains(e.CanvasLocation))
-        {
-            ShowProviderMenu();
-            return GH_ObjectResponse.Handled;
-        }
-        if (_modelRowBounds.Contains(e.CanvasLocation))
+        if (_modelButton.Contains(e.CanvasLocation))
         {
             ShowModelMenu();
             return GH_ObjectResponse.Handled;
         }
-        return base.RespondToMouseDown(sender, e);
-    }
 
-    private void ShowProviderMenu()
-    {
-        var menu = new System.Windows.Forms.ContextMenuStrip();
-        foreach (var p in _dream.AvailableProviders)
-        {
-            var item = new System.Windows.Forms.ToolStripMenuItem(p);
-            item.Click += (s, e) =>
-            {
-                _dream.SelectedProvider = p;
-                _dream.SelectedModel = "";
-                _dream.ExpireSolution(true);
-            };
-            menu.Items.Add(item);
-        }
-        menu.Show(System.Windows.Forms.Cursor.Position);
+        return base.RespondToMouseDown(sender, e);
     }
 
     private void ShowModelMenu()

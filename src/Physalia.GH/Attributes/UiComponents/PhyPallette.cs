@@ -1,7 +1,7 @@
 ﻿using System.Drawing;
 using System.Drawing.Drawing2D;
 
-namespace Physalia.GH.Attributes
+namespace Physalia.GH.Attributes.UiComponents
 {
     public static class PhyPalette
     { //fields

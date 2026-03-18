@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Grasshopper.Kernel;
-using Physalia.Core.Config;
 using Physalia.Core.Providers;
 using Physalia.GH.Attributes;
 using Physalia.GH.ParamTypes;
@@ -71,8 +70,14 @@ namespace Physalia.GH.Components
                 return;
             }
 
-            _llmProvider = llmGoo.Value;
+            _llmProvider = llmGoo.Value; // unwrap the container
 
+            // Check if the data we got is actually null DA.GetData returns true if ANYTHING is passed in.
+            if (llmGoo == null || llmGoo.Value == null)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "You haven't provided a valid LLM provider.");
+                return;
+            }
 
             if (_pendingModelFetch == null || _pendingModelFetch.IsCompleted)
             {

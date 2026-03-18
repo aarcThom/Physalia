@@ -6,6 +6,7 @@ using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
+using Physalia.GH.Attributes.UiComponents;
 using Physalia.GH.Components;
 using System;
 using System.Drawing;
@@ -77,54 +78,11 @@ public class DreamAttrib : GH_ComponentAttributes
     {
         base.Render(canvas, graphics, channel); // handle the wires, draw nickname, name, etc.
 
-        //the main component rendering channel
+        // the main component rendering channel
         if (channel == GH_CanvasChannel.Objects)
         {
-            // declare the pens / brushes / pallets we will need to draw the custom objects
-            // - defaults for blank / message levels
-            Pen outLine = PhyPalette.BlankOutline;
-            GH_Palette palette = GH_Palette.Normal;
-
-            // retrieve the proper pens / brushes from our CompColors class
-            switch (Owner.RuntimeMessageLevel)
-            {
-                case GH_RuntimeMessageLevel.Warning:
-                    // assign warning values
-                    outLine = PhyPalette.WarnOutline;
-                    palette = GH_Palette.Warning;
-                    break;
-
-                case GH_RuntimeMessageLevel.Error:
-                    // assign warning values
-                    outLine = PhyPalette.ErrorOutline;
-                    palette = GH_Palette.Error;
-                    break;
-            }
-            graphics.FillRectangle(PhyPalette.SmallButton(_modelButton.Top, _modelButton.Bottom), _modelButton);
-            var border = outLine;
-            graphics.DrawRectangle(border, _modelButton);
-
-            // Dropdown arrow triangle
-            float cx = _modelButton.Left + 8f;
-            float cy = _modelButton.Top + _modelButton.Height / 2f;
-            var tri = new PointF[]
-            {
-            new (cx - 4f, cy - 4f),
-            new (cx + 4f, cy - 4f),
-            new (cx,      cy + 4f)
-            };
-            graphics.FillPolygon(Brushes.White, tri);
-
-
-            // the selected model
-            var labelRect = new RectangleF(_modelButton.Left + 12f, _modelButton.Top + 4f, _modelButton.Width - 12f, _modelButton.Height - 8f);
-
-            var fmt = new StringFormat
-            {
-                Alignment = StringAlignment.Center,
-                LineAlignment = StringAlignment.Center
-            };
-            graphics.DrawString(_dream.SelectedModel, GH_FontServer.StandardAdjusted, Brushes.White, labelRect, fmt);
+            // draw the button
+            var dropdownButton = new DropDownButton(_modelButton, Owner, graphics, _dream.SelectedModel);
         }
     }
 

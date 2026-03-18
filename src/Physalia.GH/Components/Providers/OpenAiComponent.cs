@@ -16,7 +16,7 @@ namespace Physalia.GH.Components.Providers
                 "OpenAI",
                 "GPT",
                 "OpenAI Models via the OpenAI API",
-                "B2C3D4E5-F6A7-8901-BCDE-F12345678901",
+                "CA62D7B2-2039-4FA2-884D-250B08A36D03",
                 "openai")
         {
         }

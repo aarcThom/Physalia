@@ -27,6 +27,12 @@
   </PropertyGroup>
   
   <ItemGroup>
+    <Compile Remove="Goo\**" />
+    <EmbeddedResource Remove="Goo\**" />
+    <None Remove="Goo\**" />
+  </ItemGroup>
+  
+  <ItemGroup>
     <None Remove="Resources\brain.png" />
   </ItemGroup>
   
@@ -57,10 +63,6 @@
 
 	<ItemGroup>
 	  <EmbeddedResource Include="Resources\brain.png" />
-	</ItemGroup>
-
-	<ItemGroup>
-	  <Folder Include="Goo\" />
 	</ItemGroup>
   
 </Project>

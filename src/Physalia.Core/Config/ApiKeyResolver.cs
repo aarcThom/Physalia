@@ -10,7 +10,7 @@ namespace Physalia.Core.Config
     /// </summary>
     public class ApiKeyResolver
     {
-        private readonly string _keysFilePath = @"C:\Users\tgaudin\OneDrive - StructureCraft\Desktop\test.json";
+        private readonly string _keysFilePath = @"C:\test.json";
 
         /// <summary>
         /// Reads the API key for the given provider name.

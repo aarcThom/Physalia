@@ -1,42 +1,39 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-using Grasshopper;
+using System.Drawing;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Attributes.UiComponents;
 using Physalia.GH.Components;
-using System;
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.IO;
 
 namespace Physalia.GH.Attributes;
 
 /// <summary>
-/// Custom attributes for the DREAM component that render two inline dropdown rows
+/// Custom attributes for the providerSelector component that render two inline dropdown rows
 /// (Provider and Model) directly on the Grasshopper canvas.
 /// </summary>
-public class DreamAttrib : GH_ComponentAttributes
+public class ProviderSelectorAttrib : GH_ComponentAttributes
 {
-    private readonly Dream _dream;
-
-    private RectangleF _modelButton;
-
     private const float RowHeight = 26f;
     private const float IconWidth = 44f;
     private const float LabelWidth = 50f;
     private const float Padding = 6f;
 
+    private readonly ProviderSelector providerSelector;
+
+    private RectangleF _providerButton;
+
     /// <summary>
-    /// Initializes a new instance of the <see cref="DreamAttrib"/> class.
+    /// Initializes a new instance of the <see cref="ProviderSelectorAttrib"/> class.
     /// </summary>
-    /// <param name="dream">The DREAM component that owns these attributes.</param>
-    public DreamAttrib(Dream dream) : base(dream)
+    /// <param name="providerSelector">The providerSelector component that owns these attributes.</param>
+    public ProviderSelectorAttrib(ProviderSelector providerSelector)
+        : base(providerSelector)
     {
-        _dream = dream;
+        this.providerSelector = providerSelector;
     }
 
     /// <summary>
@@ -65,7 +62,7 @@ public class DreamAttrib : GH_ComponentAttributes
         var modelButtonWidth = Bounds.Width - leftWidth - 4;
         var modelButtonHeight = Bounds.Height - 8;
 
-        _modelButton = new RectangleF(modelButtonX, ownerRectangle.Y + 4, modelButtonWidth, modelButtonHeight);
+        _providerButton = new RectangleF(modelButtonX, ownerRectangle.Y + 4, modelButtonWidth, modelButtonHeight);
     }
 
     /// <summary>
@@ -82,7 +79,7 @@ public class DreamAttrib : GH_ComponentAttributes
         if (channel == GH_CanvasChannel.Objects)
         {
             // draw the button
-            var dropdownButton = new DropDownButton(_modelButton, Owner, graphics, _dream.SelectedModel);
+            var dropdownButton = new DropDownButton(_providerButton, Owner, graphics, providerSelector.SelectedProvider);
         }
     }
 
@@ -99,7 +96,7 @@ public class DreamAttrib : GH_ComponentAttributes
             return base.RespondToMouseDown(sender, e);
         }
 
-        if (_modelButton.Contains(e.CanvasLocation))
+        if (_providerButton.Contains(e.CanvasLocation))
         {
             ShowModelMenu();
             return GH_ObjectResponse.Handled;
@@ -111,13 +108,13 @@ public class DreamAttrib : GH_ComponentAttributes
     private void ShowModelMenu()
     {
         var menu = new System.Windows.Forms.ContextMenuStrip();
-        foreach (var m in _dream.AvailableModels)
+        foreach (var m in providerSelector.AvailableProviders)
         {
             var item = new System.Windows.Forms.ToolStripMenuItem(m);
             item.Click += (s, e) =>
             {
-                _dream.SelectedModel = m;
-                _dream.ExpireSolution(true);
+                providerSelector.SelectedProvider = m;
+                providerSelector.ExpireSolution(true);
             };
             menu.Items.Add(item);
         }

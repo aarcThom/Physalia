@@ -4,6 +4,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Parameters;
@@ -19,6 +20,9 @@ namespace Physalia.GH.Components
     /// </summary>
     public class Body : GH_Component, IGH_VariableParameterComponent
     {
+        private const int FixedInputCount = 0;
+        private const int FixedOutputCount = 0;
+
         private readonly ScriptRunner _scriptRunner = new ();
         private ScriptResponse? _lastResponse;
 
@@ -87,24 +91,56 @@ namespace Physalia.GH.Components
         /// </summary>
         /// <param name="side">The parameter side (input or output).</param>
         /// <param name="index">The index at which the parameter would be inserted.</param>
-        /// <returns>false — dynamic parameters are managed by BRAIN; manual insertion is not permitted.</returns>
-        public bool CanInsertParameter(GH_ParameterSide side, int index) => false;
+        /// <returns>true if index is at or after the fixed parameter region.</returns>
+        public bool CanInsertParameter(GH_ParameterSide side, int index) =>
+            side == GH_ParameterSide.Input ? index >= FixedInputCount : index >= FixedOutputCount;
 
         /// <summary>
         /// Gets a value indicating whether a parameter can be removed at the given index on the specified side.
         /// </summary>
         /// <param name="side">The parameter side (input or output).</param>
         /// <param name="index">The index of the parameter to remove.</param>
-        /// <returns>false — dynamic parameters are managed by BRAIN; manual removal is not permitted.</returns>
-        public bool CanRemoveParameter(GH_ParameterSide side, int index) => false;
+        /// <returns>true if index is at or after the fixed parameter region.</returns>
+        public bool CanRemoveParameter(GH_ParameterSide side, int index) =>
+            side == GH_ParameterSide.Input ? index >= FixedInputCount : index >= FixedOutputCount;
 
         /// <summary>
         /// Creates a default placeholder parameter for the given side and index.
         /// </summary>
         /// <param name="side">The parameter side (input or output).</param>
         /// <param name="index">The index at which the parameter will be placed.</param>
-        /// <returns>A new generic object parameter.</returns>
-        public IGH_Param CreateParameter(GH_ParameterSide side, int index) => new Param_GenericObject();
+        /// <returns>A new generic object parameter with a numbered nick name (in, in1, in2, … / out, out1, out2, …).</returns>
+        public IGH_Param CreateParameter(GH_ParameterSide side, int index)
+        {
+            if (side == GH_ParameterSide.Input)
+            {
+                string nick = NextAvailableNick("in", Params.Input.Select(p => p.NickName));
+                return new Param_GenericObject { Name = nick, NickName = nick, Description = "User-defined input", Optional = true };
+            }
+            else
+            {
+                string nick = NextAvailableNick("out", Params.Output.Select(p => p.NickName));
+                return new Param_GenericObject { Name = nick, NickName = nick, Description = "User-defined output", Optional = true };
+            }
+        }
+
+        private static string NextAvailableNick(string prefix, IEnumerable<string> existing)
+        {
+            var names = new HashSet<string>(existing);
+            if (!names.Contains(prefix))
+            {
+                return prefix;
+            }
+
+            for (int n = 1; ; n++)
+            {
+                string candidate = $"{prefix}{n}";
+                if (!names.Contains(candidate))
+                {
+                    return candidate;
+                }
+            }
+        }
 
         /// <summary>
         /// Called when a parameter is removed; performs any necessary cleanup.

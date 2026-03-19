@@ -45,7 +45,7 @@ namespace Physalia.Core.Config
 
         /// <summary>
         /// Returns all provider names that have a non-placeholder API key configured in the keys file.
-        /// Used to populate the provider dropdown in the DREAM component.
+        /// Used to populate the provider dropdown in the providerSelector component.
         /// </summary>
         /// <returns>A list of valid provider names, or an empty list when the file cannot be read.</returns>
         public List<string> GetAvailableProviders()

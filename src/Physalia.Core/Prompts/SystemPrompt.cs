@@ -52,11 +52,11 @@ public static class SystemPrompt
         }
 
         VALID TYPE HINTS (use these exact strings):
-        - Primitives: "double", "int", "bool", "string"
-        - Geometry: "Point3d", "Vector3d", "Plane", "Line", "Circle", "Arc",
-          "Curve", "Surface", "Brep", "Mesh", "GeometryBase", "Box",
+        - Primitives: "Number", "Integer", "Boolean", "Text"
+        - Geometry: "Point", "Vector", "Plane", "Line", "Circle", "Arc",
+          "Curve", "Surface", "Brep", "Mesh", "Geometry", "Box",
           "Transform", "Interval"
-        - Other: "Color", "DateTime"
+        - Other: "Colour"
 
         ACCESS MODES:
         - "item": single value per iteration (default)

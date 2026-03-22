@@ -3,77 +3,76 @@
 
 using System.Text.Json;
 
-namespace Physalia.Core.Config
+namespace Physalia.Core.Config;
+
+/// <summary>
+/// Reads API keys from a JSON file keyed by provider name.
+/// </summary>
+public class ApiKeyResolver
 {
+    private readonly string _keysFilePath = @"C:\test.json";
+
     /// <summary>
-    /// Reads API keys from a JSON file keyed by provider name.
+    /// Reads the API key for the given provider name.
     /// </summary>
-    public class ApiKeyResolver
+    /// <param name="providerName">The provider name to look up, e.g. "anthropic".</param>
+    /// <returns>The API key string for the specified provider.</returns>
+    /// <exception cref="FileNotFoundException">Thrown when the keys file does not exist at the configured path.</exception>
+    /// <exception cref="KeyNotFoundException">Thrown when no entry exists for the given provider name.</exception>
+    /// <exception cref="Exception">Thrown when the file cannot be parsed or the key is empty.</exception>
+    public string GetKey(string providerName)
     {
-        private readonly string _keysFilePath = @"C:\test.json";
-
-        /// <summary>
-        /// Reads the API key for the given provider name.
-        /// </summary>
-        /// <param name="providerName">The provider name to look up, e.g. "anthropic".</param>
-        /// <returns>The API key string for the specified provider.</returns>
-        /// <exception cref="FileNotFoundException">Thrown when the keys file does not exist at the configured path.</exception>
-        /// <exception cref="KeyNotFoundException">Thrown when no entry exists for the given provider name.</exception>
-        /// <exception cref="Exception">Thrown when the file cannot be parsed or the key is empty.</exception>
-        public string GetKey(string providerName)
+        if (!File.Exists(_keysFilePath))
         {
-            if (!File.Exists(_keysFilePath))
-            {
-                throw new FileNotFoundException($"Keys file not found at: {_keysFilePath}");
-            }
-
-            var json = File.ReadAllText(_keysFilePath);
-            var keys = JsonSerializer.Deserialize<Dictionary<string, ProviderEntry>>(json) ?? throw new Exception($"Failed to parse {_keysFilePath}");
-
-            if (!keys.TryGetValue(providerName, out var entry))
-            {
-                throw new KeyNotFoundException($"No entry for '{providerName}' in {_keysFilePath}");
-            }
-
-            if (string.IsNullOrWhiteSpace(entry.ApiKey))
-            {
-                throw new Exception($"API key for '{providerName}' is empty in {_keysFilePath}");
-            }
-
-            return entry.ApiKey;
+            throw new FileNotFoundException($"Keys file not found at: {_keysFilePath}");
         }
 
-        /// <summary>
-        /// Returns all provider names that have a non-placeholder API key configured in the keys file.
-        /// Used to populate the provider dropdown in the providerSelector component.
-        /// </summary>
-        /// <returns>A list of valid provider names, or an empty list when the file cannot be read.</returns>
-        public List<string> GetAvailableProviders()
+        var json = File.ReadAllText(_keysFilePath);
+        var keys = JsonSerializer.Deserialize<Dictionary<string, ProviderEntry>>(json) ?? throw new Exception($"Failed to parse {_keysFilePath}");
+
+        if (!keys.TryGetValue(providerName, out var entry))
         {
-            if (!File.Exists(_keysFilePath))
-            {
-                return new List<string>();
-            }
-
-            var json = File.ReadAllText(_keysFilePath);
-            var keys = JsonSerializer.Deserialize<Dictionary<string, ProviderEntry>>(json);
-
-            if (keys is null)
-            {
-                return new List<string>();
-            }
-
-            return keys
-                .Where(kv => !string.IsNullOrWhiteSpace(kv.Value.ApiKey)
-                             && !kv.Value.ApiKey.StartsWith("YOUR_"))
-                .Select(kv => kv.Key)
-                .ToList();
+            throw new KeyNotFoundException($"No entry for '{providerName}' in {_keysFilePath}");
         }
 
-        private class ProviderEntry
+        if (string.IsNullOrWhiteSpace(entry.ApiKey))
         {
-            [System.Text.Json.Serialization.JsonPropertyName("api_key")]
-            public string ApiKey { get; set; } = string.Empty;
+            throw new Exception($"API key for '{providerName}' is empty in {_keysFilePath}");
         }
+
+        return entry.ApiKey;
+    }
+
+    /// <summary>
+    /// Returns all provider names that have a non-placeholder API key configured in the keys file.
+    /// Used to populate the provider dropdown in the providerSelector component.
+    /// </summary>
+    /// <returns>A list of valid provider names, or an empty list when the file cannot be read.</returns>
+    public List<string> GetAvailableProviders()
+    {
+        if (!File.Exists(_keysFilePath))
+        {
+            return new List<string>();
+        }
+
+        var json = File.ReadAllText(_keysFilePath);
+        var keys = JsonSerializer.Deserialize<Dictionary<string, ProviderEntry>>(json);
+
+        if (keys is null)
+        {
+            return new List<string>();
+        }
+
+        return keys
+            .Where(kv => !string.IsNullOrWhiteSpace(kv.Value.ApiKey)
+                         && !kv.Value.ApiKey.StartsWith("YOUR_"))
+            .Select(kv => kv.Key)
+            .ToList();
+    }
+
+    private class ProviderEntry
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("api_key")]
+        public string ApiKey { get; set; } = string.Empty;
     }
 }

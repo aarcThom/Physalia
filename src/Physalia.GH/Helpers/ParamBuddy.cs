@@ -1,0 +1,182 @@
+using Grasshopper.Kernel;
+using Grasshopper.Kernel.Parameters;
+using Physalia.Core.Config;
+using Physalia.Core.Parsing;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+namespace Physalia.GH.Helpers;
+
+public static class ParamBuddy
+{
+    public static void Rebuild(GH_Component component, ScriptResponse response)
+    {
+        // remove the parameters
+        component.Params.Clear();
+
+        // Add new inputs
+        foreach (var input in response.Inputs)
+        {
+            var param = CreateInputParam(input);
+            component.Params.RegisterInputParam(param);
+        }
+
+        // Add new outputs
+        foreach (var output in response.Outputs)
+        {
+            var param = CreateOutputParam(output);
+            component.Params.RegisterOutputParam(param);
+        }
+
+        component.Params.OnParametersChanged();
+    }
+
+    // record the user defined parameters. Use True for input, false for output.
+    public static List<ParamInfo> GetUserParams(List<IGH_Param> paramsIn, bool isInput)
+    {
+        var paramList = new List<ParamInfo>();
+
+        foreach (IGH_Param param in paramsIn)
+        {
+            // keep the parameter if it is user created
+            var lowerDescription = param.Description.ToLower();
+            if (!lowerDescription.Contains(PhyConstants.DefaultParamDescription))
+            {
+                continue;
+            }
+
+            string access = GetParamAccess(param);
+            string type = isInput ? GetInputType(param) : string.Empty;
+            var connections = isInput ? param.Sources.ToList() : param.Recipients.ToList();
+
+            paramList.Add(new ParamInfo(param.NickName, type, access, connections));
+        }
+
+        return paramList;
+    }
+
+    // gets the paramAccess, ie. list, tree, or item, of a param and returns as string.
+    public static string GetParamAccess(IGH_Param param)
+    {
+        return param.Access switch
+        {
+            GH_ParamAccess.list => "list",
+            GH_ParamAccess.tree => "tree",
+            _ => "item"
+        };
+    }
+
+    // create a prompt that documents the user defined parameters
+    public static string UserParamsPrompt(List<ParamInfo> inputs, List<ParamInfo> outputs)
+    {
+        if (inputs.Count == 0 && outputs.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder();
+
+        if (inputs.Count > 0)
+        {
+            sb.AppendLine("YOU MUST INCLUDE THE FOLLOWING INPUT PARAMETERS IN YOUR RESPONSE (do not rename or reorder them):");
+            sb.AppendLine();
+            foreach (var p in inputs)
+            {
+                sb.AppendLine($"  name: {p.name}");
+                sb.AppendLine($"  prettyName: <derive a human-readable label from \"{p.name}\">");
+                sb.AppendLine($"  tooltip: <short description derived from your implementation. Always append the label {PhyConstants.DefaultParamDescription}>");
+                sb.AppendLine($"  typeHint: {p.type}");
+                sb.AppendLine($"  access: {p.paramAccess}");
+                sb.AppendLine($"  optional: false");
+                sb.AppendLine();
+            }
+        }
+
+        if (outputs.Count > 0)
+        {
+            sb.AppendLine("YOU MUST INCLUDE THE FOLLOWING OUTPUT PARAMETERS IN YOUR RESPONSE (do not rename or reorder them):");
+            sb.AppendLine();
+            foreach (var p in outputs)
+            {
+                sb.AppendLine($"  name: {p.name}");
+                sb.AppendLine($"  prettyName: <derive a human-readable label from \"{p.name}\">");
+                sb.AppendLine($"  tooltip: <short description derived from your implementation>");
+                sb.AppendLine();
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    // param info holder record
+    public record ParamInfo(string name, string type, string paramAccess, List<IGH_Param> connectedSources);
+
+    // Getsthe type hint from connected sources.
+    // Tells the LLM to figure it out itself if the param has no sources or only generic sources.
+    private static string GetInputType(IGH_Param param)
+    {
+        foreach (IGH_Param source in param.Sources)
+        {
+            string typeName = source.TypeName;
+            if (typeName != "Generic Data")
+            {
+                return typeName;
+            }
+        }
+
+        return "<Infer from your implementation and name>";
+    }
+
+    private static IGH_Param CreateInputParam(ParamDefinition def)
+    {
+        IGH_Param param = def.TypeHint?.ToLowerInvariant() switch
+        {
+            "number" => new Param_Number(),
+            "integer" => new Param_Integer(),
+            "boolean" => new Param_Boolean(),
+            "text" => new Param_String(),
+            "point" => new Param_Point(),
+            "vector" => new Param_Vector(),
+            "plane" => new Param_Plane(),
+            "line" => new Param_Line(),
+            "circle" => new Param_Circle(),
+            "arc" => new Param_Arc(),
+            "curve" => new Param_Curve(),
+            "surface" => new Param_Surface(),
+            "brep" => new Param_Brep(),
+            "mesh" => new Param_Mesh(),
+            "geometry" => new Param_Geometry(),
+            "box" => new Param_Box(),
+            "transform" => new Param_Transform(),
+            "interval" => new Param_Interval(),
+            "colour" => new Param_Colour(),
+            _ => new Param_GenericObject()
+        };
+
+        param.Name = def.PrettyName ?? def.Name;
+        param.NickName = def.Name;
+        param.Description = def.Tooltip ?? string.Empty;
+        param.Optional = true;
+
+        param.Access = def.Access?.ToLowerInvariant() switch
+        {
+            "list" => GH_ParamAccess.list,
+            "tree" => GH_ParamAccess.tree,
+            _ => GH_ParamAccess.item
+        };
+
+        return param;
+    }
+
+    private static IGH_Param CreateOutputParam(ParamDefinition def)
+    {
+        return new Param_GenericObject
+        {
+            Name = def.PrettyName ?? def.Name,
+            NickName = def.Name,
+            Description = def.Tooltip ?? string.Empty,
+            Access = GH_ParamAccess.item,
+        };
+    }
+}

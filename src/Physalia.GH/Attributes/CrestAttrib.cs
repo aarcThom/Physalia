@@ -13,12 +13,12 @@ using Physalia.GH.Components;
 namespace Physalia.GH.Attributes;
 
 /// <summary>
-/// Custom attributes for the BRAIN component that render a drag-to-link bezier wire
-/// from BRAIN's bottom-centre grip to the linked BODY component.
+/// Custom attributes for the CREST component that render a drag-to-link bezier wire
+/// from CREST's bottom-centre grip to the linked ZOOID component.
 /// </summary>
-public class BrainAttrib : GH_ComponentAttributes
+public class CrestAttrib : GH_ComponentAttributes
 {
-    private readonly Brain _brain; // the brain component
+    private readonly Crest _crest; // the crest component
 
     private bool _isDragging; // is the user dragging the wire?
     private PointF _dragPoint; // the current positon of the drag
@@ -27,12 +27,13 @@ public class BrainAttrib : GH_ComponentAttributes
     private RectangleF _visualBounds; // the default bounds we want to render
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="BrainAttrib"/> class.
+    /// Initializes a new instance of the <see cref="CrestAttrib"/> class.
     /// </summary>
-    /// <param name="brain">The BRAIN component that owns these attributes.</param>
-    public BrainAttrib(Brain brain) : base(brain)
+    /// <param name="crest">The CREST component that owns these attributes.</param>
+    public CrestAttrib(Crest crest)
+        : base(crest)
     {
-        _brain = brain;
+        _crest = crest;
     }
 
     /// <summary>
@@ -49,8 +50,8 @@ public class BrainAttrib : GH_ComponentAttributes
     }
 
     /// <summary>
-    /// Renders the component and, when a BODY is linked or a drag is in progress,
-    /// draws the bezier wire from the bottom grip to the BODY component.
+    /// Renders the component and, when a ZOOID is linked or a drag is in progress,
+    /// draws the bezier wire from the bottom grip to the ZOOID component.
     /// </summary>
     /// <param name="canvas">The Grasshopper canvas being rendered.</param>
     /// <param name="graphics">The GDI+ graphics context.</param>
@@ -81,7 +82,7 @@ public class BrainAttrib : GH_ComponentAttributes
 
         if (channel == GH_CanvasChannel.Wires)
         {
-            if (_brain.BodyComponent == null && !_isDragging)
+            if (_crest.ZooidComponent == null && !_isDragging)
             {
                 base.Render(canvas, graphics, channel);
                 Bounds = _gripBounds; // revert back to expanded bounds for clickable grip
@@ -95,13 +96,13 @@ public class BrainAttrib : GH_ComponentAttributes
             }
             else
             {
-                var bodyBounds = _brain.BodyComponent.Attributes.Bounds;
-                wireEnd = new PointF(bodyBounds.Left + bodyBounds.Width / 2f, bodyBounds.Y + bodyBounds.Height);
+                var zooidBounds = _crest.ZooidComponent.Attributes.Bounds;
+                wireEnd = new PointF(zooidBounds.Left + zooidBounds.Width / 2f, zooidBounds.Y + zooidBounds.Height);
             }
 
-            var brainBottomPt = new PointF(gripCtrX, gripCtrY);
+            var crestBottomPoint = new PointF(gripCtrX, gripCtrY);
 
-            float brainBodyMidPt = (wireEnd.X - brainBottomPt.X) * 0.5f;
+            float crestZooidMidPt = (wireEnd.X - crestBottomPoint.X) * 0.5f;
 
             // create the color gradient
             var phyBlue = Color.Blue;
@@ -109,16 +110,16 @@ public class BrainAttrib : GH_ComponentAttributes
 
             // need to extend the gradient end points PAST the bezier curve otherwise weird clipping occurs.
             // replace the below with something more elegant and not hardcoded
-            var gradStart = new PointF(brainBottomPt.X - 100f, brainBottomPt.Y - 100f);
+            var gradStart = new PointF(crestBottomPoint.X - 100f, crestBottomPoint.Y - 100f);
             var gradEnd = new PointF(wireEnd.X + 100f, wireEnd.Y + 100f);
 
             using var gradient = new LinearGradientBrush(gradStart, wireEnd, phyBlue, phyPurple);
             using var pen = new Pen(gradient, 2f);
 
-            // draw a bezier curver between the BRAIN and BODY
-            var bezPt1 = new PointF(brainBottomPt.X, brainBottomPt.Y + 80f);
+            // draw a bezier curver between the CREST and ZOOID
+            var bezPt1 = new PointF(crestBottomPoint.X, crestBottomPoint.Y + 80f);
             var bezPt2 = new PointF(wireEnd.X, wireEnd.Y + 80f);
-            graphics.DrawBezier(pen, brainBottomPt, bezPt1, bezPt2, wireEnd);
+            graphics.DrawBezier(pen, crestBottomPoint, bezPt1, bezPt2, wireEnd);
 
             //draw the triangle at the tip
             float triHeight = 8f;
@@ -175,7 +176,7 @@ public class BrainAttrib : GH_ComponentAttributes
     }
 
     /// <summary>
-    /// Completes the drag and links the BRAIN to a BODY component if the mouse was released over one.
+    /// Completes the drag and links the CREST to a ZOOID component if the mouse was released over one.
     /// </summary>
     /// <param name="sender">The Grasshopper canvas that raised the event.</param>
     /// <param name="e">The mouse event data.</param>
@@ -189,17 +190,19 @@ public class BrainAttrib : GH_ComponentAttributes
             // cycle through the components on the canvas
             foreach (var obj in sender.Document.Objects)
             {
-                if (obj is Body body && body.Attributes.Bounds.Contains(e.CanvasLocation))
+                if (obj is Zooid zooid && zooid.Attributes.Bounds.Contains(e.CanvasLocation))
                 {
-                    _brain.BodyComponent = body; // set the ref'd body
-                    _brain.BodyGuid = body.InstanceGuid;
+                    _crest.ZooidComponent = zooid; // set the ref'd zooid
+                    _crest.ZooidGuid = zooid.InstanceGuid;
 
                     break;
                 }
             }
+
             sender.ScheduleRegen(2);
             return GH_ObjectResponse.Handled;
         }
+
         return base.RespondToMouseUp(sender, e);
     }
 }

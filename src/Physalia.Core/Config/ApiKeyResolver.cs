@@ -10,7 +10,7 @@ namespace Physalia.Core.Config;
 /// </summary>
 public class ApiKeyResolver
 {
-    private readonly string _keysFilePath = @"C:\test.json";
+    private readonly string _keysFilePath = GetApiKeyFile();
 
     /// <summary>
     /// Reads the API key for the given provider name.
@@ -68,6 +68,11 @@ public class ApiKeyResolver
                          && !kv.Value.ApiKey.StartsWith("YOUR_"))
             .Select(kv => kv.Key)
             .ToList();
+    }
+
+    private static string GetApiKeyFile()
+    {
+        return Path.Combine(Path.GetDirectoryName(typeof(ApiKeyResolver).Assembly.Location) !, "physaliaKeys.json");
     }
 
     private class ProviderEntry

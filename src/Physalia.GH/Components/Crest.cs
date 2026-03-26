@@ -5,6 +5,7 @@
 
 using System;
 using System.Threading.Tasks;
+using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Parsing;
 using Physalia.Core.Prompts;
@@ -55,6 +56,49 @@ public class Crest : PhyBase
     /// Assigns the custom <see cref="CrestAttrib"/> attribute class to this component.
     /// </summary>
     public override void CreateAttributes() => m_attributes = new CrestAttrib(this);
+
+    /// <summary>
+    /// Serializes the linked ZOOID's instance GUID so the connection survives save/load.
+    /// </summary>
+    /// <param name="writer">The GH_IWriter to write to.</param>
+    /// <returns>true.</returns>
+    public override bool Write(GH_IWriter writer)
+    {
+        writer.SetString("ZooidGuid", ZooidGuid.ToString());
+        return base.Write(writer);
+    }
+
+    /// <summary>
+    /// Deserialises the linked ZOOID's instance GUID. The live reference is restored later in
+    /// <see cref="AddedToDocument"/>, once all document objects are available.
+    /// </summary>
+    /// <param name="reader">The GH_IReader to read from.</param>
+    /// <returns>true.</returns>
+    public override bool Read(GH_IReader reader)
+    {
+        string guidStr = string.Empty;
+        if (reader.TryGetString("ZooidGuid", ref guidStr) && Guid.TryParse(guidStr, out Guid guid))
+        {
+            ZooidGuid = guid;
+        }
+
+        return base.Read(reader);
+    }
+
+    /// <summary>
+    /// Schedules a reconnect to the linked ZOOID after the document finishes loading,
+    /// ensuring all objects are present before the GUID lookup runs.
+    /// </summary>
+    /// <param name="document">The document this component was added to.</param>
+    public override void AddedToDocument(GH_Document document)
+    {
+        base.AddedToDocument(document);
+
+        if (ZooidGuid != Guid.Empty)
+        {
+            document.ScheduleSolution(10, ReconnectZooid);
+        }
+    }
 
     /// <summary>
     /// Registers all the input parameters for this component.
@@ -120,14 +164,23 @@ public class Crest : PhyBase
         }
     }
 
+    private void ReconnectZooid(GH_Document doc)
+    {
+        var obj = doc.FindObject(ZooidGuid, true);
+        if (obj is Zooid zooid)
+        {
+            ZooidComponent = zooid;
+        }
+    }
+
     private async Task SendRequestAsync(string prompt, LlmProvider llModel, Zooid zooid)
     {
         // Get the ZOOIDS's user defined input and output parameters
-        var zooidInputs = ParamBuddy.GetUserParams(zooid.Params.Input, true);
-        var zooidOutputs = ParamBuddy.GetUserParams(zooid.Params.Output, false);
+        var zooidInputs = ParamBuilder.GetUserParams(zooid.Params.Input, true);
+        var zooidOutputs = ParamBuilder.GetUserParams(zooid.Params.Output, false);
 
         // compose the parameters prompt and add it to the user prompt
-        var paramPrompt = ParamBuddy.UserParamsPrompt(zooidInputs, zooidOutputs);
+        var paramPrompt = ParamBuilder.UserParamsPrompt(zooidInputs, zooidOutputs);
 
         try
         {

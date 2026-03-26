@@ -1,15 +1,27 @@
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Parameters;
 using Physalia.Core.Config;
 using Physalia.Core.Parsing;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 
 namespace Physalia.GH.Helpers;
 
-public static class ParamBuddy
+/// <summary>
+/// Static helper methods for creating and rebuilding Grasshopper parameters from LLM responses,
+/// and for inspecting user-defined dynamic parameters on a ZOOID component.
+/// </summary>
+public static class ParamBuilder
 {
+    /// <summary>
+    /// Clear all current parameters on a component and rebuild the new ones based on the LLM response.
+    /// </summary>
+    /// <param name="component">GH component to rebuild parameters for.</param>
+    /// <param name="response">JSON response returned by the LLM.</param>
     public static void Rebuild(GH_Component component, ScriptResponse response)
     {
         // remove the parameters
@@ -32,7 +44,12 @@ public static class ParamBuddy
         component.Params.OnParametersChanged();
     }
 
-    // record the user defined parameters. Use True for input, false for output.
+    /// <summary>
+    /// Returns all user-defined parameters from a parameter list, identified by the sentinel description string.
+    /// </summary>
+    /// <param name="paramsIn">The list of GH parameters to inspect.</param>
+    /// <param name="isInput">True if the parameters are inputs; false for outputs.</param>
+    /// <returns>A list of ParamInfo records for each user-defined parameter found.</returns>
     public static List<ParamInfo> GetUserParams(List<IGH_Param> paramsIn, bool isInput)
     {
         var paramList = new List<ParamInfo>();
@@ -56,7 +73,11 @@ public static class ParamBuddy
         return paramList;
     }
 
-    // gets the paramAccess, ie. list, tree, or item, of a param and returns as string.
+    /// <summary>
+    /// Returns the access mode of a Grasshopper parameter as a lowercase string.
+    /// </summary>
+    /// <param name="param">The parameter to inspect.</param>
+    /// <returns>"list", "tree", or "item".</returns>
     public static string GetParamAccess(IGH_Param param)
     {
         return param.Access switch
@@ -67,7 +88,15 @@ public static class ParamBuddy
         };
     }
 
-    // create a prompt that documents the user defined parameters
+    /// <summary>
+    /// Builds an LLM prompt section instructing the model to preserve user-defined parameters.
+    /// </summary>
+    /// <param name="inputs">User-defined input parameters to include in the prompt.</param>
+    /// <param name="outputs">User-defined output parameters to include in the prompt.</param>
+    /// <returns>
+    /// A formatted string for appending to the LLM system prompt,
+    /// or an empty string if both lists are empty.
+    /// </returns>
     public static string UserParamsPrompt(List<ParamInfo> inputs, List<ParamInfo> outputs)
     {
         if (inputs.Count == 0 && outputs.Count == 0)
@@ -109,11 +138,17 @@ public static class ParamBuddy
         return sb.ToString();
     }
 
-    // param info holder record
+    /// <summary>
+    /// Lightweight snapshot of a user-defined parameter, used when constructing the LLM prompt.
+    /// </summary>
+    /// <param name="name">The NickName (variable name) of the parameter.</param>
+    /// <param name="type">The type hint string, e.g. "Number" or "Point".</param>
+    /// <param name="paramAccess">The access mode: "item", "list", or "tree".</param>
+    /// <param name="connectedSources">The GH params wired to this parameter.</param>
     public record ParamInfo(string name, string type, string paramAccess, List<IGH_Param> connectedSources);
 
-    // Getsthe type hint from connected sources.
-    // Tells the LLM to figure it out itself if the param has no sources or only generic sources.
+    // Gets the type hint from connected sources.
+    // Falls back to an inference instruction if the param has no sources or only generic sources.
     private static string GetInputType(IGH_Param param)
     {
         foreach (IGH_Param source in param.Sources)

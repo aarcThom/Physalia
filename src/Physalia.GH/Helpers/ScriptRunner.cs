@@ -33,7 +33,7 @@ public class ScriptRunner
 
         var runCtx = new RunContext
         {
-            AutoApplyParams = true
+            AutoApplyParams = true,
         };
 
         CollectInputs(DA, response, runCtx);

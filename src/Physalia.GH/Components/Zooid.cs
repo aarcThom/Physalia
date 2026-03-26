@@ -24,6 +24,18 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
 {
     private readonly ScriptRunner _scriptRunner = new ();
     private ScriptResponse? _lastResponse;
+    private bool _needsCheck;
+
+    /// <summary>
+    /// Gets the pyflakes diagnostics from the last CodeChecker run.
+    /// Updated once each time a new script is received from the LLM.
+    /// </summary>
+    public IReadOnlyList<Diagnostic> LastDiagnostics { get; private set; } = new List<Diagnostic>();
+
+    /// <summary>
+    /// Gets the runtime error message from the last failed script execution, or null if the last run succeeded.
+    /// </summary>
+    public string? LastRuntimeError { get; private set; }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Zooid"/> class.
@@ -45,6 +57,7 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
     public void ReceiveResponse(ScriptResponse response)
     {
         _lastResponse = response;
+        _needsCheck = true;
         ParamBuilder.Rebuild(this, response);
         ExpireSolution(true);
     }
@@ -110,12 +123,23 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
             return;
         }
 
+        // Run CodeChecker once per new script, not on every solve
+        if (_needsCheck)
+        {
+            var inputNames = _lastResponse.Inputs.Select(i => i.Name).ToList();
+            LastDiagnostics = CodeChecker.Check(_lastResponse.Script, inputNames);
+            _needsCheck = false;
+        }
+
+        LastRuntimeError = null;
+
         try
         {
             _scriptRunner.Execute(DA, _lastResponse);
         }
         catch (Exception ex)
         {
+            LastRuntimeError = ex.Message;
             AddRuntimeMessage(GH_RuntimeMessageLevel.Error, $"Script execution failed: {ex.Message}");
         }
     }

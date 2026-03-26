@@ -10,7 +10,12 @@ namespace Physalia.Core.Config;
 /// </summary>
 public class ApiKeyResolver
 {
-    private readonly string _keysFilePath = GetApiKeyFile();
+    private readonly string _keysFilePath = KeyFilePath;
+
+    /// <summary>
+    /// Gets the absolute path to the API keys JSON file, located next to the assembly.
+    /// </summary>
+    public static string KeyFilePath { get; } = GetApiKeyFile();
 
     /// <summary>
     /// Reads the API key for the given provider name.

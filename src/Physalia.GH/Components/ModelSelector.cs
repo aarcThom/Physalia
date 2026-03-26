@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Providers;
 using Physalia.GH.Attributes;
@@ -55,6 +56,34 @@ public class ModelSelector : PhyBase
     public override void CreateAttributes() => m_attributes = new ModelSelectorAttrib(this);
 
     /// <summary>
+    /// Serializes the selected model ID so the choice survives save and reload.
+    /// </summary>
+    /// <param name="writer">The GH_IWriter to write to.</param>
+    /// <returns>true.</returns>
+    public override bool Write(GH_IWriter writer)
+    {
+        writer.SetString("SelectedModel", SelectedModel ?? string.Empty);
+        return base.Write(writer);
+    }
+
+    /// <summary>
+    /// Deserialises the selected model ID. The model list is re-fetched from the provider
+    /// on the next solve; the restored selection is applied once a provider is available.
+    /// </summary>
+    /// <param name="reader">The GH_IReader to read from.</param>
+    /// <returns>true.</returns>
+    public override bool Read(GH_IReader reader)
+    {
+        string value = string.Empty;
+        if (reader.TryGetString("SelectedModel", ref value) && !string.IsNullOrEmpty(value))
+        {
+            SelectedModel = value;
+        }
+
+        return base.Read(reader);
+    }
+
+    /// <summary>
     /// Registers all the input parameters for this component.
     /// </summary>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
@@ -93,7 +122,7 @@ public class ModelSelector : PhyBase
         LlmProvider incoming = llmGoo.Value; // unwrap the container
 
         // need to check if provider has been changed
-        bool providerChanged = !ReferenceEquals(incoming, _lastProvider);
+        bool providerChanged = _lastProvider != null && !ReferenceEquals(incoming, _lastProvider);
         if (providerChanged)
         {
             SelectedModel = string.Empty;

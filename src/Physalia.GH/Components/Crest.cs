@@ -4,6 +4,9 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
@@ -22,9 +25,14 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class Crest : PhyBase
 {
+    private const int MaxAutoFixAttempts = 3;
+
     private Task? _pendingRequest;
     private string? _errorMsg;
     private string? _lastPrompt;
+    private bool _autoFix;
+    private int _autoFixAttempts;
+    private bool _waitingForAutoFix;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Crest"/> class.
@@ -109,6 +117,7 @@ public class Crest : PhyBase
         pManager.AddParameter(new LlmProviderGhParam(), "Llm", "Llm", "Large language model from DREAM", GH_ParamAccess.item);
         pManager.AddTextParameter("Prompt", "Prmpt", "The prompt", GH_ParamAccess.item);
         pManager.AddBooleanParameter("Send", "Snd", "Send Prompt to defined model", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("AutoFix", "Fix", "Set True if you want the LLM to attempt to fix errors as they occur. Defaults to True.", GH_ParamAccess.item, true);
     }
 
     /// <summary>
@@ -144,6 +153,11 @@ public class Crest : PhyBase
             return;
         }
 
+        if (!DA.GetData(3, ref _autoFix))
+        {
+            return;
+        }
+
         if (_errorMsg != null)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Error, _errorMsg);
@@ -155,8 +169,9 @@ public class Crest : PhyBase
             return; // no zooid linked yet
         }
 
-        if (send && (_pendingRequest == null || _pendingRequest.IsCompleted) && prompt != _lastPrompt)
+        if (send && (_pendingRequest == null || _pendingRequest.IsCompleted) && !_waitingForAutoFix)
         {
+            _autoFixAttempts = 0;
             Message = "Calling API...";
 
             var llm = llmGoo.Value;
@@ -175,11 +190,8 @@ public class Crest : PhyBase
 
     private async Task SendRequestAsync(string prompt, LlmProvider llModel, Zooid zooid)
     {
-        // Get the ZOOIDS's user defined input and output parameters
         var zooidInputs = ParamBuilder.GetUserParams(zooid.Params.Input, true);
         var zooidOutputs = ParamBuilder.GetUserParams(zooid.Params.Output, false);
-
-        // compose the parameters prompt and add it to the user prompt
         var paramPrompt = ParamBuilder.UserParamsPrompt(zooidInputs, zooidOutputs);
 
         try
@@ -187,9 +199,15 @@ public class Crest : PhyBase
             var rawResult = await llModel.SendPromptAsync(SystemPrompt.Default, prompt + paramPrompt);
             var formattedResult = ResponseParser.Parse(rawResult);
             _lastPrompt = prompt;
-            zooid.ReceiveResponse(formattedResult);  // zooid handles rebuild + expire
+            zooid.ReceiveResponse(formattedResult);
             Message = "Done";
             ExpireSolution(true);
+
+            if (_autoFix && _autoFixAttempts < MaxAutoFixAttempts)
+            {
+                _waitingForAutoFix = true;
+                OnPingDocument()?.ScheduleSolution(1500, _ => TriggerAutoFix(prompt, llModel, zooid, formattedResult));
+            }
         }
         catch (Exception ex)
         {
@@ -197,5 +215,81 @@ public class Crest : PhyBase
             Message = "Error";
             ExpireSolution(true);
         }
+    }
+
+    private void TriggerAutoFix(string originalPrompt, LlmProvider llModel, Zooid zooid, ScriptResponse lastResponse)
+    {
+        _waitingForAutoFix = false;
+
+        if (_autoFix && _autoFixAttempts < MaxAutoFixAttempts && ShouldAutoFix(zooid))
+        {
+            _autoFixAttempts++;
+            _pendingRequest = AutoFixAsync(originalPrompt, llModel, zooid, lastResponse);
+        }
+    }
+
+    private async Task AutoFixAsync(string originalPrompt, LlmProvider llModel, Zooid zooid, ScriptResponse lastResponse)
+    {
+        Message = $"Auto-fixing ({_autoFixAttempts}/{MaxAutoFixAttempts})...";
+
+        var fixPrompt = BuildFixPrompt(originalPrompt, lastResponse, zooid.LastDiagnostics, zooid.LastRuntimeError);
+
+        try
+        {
+            var rawResult = await llModel.SendPromptAsync(SystemPrompt.Default, fixPrompt);
+            var formattedResult = ResponseParser.Parse(rawResult);
+            zooid.ReceiveResponse(formattedResult);
+            Message = $"Auto-fixed ({_autoFixAttempts}/{MaxAutoFixAttempts})";
+            ExpireSolution(true);
+
+            if (_autoFix && _autoFixAttempts < MaxAutoFixAttempts)
+            {
+                _waitingForAutoFix = true;
+                OnPingDocument()?.ScheduleSolution(1500, _ => TriggerAutoFix(originalPrompt, llModel, zooid, formattedResult));
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMsg = ex.InnerException?.Message ?? ex.Message;
+            Message = "Fix failed";
+            ExpireSolution(true);
+        }
+    }
+
+    private static bool ShouldAutoFix(Zooid zooid)
+    {
+        bool hasErrors = zooid.LastDiagnostics.Count > 0 || !string.IsNullOrEmpty(zooid.LastRuntimeError);
+        bool allInputsUnconnected = zooid.Params.Input.Count > 0 && zooid.Params.Input.All(p => p.Sources.Count == 0);
+        return hasErrors && !allInputsUnconnected;
+    }
+
+    private static string BuildFixPrompt(string originalPrompt, ScriptResponse response, IReadOnlyList<Diagnostic> diagnostics, string? runtimeError)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"The following script was generated for this task: \"{originalPrompt}\"");
+        sb.AppendLine();
+        sb.AppendLine("The script has errors that need fixing. Return a corrected JSON response in the same format.");
+        sb.AppendLine();
+        sb.AppendLine("Current script:");
+        sb.AppendLine(response.Script);
+
+        if (diagnostics.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Static analysis errors:");
+            foreach (var d in diagnostics)
+            {
+                sb.AppendLine($"  {d}");
+            }
+        }
+
+        if (!string.IsNullOrEmpty(runtimeError))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Runtime error:");
+            sb.AppendLine($"  {runtimeError}");
+        }
+
+        return sb.ToString();
     }
 }

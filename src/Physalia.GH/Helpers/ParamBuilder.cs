@@ -19,26 +19,48 @@ public static class ParamBuilder
 {
     /// <summary>
     /// Clear all current parameters on a component and rebuild the new ones based on the LLM response.
+    /// Connections on params whose NickName survives in the new response are preserved.
     /// </summary>
     /// <param name="component">GH component to rebuild parameters for.</param>
     /// <param name="response">JSON response returned by the LLM.</param>
     public static void Rebuild(GH_Component component, ScriptResponse response)
     {
-        // remove the parameters
+        // Snapshot connections by NickName before clearing
+        var inputSources = component.Params.Input
+            .ToDictionary(p => p.NickName, p => p.Sources.ToList());
+        var outputRecipients = component.Params.Output
+            .ToDictionary(p => p.NickName, p => p.Recipients.ToList());
+
         component.Params.Clear();
 
-        // Add new inputs
+        // Add new inputs and restore any matching connections
         foreach (var input in response.Inputs)
         {
             var param = CreateInputParam(input);
             component.Params.RegisterInputParam(param);
+
+            if (inputSources.TryGetValue(input.Name, out var sources))
+            {
+                foreach (var source in sources)
+                {
+                    param.AddSource(source);
+                }
+            }
         }
 
-        // Add new outputs
+        // Add new outputs and restore any matching connections
         foreach (var output in response.Outputs)
         {
             var param = CreateOutputParam(output);
             component.Params.RegisterOutputParam(param);
+
+            if (outputRecipients.TryGetValue(output.Name, out var recipients))
+            {
+                foreach (var recipient in recipients)
+                {
+                    recipient.AddSource(param);
+                }
+            }
         }
 
         component.Params.OnParametersChanged();

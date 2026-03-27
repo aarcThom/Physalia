@@ -67,23 +67,26 @@ public static class ParamBuilder
     }
 
     /// <summary>
-    /// Returns all user-defined parameters from a parameter list, identified by the sentinel description string.
+    /// Returns all user-defined parameters from a parameter list.
     /// </summary>
     /// <param name="paramsIn">The list of GH parameters to inspect.</param>
     /// <param name="isInput">True if the parameters are inputs; false for outputs.</param>
-    /// <returns>A list of ParamInfo records for each user-defined parameter found.</returns>
+    /// <returns>A list of ParamInfo records for each  parameter found.</returns>
     public static List<ParamInfo> GetUserParams(List<IGH_Param> paramsIn, bool isInput)
     {
         var paramList = new List<ParamInfo>();
 
         foreach (IGH_Param param in paramsIn)
         {
+            /*
+             * NOTE: I THINK I ALWAYS WANT TO KEEP USER CREATED PARAMS.
             // keep the parameter if it is user created
             var lowerDescription = param.Description.ToLower();
             if (!lowerDescription.Contains(PhyConstants.DefaultParamDescription))
             {
                 continue;
             }
+            */
 
             string access = GetParamAccess(param);
             string type = isInput ? GetInputType(param) : string.Empty;

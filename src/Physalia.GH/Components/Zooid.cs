@@ -27,17 +27,6 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
     private bool _needsCheck;
 
     /// <summary>
-    /// Gets the pyflakes diagnostics from the last CodeChecker run.
-    /// Updated once each time a new script is received from the LLM.
-    /// </summary>
-    public IReadOnlyList<Diagnostic> LastDiagnostics { get; private set; } = new List<Diagnostic>();
-
-    /// <summary>
-    /// Gets the runtime error message from the last failed script execution, or null if the last run succeeded.
-    /// </summary>
-    public string? LastRuntimeError { get; private set; }
-
-    /// <summary>
     /// Initializes a new instance of the <see cref="Zooid"/> class.
     /// </summary>
     public Zooid()
@@ -48,6 +37,25 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
             "Core")
     {
     }
+
+    /// <summary>
+    /// Gets the unique ID for this component. Do not change this ID after release.
+    /// </summary>
+    public override Guid ComponentGuid
+    {
+        get { return new Guid("7CD743AB-E4FC-4396-A190-4559632C4848"); }
+    }
+
+    /// <summary>
+    /// Gets the pyflakes diagnostics from the last CodeChecker run.
+    /// Updated once each time a new script is received from the LLM.
+    /// </summary>
+    public IReadOnlyList<Diagnostic> LastDiagnostics { get; private set; } = new List<Diagnostic>();
+
+    /// <summary>
+    /// Gets the runtime error message from the last failed script execution, or null if the last run succeeded.
+    /// </summary>
+    public string? LastRuntimeError { get; private set; }
 
     /// <summary>
     /// Stores the latest LLM response, rebuilds the component's dynamic parameters,
@@ -82,14 +90,6 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
             Message = "Edited";
             ExpireSolution(true);
         }
-    }
-
-    /// <summary>
-    /// Gets the unique ID for this component. Do not change this ID after release.
-    /// </summary>
-    public override Guid ComponentGuid
-    {
-        get { return new Guid("7CD743AB-E4FC-4396-A190-4559632C4848"); }
     }
 
     /// <summary>
@@ -253,7 +253,7 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
             string candidate = $"{prefix}_{i}";
             if (!existingParams.Contains(candidate))
             {
-                return candidate ;
+                return candidate;
             }
         }
     }

@@ -15,7 +15,7 @@ public abstract class LlmProvider
     /// HttpClient is designed to be long-lived and reused — one per provider,
     /// shared across all calls. readonly in the abstract base class ensures a single
     /// instance for each inheriting class for the lifetime of the plugin.
-    /// See: https://learn.microsoft.com/en-us/dotnet/fundamentals/networking/http/httpclient-guidelines
+    /// See: https://learn.microsoft.com/en-us/dotnet/fundamentals/networking/http/httpclient-guidelines .
     /// </remarks>
     protected readonly HttpClient _http = new ();
 
@@ -46,7 +46,7 @@ public abstract class LlmProvider
 
     /// <summary>
     /// The max tokens set for the provider.
-    /// See: https://learn.microsoft.com/en-us/dotnet/ai/conceptual/understanding-tokens
+    /// See: https://learn.microsoft.com/en-us/dotnet/ai/conceptual/understanding-tokens .
     /// </summary>
     public abstract int MaxTokens { get; }
 
@@ -67,10 +67,12 @@ public abstract class LlmProvider
     /// <remarks>
     /// Implementors must populate <see cref="_models"/> before this task completes.
     /// </remarks>
+    /// <returns> The available models from the provider.</placeholder></returns>
     public abstract Task GetModelsAsync();
 
     /// <summary>
-    /// Validates inputs and delegates to <see cref="SendPromptCoreAsync"/> for provider-specific execution.
+    /// Validates inputs and sends a single-turn prompt to the LLM.
+    /// Convenience wrapper around <see cref="SendConversationAsync"/> for single-turn use.
     /// Throws <see cref="ArgumentException"/> if <paramref name="systemPrompt"/>, <paramref name="userPrompt"/>,
     /// or <see cref="CurrentModel"/> are null or whitespace.
     /// </summary>
@@ -80,14 +82,33 @@ public abstract class LlmProvider
     /// <returns>The raw response string returned by the LLM.</returns>
     public Task<string> SendPromptAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(userPrompt))
+        {
+            throw new ArgumentException("User prompt must not be null or empty.", nameof(userPrompt));
+        }
+
+        return SendConversationAsync(systemPrompt, new[] { new ConversationMessage("user", userPrompt) }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Validates inputs and delegates to <see cref="SendConversationCoreAsync"/> for provider-specific execution.
+    /// Throws <see cref="ArgumentException"/> if <paramref name="systemPrompt"/>, <paramref name="history"/>,
+    /// or <see cref="CurrentModel"/> are null or empty.
+    /// </summary>
+    /// <param name="systemPrompt">The system prompt that defines the model's behavior and context.</param>
+    /// <param name="history">The ordered list of conversation messages to send.</param>
+    /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
+    /// <returns>The raw response string returned by the LLM.</returns>
+    public Task<string> SendConversationAsync(string systemPrompt, IReadOnlyList<ConversationMessage> history, CancellationToken cancellationToken = default)
+    {
         if (string.IsNullOrWhiteSpace(systemPrompt))
         {
             throw new ArgumentException("System prompt must not be null or empty.", nameof(systemPrompt));
         }
 
-        if (string.IsNullOrWhiteSpace(userPrompt))
+        if (history == null || history.Count == 0)
         {
-            throw new ArgumentException("User prompt must not be null or empty.", nameof(userPrompt));
+            throw new ArgumentException("Conversation history must not be null or empty.", nameof(history));
         }
 
         if (string.IsNullOrWhiteSpace(CurrentModel))
@@ -95,16 +116,16 @@ public abstract class LlmProvider
             throw new ArgumentException("Current model cannot be null or empty.", nameof(CurrentModel));
         }
 
-        return SendPromptCoreAsync(systemPrompt, userPrompt, cancellationToken);
+        return SendConversationCoreAsync(systemPrompt, history, cancellationToken);
     }
 
     /// <summary>
-    /// Provider-specific implementation for sending a prompt to the LLM.
-    /// Called by <see cref="SendPromptAsync"/> after input validation.
+    /// Provider-specific implementation for sending a multi-turn conversation to the LLM.
+    /// Called by <see cref="SendConversationAsync"/> after input validation.
     /// </summary>
     /// <param name="systemPrompt">The system prompt that defines the model's behavior and context.</param>
-    /// <param name="userPrompt">The user prompt containing the request to be processed.</param>
+    /// <param name="history">The ordered list of conversation messages to send.</param>
     /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
     /// <returns>The raw response string returned by the LLM.</returns>
-    protected abstract Task<string> SendPromptCoreAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken);
+    protected abstract Task<string> SendConversationCoreAsync(string systemPrompt, IReadOnlyList<ConversationMessage> history, CancellationToken cancellationToken);
 }

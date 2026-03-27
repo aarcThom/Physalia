@@ -63,33 +63,31 @@ internal class GeminiProvider : LlmProvider
     }
 
     /// <summary>
-    /// Sends a system and user prompt to the Gemini generateContent API and returns the raw response text.
+    /// Sends a multi-turn conversation to the Gemini generateContent API and returns the raw response text.
     /// </summary>
     /// <param name="systemPrompt">The system prompt that defines the model's behavior and context.</param>
-    /// <param name="userPrompt">The user prompt containing the request to be processed.</param>
+    /// <param name="history">The ordered list of conversation messages to send.</param>
     /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
     /// <returns>The concatenated text from all parts across all response candidates.</returns>
     /// <exception cref="HttpRequestException">Thrown when the API returns a non-success status code.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the response cannot be deserialized.</exception>
-    protected override async Task<string> SendPromptCoreAsync(
+    protected override async Task<string> SendConversationCoreAsync(
         string systemPrompt,
-        string userPrompt,
+        IReadOnlyList<ConversationMessage> history,
         CancellationToken cancellationToken)
     {
+        // Gemini uses "model" for the assistant role rather than "assistant"
         var requestBody = new GeminiRequest
         {
             SystemInstruction = new GeminiContent
             {
                 Parts = new[] { new GeminiPart { Text = systemPrompt } },
             },
-            Contents = new[]
+            Contents = history.Select(m => new GeminiMessage
             {
-                new GeminiMessage
-                {
-                    Role = "user",
-                    Parts = new[] { new GeminiPart { Text = userPrompt } },
-                },
-            },
+                Role = m.Role == "assistant" ? "model" : m.Role,
+                Parts = new[] { new GeminiPart { Text = m.Content } },
+            }).ToArray(),
             GenerationConfig = new GenerationConfig
             {
                 MaxOutputTokens = MaxTokens,

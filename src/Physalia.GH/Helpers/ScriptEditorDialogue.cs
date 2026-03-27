@@ -7,6 +7,8 @@ using Eto.Drawing;
 using Eto.Forms;
 using Physalia.GH.Helpers;
 
+namespace Physalia.GH.Helpers;
+
 /// <summary>
 /// A simple code editor dialog for viewing and editing the generated Python script.
 /// Includes a problems panel that displays pyflakes lint diagnostics.
@@ -41,7 +43,6 @@ public class ScriptEditorDialog : Dialog<string?>
         Resizable = true;
 
         _inputNames = inputNames ?? new List<string>();
-
 
         // SETTING UP THE FONT ========================================================
         _editorFont = new Font(FontFamilies.Monospace, 10);

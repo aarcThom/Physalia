@@ -61,15 +61,15 @@ public class AnthropicProvider : LlmProvider
     }
 
     /// <summary>
-    /// Sends a system and user prompt to the Anthropic messages API and returns the raw response text.
+    /// Sends a multi-turn conversation to the Anthropic messages API and returns the raw response text.
     /// </summary>
     /// <param name="systemPrompt">The system prompt that defines the model's behavior and context.</param>
-    /// <param name="userPrompt">The user prompt containing the request to be processed.</param>
+    /// <param name="history">The ordered list of conversation messages to send.</param>
     /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
     /// <returns>The concatenated text content from all text blocks in the Anthropic response.</returns>
     /// <exception cref="HttpRequestException">Thrown when the API returns a non-success status code.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the response cannot be deserialized.</exception>
-    protected override async Task<string> SendPromptCoreAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken)
+    protected override async Task<string> SendConversationCoreAsync(string systemPrompt, IReadOnlyList<ConversationMessage> history, CancellationToken cancellationToken)
     {
         // Build the request body
         var requestBody = new AnthropicRequest
@@ -77,10 +77,7 @@ public class AnthropicProvider : LlmProvider
             RequestModel = CurrentModel,
             RequestMaxTokens = MaxTokens,
             System = systemPrompt,
-            Messages = new[]
-            {
-                  new AnthropicMessage { Role = "user", Content = userPrompt },
-              },
+            Messages = history.Select(m => new AnthropicMessage { Role = m.Role, Content = m.Content }).ToArray(),
         };
 
         var requestJson = JsonSerializer.Serialize(requestBody);

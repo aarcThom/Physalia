@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System.Diagnostics;
+using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -61,21 +63,28 @@ internal class ClaudeCodeProvider : LlmProvider
     }
 
     /// <summary>
-    /// Invokes the Claude Code CLI with the given prompts and returns the response text.
+    /// Invokes the Claude Code CLI with the conversation history serialized into the prompt and returns the response text.
+    /// The CLI does not support native multi-turn message arrays, so prior turns are formatted inline.
+    /// For single-turn use the prompt is passed as-is.
     /// </summary>
     /// <param name="systemPrompt">The system prompt passed via <c>--system-prompt</c>.</param>
-    /// <param name="userPrompt">The user prompt passed via <c>-p</c>.</param>
+    /// <param name="history">The ordered list of conversation messages to send.</param>
     /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
     /// <returns>The result text from the CLI JSON response.</returns>
     /// <exception cref="InvalidOperationException">
     /// Thrown when the CLI process cannot be started, exits with a non-zero code,
     /// the response cannot be deserialized, or the subtype is not "success".
     /// </exception>
-    protected override async Task<string> SendPromptCoreAsync(
+    protected override async Task<string> SendConversationCoreAsync(
         string systemPrompt,
-        string userPrompt,
+        IReadOnlyList<ConversationMessage> history,
         CancellationToken cancellationToken)
     {
+        // The CLI only accepts a single -p prompt, so serialize multi-turn history inline.
+        string userPrompt = history.Count == 1
+            ? history[0].Content
+            : SerializeHistory(history);
+
         var psi = new ProcessStartInfo
         {
             FileName = "claude",
@@ -126,6 +135,21 @@ internal class ClaudeCodeProvider : LlmProvider
         }
 
         return result.Result;
+    }
+
+    private static string SerializeHistory(IReadOnlyList<ConversationMessage> history)
+    {
+        var sb = new StringBuilder();
+        foreach (var message in history)
+        {
+            string label = message.Role == "assistant" ? "Assistant" : "User";
+            sb.AppendLine($"[{label}]");
+            sb.AppendLine(message.Content);
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("Continue from the conversation above. Respond as the assistant.");
+        return sb.ToString();
     }
 
     /// <summary>

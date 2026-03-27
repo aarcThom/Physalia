@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -60,28 +61,29 @@ internal abstract class OpenAiCompatibleProvider : LlmProvider
     }
 
     /// <summary>
-    /// Sends a system and user prompt to <c>{BaseUrl}/chat/completions</c> and returns the response text.
+    /// Sends a multi-turn conversation to <c>{BaseUrl}/chat/completions</c> and returns the response text.
+    /// The system prompt is prepended as a <c>system</c> role message before the history.
     /// </summary>
     /// <param name="systemPrompt">The system prompt sent as the first message with role "system".</param>
-    /// <param name="userPrompt">The user prompt sent as the second message with role "user".</param>
+    /// <param name="history">The ordered list of conversation messages to send.</param>
     /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
     /// <returns>The content of the first choice's assistant message.</returns>
     /// <exception cref="HttpRequestException">Thrown when the API returns a non-success status code.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the response cannot be deserialized or contains no choices.</exception>
-    protected override async Task<string> SendPromptCoreAsync(
+    protected override async Task<string> SendConversationCoreAsync(
         string systemPrompt,
-        string userPrompt,
+        IReadOnlyList<ConversationMessage> history,
         CancellationToken cancellationToken)
     {
+        var messages = new[] { new ChatMessage { Role = "system", Content = systemPrompt } }
+            .Concat(history.Select(m => new ChatMessage { Role = m.Role, Content = m.Content }))
+            .ToArray();
+
         var requestBody = new ChatRequest
         {
             Model = CurrentModel,
             MaxTokens = MaxTokens,
-            Messages = new[]
-            {
-                new ChatMessage { Role = "system", Content = systemPrompt },
-                new ChatMessage { Role = "user", Content = userPrompt },
-            },
+            Messages = messages,
         };
 
         var requestJson = JsonSerializer.Serialize(requestBody);

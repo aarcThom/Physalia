@@ -20,13 +20,12 @@ using Physalia.GH.ParamTypes;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// The CREST component receives an LLM provider from DREAM, accepts a user prompt,
+/// The CREST component receives an LLM provider from MODEL SELECTOR, accepts a user prompt,
 /// calls the LLM API asynchronously, and forwards the parsed response to a linked ZOOID component.
 /// </summary>
 public class Crest : PhyBase
 {
-    private const int MaxAutoFixAttempts = 3;
-
+    private int _maxAutoFixAttemps;
     private Task? _pendingRequest;
     private string? _errorMsg;
     private string? _lastPrompt;
@@ -35,11 +34,11 @@ public class Crest : PhyBase
     private bool _waitingForAutoFix;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Crest"/> class.
+    /// Gets the unique ID for this component. Do not change this ID after release.
     /// </summary>
-    public Crest()
-        : base("CREST", "CREST", "Description", "Core")
+    public override Guid ComponentGuid
     {
+        get { return new Guid("B904F3D0-72CC-4B43-A15E-497CE8478638"); }
     }
 
     /// <summary>
@@ -53,12 +52,92 @@ public class Crest : PhyBase
     public Guid ZooidGuid { get; set; }
 
     /// <summary>
-    /// Gets the unique ID for this component. Do not change this ID after release.
+    /// Initializes a new instance of the <see cref="Crest"/> class.
     /// </summary>
-    public override Guid ComponentGuid
+    public Crest()
+        : base("CREST", "CREST", "Description", "Core")
     {
-        get { return new Guid("B904F3D0-72CC-4B43-A15E-497CE8478638"); }
     }
+
+    /// <summary>
+    /// Registers all the input parameters for this component.
+    /// </summary>
+    /// <param name="pManager">The GH_InputParamManager for registering input parameters.</param>
+    protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
+    {
+        pManager.AddParameter(new LlmProviderGhParam(), "Llm", "Llm", "Large language model from DREAM", GH_ParamAccess.item);
+        pManager.AddTextParameter("Prompt", "Prmpt", "The prompt", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("Send", "Snd", "Send Prompt to defined model", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("AutoFix", "Fix", "Set True if you want the LLM to attempt to fix errors as they occur. Defaults to True.", GH_ParamAccess.item, true);
+        pManager.AddIntegerParameter("Fix Attemps", "Fix #", "Number of times you want to send error codes back to the LLM for fixing. Defaults to 3", GH_ParamAccess.item, 3);
+    }
+
+    /// <summary>
+    /// Registers all the output parameters for this component.
+    /// </summary>
+    /// <param name="pManager">The GH_OutputParamManager for registering output parameters.</param>
+    protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
+    {
+    }
+
+    /// <summary>
+    /// This is the method that actually does the work.
+    /// </summary>
+    /// <param name="DA">The DA object is used to retrieve from inputs and store in outputs.</param>
+    protected override void SolveInstance(IGH_DataAccess DA)
+    {
+        // INPUTS -------------------------------
+        LlmProviderGoo? llmGoo = null;
+        string? prompt = null;
+        bool send = false;
+
+        if (!DA.GetData(0, ref llmGoo))
+        {
+            return;
+        }
+
+        if (!DA.GetData(1, ref prompt))
+        {
+            return;
+        }
+
+        if (!DA.GetData(2, ref send))
+        {
+            return;
+        }
+
+        if (!DA.GetData(3, ref _autoFix))
+        {
+            return;
+        }
+
+        if (!DA.GetData(4, ref _maxAutoFixAttemps))
+        {
+            return;
+        }
+
+        // error message from original LLM call or auto fix attemps
+        if (_errorMsg != null)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, _errorMsg);
+            _errorMsg = null;
+        }
+
+        if (ZooidComponent == null)
+        {
+            return; // no zooid linked yet
+        }
+
+        if (send && (_pendingRequest == null || _pendingRequest.IsCompleted) && !_waitingForAutoFix)
+        {
+            _autoFixAttempts = 0;
+
+            var llm = llmGoo.Value;
+            _pendingRequest = SendRequestAsync(prompt, llm, ZooidComponent);
+        }
+    }
+
+    // OVERRIDE METHODS ======================================================================================================
 
     /// <summary>
     /// Assigns the custom <see cref="CrestAttrib"/> attribute class to this component.
@@ -108,105 +187,40 @@ public class Crest : PhyBase
         }
     }
 
-    /// <summary>
-    /// Registers all the input parameters for this component.
-    /// </summary>
-    /// <param name="pManager">The GH_InputParamManager for registering input parameters.</param>
-    protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
+    // LLM REQUESTS METHODS ======================================================================================================
+
+    // THE MAIN LLM REQUEST
+    private async Task SendRequestAsync(
+        string prompt,
+        LlmProvider llModel,
+        Zooid zooid)
     {
-        pManager.AddParameter(new LlmProviderGhParam(), "Llm", "Llm", "Large language model from DREAM", GH_ParamAccess.item);
-        pManager.AddTextParameter("Prompt", "Prmpt", "The prompt", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Send", "Snd", "Send Prompt to defined model", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("AutoFix", "Fix", "Set True if you want the LLM to attempt to fix errors as they occur. Defaults to True.", GH_ParamAccess.item, true);
-    }
+        Message = "Calling API";
 
-    /// <summary>
-    /// Registers all the output parameters for this component.
-    /// </summary>
-    /// <param name="pManager">The GH_OutputParamManager for registering output parameters.</param>
-    protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
-    {
-    }
-
-    /// <summary>
-    /// This is the method that actually does the work.
-    /// </summary>
-    /// <param name="DA">The DA object is used to retrieve from inputs and store in outputs.</param>
-    protected override void SolveInstance(IGH_DataAccess DA)
-    {
-        LlmProviderGoo? llmGoo = null;
-        string? prompt = null;
-        bool send = false;
-
-        if (!DA.GetData(0, ref llmGoo))
-        {
-            return;
-        }
-
-        if (!DA.GetData(1, ref prompt))
-        {
-            return;
-        }
-
-        if (!DA.GetData(2, ref send))
-        {
-            return;
-        }
-
-        if (!DA.GetData(3, ref _autoFix))
-        {
-            return;
-        }
-
-        if (_errorMsg != null)
-        {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, _errorMsg);
-            _errorMsg = null;
-        }
-
-        if (ZooidComponent == null)
-        {
-            return; // no zooid linked yet
-        }
-
-        if (send && (_pendingRequest == null || _pendingRequest.IsCompleted) && !_waitingForAutoFix)
-        {
-            _autoFixAttempts = 0;
-            Message = "Calling API...";
-
-            var llm = llmGoo.Value;
-            _pendingRequest = SendRequestAsync(prompt, llm, ZooidComponent);
-        }
-    }
-
-    private void ReconnectZooid(GH_Document doc)
-    {
-        var obj = doc.FindObject(ZooidGuid, true);
-        if (obj is Zooid zooid)
-        {
-            ZooidComponent = zooid;
-        }
-    }
-
-    private async Task SendRequestAsync(string prompt, LlmProvider llModel, Zooid zooid)
-    {
+        // GET PRE-EXISTING INPUTS AND OUTPUTS
         var zooidInputs = ParamBuilder.GetUserParams(zooid.Params.Input, true);
         var zooidOutputs = ParamBuilder.GetUserParams(zooid.Params.Output, false);
         var paramPrompt = ParamBuilder.UserParamsPrompt(zooidInputs, zooidOutputs);
 
         try
         {
+            // SEND THE PROMPT - GET AND FORMAT THE RESULT
             var rawResult = await llModel.SendPromptAsync(SystemPrompt.Default, prompt + paramPrompt);
             var formattedResult = ResponseParser.Parse(rawResult);
             _lastPrompt = prompt;
+
+            // SEND TO ZOOID AND EXPIRE SOLUTION
             zooid.ReceiveResponse(formattedResult);
             Message = "Done";
             ExpireSolution(true);
 
-            if (_autoFix && _autoFixAttempts < MaxAutoFixAttempts)
+            // WAIT A BIT AND THEN AUTOFIX IF NEED BE
+            if (_autoFix && _autoFixAttempts < _maxAutoFixAttemps)
             {
                 _waitingForAutoFix = true;
-                OnPingDocument()?.ScheduleSolution(1500, _ => TriggerAutoFix(prompt, llModel, zooid, formattedResult));
+
+                var currentDoc = OnPingDocument();
+                currentDoc.ScheduleSolution(1500, _ => TriggerAutoFix(prompt, llModel, zooid, formattedResult));
             }
         }
         catch (Exception ex)
@@ -217,20 +231,32 @@ public class Crest : PhyBase
         }
     }
 
+    // CHECKS IF FIX IS NEEDED / ALLOWED AND THEN RECALLS THE LLM
     private void TriggerAutoFix(string originalPrompt, LlmProvider llModel, Zooid zooid, ScriptResponse lastResponse)
     {
         _waitingForAutoFix = false;
 
-        if (_autoFix && _autoFixAttempts < MaxAutoFixAttempts && ShouldAutoFix(zooid))
+        if (_autoFix && _autoFixAttempts < _maxAutoFixAttemps && ShouldAutoFix(zooid))
         {
             _autoFixAttempts++;
             _pendingRequest = AutoFixAsync(originalPrompt, llModel, zooid, lastResponse);
         }
     }
 
+    // DETERMINES WHETHER OR NOT AN AUTOFIX SHOULD BE ATTEMPTED
+    private static bool ShouldAutoFix(Zooid zooid)
+    {
+        bool hasErrors = !string.IsNullOrEmpty(zooid.LastRuntimeError);
+
+        // can't really fix components that aren't fully connected
+        bool allInputsUnconnected = zooid.Params.Input.Count > 0 && zooid.Params.Input.All(p => p.Sources.Count == 0);
+        return hasErrors && !allInputsUnconnected;
+    }
+
+    // THE AUTOFIX REQUEST
     private async Task AutoFixAsync(string originalPrompt, LlmProvider llModel, Zooid zooid, ScriptResponse lastResponse)
     {
-        Message = $"Auto-fixing ({_autoFixAttempts}/{MaxAutoFixAttempts})...";
+        Message = $"Fixing ({_autoFixAttempts}/{_maxAutoFixAttemps})";
 
         var fixPrompt = BuildFixPrompt(originalPrompt, lastResponse, zooid.LastDiagnostics, zooid.LastRuntimeError);
 
@@ -239,10 +265,10 @@ public class Crest : PhyBase
             var rawResult = await llModel.SendPromptAsync(SystemPrompt.Default, fixPrompt);
             var formattedResult = ResponseParser.Parse(rawResult);
             zooid.ReceiveResponse(formattedResult);
-            Message = $"Auto-fixed ({_autoFixAttempts}/{MaxAutoFixAttempts})";
+            Message = "Done";
             ExpireSolution(true);
 
-            if (_autoFix && _autoFixAttempts < MaxAutoFixAttempts)
+            if (_autoFix && _autoFixAttempts < _maxAutoFixAttemps)
             {
                 _waitingForAutoFix = true;
                 OnPingDocument()?.ScheduleSolution(1500, _ => TriggerAutoFix(originalPrompt, llModel, zooid, formattedResult));
@@ -254,13 +280,6 @@ public class Crest : PhyBase
             Message = "Fix failed";
             ExpireSolution(true);
         }
-    }
-
-    private static bool ShouldAutoFix(Zooid zooid)
-    {
-        bool hasErrors = zooid.LastDiagnostics.Count > 0 || !string.IsNullOrEmpty(zooid.LastRuntimeError);
-        bool allInputsUnconnected = zooid.Params.Input.Count > 0 && zooid.Params.Input.All(p => p.Sources.Count == 0);
-        return hasErrors && !allInputsUnconnected;
     }
 
     private static string BuildFixPrompt(string originalPrompt, ScriptResponse response, IReadOnlyList<Diagnostic> diagnostics, string? runtimeError)
@@ -291,5 +310,14 @@ public class Crest : PhyBase
         }
 
         return sb.ToString();
+    }
+
+    private void ReconnectZooid(GH_Document doc)
+    {
+        var obj = doc.FindObject(ZooidGuid, true);
+        if (obj is Zooid zooid)
+        {
+            ZooidComponent = zooid;
+        }
     }
 }

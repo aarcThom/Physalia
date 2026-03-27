@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Parameters;
@@ -239,10 +240,122 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
     }
 
     /// <summary>
-    /// Called after parameters change; no maintenance is required for this component.
+    /// Sanitizes the names of user-defined parameters to valid Python identifiers after any parameter change.
+    /// LLM-generated parameters are left untouched as their names must match the script exactly.
+    /// Also subscribes to <see cref="OnUserParamChanged"/> for any newly added user params.
     /// </summary>
     public void VariableParameterMaintenance()
     {
+        var userParams = Params.Input.Concat(Params.Output)
+            .Where(p => p.Description == PhyConstants.DefaultParamDescription)
+            .ToList();
+
+        // Track all names (including LLM params) to avoid collisions
+        var taken = new HashSet<string>(
+            Params.Input.Concat(Params.Output)
+                .Where(p => p.Description != PhyConstants.DefaultParamDescription)
+                .Select(p => p.NickName));
+
+        foreach (var p in userParams)
+        {
+            var clean = SanitizePythonName(p.NickName);
+            clean = Deduplicate(clean, taken);
+            taken.Add(clean);
+
+            if (clean != p.NickName)
+            {
+                p.Name = clean;
+                p.NickName = clean;
+            }
+        }
+
+        SubscribeUserParamEvents();
+    }
+
+    /// <summary>
+    /// Re-subscribes rename listeners for all user-defined parameters after the component is loaded into a document.
+    /// </summary>
+    /// <param name="document">The document this component was added to.</param>
+    public override void AddedToDocument(GH_Document document)
+    {
+        base.AddedToDocument(document);
+        SubscribeUserParamEvents();
+    }
+
+    private void SubscribeUserParamEvents()
+    {
+        foreach (var p in Params.Input.Concat(Params.Output)
+                     .Where(p => p.Description == PhyConstants.DefaultParamDescription))
+        {
+            // Unsubscribe first to avoid double-subscribing
+            p.ObjectChanged -= OnUserParamChanged;
+            p.ObjectChanged += OnUserParamChanged;
+        }
+    }
+
+    private void OnUserParamChanged(IGH_DocumentObject sender, GH_ObjectChangedEventArgs e)
+    {
+        if (e.Type != GH_ObjectEventType.NickName) return;
+        if (sender is not IGH_Param p) return;
+        if (p.Description != PhyConstants.DefaultParamDescription) return;
+
+        var clean = SanitizePythonName(p.NickName);
+
+        // Build taken set from all other params
+        var taken = new HashSet<string>(
+            Params.Input.Concat(Params.Output)
+                .Where(other => other != p)
+                .Select(other => other.NickName));
+
+        clean = Deduplicate(clean, taken);
+
+        if (clean == p.NickName) return;
+
+        // Unsubscribe to avoid re-entrancy when setting NickName
+        p.ObjectChanged -= OnUserParamChanged;
+        p.Name = clean;
+        p.NickName = clean;
+        p.ObjectChanged += OnUserParamChanged;
+    }
+
+    private static string SanitizePythonName(string name)
+    {
+        // Replace any non-alphanumeric/underscore character (including spaces) with _
+        var clean = Regex.Replace(name, @"[^a-zA-Z0-9_]", "_");
+
+        // Collapse runs of underscores and trim leading/trailing ones
+        clean = Regex.Replace(clean, @"_+", "_").Trim('_');
+
+        if (string.IsNullOrEmpty(clean))
+        {
+            return "param";
+        }
+
+        // Python identifiers cannot start with a digit — check after trimming
+        if (char.IsDigit(clean[0]))
+        {
+            clean = "_" + clean;
+        }
+
+        return clean;
+    }
+
+    private static string Deduplicate(string name, HashSet<string> taken)
+    {
+        if (!taken.Contains(name))
+        {
+            return name;
+        }
+
+        int i = 1;
+        string candidate;
+        do
+        {
+            candidate = $"{name}_{i++}";
+        }
+        while (taken.Contains(candidate));
+
+        return candidate;
     }
 
     private static string NextParamName(string prefix, IEnumerable<string> existingParams)

@@ -139,7 +139,7 @@ public static class ParamBuilder
             {
                 sb.AppendLine($"  name: {p.name}");
                 sb.AppendLine($"  prettyName: <derive a human-readable label from \"{p.name}\">");
-                sb.AppendLine($"  tooltip: <short description derived from your implementation. Always append the label {PhyConstants.DefaultParamDescription}>");
+                sb.AppendLine($"  tooltip: <short description derived from your implementation.");
                 sb.AppendLine($"  typeHint: {p.type}");
                 sb.AppendLine($"  access: {p.paramAccess}");
                 sb.AppendLine($"  optional: false");

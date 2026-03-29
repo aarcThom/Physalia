@@ -3,8 +3,7 @@
 
 using System;
 using System.Drawing;
-using System.Drawing.Drawing2D;
-using Grasshopper;
+using System.Windows.Forms;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel.Attributes;
@@ -20,6 +19,7 @@ public class CrestAttrib : GH_ComponentAttributes
 {
     private readonly Crest _crest; // the crest component
 
+    private bool _isConnecting; // is the user adding a new zooid? False is disconnection
     private bool _isDragging; // is the user dragging the wire?
     private PointF _dragPoint; // the current positon of the drag
 
@@ -73,7 +73,7 @@ public class CrestAttrib : GH_ComponentAttributes
         if (channel == GH_CanvasChannel.Objects)
         {
             var gripRadius = 4f;
-            var whiteCircleBounds = new RectangleF(gripCtrX - gripRadius, gripCtrY - 2f, gripRadius * 2, gripRadius * 2);
+            var whiteCircleBounds = new RectangleF(gripCtrX - gripRadius, gripCtrY - 4f, gripRadius * 2, gripRadius * 2);
             using var fill = new SolidBrush(Color.White);
             using var border = new Pen(Color.Black, 2f);
             graphics.FillEllipse(fill, whiteCircleBounds);
@@ -102,24 +102,27 @@ public class CrestAttrib : GH_ComponentAttributes
 
             var crestBottomPoint = new PointF(gripCtrX, gripCtrY);
 
-            float crestZooidMidPt = (wireEnd.X - crestBottomPoint.X) * 0.5f;
-
             // create the color gradient
             var phyBlue = Color.Blue;
             var phyPurple = Color.Purple;
 
-            // need to extend the gradient end points PAST the bezier curve otherwise weird clipping occurs.
-            // replace the below with something more elegant and not hardcoded
-            var gradStart = new PointF(crestBottomPoint.X - 100f, crestBottomPoint.Y - 100f);
-            var gradEnd = new PointF(wireEnd.X + 100f, wireEnd.Y + 100f);
-
-            using var gradient = new LinearGradientBrush(gradStart, wireEnd, phyBlue, phyPurple);
-            using var pen = new Pen(gradient, 2f);
-
-            // draw a bezier curver between the CREST and ZOOID
+            // draw a bezier curve between the CREST and ZOOID with a gradient that follows the curve
             var bezPt1 = new PointF(crestBottomPoint.X, crestBottomPoint.Y + 80f);
             var bezPt2 = new PointF(wireEnd.X, wireEnd.Y + 80f);
-            graphics.DrawBezier(pen, crestBottomPoint, bezPt1, bezPt2, wireEnd);
+
+            // break the bezier into segments for a nice smooth gradient
+            int steps = 40;
+            for (int i = 0; i < steps; i++)
+            {
+                float t0 = (float)i / steps;
+                float t1 = (float)(i + 1) / steps;
+
+                var segStart = SampleBezier(crestBottomPoint, bezPt1, bezPt2, wireEnd, t0);
+                var segEnd = SampleBezier(crestBottomPoint, bezPt1, bezPt2, wireEnd, t1);
+
+                using var segPen = new Pen(LerpColor(phyBlue, phyPurple, t0), 2f);
+                graphics.DrawLine(segPen, segStart, segEnd);
+            }
 
             //draw the triangle at the tip
             float triHeight = 8f;
@@ -146,14 +149,28 @@ public class CrestAttrib : GH_ComponentAttributes
     /// <returns>Capture if the grip was hit; otherwise the base response.</returns>
     public override GH_ObjectResponse RespondToMouseDown(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
-        if (_gripBounds.Contains(e.CanvasLocation))
+        if (_gripBounds.Contains(e.CanvasLocation) && e.Button == MouseButtons.Left)
         {
             _isDragging = true;
             _dragPoint = e.CanvasLocation;
+
+            // check if connecting or disconnecting
+            if ((Control.ModifierKeys & Keys.Control) != 0) // is the user holding down ctrl
+            {
+                _isConnecting = false;
+                sender.Cursor = Grasshopper.Instances.CursorServer.Cursor("GH_RemoveWire");
+            }
+            else
+            {
+                _isConnecting = true;
+                sender.Cursor = Grasshopper.Instances.CursorServer.Cursor("GH_AddWire");
+            }
+
             sender.ScheduleRegen(2);
 
             return GH_ObjectResponse.Capture; // object is active
         }
+
         return base.RespondToMouseDown(sender, e);
     }
 
@@ -187,13 +204,38 @@ public class CrestAttrib : GH_ComponentAttributes
         {
             _isDragging = false;
 
+            // can disattach if dragging to empty space
+            if ( sender.Document.FindObject(e.CanvasLocation, 3f) == null)
+            {
+                _crest.ZooidComponent = null;
+                _crest.ZooidGuid = Guid.Empty;
+
+                sender.ScheduleRegen(2);
+                return GH_ObjectResponse.Handled;
+            }
+
             // cycle through the components on the canvas
             foreach (var obj in sender.Document.Objects)
             {
-                if (obj is Zooid zooid && zooid.Attributes.Bounds.Contains(e.CanvasLocation))
+                if (obj is not Zooid && obj.Attributes.Bounds.Contains(e.CanvasLocation)) // filter out non-zooids
+                {
+                    _crest.ZooidComponent = null;
+                    _crest.ZooidGuid = Guid.Empty;
+                    break;
+                }
+
+                if (obj is Zooid zooid && zooid.Attributes.Bounds.Contains(e.CanvasLocation) && _isConnecting) // connect to a zooid
                 {
                     _crest.ZooidComponent = zooid; // set the ref'd zooid
                     _crest.ZooidGuid = zooid.InstanceGuid;
+
+                    break;
+                }
+
+                if (_crest.ZooidComponent != null && _crest.ZooidComponent.Attributes.Bounds.Contains(e.CanvasLocation) && !_isConnecting) // disconnecting a zooid with ctrl
+                {
+                    _crest.ZooidComponent = null;
+                    _crest.ZooidGuid = Guid.Empty;
 
                     break;
                 }
@@ -205,4 +247,23 @@ public class CrestAttrib : GH_ComponentAttributes
 
         return base.RespondToMouseUp(sender, e);
     }
+
+    // HELPERS =======================================================================================
+
+    // used to break the bezier into small chunks which can be assigned linear gradients
+    private static PointF SampleBezier(PointF p0, PointF p1, PointF p2, PointF p3, float t)
+    {
+        float u = 1 - t;
+        float x = (u * u * u * p0.X) + (3 * u * u * t * p1.X) + (3 * u * t * t * p2.X) + (t * t * t * p3.X);
+        float y = (u * u * u * p0.Y) + (3 * u * u * t * p1.Y) + (3 * u * t * t * p2.Y) + (t * t * t * p3.Y);
+        return new PointF(x, y);
+    }
+
+    // grab the color at paramter t along gradient between 2 colors
+    private static Color LerpColor(Color a, Color b, float t)
+        => Color.FromArgb(
+            (int)(a.A + ((b.A - a.A) * t)),
+            (int)(a.R + ((b.R - a.R) * t)),
+            (int)(a.G + ((b.G - a.G) * t)),
+            (int)(a.B + ((b.B - a.B) * t)));
 }

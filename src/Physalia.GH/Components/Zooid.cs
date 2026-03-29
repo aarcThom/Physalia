@@ -23,21 +23,12 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class Zooid : PhyBase, IGH_VariableParameterComponent
 {
+    // FIELDS ==========================================================================================
     private readonly ScriptRunner _scriptRunner = new ();
     private ScriptResponse? _lastResponse;
     private bool _needsCheck;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="Zooid"/> class.
-    /// </summary>
-    public Zooid()
-      : base(
-            "PyZooid",
-            "PyZ",
-            "Generated Python Script",
-            "Core")
-    {
-    }
+    // PROPERTIES =======================================================================================
 
     /// <summary>
     /// Gets the unique ID for this component. Do not change this ID after release.
@@ -58,40 +49,21 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
     /// </summary>
     public string? LastRuntimeError { get; private set; }
 
-    /// <summary>
-    /// Stores the latest LLM response, rebuilds the component's dynamic parameters,
-    /// and schedules a solution refresh.
-    /// </summary>
-    /// <param name="response">The parsed LLM response containing the script and parameter definitions.</param>
-    public void ReceiveResponse(ScriptResponse response)
-    {
-        _lastResponse = response;
-        _needsCheck = true;
-        ParamBuilder.Rebuild(this, response);
-        ExpireSolution(true);
-    }
+    // CONSTRUCTOR =======================================================================================
 
     /// <summary>
-    /// Opens the Eto.Forms script editor dialog for the currently stored script.
+    /// Initializes a new instance of the <see cref="Zooid"/> class.
     /// </summary>
-    public void OpenScriptEditor()
+    public Zooid()
+      : base(
+            "PyZooid",
+            "PyZ",
+            "Generated Python Script",
+            "Core")
     {
-        if (_lastResponse == null)
-        {
-            return;
-        }
-
-        var inputNames = _lastResponse.Inputs.Select(i => i.Name).ToList();
-        var dialog = new ScriptEditorDialog(_lastResponse.Script, inputNames);
-        var result = dialog.ShowModal(Grasshopper.Instances.EtoDocumentEditor);
-
-        if (result != null)
-        {
-            _lastResponse.Script = result;
-            Message = "Edited";
-            ExpireSolution(true);
-        }
     }
+
+    // GH COMPONENT OVERRIDES ============================================================================================
 
     /// <summary>
     /// No fixed input parameters are registered; all inputs are added dynamically via
@@ -151,6 +123,34 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
     public override void CreateAttributes() => m_attributes = new ZooidAttrib(this);
 
     /// <summary>
+    /// Appends a Disconnect Crest item to the standard component context menu.
+    /// The item is greyed out when no CREST is currently linked to this ZOOID.
+    /// </summary>
+    /// <param name="menu">The context menu being built.</param>
+    public override void AppendAdditionalMenuItems(System.Windows.Forms.ToolStripDropDown menu)
+    {
+        base.AppendAdditionalMenuItems(menu);
+
+        // search the document for a crest that points at this zooid
+        var linkedCrest = FindLinkedCrest();
+
+        var item = Menu_AppendItem(menu, "Disconnect Crest", OnDisconnectCrest, linkedCrest != null);
+        item.ToolTipText = "Remove the link between this ZOOID and its CREST.";
+    }
+
+    /// <summary>
+    /// Re-subscribes rename listeners for all user-defined parameters after the component is loaded into a document.
+    /// </summary>
+    /// <param name="document">The document this component was added to.</param>
+    public override void AddedToDocument(GH_Document document)
+    {
+        base.AddedToDocument(document);
+        SubscribeUserParamEvents(); // used to auto apply python formatting and de-duplicating
+    }
+
+    // SERIALIZATION ==========================================================================
+
+    /// <summary>
     /// Serializes the last LLM response so the generated script and parameter definitions
     /// survive save and reload.
     /// </summary>
@@ -183,6 +183,45 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
         return base.Read(reader);
     }
 
+    // LLM RESPONSE AND SCRIPT EDITING ==================================================================
+
+    /// <summary>
+    /// Stores the latest LLM response, rebuilds the component's dynamic parameters,
+    /// and schedules a solution refresh.
+    /// </summary>
+    /// <param name="response">The parsed LLM response containing the script and parameter definitions.</param>
+    public void ReceiveResponse(ScriptResponse response)
+    {
+        _lastResponse = response;
+        _needsCheck = true;
+        ParamBuilder.Rebuild(this, response);
+        ExpireSolution(true);
+    }
+
+    /// <summary>
+    /// Opens the Eto.Forms script editor dialog for the currently stored script.
+    /// </summary>
+    public void OpenScriptEditor()
+    {
+        if (_lastResponse == null)
+        {
+            return;
+        }
+
+        var inputNames = _lastResponse.Inputs.Select(i => i.Name).ToList();
+        var dialog = new ScriptEditorDialog(_lastResponse.Script, inputNames);
+        var result = dialog.ShowModal(Grasshopper.Instances.EtoDocumentEditor);
+
+        if (result != null)
+        {
+            _lastResponse.Script = result;
+            Message = "Edited";
+            ExpireSolution(true);
+        }
+    }
+
+    // PARAMETER BUILDERS ======================================================================================
+
     /// <summary>
     /// Always returns true; users may insert parameters on either side at any index.
     /// </summary>
@@ -208,8 +247,6 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
     /// <summary>
     /// Creates a new generic parameter when the user adds one manually.
     /// Inputs are named "in_N" and outputs "out_N", where N is the lowest available integer.
-    /// Both are marked with <see cref="PhyConstants.DefaultParamDescription"/> so they are
-    /// recognised as user-defined by <see cref="ParamBuilder"/>.
     /// </summary>
     /// <param name="side">The side on which the parameter will be created.</param>
     /// <param name="index">The index at which the parameter will be inserted.</param>
@@ -219,12 +256,12 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
         if (side == GH_ParameterSide.Input)
         {
             string nick = NextParamName("in", Params.Input.Select(p => p.NickName));
-            return new Param_GenericObject { Name = nick, NickName = nick, Description = PhyConstants.DefaultParamDescription, Optional = true };
+            return new Param_GenericObject { Name = nick, NickName = nick, Description = "user defined parameter", Optional = true };
         }
         else
         {
             string nick = NextParamName("out", Params.Output.Select(p => p.NickName));
-            return new Param_GenericObject { Name = nick, NickName = nick, Description = PhyConstants.DefaultParamDescription, Optional = true };
+            return new Param_GenericObject { Name = nick, NickName = nick, Description = "user defined parameter", Optional = true };
         }
     }
 
@@ -240,21 +277,13 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
     }
 
     /// <summary>
-    /// Sanitizes the names of user-defined parameters to valid Python identifiers after any parameter change.
-    /// LLM-generated parameters are left untouched as their names must match the script exactly.
+    /// Sanitizes the names of all parameters to valid Python identifiers after any parameter change.
     /// Also subscribes to <see cref="OnUserParamChanged"/> for any newly added user params.
     /// </summary>
     public void VariableParameterMaintenance()
     {
-        var userParams = Params.Input.Concat(Params.Output)
-            .Where(p => p.Description == PhyConstants.DefaultParamDescription)
-            .ToList();
-
-        // Track all names (including LLM params) to avoid collisions
-        var taken = new HashSet<string>(
-            Params.Input.Concat(Params.Output)
-                .Where(p => p.Description != PhyConstants.DefaultParamDescription)
-                .Select(p => p.NickName));
+        var userParams = Params.Input.Concat(Params.Output).ToList();
+        var taken = new HashSet<string>();
 
         foreach (var p in userParams)
         {
@@ -272,52 +301,7 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
         SubscribeUserParamEvents();
     }
 
-    /// <summary>
-    /// Re-subscribes rename listeners for all user-defined parameters after the component is loaded into a document.
-    /// </summary>
-    /// <param name="document">The document this component was added to.</param>
-    public override void AddedToDocument(GH_Document document)
-    {
-        base.AddedToDocument(document);
-        SubscribeUserParamEvents();
-    }
-
-    private void SubscribeUserParamEvents()
-    {
-        foreach (var p in Params.Input.Concat(Params.Output)
-                     .Where(p => p.Description == PhyConstants.DefaultParamDescription))
-        {
-            // Unsubscribe first to avoid double-subscribing
-            p.ObjectChanged -= OnUserParamChanged;
-            p.ObjectChanged += OnUserParamChanged;
-        }
-    }
-
-    private void OnUserParamChanged(IGH_DocumentObject sender, GH_ObjectChangedEventArgs e)
-    {
-        if (e.Type != GH_ObjectEventType.NickName) return;
-        if (sender is not IGH_Param p) return;
-        if (p.Description != PhyConstants.DefaultParamDescription) return;
-
-        var clean = SanitizePythonName(p.NickName);
-
-        // Build taken set from all other params
-        var taken = new HashSet<string>(
-            Params.Input.Concat(Params.Output)
-                .Where(other => other != p)
-                .Select(other => other.NickName));
-
-        clean = Deduplicate(clean, taken);
-
-        if (clean == p.NickName) return;
-
-        // Unsubscribe to avoid re-entrancy when setting NickName
-        p.ObjectChanged -= OnUserParamChanged;
-        p.Name = clean;
-        p.NickName = clean;
-        p.ObjectChanged += OnUserParamChanged;
-    }
-
+    // makes sure the input names are proper python variables
     private static string SanitizePythonName(string name)
     {
         // Replace any non-alphanumeric/underscore character (including spaces) with _
@@ -340,6 +324,7 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
         return clean;
     }
 
+    // can't have duplicate names - ensures no duplicates
     private static string Deduplicate(string name, HashSet<string> taken)
     {
         if (!taken.Contains(name))
@@ -358,10 +343,11 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
         return candidate;
     }
 
+    // default parameter names when adding param with the little + symbol appends a number
     private static string NextParamName(string prefix, IEnumerable<string> existingParams)
     {
         // check to see the next available param name
-        for (int i = 0; ;  i++)
+        for (int i = 0; ; i++)
         {
             string candidate = $"{prefix}_{i}";
             if (!existingParams.Contains(candidate))
@@ -369,5 +355,74 @@ public class Zooid : PhyBase, IGH_VariableParameterComponent
                 return candidate;
             }
         }
+    }
+
+    // subscribe to parameter changes - used for auto-updating the python names
+    private void SubscribeUserParamEvents()
+    {
+        foreach (var p in Params.Input.Concat(Params.Output))
+        {
+            // Unsubscribe first to avoid double-subscribing
+            p.ObjectChanged -= OnUserParamChanged;
+            p.ObjectChanged += OnUserParamChanged;
+        }
+    }
+
+    private void OnUserParamChanged(IGH_DocumentObject sender, GH_ObjectChangedEventArgs e)
+    {
+        if (e.Type != GH_ObjectEventType.NickName)
+        {
+            return;
+        }
+
+        if (sender is not IGH_Param p)
+        {
+            return;
+        }
+
+        var clean = SanitizePythonName(p.NickName);
+
+        // Build taken set from all other params
+        var taken = new HashSet<string>(
+            Params.Input.Concat(Params.Output)
+                .Where(other => other != p)
+                .Select(other => other.NickName));
+
+        clean = Deduplicate(clean, taken);
+
+        if (clean == p.NickName)
+        {
+            return;
+        }
+
+        // Unsubscribe to avoid re-entrancy when setting NickName
+        p.ObjectChanged -= OnUserParamChanged;
+        p.Name = clean;
+        p.NickName = clean;
+        p.ObjectChanged += OnUserParamChanged;
+    }
+
+    // RIGHT CLICK MENU HELPERS ===================================================================================================
+
+    // walks the document to find the crest that is currently pointing at this zooid
+    private Crest? FindLinkedCrest()
+    {
+        return OnPingDocument()?.Objects
+            .OfType<Crest>()
+            .FirstOrDefault(c => c.ZooidComponent?.InstanceGuid == InstanceGuid);
+    }
+
+    // clears the link on the crest side and redraws
+    private void OnDisconnectCrest(object sender, EventArgs e)
+    {
+        var crest = FindLinkedCrest();
+        if (crest == null)
+        {
+            return;
+        }
+
+        crest.ZooidComponent = null;
+        crest.ZooidGuid = Guid.Empty;
+        crest.ExpireSolution(true);
     }
 }

@@ -78,16 +78,6 @@ public static class ParamBuilder
 
         foreach (IGH_Param param in paramsIn)
         {
-            /*
-             * NOTE: I THINK I ALWAYS WANT TO KEEP USER CREATED PARAMS.
-            // keep the parameter if it is user created
-            var lowerDescription = param.Description.ToLower();
-            if (!lowerDescription.Contains(PhyConstants.DefaultParamDescription))
-            {
-                continue;
-            }
-            */
-
             string access = GetParamAccess(param);
             string type = isInput ? GetInputType(param) : string.Empty;
             var connections = isInput ? param.Sources.ToList() : param.Recipients.ToList();

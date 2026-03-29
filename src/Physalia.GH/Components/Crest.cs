@@ -25,6 +25,7 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class Crest : PhyBase
 {
+    // FIELDS ==========================================================================================
     private int _maxAutoFixAttemps;
     private Task? _pendingRequest;
     private string? _errorMsg;
@@ -32,6 +33,8 @@ public class Crest : PhyBase
     private bool _autoFix;
     private int _autoFixAttempts;
     private bool _waitingForAutoFix;
+
+    // PROPERTIES =======================================================================================
 
     /// <summary>
     /// Gets the unique ID for this component. Do not change this ID after release.
@@ -51,6 +54,8 @@ public class Crest : PhyBase
     /// </summary>
     public Guid ZooidGuid { get; set; }
 
+    // CONSTRUCTOR =======================================================================================
+
     /// <summary>
     /// Initializes a new instance of the <see cref="Crest"/> class.
     /// </summary>
@@ -58,6 +63,8 @@ public class Crest : PhyBase
         : base("CREST", "CREST", "Description", "Core")
     {
     }
+
+    // GH COMPONENT OVERRIDES ============================================================================================
 
     /// <summary>
     /// Registers all the input parameters for this component.
@@ -137,8 +144,6 @@ public class Crest : PhyBase
         }
     }
 
-    // OVERRIDE METHODS ======================================================================================================
-
     /// <summary>
     /// Assigns the custom <see cref="CrestAttrib"/> attribute class to this component.
     /// </summary>
@@ -181,10 +186,43 @@ public class Crest : PhyBase
     {
         base.AddedToDocument(document);
 
+        // subscribe to deletion events so we can clean up the ZOOID link if it gets deleted
+        document.ObjectsDeleted += OnDocumentObjectsDeleted;
+
         if (ZooidGuid != Guid.Empty)
         {
             document.ScheduleSolution(10, ReconnectZooid);
         }
+    }
+
+    /// <summary>
+    /// Unsubscribes from document events when this component is removed, preventing memory leaks.
+    /// </summary>
+    /// <param name="document">The document this component was removed from.</param>
+    public override void RemovedFromDocument(GH_Document document)
+    {
+        document.ObjectsDeleted -= OnDocumentObjectsDeleted;
+        base.RemovedFromDocument(document);
+    }
+
+    /// <summary>
+    /// Appends a Disconnect Zooid item to the standard component context menu.
+    /// </summary>
+    /// <param name="menu">The context menu being built.</param>
+    public override void AppendAdditionalMenuItems(System.Windows.Forms.ToolStripDropDown menu)
+    {
+        base.AppendAdditionalMenuItems(menu);
+
+        var item = Menu_AppendItem(menu, "Disconnect Zooid", OnDisconnectZooid, ZooidComponent != null);
+        item.ToolTipText = "Remove the link between this CREST and its ZOOID.";
+    }
+
+    // removes the reference zooid when removed via the right click menu
+    private void OnDisconnectZooid(object sender, EventArgs e)
+    {
+        ZooidComponent = null;
+        ZooidGuid = Guid.Empty;
+        OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(true));
     }
 
     // LLM REQUESTS METHODS ======================================================================================================
@@ -282,6 +320,7 @@ public class Crest : PhyBase
         }
     }
 
+    // TODO - NEED TO MOVE THIS TO PHYSALIA.CORE - SHOULD GO WITH PROMPTS
     private static string BuildFixPrompt(string originalPrompt, ScriptResponse response, IReadOnlyList<Diagnostic> diagnostics, string? runtimeError)
     {
         var sb = new StringBuilder();
@@ -310,6 +349,17 @@ public class Crest : PhyBase
         }
 
         return sb.ToString();
+    }
+
+    // if the linked ZOOID is deleted from the canvas, clear the reference so the wire disappears
+    private void OnDocumentObjectsDeleted(object sender, GH_DocObjectEventArgs e)
+    {
+        if (ZooidGuid != Guid.Empty && e.Objects.Any(o => o.InstanceGuid == ZooidGuid))
+        {
+            ZooidComponent = null;
+            ZooidGuid = Guid.Empty;
+            ExpireSolution(true);
+        }
     }
 
     private void ReconnectZooid(GH_Document doc)

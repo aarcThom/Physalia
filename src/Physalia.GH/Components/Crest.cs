@@ -98,12 +98,12 @@ public class Crest : PhyBase
         string? prompt = null;
         bool send = false;
 
-        if (!DA.GetData(0, ref llmGoo))
+        if (!DA.GetData(0, ref llmGoo) || llmGoo == null)
         {
             return;
         }
 
-        if (!DA.GetData(1, ref prompt))
+        if (!DA.GetData(1, ref prompt) || prompt == null)
         {
             return;
         }
@@ -362,6 +362,7 @@ public class Crest : PhyBase
         }
     }
 
+    // reconnects zooid - call from on opening event on saved document
     private void ReconnectZooid(GH_Document doc)
     {
         var obj = doc.FindObject(ZooidGuid, true);

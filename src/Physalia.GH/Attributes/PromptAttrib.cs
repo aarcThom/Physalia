@@ -22,7 +22,7 @@ public class PromptAttrib : GH_ComponentAttributes
     // NESTED TYPES =======================================================================================
 
     // identifies which resize grip is currently being dragged
-    private enum ResizeTarget { None, A2, A3 }
+    private enum ResizeTarget { None, convoTarget, inputTarget }
 
     // FIELDS =======================================================================================
 
@@ -31,34 +31,33 @@ public class PromptAttrib : GH_ComponentAttributes
 
     // sizing state — persisted across saves
     private float _width;
-    private float _a2Height; // history section
-    private float _a3Height; // entry section
+    private float _convoHeight; // history section
+    private float _inputHeight; // entry section
 
     // computed section rectangles — rebuilt in Layout()
     private RectangleF _boundsTitle;
-    private RectangleF _boundsA2;
-    private RectangleF _boundsA3;
-    private RectangleF _gripA2;
-    private RectangleF _gripA3;
+    private RectangleF _boundsConvo;
+    private RectangleF _boundsInput;
+    private RectangleF _gripConvo;
+    private RectangleF _gripInput;
 
     // resize drag state
     private ResizeTarget _activeGrip;
     private PointF _resizeStart;
     private float _widthAtStart;
-    private float _a2HeightAtStart;
-    private float _a3HeightAtStart;
+    private float _convoHeightAtStart;
+    private float _inputHeightAtStart;
 
     // CONSTANTS =======================================================================================
 
-    private const float TitleHeight = 30f;
-    private const float Gap = 4f;
+    private const float TitleHeight = 18f;
     private const float GripSize = 14f;
     private const float CornerRadius = 4f;
     private const float MinWidth = 140f;
     private const float MinSectionHeight = 40f;
     private const float DefaultWidth = 220f;
-    private const float DefaultA2Height = 120f;
-    private const float DefaultA3Height = 80f;
+    private const float DefaultConvoHeight = 120f;
+    private const float DefaultInputHeight = 80f;
 
     // CONSTRUCTOR =======================================================================================
 
@@ -82,8 +81,8 @@ public class PromptAttrib : GH_ComponentAttributes
     public override bool Write(GH_IWriter writer)
     {
         writer.SetDouble("Width", _width);
-        writer.SetDouble("A2Height", _a2Height);
-        writer.SetDouble("A3Height", _a3Height);
+        writer.SetDouble("ConvoHeight", _convoHeight);
+        writer.SetDouble("InputHeight", _inputHeight);
         return base.Write(writer);
     }
 
@@ -94,13 +93,13 @@ public class PromptAttrib : GH_ComponentAttributes
     /// <returns>true.</returns>
     public override bool Read(GH_IReader reader)
     {
-        double w = DefaultWidth, a2h = DefaultA2Height, a3h = DefaultA3Height;
+        double w = DefaultWidth, a2h = DefaultConvoHeight, a3h = DefaultInputHeight;
         reader.TryGetDouble("Width", ref w);
-        reader.TryGetDouble("A2Height", ref a2h);
-        reader.TryGetDouble("A3Height", ref a3h);
+        reader.TryGetDouble("ConvoHeight", ref a2h);
+        reader.TryGetDouble("InputHeight", ref a3h);
         _width = (float)w;
-        _a2Height = (float)a2h;
-        _a3Height = (float)a3h;
+        _convoHeight = (float)a2h;
+        _inputHeight = (float)a3h;
         return base.Read(reader);
     }
 
@@ -114,21 +113,21 @@ public class PromptAttrib : GH_ComponentAttributes
         if (_width < MinWidth)
         {
             _width = DefaultWidth;
-            _a2Height = DefaultA2Height;
-            _a3Height = DefaultA3Height;
+            _convoHeight = DefaultConvoHeight;
+            _inputHeight = DefaultInputHeight;
         }
 
         float x = Pivot.X;
         float y = Pivot.Y;
 
         _boundsTitle = new RectangleF(x, y, _width, TitleHeight);
-        _boundsA2    = new RectangleF(x, y + TitleHeight + Gap, _width, _a2Height);
-        _boundsA3    = new RectangleF(x, y + TitleHeight + Gap + _a2Height + Gap, _width, _a3Height);
+        _boundsConvo = new RectangleF(x, y + TitleHeight, _width, _convoHeight);
+        _boundsInput = new RectangleF(x, y + TitleHeight + _convoHeight, _width, _inputHeight);
 
-        Bounds = new RectangleF(x, y, _width, TitleHeight + Gap + _a2Height + Gap + _a3Height);
+        Bounds = new RectangleF(x, y, _width, TitleHeight + _convoHeight + _inputHeight);
 
-        _gripA2 = new RectangleF(_boundsA2.Right - GripSize, _boundsA2.Bottom - GripSize, GripSize, GripSize);
-        _gripA3 = new RectangleF(_boundsA3.Right - GripSize, _boundsA3.Bottom - GripSize, GripSize, GripSize);
+        _gripConvo = new RectangleF(_boundsConvo.Right - GripSize, _boundsConvo.Bottom - GripSize, GripSize, GripSize);
+        _gripInput = new RectangleF(_boundsInput.Right - GripSize, _boundsInput.Bottom - GripSize, GripSize, GripSize);
 
         LayoutOutputParam();
     }
@@ -144,11 +143,11 @@ public class PromptAttrib : GH_ComponentAttributes
     {
         if (channel == GH_CanvasChannel.Objects)
         {
-            DrawSection(graphics, _boundsTitle);
-            DrawSection(graphics, _boundsA2);
-            DrawSection(graphics, _boundsA3);
-            DrawResizeGrip(graphics, _gripA2);
-            DrawResizeGrip(graphics, _gripA3);
+            DrawTitle(graphics, _boundsTitle);
+            DrawConvo(graphics, _boundsConvo);
+            DrawInput(graphics, _boundsInput);
+            DrawResizeGrip(graphics, _gripConvo);
+            DrawResizeGrip(graphics, _gripInput);
             return;
         }
 
@@ -165,21 +164,21 @@ public class PromptAttrib : GH_ComponentAttributes
     {
         if (e.Button == MouseButtons.Left)
         {
-            if (_gripA2.Contains(e.CanvasLocation))
+            if (_gripConvo.Contains(e.CanvasLocation))
             {
-                _activeGrip = ResizeTarget.A2;
+                _activeGrip = ResizeTarget.convoTarget;
                 _resizeStart = e.CanvasLocation;
                 _widthAtStart = _width;
-                _a2HeightAtStart = _a2Height;
+                _convoHeightAtStart = _convoHeight;
                 return GH_ObjectResponse.Capture;
             }
 
-            if (_gripA3.Contains(e.CanvasLocation))
+            if (_gripInput.Contains(e.CanvasLocation))
             {
-                _activeGrip = ResizeTarget.A3;
+                _activeGrip = ResizeTarget.inputTarget;
                 _resizeStart = e.CanvasLocation;
                 _widthAtStart = _width;
-                _a3HeightAtStart = _a3Height;
+                _inputHeightAtStart = _inputHeight;
                 return GH_ObjectResponse.Capture;
             }
         }
@@ -203,17 +202,21 @@ public class PromptAttrib : GH_ComponentAttributes
 
             _width = Math.Max(MinWidth, _widthAtStart + dx);
 
-            if (_activeGrip == ResizeTarget.A2)
-                _a2Height = Math.Max(MinSectionHeight, _a2HeightAtStart + dy);
+            if (_activeGrip == ResizeTarget.convoTarget)
+            {
+                _convoHeight = Math.Max(MinSectionHeight, _convoHeightAtStart + dy);
+            }
             else
-                _a3Height = Math.Max(MinSectionHeight, _a3HeightAtStart + dy);
+            {
+                _inputHeight = Math.Max(MinSectionHeight, _inputHeightAtStart + dy);
+            }
 
             ExpireLayout();
             sender.ScheduleRegen(2);
             return GH_ObjectResponse.Handled;
         }
 
-        bool overGrip = _gripA2.Contains(e.CanvasLocation) || _gripA3.Contains(e.CanvasLocation);
+        bool overGrip = _gripConvo.Contains(e.CanvasLocation) || _gripInput.Contains(e.CanvasLocation);
         sender.Cursor = overGrip ? Cursors.SizeNWSE : Cursors.Default;
         return base.RespondToMouseMove(sender, e);
     }
@@ -241,16 +244,59 @@ public class PromptAttrib : GH_ComponentAttributes
     private void LayoutOutputParam()
     {
         var param = Owner.Params.Output[0];
-        float midY = _boundsA2.Y + _boundsA2.Height / 2f;
+        float midY = _boundsConvo.Y + _boundsConvo.Height / 2f;
         param.Attributes.Pivot = new PointF(Bounds.Right, midY);
         param.Attributes.Bounds = new RectangleF(Bounds.Right - 5f, midY - 5f, 10f, 10f);
     }
 
-    private void DrawSection(Graphics graphics, RectangleF bounds)
+    private void DrawTitle(Graphics graphics, RectangleF bounds)
     {
-        using var path = RoundedRect(bounds, CornerRadius);
-        using var fill = new SolidBrush(Color.FromArgb(255, 250, 240, 190));
-        using var border = new Pen(Color.FromArgb(180, 120, 100, 60), 1f);
+        using var path = TopRoundedRect(bounds, CornerRadius);
+
+        var topPt = new PointF(bounds.Left, bounds.Top);
+        var botPt = new PointF(bounds.Left, bounds.Bottom);
+        var topColor = Color.FromArgb(255, 232, 188, 255);
+        var botColor = Color.FromArgb(255, 245, 234, 250);
+
+        using var fill = new LinearGradientBrush(topPt, botPt, topColor, botColor);
+        using var border = new Pen(Color.Black, 1f);
+        graphics.FillPath(fill, path);
+        graphics.DrawPath(border, path);
+
+        // drawing the little hilights
+        bounds.Inflate(-1f, -1f);
+        using var shinePath = TopRoundedRect(bounds, CornerRadius - 1);
+        var shineGradient = new LinearGradientBrush(topPt, botPt, Color.White, Color.FromArgb(100, 255, 255, 255));
+        using var shineBorder = new Pen(shineGradient, 1f);
+        graphics.DrawPath(shineBorder, shinePath);
+    }
+
+    private void DrawConvo(Graphics graphics, RectangleF bounds)
+    {
+        using var path = new GraphicsPath();
+        path.AddRectangle(bounds);
+        using var fill = new SolidBrush(Color.FromArgb(255, 245, 234, 250));
+        using var border = new Pen(Color.Black, 1f);
+        graphics.FillPath(fill, path);
+        graphics.DrawPath(border, path);
+
+        // drawing the little hilights
+        bounds.Inflate(-1f, -1f);
+        using var shinePath = new GraphicsPath();
+        shinePath.AddRectangle(bounds);
+        var topPt = new PointF(bounds.Left, bounds.Top);
+        var botPt = new PointF(bounds.Left, bounds.Bottom);
+
+        var shineGradient = new LinearGradientBrush(topPt, botPt, Color.FromArgb(200, 255, 255, 255), Color.FromArgb(0, 255, 255, 255));
+        using var shineBorder = new Pen(shineGradient, 1f);
+        graphics.DrawPath(shineBorder, shinePath);
+    }
+
+    private void DrawInput(Graphics graphics, RectangleF bounds)
+    {
+        using var path = BottomRoundedRect(bounds, CornerRadius);
+        using var fill = new SolidBrush(Color.FromArgb(255, 245, 234, 250));
+        using var border = new Pen(Color.Black, 1f);
         graphics.FillPath(fill, path);
         graphics.DrawPath(border, path);
     }
@@ -268,12 +314,29 @@ public class PromptAttrib : GH_ComponentAttributes
         }
     }
 
-    private static GraphicsPath RoundedRect(RectangleF r, float radius)
+    private static GraphicsPath TopRoundedRect(RectangleF r, float radius, bool addLine = true)
     {
         float d = radius * 2f;
         var path = new GraphicsPath();
-        path.AddArc(r.X, r.Y, d, d, 180, 90);
-        path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        path.AddArc(r.X, r.Y, d, d, 180, 90); // top left arc
+        path.AddArc(r.Right - d, r.Y, d, d, 270, 90); // top right arc
+        var bottomLeftPt = new PointF(r.Left, r.Bottom);
+        var bottomRightPt = new PointF(r.Right, r.Bottom);
+        path.AddLine(bottomRightPt, bottomLeftPt);
+
+        path.CloseFigure();
+        return path;
+    }
+
+    private static GraphicsPath BottomRoundedRect(RectangleF r, float radius)
+    {
+        float d = radius * 2f;
+        var path = new GraphicsPath();
+
+        var topLeftPt = new PointF(r.Left, r.Top);
+        var topRightPt = new PointF(r.Right, r.Top);
+        path.AddLine(topLeftPt, topRightPt);
+
         path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
         path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
         path.CloseFigure();

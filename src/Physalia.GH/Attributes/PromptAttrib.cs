@@ -1,15 +1,16 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using GH_IO.Serialization;
+using Grasshopper.GUI;
+using Grasshopper.GUI.Canvas;
+using Grasshopper.Kernel;
+using Grasshopper.Kernel.Attributes;
+using Physalia.GH.Components;
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
-using GH_IO.Serialization;
-using Grasshopper.GUI;
-using Grasshopper.GUI.Canvas;
-using Grasshopper.Kernel.Attributes;
-using Physalia.GH.Components;
 
 namespace Physalia.GH.Attributes;
 
@@ -27,7 +28,7 @@ public class PromptAttrib : GH_ComponentAttributes
     // FIELDS =======================================================================================
 
     private readonly Prompt _prompt; // the prompt component
-    private string _promptText;      // the actual prompt text
+    private bool inputPromptCurrent = false;      // is the user currently inputing text?
 
     // sizing state — persisted across saves
     private float _width;
@@ -40,7 +41,7 @@ public class PromptAttrib : GH_ComponentAttributes
     private RectangleF _boundsInput;
     private RectangleF _gripConvo;
     private RectangleF _gripInput;
-    private Rectangle _wireOutputGrip;
+    private RectangleF _wireOutputGrip;
 
     private RectangleF _layoutBounds; // the actual bounds, expanded for the output wire grip
     private RectangleF _renderBounds; // the bounds that are rendered.
@@ -62,6 +63,8 @@ public class PromptAttrib : GH_ComponentAttributes
     private const float DefaultWidth = 220f;
     private const float DefaultConvoHeight = 120f;
     private const float DefaultInputHeight = 80f;
+
+    private readonly Color _outlineColor = Color.FromArgb(255, 47, 8, 87);
 
     // CONSTRUCTOR =======================================================================================
 
@@ -87,6 +90,7 @@ public class PromptAttrib : GH_ComponentAttributes
         writer.SetDouble("Width", _width);
         writer.SetDouble("ConvoHeight", _convoHeight);
         writer.SetDouble("InputHeight", _inputHeight);
+        writer.SetString("PromptText", _prompt.UserPromptText ?? string.Empty);
         return base.Write(writer);
     }
 
@@ -104,6 +108,9 @@ public class PromptAttrib : GH_ComponentAttributes
         _width = (float)w;
         _convoHeight = (float)a2h;
         _inputHeight = (float)a3h;
+        string promptText = string.Empty;
+        if (reader.TryGetString("PromptText", ref promptText))
+            _prompt.UserPromptText = promptText;
         return base.Read(reader);
     }
 
@@ -137,7 +144,7 @@ public class PromptAttrib : GH_ComponentAttributes
         _gripConvo = new RectangleF(_boundsConvo.Right - GripSize, _boundsConvo.Bottom - GripSize, GripSize, GripSize);
         _gripInput = new RectangleF(_boundsInput.Right - GripSize, _boundsInput.Bottom - GripSize, GripSize, GripSize);
 
-        _wireOutputGrip = new Rectangle((int)(_boundsConvo.Right - 3f), (int)(_boundsConvo.Bottom - (_boundsConvo.Height / 2) - 4f), 8, 8);
+        _wireOutputGrip = new RectangleF(_boundsConvo.Right - 3f, _boundsConvo.Bottom - (_boundsConvo.Height / 2) - 4f, 8f, 8f);
 
         LayoutOutputParam();
     }
@@ -168,6 +175,65 @@ public class PromptAttrib : GH_ComponentAttributes
         base.Render(canvas, graphics, channel);
 
         Bounds = _layoutBounds; // reset back to layout bounds so we can grip properly
+    }
+
+    // EVENT HANDLERS ===================================================================================
+
+    /// <summary>
+    /// Opens an in-place TextBox overlay over the input section on double-click.
+    /// </summary>
+    /// <param name="sender">The Grasshopper canvas that raised the event.</param>
+    /// <param name="e">The mouse event data.</param>
+    /// <returns>Handled if the input section was double-clicked; otherwise the base response.</returns>
+    public override GH_ObjectResponse RespondToMouseDoubleClick(GH_Canvas sender, GH_CanvasMouseEvent e)
+    {
+        if (_boundsInput.Contains(e.CanvasLocation))
+        {
+            float zoom = sender.Viewport.Zoom;
+            PointF origin = sender.Viewport.ProjectPoint(_boundsInput.Location);
+            var tb = new TextBox
+            {
+                Multiline = true,
+                WordWrap = true,
+                ScrollBars = ScrollBars.Vertical,
+                BorderStyle = BorderStyle.None,
+                BackColor = Color.FromArgb(245, 234, 250),
+                Font = GH_FontServer.Console,
+                Text = _prompt.UserPromptText,
+                Bounds = new Rectangle(
+                    (int)origin.X + 8, (int)origin.Y + 8,
+                    (int)(_boundsInput.Width * zoom - 16),
+                    (int)(_boundsInput.Height * zoom - 48)),
+            };
+
+            inputPromptCurrent = true;
+            sender.Controls.Add(tb);
+            tb.BringToFront();
+            tb.Focus();
+            tb.SelectAll();
+
+            tb.Leave += (s, _) =>
+            {
+                _prompt.UserPromptText = tb.Text;
+                inputPromptCurrent = false;
+                sender.Controls.Remove(tb);
+                _prompt.ExpireSolution(true);
+            };
+
+            // can commit edits if hits 'shift + enter' just like the panel.
+            tb.KeyDown += (s, keyArgs) =>
+            {
+                if (keyArgs.KeyCode == Keys.Enter && keyArgs.Shift)
+                {
+                    keyArgs.SuppressKeyPress = true; // prevent the newline being added
+                    sender.Focus(); // triggers Leave, which commits and removes the TextBox
+                }
+            };
+
+            return GH_ObjectResponse.Handled;
+        }
+
+        return base.RespondToMouseDoubleClick(sender, e);
     }
 
     /// <summary>
@@ -227,13 +293,20 @@ public class PromptAttrib : GH_ComponentAttributes
                 _inputHeight = Math.Max(MinSectionHeight, _inputHeightAtStart + dy);
             }
 
+            sender.Cursor = Cursors.SizeNWSE;
             ExpireLayout();
             sender.ScheduleRegen(2);
             return GH_ObjectResponse.Handled;
         }
 
         bool overGrip = _gripConvo.Contains(e.CanvasLocation) || _gripInput.Contains(e.CanvasLocation);
-        sender.Cursor = overGrip ? Cursors.SizeNWSE : Cursors.Default;
+        if (overGrip)
+        {
+            sender.Cursor = Cursors.SizeNWSE;
+            return GH_ObjectResponse.Handled;
+        }
+
+        sender.Cursor = Cursors.Default;
         return base.RespondToMouseMove(sender, e);
     }
 
@@ -248,6 +321,7 @@ public class PromptAttrib : GH_ComponentAttributes
         if (_activeGrip != ResizeTarget.None)
         {
             _activeGrip = ResizeTarget.None;
+            sender.Cursor = Cursors.Default;
             return GH_ObjectResponse.Release;
         }
 
@@ -265,10 +339,10 @@ public class PromptAttrib : GH_ComponentAttributes
         param.Attributes.Bounds = new RectangleF(Bounds.Right - 5f, midY - 5f, 10f, 10f);
     }
 
-    private void DrawWireGrip(Graphics graphics, Rectangle bounds)
+    private void DrawWireGrip(Graphics graphics, RectangleF bounds)
     {
         using var fill = new SolidBrush(Color.White);
-        using var border = new Pen(Color.Black, 2f);
+        using var border = new Pen(_outlineColor, 2f);
         graphics.FillEllipse(fill, bounds);
         graphics.DrawEllipse(border, bounds);
     }
@@ -283,7 +357,7 @@ public class PromptAttrib : GH_ComponentAttributes
         var botColor = Color.FromArgb(255, 245, 234, 250);
 
         using var fill = new LinearGradientBrush(topPt, botPt, topColor, botColor);
-        using var border = new Pen(Color.Black, 1f);
+        using var border = new Pen(_outlineColor, 1f);
         graphics.FillPath(fill, path);
         graphics.DrawPath(border, path);
 
@@ -293,6 +367,11 @@ public class PromptAttrib : GH_ComponentAttributes
         var shineGradient = new LinearGradientBrush(topPt, botPt, Color.White, Color.FromArgb(100, 255, 255, 255));
         using var shineBorder = new Pen(shineGradient, 1f);
         graphics.DrawPath(shineBorder, shinePath);
+
+        // draw the actual component nickname
+        using var txtBrush = new SolidBrush(_outlineColor);
+        using var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+        graphics.DrawString(Owner.NickName, GH_FontServer.StandardAdjusted, txtBrush, bounds, fmt);
     }
 
     private void DrawConvo(Graphics graphics, RectangleF bounds)
@@ -300,7 +379,7 @@ public class PromptAttrib : GH_ComponentAttributes
         using var path = new GraphicsPath();
         path.AddRectangle(bounds);
         using var fill = new SolidBrush(Color.FromArgb(255, 245, 234, 250));
-        using var border = new Pen(Color.Black, 1f);
+        using var border = new Pen(_outlineColor, 1f);
         graphics.FillPath(fill, path);
         graphics.DrawPath(border, path);
 
@@ -320,9 +399,17 @@ public class PromptAttrib : GH_ComponentAttributes
     {
         using var path = BottomRoundedRect(bounds, CornerRadius);
         using var fill = new SolidBrush(Color.FromArgb(255, 245, 234, 250));
-        using var border = new Pen(Color.Black, 1f);
+        using var border = new Pen(_outlineColor, 1f);
         graphics.FillPath(fill, path);
         graphics.DrawPath(border, path);
+
+        // draw text when user isn't currently inputting
+        if (!inputPromptCurrent)
+        {
+            using var txtBrush = new SolidBrush(_outlineColor);
+            using var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            graphics.DrawString(_prompt.UserPromptText, GH_FontServer.ConsoleSmallAdjusted, txtBrush, bounds, fmt);
+        }
     }
 
     private void DrawResizeGrip(Graphics graphics, RectangleF grip)

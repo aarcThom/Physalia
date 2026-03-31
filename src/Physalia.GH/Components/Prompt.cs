@@ -19,6 +19,11 @@ public class Prompt : PhyBase
     // PROPERTIES =======================================================================================
 
     /// <summary>
+    /// The text to be displayed in the prompt input box when the user is not currently entering text.
+    /// </summary>
+    public string UserPromptText = "Double click to enter prompt...";
+
+    /// <summary>
     /// Gets the unique ID for this component. Do not change this ID after release.
     /// </summary>
     public override Guid ComponentGuid

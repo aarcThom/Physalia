@@ -40,6 +40,10 @@ public class PromptAttrib : GH_ComponentAttributes
     private RectangleF _boundsInput;
     private RectangleF _gripConvo;
     private RectangleF _gripInput;
+    private Rectangle _wireOutputGrip;
+
+    private RectangleF _layoutBounds; // the actual bounds, expanded for the output wire grip
+    private RectangleF _renderBounds; // the bounds that are rendered.
 
     // resize drag state
     private ResizeTarget _activeGrip;
@@ -51,7 +55,7 @@ public class PromptAttrib : GH_ComponentAttributes
     // CONSTANTS =======================================================================================
 
     private const float TitleHeight = 18f;
-    private const float GripSize = 14f;
+    private const float GripSize = 8f;
     private const float CornerRadius = 4f;
     private const float MinWidth = 140f;
     private const float MinSectionHeight = 40f;
@@ -124,10 +128,16 @@ public class PromptAttrib : GH_ComponentAttributes
         _boundsConvo = new RectangleF(x, y + TitleHeight, _width, _convoHeight);
         _boundsInput = new RectangleF(x, y + TitleHeight + _convoHeight, _width, _inputHeight);
 
-        Bounds = new RectangleF(x, y, _width, TitleHeight + _convoHeight + _inputHeight);
+        _renderBounds = new RectangleF(x, y, _width, TitleHeight + _convoHeight + _inputHeight);
+        _layoutBounds = new RectangleF(x, y, _width + 4f, TitleHeight + _convoHeight + _inputHeight);
+
+
+        Bounds = _renderBounds;
 
         _gripConvo = new RectangleF(_boundsConvo.Right - GripSize, _boundsConvo.Bottom - GripSize, GripSize, GripSize);
         _gripInput = new RectangleF(_boundsInput.Right - GripSize, _boundsInput.Bottom - GripSize, GripSize, GripSize);
+
+        _wireOutputGrip = new Rectangle((int)(_boundsConvo.Right - 3f), (int)(_boundsConvo.Bottom - (_boundsConvo.Height / 2) - 4f), 8, 8);
 
         LayoutOutputParam();
     }
@@ -141,8 +151,12 @@ public class PromptAttrib : GH_ComponentAttributes
     /// <param name="channel">The current rendering channel.</param>
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
     {
+
+        Bounds = _renderBounds; // SET THE BOUNDS BACK TO DEFAULT FOR RENDER PASS
+
         if (channel == GH_CanvasChannel.Objects)
         {
+            DrawWireGrip(graphics, _wireOutputGrip);
             DrawTitle(graphics, _boundsTitle);
             DrawConvo(graphics, _boundsConvo);
             DrawInput(graphics, _boundsInput);
@@ -152,6 +166,8 @@ public class PromptAttrib : GH_ComponentAttributes
         }
 
         base.Render(canvas, graphics, channel);
+
+        Bounds = _layoutBounds; // reset back to layout bounds so we can grip properly
     }
 
     /// <summary>
@@ -249,6 +265,14 @@ public class PromptAttrib : GH_ComponentAttributes
         param.Attributes.Bounds = new RectangleF(Bounds.Right - 5f, midY - 5f, 10f, 10f);
     }
 
+    private void DrawWireGrip(Graphics graphics, Rectangle bounds)
+    {
+        using var fill = new SolidBrush(Color.White);
+        using var border = new Pen(Color.Black, 2f);
+        graphics.FillEllipse(fill, bounds);
+        graphics.DrawEllipse(border, bounds);
+    }
+
     private void DrawTitle(Graphics graphics, RectangleF bounds)
     {
         using var path = TopRoundedRect(bounds, CornerRadius);
@@ -303,15 +327,10 @@ public class PromptAttrib : GH_ComponentAttributes
 
     private void DrawResizeGrip(Graphics graphics, RectangleF grip)
     {
-        // 3 diagonal lines in the bottom-right corner of the section
-        using var pen = new Pen(Color.FromArgb(140, 100, 80, 50), 1.5f);
-        float x = grip.Right;
-        float y = grip.Bottom;
-        for (int i = 1; i <= 3; i++)
-        {
-            float offset = i * 4f;
-            graphics.DrawLine(pen, x - offset, y - 2f, x - 2f, y - offset);
-        }
+        using var pen = new Pen(Color.FromArgb(140, 14, 40, 240), 1f);
+
+        grip.Inflate(-2f, -2f);
+        graphics.DrawEllipse(pen, grip);
     }
 
     private static GraphicsPath TopRoundedRect(RectangleF r, float radius, bool addLine = true)

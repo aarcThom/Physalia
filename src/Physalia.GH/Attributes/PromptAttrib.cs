@@ -1,16 +1,16 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Components;
-using System;
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Windows.Forms;
 
 namespace Physalia.GH.Attributes;
 
@@ -29,6 +29,7 @@ public class PromptAttrib : GH_ComponentAttributes
 
     private readonly Prompt _prompt; // the prompt component
     private bool inputPromptCurrent = false;      // is the user currently inputing text?
+    private bool _submitting = false;             // true while a Shift+Enter submit is in flight
 
     // sizing state — persisted across saves
     private float _width;
@@ -214,19 +215,28 @@ public class PromptAttrib : GH_ComponentAttributes
 
             tb.Leave += (s, _) =>
             {
-                _prompt.UserPromptText = tb.Text;
+                if (!_submitting)
+                {
+                    // user clicked away without submitting — just persist the draft text
+                    _prompt.UserPromptText = tb.Text;
+                    _prompt.ExpireSolution(true);
+                }
+
+                _submitting = false;
                 inputPromptCurrent = false;
                 sender.Controls.Remove(tb);
-                _prompt.ExpireSolution(true);
             };
 
-            // can commit edits if hits 'shift + enter' just like the panel.
+            // shift + enter submits the message to the conversation history
             tb.KeyDown += (s, keyArgs) =>
             {
                 if (keyArgs.KeyCode == Keys.Enter && keyArgs.Shift)
                 {
                     keyArgs.SuppressKeyPress = true; // prevent the newline being added
-                    sender.Focus(); // triggers Leave, which commits and removes the TextBox
+                    _prompt.UserPromptText = tb.Text;
+                    _submitting = true;
+                    _prompt.SubmitUserMessage(); // appends to history, clears UserPromptText, expires solution
+                    sender.Focus(); // triggers Leave, which removes the TextBox
                 }
             };
 
@@ -376,6 +386,8 @@ public class PromptAttrib : GH_ComponentAttributes
 
     private void DrawConvo(Graphics graphics, RectangleF bounds)
     {
+        var textArea = bounds; // capture before inflate modifies the local copy
+
         using var path = new GraphicsPath();
         path.AddRectangle(bounds);
         using var fill = new SolidBrush(Color.FromArgb(255, 245, 234, 250));
@@ -393,6 +405,40 @@ public class PromptAttrib : GH_ComponentAttributes
         var shineGradient = new LinearGradientBrush(topPt, botPt, Color.FromArgb(200, 255, 255, 255), Color.FromArgb(0, 255, 255, 255));
         using var shineBorder = new Pen(shineGradient, 1f);
         graphics.DrawPath(shineBorder, shinePath);
+
+        // draw conversation messages bottom-to-top (newest at bottom, oldest scroll off the top)
+        var messages = _prompt.Conversation.Messages;
+        if (messages.Count == 0)
+            return;
+
+        const float padding = 6f;
+        float lineHeight = GH_FontServer.ConsoleSmallAdjusted.GetHeight(graphics) + 3f;
+        float x = textArea.X + padding;
+        float width = textArea.Width - padding * 2f - 14f; // inset from wire grip on right edge
+        float y = textArea.Bottom - padding - lineHeight;
+
+        using var userBrush = new SolidBrush(_outlineColor);
+        using var assistantBrush = new SolidBrush(Color.FromArgb(160, 47, 8, 87));
+        using var fmt = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
+
+        for (int i = messages.Count - 1; i >= 0; i--)
+        {
+            if (y < textArea.Top + padding)
+                break;
+
+            var msg = messages[i];
+            bool isUser = msg.Role == "user";
+            string display = isUser ? $"you: {msg.Content}" : "ai: [script]";
+
+            graphics.DrawString(
+                display,
+                GH_FontServer.ConsoleSmallAdjusted,
+                isUser ? userBrush : assistantBrush,
+                new RectangleF(x, y, width, lineHeight),
+                fmt);
+
+            y -= lineHeight;
+        }
     }
 
     private void DrawInput(Graphics graphics, RectangleF bounds)

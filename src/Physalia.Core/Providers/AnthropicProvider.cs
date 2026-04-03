@@ -25,7 +25,7 @@ public class AnthropicProvider : LlmProvider
     /// <summary>
     /// Maximum number of tokens for Anthropic API requests.
     /// </summary>
-    public override int MaxTokens => 4096; // seems like a good limit for GH ¯\_(ツ)_/¯
+    public override int MaxTokens => 16000; // claude-sonnet-4-6 supports up to 64K; 16K is a practical ceiling for GH scripts
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AnthropicProvider"/> class.

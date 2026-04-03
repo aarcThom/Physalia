@@ -73,7 +73,7 @@ public class Crest : PhyBase
     protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
     {
         pManager.AddParameter(new LlmProviderGhParam(), "Llm", "Llm", "Large language model from DREAM", GH_ParamAccess.item);
-        pManager.AddTextParameter("Prompt", "Prmpt", "The prompt", GH_ParamAccess.item);
+        pManager.AddParameter(new ConversationGhParam(), "Conversation", "Conv", "The conversation from PROMPT", GH_ParamAccess.item);
         pManager.AddBooleanParameter("Send", "Snd", "Send Prompt to defined model", GH_ParamAccess.item);
         pManager.AddBooleanParameter("AutoFix", "Fix", "Set True if you want the LLM to attempt to fix errors as they occur. Defaults to True.", GH_ParamAccess.item, true);
         pManager.AddIntegerParameter("Fix Attemps", "Fix #", "Number of times you want to send error codes back to the LLM for fixing. Defaults to 3", GH_ParamAccess.item, 3);
@@ -95,7 +95,7 @@ public class Crest : PhyBase
     {
         // INPUTS -------------------------------
         LlmProviderGoo? llmGoo = null;
-        string? prompt = null;
+        ConversationGoo? convGoo = null;
         bool send = false;
 
         if (!DA.GetData(0, ref llmGoo) || llmGoo == null)
@@ -103,7 +103,7 @@ public class Crest : PhyBase
             return;
         }
 
-        if (!DA.GetData(1, ref prompt) || prompt == null)
+        if (!DA.GetData(1, ref convGoo) || convGoo?.Value == null)
         {
             return;
         }
@@ -140,7 +140,7 @@ public class Crest : PhyBase
             _autoFixAttempts = 0;
 
             var llm = llmGoo.Value;
-            _pendingRequest = SendRequestAsync(prompt, llm, ZooidComponent);
+            _pendingRequest = SendRequestAsync(convGoo.Value, llm, ZooidComponent);
         }
     }
 
@@ -229,7 +229,7 @@ public class Crest : PhyBase
 
     // THE MAIN LLM REQUEST
     private async Task SendRequestAsync(
-        string prompt,
+        Conversation conversation,
         LlmProvider llModel,
         Zooid zooid)
     {
@@ -242,14 +242,19 @@ public class Crest : PhyBase
 
         try
         {
-            // SEND THE PROMPT - GET AND FORMAT THE RESULT
-            var rawResult = await llModel.SendPromptAsync(SystemPrompt.Default, prompt + paramPrompt);
+            // SEND THE CONVERSATION - GET AND FORMAT THE RESULT
+            var history = BuildHistoryWithParams(conversation.Messages, paramPrompt);
+            var rawResult = await llModel.SendConversationAsync(SystemPrompt.Default, history);
             var formattedResult = ResponseParser.Parse(rawResult);
-            _lastPrompt = prompt;
+            _lastPrompt = conversation.LastUserMessage;
+
+            // APPEND ASSISTANT RESPONSE TO SHARED CONVERSATION
+            conversation.AddAssistantMessage(rawResult);
 
             // SEND TO ZOOID AND EXPIRE SOLUTION
             zooid.ReceiveResponse(formattedResult);
             Message = "Done";
+            OnPingDocument()?.ScheduleSolution(1, _ => { }); // triggers canvas redraw so Prompt re-renders history
             ExpireSolution(true);
 
             // WAIT A BIT AND THEN AUTOFIX IF NEED BE
@@ -258,7 +263,7 @@ public class Crest : PhyBase
                 _waitingForAutoFix = true;
 
                 var currentDoc = OnPingDocument();
-                currentDoc.ScheduleSolution(1500, _ => TriggerAutoFix(prompt, llModel, zooid, formattedResult));
+                currentDoc.ScheduleSolution(1500, _ => TriggerAutoFix(conversation, llModel, zooid));
             }
         }
         catch (Exception ex)
@@ -270,14 +275,14 @@ public class Crest : PhyBase
     }
 
     // CHECKS IF FIX IS NEEDED / ALLOWED AND THEN RECALLS THE LLM
-    private void TriggerAutoFix(string originalPrompt, LlmProvider llModel, Zooid zooid, ScriptResponse lastResponse)
+    private void TriggerAutoFix(Conversation conversation, LlmProvider llModel, Zooid zooid)
     {
         _waitingForAutoFix = false;
 
         if (_autoFix && _autoFixAttempts < _maxAutoFixAttemps && ShouldAutoFix(zooid))
         {
             _autoFixAttempts++;
-            _pendingRequest = AutoFixAsync(originalPrompt, llModel, zooid, lastResponse);
+            _pendingRequest = AutoFixAsync(conversation, llModel, zooid);
         }
     }
 
@@ -292,24 +297,30 @@ public class Crest : PhyBase
     }
 
     // THE AUTOFIX REQUEST
-    private async Task AutoFixAsync(string originalPrompt, LlmProvider llModel, Zooid zooid, ScriptResponse lastResponse)
+    private async Task AutoFixAsync(Conversation conversation, LlmProvider llModel, Zooid zooid)
     {
         Message = $"Fixing ({_autoFixAttempts}/{_maxAutoFixAttemps})";
 
-        var fixPrompt = BuildFixPrompt(originalPrompt, lastResponse, zooid.LastDiagnostics, zooid.LastRuntimeError);
+        // append the error context as a new user turn — conversation already holds prior script as assistant turn
+        conversation.AddUserMessage(BuildFixMessage(zooid.LastDiagnostics, zooid.LastRuntimeError));
 
         try
         {
-            var rawResult = await llModel.SendPromptAsync(SystemPrompt.Default, fixPrompt);
+            var rawResult = await llModel.SendConversationAsync(SystemPrompt.Default, conversation.Messages);
             var formattedResult = ResponseParser.Parse(rawResult);
+
+            // append assistant response before sending to zooid
+            conversation.AddAssistantMessage(rawResult);
+
             zooid.ReceiveResponse(formattedResult);
             Message = "Done";
+            OnPingDocument()?.ScheduleSolution(1, _ => { }); // triggers canvas redraw so Prompt re-renders history
             ExpireSolution(true);
 
             if (_autoFix && _autoFixAttempts < _maxAutoFixAttemps)
             {
                 _waitingForAutoFix = true;
-                OnPingDocument()?.ScheduleSolution(1500, _ => TriggerAutoFix(originalPrompt, llModel, zooid, formattedResult));
+                OnPingDocument()?.ScheduleSolution(1500, _ => TriggerAutoFix(conversation, llModel, zooid));
             }
         }
         catch (Exception ex)
@@ -321,15 +332,11 @@ public class Crest : PhyBase
     }
 
     // TODO - NEED TO MOVE THIS TO PHYSALIA.CORE - SHOULD GO WITH PROMPTS
-    private static string BuildFixPrompt(string originalPrompt, ScriptResponse response, IReadOnlyList<Diagnostic> diagnostics, string? runtimeError)
+    // the prior script is already in the conversation as an assistant turn, so we only describe the errors here
+    private static string BuildFixMessage(IReadOnlyList<Diagnostic> diagnostics, string? runtimeError)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"The following script was generated for this task: \"{originalPrompt}\"");
-        sb.AppendLine();
         sb.AppendLine("The script has errors that need fixing. Return a corrected JSON response in the same format.");
-        sb.AppendLine();
-        sb.AppendLine("Current script:");
-        sb.AppendLine(response.Script);
 
         if (diagnostics.Count > 0)
         {
@@ -349,6 +356,18 @@ public class Crest : PhyBase
         }
 
         return sb.ToString();
+    }
+
+    // appends paramPrompt to the last user message so the LLM sees existing ZOOID params without mutating the shared conversation
+    private static IReadOnlyList<ConversationMessage> BuildHistoryWithParams(IReadOnlyList<ConversationMessage> messages, string paramPrompt)
+    {
+        if (string.IsNullOrEmpty(paramPrompt) || messages.Count == 0)
+            return messages;
+
+        var list = new List<ConversationMessage>(messages);
+        var last = list[list.Count - 1];
+        list[list.Count - 1] = new ConversationMessage(last.Role, last.Content + paramPrompt);
+        return list;
     }
 
     // if the linked ZOOID is deleted from the canvas, clear the reference so the wire disappears

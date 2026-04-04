@@ -4,7 +4,7 @@
 using System;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
-using Physalia.Core.Providers;
+using Physalia.Core.Prompts;
 using Physalia.GH.Attributes;
 using Physalia.GH.ParamTypes;
 
@@ -105,6 +105,7 @@ public class Prompt : PhyBase
         {
             writer.SetString($"Role_{i}", _conversation.Messages[i].Role);
             writer.SetString($"Content_{i}", _conversation.Messages[i].Content);
+            writer.SetString($"Status_{i}", _conversation.Messages[i].StatusMessage ?? string.Empty);
         }
 
         return base.Write(writer);
@@ -135,7 +136,11 @@ public class Prompt : PhyBase
                 if (role == "user")
                     _conversation.AddUserMessage(content);
                 else if (role == "assistant")
-                    _conversation.AddAssistantMessage(content);
+                {
+                    string status = string.Empty;
+                    reader.TryGetString($"Status_{i}", ref status);
+                    _conversation.AddAssistantMessage(content, string.IsNullOrEmpty(status) ? null : status);
+                }
             }
         }
 

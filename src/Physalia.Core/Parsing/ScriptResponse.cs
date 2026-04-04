@@ -12,6 +12,12 @@ namespace Physalia.Core.Parsing;
 public class ScriptResponse
 {
     /// <summary>
+    /// Gets or sets a short human-readable summary of what the LLM did (e.g. "Generated a script that...").
+    /// </summary>
+    [JsonPropertyName("statusMessage")]
+    public string StatusMessage { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the generated Python 3 script body.
     /// </summary>
     [JsonPropertyName("script")]

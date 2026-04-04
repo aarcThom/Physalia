@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using Physalia.Core.Prompts;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;

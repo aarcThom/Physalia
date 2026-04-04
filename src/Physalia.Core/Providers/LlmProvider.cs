@@ -1,6 +1,8 @@
 ﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using Physalia.Core.Prompts;
+
 namespace Physalia.Core.Providers;
 
 /// <summary>
@@ -69,26 +71,6 @@ public abstract class LlmProvider
     /// </remarks>
     /// <returns> The available models from the provider.</placeholder></returns>
     public abstract Task GetModelsAsync();
-
-    /// <summary>
-    /// Validates inputs and sends a single-turn prompt to the LLM.
-    /// Convenience wrapper around <see cref="SendConversationAsync"/> for single-turn use.
-    /// Throws <see cref="ArgumentException"/> if <paramref name="systemPrompt"/>, <paramref name="userPrompt"/>,
-    /// or <see cref="CurrentModel"/> are null or whitespace.
-    /// </summary>
-    /// <param name="systemPrompt">The system prompt that defines the model's behavior and context.</param>
-    /// <param name="userPrompt">The user prompt containing the request to be processed.</param>
-    /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
-    /// <returns>The raw response string returned by the LLM.</returns>
-    public Task<string> SendPromptAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(userPrompt))
-        {
-            throw new ArgumentException("User prompt must not be null or empty.", nameof(userPrompt));
-        }
-
-        return SendConversationAsync(systemPrompt, new[] { new ConversationMessage("user", userPrompt) }, cancellationToken);
-    }
 
     /// <summary>
     /// Validates inputs and delegates to <see cref="SendConversationCoreAsync"/> for provider-specific execution.

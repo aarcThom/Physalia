@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-namespace Physalia.Core.Providers;
+namespace Physalia.Core.Prompts;
 
 /// <summary>
 /// Maintains the ordered history of a multi-turn LLM conversation.
@@ -47,10 +47,11 @@ public class Conversation
     /// Appends an assistant turn to the conversation.
     /// </summary>
     /// <param name="content">The raw response string returned by the LLM.</param>
-    public void AddAssistantMessage(string content)
+    /// <param name="statusMessage">An optional short human-readable summary displayed in the conversation history UI.</param>
+    public void AddAssistantMessage(string content, string? statusMessage = null)
     {
         ArgumentNullException.ThrowIfNull(content);
-        _messages.Add(new ConversationMessage("assistant", content));
+        _messages.Add(new ConversationMessage("assistant", content, statusMessage));
     }
 
     /// <summary>

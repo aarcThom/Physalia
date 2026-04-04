@@ -249,7 +249,7 @@ public class Crest : PhyBase
             _lastPrompt = conversation.LastUserMessage;
 
             // APPEND ASSISTANT RESPONSE TO SHARED CONVERSATION
-            conversation.AddAssistantMessage(rawResult);
+            conversation.AddAssistantMessage(rawResult, formattedResult.StatusMessage);
 
             // SEND TO ZOOID AND EXPIRE SOLUTION
             zooid.ReceiveResponse(formattedResult);
@@ -310,7 +310,7 @@ public class Crest : PhyBase
             var formattedResult = ResponseParser.Parse(rawResult);
 
             // append assistant response before sending to zooid
-            conversation.AddAssistantMessage(rawResult);
+            conversation.AddAssistantMessage(rawResult, formattedResult.StatusMessage);
 
             zooid.ReceiveResponse(formattedResult);
             Message = "Done";

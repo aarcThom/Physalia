@@ -31,6 +31,7 @@ public static class SystemPrompt
         this exact schema:
 
         {
+          "statusMessage": "<one short sentence describing what you did, e.g. 'Generated a script that moves points along a vector.' or 'Fixed the loop to handle empty lists.'>",
           "script": "<python code as a single string with \\n for newlines>",
           "inputs": [
             {
@@ -67,6 +68,7 @@ public static class SystemPrompt
         - Use "list" access when the user's request implies working with collections.
         - Outputs do NOT need typeHint or access fields.
         - Every input/output in the JSON must correspond to a variable used in the script.
+        - Always include "statusMessage" as the first key in the JSON object.
         - Respond with ONLY the JSON object. No other text.
         """;
 }

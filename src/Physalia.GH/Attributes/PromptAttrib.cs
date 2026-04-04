@@ -26,10 +26,9 @@ public class PromptAttrib : GH_ComponentAttributes
     private enum ResizeTarget { None, convoTarget, inputTarget }
 
     // FIELDS =======================================================================================
-
     private readonly Prompt _prompt; // the prompt component
-    private bool inputPromptCurrent = false;      // is the user currently inputing text?
-    private bool _submitting = false;             // true while a Shift+Enter submit is in flight
+    private bool inputPromptCurrent = false; // is the user currently inputing text?
+    private bool _submitting = false; // true while a Shift+Enter submit is in flight
 
     // sizing state — persisted across saves
     private float _width;
@@ -55,7 +54,6 @@ public class PromptAttrib : GH_ComponentAttributes
     private float _inputHeightAtStart;
 
     // CONSTANTS =======================================================================================
-
     private const float TitleHeight = 18f;
     private const float GripSize = 8f;
     private const float CornerRadius = 4f;
@@ -384,6 +382,7 @@ public class PromptAttrib : GH_ComponentAttributes
         graphics.DrawString(Owner.NickName, GH_FontServer.StandardAdjusted, txtBrush, bounds, fmt);
     }
 
+    // draws the conversation in the convo bounds
     private void DrawConvo(Graphics graphics, RectangleF bounds)
     {
         var textArea = bounds; // capture before inflate modifies the local copy
@@ -428,7 +427,7 @@ public class PromptAttrib : GH_ComponentAttributes
 
             var msg = messages[i];
             bool isUser = msg.Role == "user";
-            string display = isUser ? $"you: {msg.Content}" : "ai: [script]";
+            string display = isUser ? $"you: {msg.Content}" : $"llm: {msg.StatusMessage ?? "[script]"}";
 
             graphics.DrawString(
                 display,

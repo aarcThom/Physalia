@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using Grasshopper.Kernel.Types;
-using Physalia.Core.Providers;
+using Physalia.Core.Prompts;
 
 namespace Physalia.GH.ParamTypes;
 

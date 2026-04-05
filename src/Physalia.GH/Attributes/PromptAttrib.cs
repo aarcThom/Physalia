@@ -1,29 +1,57 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-using System;
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Components;
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Runtime.CompilerServices;
+using System.Windows.Forms;
 
 namespace Physalia.GH.Attributes;
 
 /// <summary>
 /// Custom attributes for the Prompt component. A panel-inspired prompting interface
-/// divided into three vertically stacked sections: title, history, and entry.
+/// divided into three vertically stacked sections: title, conversation and entry.
+/// This really needs to be cleaned up!.
 /// </summary>
 public class PromptAttrib : GH_ComponentAttributes
 {
     // NESTED TYPES =======================================================================================
 
     // identifies which resize grip is currently being dragged
-    private enum ResizeTarget { None, convoTarget, inputTarget }
+    private enum ResizeTarget
+    {
+        None,
+        ConvoTarget,
+        InputTarget,
+        ScrollThumb,
+    }
+
+    // CONSTANTS =======================================================================================
+    private const float TitleHeight = 18f;
+    private const float GripSize = 8f;
+    private const float CornerRadius = 4f;
+    private const float MinWidth = 140f;
+    private const float MinSectionHeight = 40f;
+    private const float DefaultWidth = 220f;
+    private const float DefaultConvoHeight = 120f;
+    private const float DefaultInputHeight = 80f;
+    private const float ConvoPadding = 6f;
+    private const float ScrollbarWidth = 10f;
+
+    private readonly Color _outlineColor = Color.FromArgb(255, 47, 8, 87);
+    private readonly Color _titleHilightColor = Color.FromArgb(255, 232, 188, 255);
+    private readonly Color _titleColor = Color.White; // formely 255, 232, 188, 255
+    private readonly Color _convoColor = Color.FromArgb(255, 218, 243, 245); // formerly 255, 245, 234, 250
+    private readonly Color _inputColor = Color.FromArgb(255, 138, 194, 207);
+    private readonly Color _inputLoLight = Color.FromArgb(255, 36, 84, 107);
 
     // FIELDS =======================================================================================
     private readonly Prompt _prompt; // the prompt component
@@ -53,17 +81,12 @@ public class PromptAttrib : GH_ComponentAttributes
     private float _convoHeightAtStart;
     private float _inputHeightAtStart;
 
-    // CONSTANTS =======================================================================================
-    private const float TitleHeight = 18f;
-    private const float GripSize = 8f;
-    private const float CornerRadius = 4f;
-    private const float MinWidth = 140f;
-    private const float MinSectionHeight = 40f;
-    private const float DefaultWidth = 220f;
-    private const float DefaultConvoHeight = 120f;
-    private const float DefaultInputHeight = 80f;
-
-    private readonly Color _outlineColor = Color.FromArgb(255, 47, 8, 87);
+    // convo scroll state
+    private float _scrollOffset = 0f;
+    private float _scrollOffsetAtDragStart;
+    private float _totalContentHeight;
+    private RectangleF _scrollbarTrack;
+    private RectangleF _scrollbarThumb;
 
     // CONSTRUCTOR =======================================================================================
 
@@ -109,7 +132,10 @@ public class PromptAttrib : GH_ComponentAttributes
         _inputHeight = (float)a3h;
         string promptText = string.Empty;
         if (reader.TryGetString("PromptText", ref promptText))
+        {
             _prompt.UserPromptText = promptText;
+        }
+
         return base.Read(reader);
     }
 
@@ -134,14 +160,17 @@ public class PromptAttrib : GH_ComponentAttributes
         _boundsConvo = new RectangleF(x, y + TitleHeight, _width, _convoHeight);
         _boundsInput = new RectangleF(x, y + TitleHeight + _convoHeight, _width, _inputHeight);
 
+        // use the renderBounds / layoutBounds so we can make sure our output wire is actually clickable
+        // render bounds is the smaller bounds (the main component), layout bounds is slightly bigger to the right for output grip
         _renderBounds = new RectangleF(x, y, _width, TitleHeight + _convoHeight + _inputHeight);
         _layoutBounds = new RectangleF(x, y, _width + 4f, TitleHeight + _convoHeight + _inputHeight);
 
-
         Bounds = _renderBounds;
 
-        _gripConvo = new RectangleF(_boundsConvo.Right - GripSize, _boundsConvo.Bottom - GripSize, GripSize, GripSize);
-        _gripInput = new RectangleF(_boundsInput.Right - GripSize, _boundsInput.Bottom - GripSize, GripSize, GripSize);
+        _gripConvo = new RectangleF(_boundsConvo.Right - GripSize - 1f, _boundsConvo.Bottom - GripSize, GripSize, GripSize);
+        _gripInput = new RectangleF(_boundsInput.Right - GripSize - 1f, _boundsInput.Bottom - GripSize - 1f, GripSize, GripSize);
+
+        _scrollbarTrack = new RectangleF(_boundsConvo.Right - GripSize + 0.5f, _boundsConvo.Top + 2.5f, GripSize - 3f, _boundsConvo.Height - GripSize - 3f);
 
         _wireOutputGrip = new RectangleF(_boundsConvo.Right - 3f, _boundsConvo.Bottom - (_boundsConvo.Height / 2) - 4f, 8f, 8f);
 
@@ -157,7 +186,6 @@ public class PromptAttrib : GH_ComponentAttributes
     /// <param name="channel">The current rendering channel.</param>
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
     {
-
         Bounds = _renderBounds; // SET THE BOUNDS BACK TO DEFAULT FOR RENDER PASS
 
         if (channel == GH_CanvasChannel.Objects)
@@ -165,7 +193,7 @@ public class PromptAttrib : GH_ComponentAttributes
             DrawWireGrip(graphics, _wireOutputGrip);
             DrawTitle(graphics, _boundsTitle);
             DrawConvo(graphics, _boundsConvo);
-            DrawInput(graphics, _boundsInput);
+            DrawIdlingInput(graphics, _boundsInput);
             DrawResizeGrip(graphics, _gripConvo);
             DrawResizeGrip(graphics, _gripInput);
             return;
@@ -186,52 +214,37 @@ public class PromptAttrib : GH_ComponentAttributes
     /// <returns>Handled if the input section was double-clicked; otherwise the base response.</returns>
     public override GH_ObjectResponse RespondToMouseDoubleClick(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
+        // creating the input box 
         if (_boundsInput.Contains(e.CanvasLocation))
         {
-            float zoom = sender.Viewport.Zoom;
-            PointF origin = sender.Viewport.ProjectPoint(_boundsInput.Location);
-            var tb = new TextBox
-            {
-                Multiline = true,
-                WordWrap = true,
-                ScrollBars = ScrollBars.Vertical,
-                BorderStyle = BorderStyle.None,
-                BackColor = Color.FromArgb(245, 234, 250),
-                Font = GH_FontServer.Console,
-                Text = _prompt.UserPromptText,
-                Bounds = new Rectangle(
-                    (int)origin.X + 8, (int)origin.Y + 8,
-                    (int)(_boundsInput.Width * zoom - 16),
-                    (int)(_boundsInput.Height * zoom - 48)),
-            };
-
+            var inputBox = DrawActiveInput(sender);
             inputPromptCurrent = true;
-            sender.Controls.Add(tb);
-            tb.BringToFront();
-            tb.Focus();
-            tb.SelectAll();
+            sender.Controls.Add(inputBox);
+            inputBox.BringToFront();
+            inputBox.Focus();
+            inputBox.SelectAll();
 
-            tb.Leave += (s, _) =>
+            inputBox.Leave += (s, _) =>
             {
                 if (!_submitting)
                 {
                     // user clicked away without submitting — just persist the draft text
-                    _prompt.UserPromptText = tb.Text;
+                    _prompt.UserPromptText = inputBox.Text;
                     _prompt.ExpireSolution(true);
                 }
 
                 _submitting = false;
                 inputPromptCurrent = false;
-                sender.Controls.Remove(tb);
+                sender.Controls.Remove(inputBox);
             };
 
             // shift + enter submits the message to the conversation history
-            tb.KeyDown += (s, keyArgs) =>
+            inputBox.KeyDown += (s, keyArgs) =>
             {
                 if (keyArgs.KeyCode == Keys.Enter && keyArgs.Shift)
                 {
                     keyArgs.SuppressKeyPress = true; // prevent the newline being added
-                    _prompt.UserPromptText = tb.Text;
+                    _prompt.UserPromptText = inputBox.Text;
                     _submitting = true;
                     _prompt.SubmitUserMessage(); // appends to history, clears UserPromptText, expires solution
                     sender.Focus(); // triggers Leave, which removes the TextBox
@@ -254,9 +267,28 @@ public class PromptAttrib : GH_ComponentAttributes
     {
         if (e.Button == MouseButtons.Left)
         {
+            if (_scrollbarThumb.Contains(e.CanvasLocation))
+            {
+                _activeGrip = ResizeTarget.ScrollThumb;
+                _resizeStart = e.CanvasLocation;
+                _scrollOffsetAtDragStart = _scrollOffset;
+                return GH_ObjectResponse.Capture;
+            }
+
+            if (_scrollbarTrack.Contains(e.CanvasLocation))
+            {
+                // click on track (not thumb) — jump scroll to that position
+                float clickFrac = (e.CanvasLocation.Y - _scrollbarTrack.Y) / _scrollbarTrack.Height;
+                float maxScroll = Math.Max(0f, _totalContentHeight - (_boundsConvo.Height - ConvoPadding * 2f));
+                _scrollOffset = Math.Clamp(maxScroll * (1f - clickFrac), 0f, maxScroll);
+                ExpireLayout();
+                sender.ScheduleRegen(2);
+                return GH_ObjectResponse.Handled;
+            }
+
             if (_gripConvo.Contains(e.CanvasLocation))
             {
-                _activeGrip = ResizeTarget.convoTarget;
+                _activeGrip = ResizeTarget.ConvoTarget;
                 _resizeStart = e.CanvasLocation;
                 _widthAtStart = _width;
                 _convoHeightAtStart = _convoHeight;
@@ -265,7 +297,7 @@ public class PromptAttrib : GH_ComponentAttributes
 
             if (_gripInput.Contains(e.CanvasLocation))
             {
-                _activeGrip = ResizeTarget.inputTarget;
+                _activeGrip = ResizeTarget.InputTarget;
                 _resizeStart = e.CanvasLocation;
                 _widthAtStart = _width;
                 _inputHeightAtStart = _inputHeight;
@@ -290,9 +322,25 @@ public class PromptAttrib : GH_ComponentAttributes
             float dx = e.CanvasLocation.X - _resizeStart.X;
             float dy = e.CanvasLocation.Y - _resizeStart.Y;
 
+            if (_activeGrip == ResizeTarget.ScrollThumb)
+            {
+                float maxScroll = Math.Max(0f, _totalContentHeight - (_boundsConvo.Height - ConvoPadding * 2f));
+                float trackRange = _scrollbarTrack.Height - _scrollbarThumb.Height;
+                if (trackRange > 0f)
+                {
+                    // dragging thumb up (dy < 0) increases scroll offset (reveals older messages)
+                    _scrollOffset = Math.Clamp(_scrollOffsetAtDragStart - dy * maxScroll / trackRange, 0f, maxScroll);
+                }
+
+                sender.Cursor = Cursors.SizeNS;
+                ExpireLayout();
+                sender.ScheduleRegen(2);
+                return GH_ObjectResponse.Handled;
+            }
+
             _width = Math.Max(MinWidth, _widthAtStart + dx);
 
-            if (_activeGrip == ResizeTarget.convoTarget)
+            if (_activeGrip == ResizeTarget.ConvoTarget)
             {
                 _convoHeight = Math.Max(MinSectionHeight, _convoHeightAtStart + dy);
             }
@@ -338,11 +386,11 @@ public class PromptAttrib : GH_ComponentAttributes
 
     // PRIVATE METHODS =======================================================================================
 
-    // positions the output param at the right edge of the history section, vertically centred
+    // positions the output param at the right edge of the conversation section, vertically centred
     private void LayoutOutputParam()
     {
         var param = Owner.Params.Output[0];
-        float midY = _boundsConvo.Y + _boundsConvo.Height / 2f;
+        float midY = _boundsConvo.Y + (_boundsConvo.Height / 2f);
         param.Attributes.Pivot = new PointF(Bounds.Right, midY);
         param.Attributes.Bounds = new RectangleF(Bounds.Right - 5f, midY - 5f, 10f, 10f);
     }
@@ -361,10 +409,8 @@ public class PromptAttrib : GH_ComponentAttributes
 
         var topPt = new PointF(bounds.Left, bounds.Top);
         var botPt = new PointF(bounds.Left, bounds.Bottom);
-        var topColor = Color.FromArgb(255, 232, 188, 255);
-        var botColor = Color.FromArgb(255, 245, 234, 250);
 
-        using var fill = new LinearGradientBrush(topPt, botPt, topColor, botColor);
+        using var fill = new LinearGradientBrush(topPt, botPt, _titleColor, _convoColor);
         using var border = new Pen(_outlineColor, 1f);
         graphics.FillPath(fill, path);
         graphics.DrawPath(border, path);
@@ -372,7 +418,7 @@ public class PromptAttrib : GH_ComponentAttributes
         // drawing the little hilights
         bounds.Inflate(-1f, -1f);
         using var shinePath = TopRoundedRect(bounds, CornerRadius - 1);
-        var shineGradient = new LinearGradientBrush(topPt, botPt, Color.White, Color.FromArgb(100, 255, 255, 255));
+        var shineGradient = new LinearGradientBrush(topPt, botPt, _titleHilightColor, Color.FromArgb(100, 255, 255, 255));
         using var shineBorder = new Pen(shineGradient, 1f);
         graphics.DrawPath(shineBorder, shinePath);
 
@@ -387,66 +433,140 @@ public class PromptAttrib : GH_ComponentAttributes
     {
         var textArea = bounds; // capture before inflate modifies the local copy
 
+        // the main convo rectangle
+        using var fill = new SolidBrush(_convoColor);
+        graphics.FillRectangle(fill, bounds);
+
+        // the outline - we don't want a line between convo and input
         using var path = new GraphicsPath();
-        path.AddRectangle(bounds);
-        using var fill = new SolidBrush(Color.FromArgb(255, 245, 234, 250));
         using var border = new Pen(_outlineColor, 1f);
-        graphics.FillPath(fill, path);
+
+        var rp = GetRectCornerPts(bounds); // the rectangle corners as a dict
+        path.AddLine(rp["botLeft"], rp["topLeft"]);
+        path.AddLine(rp["topLeft"], rp["topRight"]);
+        path.AddLine(rp["topRight"], rp["botRight"]);
         graphics.DrawPath(border, path);
 
         // drawing the little hilights
         bounds.Inflate(-1f, -1f);
-        using var shinePath = new GraphicsPath();
-        shinePath.AddRectangle(bounds);
-        var topPt = new PointF(bounds.Left, bounds.Top);
-        var botPt = new PointF(bounds.Left, bounds.Bottom);
+        using var hilightPath = new GraphicsPath();
+        var hp = GetRectCornerPts(bounds);
+        PointF[] pathPts = { hp["botLeft"], hp["topLeft"], hp["topRight"], hp["botRight"] };
 
-        var shineGradient = new LinearGradientBrush(topPt, botPt, Color.FromArgb(200, 255, 255, 255), Color.FromArgb(0, 255, 255, 255));
+        hilightPath.AddLines(pathPts);
+
+        var shineGradient = new LinearGradientBrush(bounds, Color.FromArgb(200, 255, 255, 255), _inputColor, LinearGradientMode.Vertical);
+        shineGradient.WrapMode = WrapMode.TileFlipXY;
         using var shineBorder = new Pen(shineGradient, 1f);
-        graphics.DrawPath(shineBorder, shinePath);
+        graphics.DrawPath(shineBorder, hilightPath);
+
 
         // draw conversation messages bottom-to-top (newest at bottom, oldest scroll off the top)
         var messages = _prompt.Conversation.Messages;
         if (messages.Count == 0)
+        {
             return;
+        }
 
-        const float padding = 6f;
-        float lineHeight = GH_FontServer.ConsoleSmallAdjusted.GetHeight(graphics) + 3f;
-        float x = textArea.X + padding;
-        float width = textArea.Width - padding * 2f - 14f; // inset from wire grip on right edge
-        float y = textArea.Bottom - padding - lineHeight;
+        const float msgGap = 2f;
+        var font = GH_FontServer.ConsoleSmallAdjusted;
+        float x = textArea.X + ConvoPadding;
+        float width = textArea.Width - (ConvoPadding * 2f) - 14f - ScrollbarWidth - 4f; // inset from wire grip and scrollbar on right
+        float viewH = textArea.Height - ConvoPadding * 2f;
 
         using var userBrush = new SolidBrush(_outlineColor);
         using var assistantBrush = new SolidBrush(Color.FromArgb(160, 47, 8, 87));
-        using var fmt = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
 
+        using var fmt = new StringFormat
+        {
+            Alignment = StringAlignment.Near,
+            LineAlignment = StringAlignment.Near,
+            Trimming = StringTrimming.Word,
+        };
+
+        // pre-measure all messages to compute total content height and cache heights for the draw pass
+        var msgHeights = new float[messages.Count];
+        float totalH = 0f;
+        for (int i = 0; i < messages.Count; i++)
+        {
+            var m = messages[i];
+            string d = m.Role == "user" ? $"you: {m.Content}" : $"llm: {m.StatusMessage ?? "[script]"}";
+            msgHeights[i] = graphics.MeasureString(d, font, (int)width, fmt).Height;
+            totalH += msgHeights[i] + msgGap;
+        }
+
+        _totalContentHeight = totalH;
+        float maxScroll = Math.Max(0f, _totalContentHeight - viewH);
+        _scrollOffset = Math.Clamp(_scrollOffset, 0f, maxScroll);
+
+        DrawScrollbar(graphics, _scrollbarTrack, maxScroll);
+
+        // clip drawing to the text area so partially-visible messages are trimmed at the edges
+        var clipRect = new RectangleF(x, textArea.Y + ConvoPadding, width, viewH);
+        var state = graphics.Save();
+        graphics.SetClip(clipRect);
+
+        float y = textArea.Bottom - ConvoPadding + _scrollOffset;
         for (int i = messages.Count - 1; i >= 0; i--)
         {
-            if (y < textArea.Top + padding)
-                break;
-
             var msg = messages[i];
             bool isUser = msg.Role == "user";
             string display = isUser ? $"you: {msg.Content}" : $"llm: {msg.StatusMessage ?? "[script]"}";
 
+            float msgHeight = msgHeights[i];
+            y -= msgHeight;
+
+            // completely above the viewport — nothing older will be visible either
+            if (y + msgHeight < textArea.Top + ConvoPadding)
+            {
+                break;
+            }
+
+            // completely below the viewport — skip but keep iterating upward
+            if (y > textArea.Bottom - ConvoPadding)
+            {
+                y -= msgGap;
+                continue;
+            }
+
+            // clip region handles any partial visibility at top or bottom
             graphics.DrawString(
                 display,
-                GH_FontServer.ConsoleSmallAdjusted,
+                font,
                 isUser ? userBrush : assistantBrush,
-                new RectangleF(x, y, width, lineHeight),
+                new RectangleF(x, y, width, msgHeight),
                 fmt);
 
-            y -= lineHeight;
+            y -= msgGap;
         }
+
+        graphics.Restore(state);
     }
 
-    private void DrawInput(Graphics graphics, RectangleF bounds)
+    // the input box when the user is currently inputting text
+    private void DrawIdlingInput(Graphics graphics, RectangleF bounds)
     {
-        using var path = BottomRoundedRect(bounds, CornerRadius);
-        using var fill = new SolidBrush(Color.FromArgb(255, 245, 234, 250));
+        using var fillPath = BottomRoundedRect(bounds, CornerRadius);
+        using var fill = new LinearGradientBrush(bounds, _convoColor, _inputColor, LinearGradientMode.Vertical);
+        fill.WrapMode = WrapMode.TileFlipXY;
+        var blend = new ColorBlend(3);
+        blend.Colors = new[] { _convoColor, _inputColor, _inputColor };
+        blend.Positions = new[] { 0f, 0.125f, 1f };
+        fill.InterpolationColors = blend;
+        graphics.FillPath(fill, fillPath);
+
+        // border doesn't have a top line
+        using var outlinePath = BottomRoundedRectOpenTop(bounds, CornerRadius);
         using var border = new Pen(_outlineColor, 1f);
-        graphics.FillPath(fill, path);
-        graphics.DrawPath(border, path);
+        graphics.DrawPath(border, outlinePath);
+
+        // draw the little lolight
+        var hilightRect = new RectangleF(bounds.Left + 1f, bounds.Top - 4f, bounds.Width - 2f, bounds.Height + 3f);
+        using var hilightPath = BottomRoundedRectOpenTop(hilightRect, CornerRadius - 1f);
+        using var hilightGrad = new LinearGradientBrush(hilightRect, _inputColor, _inputLoLight, LinearGradientMode.Vertical);
+        hilightGrad.WrapMode = WrapMode.TileFlipXY;
+        using var hilightBorder = new Pen(hilightGrad, 1f);
+        graphics.DrawPath(hilightBorder, hilightPath);
 
         // draw text when user isn't currently inputting
         if (!inputPromptCurrent)
@@ -457,23 +577,70 @@ public class PromptAttrib : GH_ComponentAttributes
         }
     }
 
-    private void DrawResizeGrip(Graphics graphics, RectangleF grip)
+    // the textbox for active input
+    private TextBox DrawActiveInput(GH_Canvas sender)
     {
-        using var pen = new Pen(Color.FromArgb(140, 14, 40, 240), 1f);
+        float zoom = sender.Viewport.Zoom;
+        PointF origin = sender.Viewport.ProjectPoint(_boundsInput.Location);
 
-        grip.Inflate(-2f, -2f);
-        graphics.DrawEllipse(pen, grip);
+        var tb = new TextBox
+        {
+            Multiline = true,
+            WordWrap = true,
+            ScrollBars = ScrollBars.None,
+            BorderStyle = BorderStyle.None,
+            BackColor = _inputColor,
+            Font = GH_FontServer.Console,
+            Text = _prompt.UserPromptText,
+            Bounds = new Rectangle((int)origin.X + 10, (int)origin.Y + 60, (int)((_boundsInput.Width * zoom) - 20), (int)((_boundsInput.Height * zoom) - 108)),
+        };
+        return tb;
     }
 
-    private static GraphicsPath TopRoundedRect(RectangleF r, float radius, bool addLine = true)
+    private void DrawResizeGrip(Graphics graphics, RectangleF grip)
+    {
+        grip.Inflate(-2f, -2f);
+        using var hilight = new LinearGradientBrush(grip, Color.FromArgb(0, 255, 255, 255), Color.White, LinearGradientMode.Vertical);
+        hilight.WrapMode = WrapMode.TileFlipXY;
+        using var shadow = new LinearGradientBrush(grip, _inputLoLight, Color.FromArgb(0, 0, 0, 0), LinearGradientMode.Vertical);
+        using var pen = new Pen(hilight, 0.5f);
+
+        graphics.DrawEllipse(pen, grip);
+        grip.Inflate(-0.5f, -0.5f);
+        graphics.FillEllipse(shadow, grip);
+    }
+
+    // TO DO - THIS SHOULD BE STORED IN UI COMPONENTS....
+    private void DrawScrollbar(Graphics graphics, RectangleF track, float maxScroll)
+    {
+        // track background
+        using var trackBrush = new SolidBrush(Color.FromArgb(40, 47, 8, 87));
+        graphics.FillRectangle(trackBrush, track);
+
+        if (maxScroll <= 0f)
+        {
+            return;
+        }
+
+        // thumb — height proportional to visible fraction, position reflects scroll offset
+        float thumbH = Math.Max(20f, track.Height * (track.Height / _totalContentHeight));
+        float thumbFrac = 1f - (_scrollOffset / maxScroll); // 0 = top, 1 = bottom
+        float thumbY = track.Y + thumbFrac * (track.Height - thumbH);
+        _scrollbarThumb = new RectangleF(track.X, thumbY, track.Width, thumbH);
+
+        using var thumbBrush = new SolidBrush(Color.FromArgb(120, 47, 8, 87));
+        graphics.FillRectangle(thumbBrush, _scrollbarThumb);
+    }
+
+    private static GraphicsPath TopRoundedRect(RectangleF r, float radius)
     {
         float d = radius * 2f;
         var path = new GraphicsPath();
         path.AddArc(r.X, r.Y, d, d, 180, 90); // top left arc
         path.AddArc(r.Right - d, r.Y, d, d, 270, 90); // top right arc
-        var bottomLeftPt = new PointF(r.Left, r.Bottom);
-        var bottomRightPt = new PointF(r.Right, r.Bottom);
-        path.AddLine(bottomRightPt, bottomLeftPt);
+
+        var rp = GetRectCornerPts(r);
+        path.AddLine(rp["botRight"], rp["botLeft"]);
 
         path.CloseFigure();
         return path;
@@ -484,13 +651,40 @@ public class PromptAttrib : GH_ComponentAttributes
         float d = radius * 2f;
         var path = new GraphicsPath();
 
-        var topLeftPt = new PointF(r.Left, r.Top);
-        var topRightPt = new PointF(r.Right, r.Top);
-        path.AddLine(topLeftPt, topRightPt);
+        var rp = GetRectCornerPts(r);
+        path.AddLine(rp["topLeft"], rp["topRight"]);
 
         path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
         path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
         path.CloseFigure();
         return path;
+    }
+
+    private static GraphicsPath BottomRoundedRectOpenTop(RectangleF r, float radius)
+    {
+        float d = radius * 2f;
+        var path = new GraphicsPath();
+        var rp = GetRectCornerPts(r);
+
+        path.AddLine(rp["topRight"], new PointF(r.Right, r.Bottom - d)); // top right to right arc
+        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90); // right arc
+        path.AddLine(new PointF(r.Right - d, r.Bottom), new PointF(r.X + d, r.Bottom)); // between the arcs
+        path.AddArc(r.X, r.Bottom - d, d, d, 90, 90); // left arc
+        path.AddLine(new PointF(r.X, r.Bottom - d), rp["topLeft"]); // left arc to top left
+
+        return path;
+    }
+
+    // little helper function to get four points of rectangle
+    private static Dictionary<string, PointF> GetRectCornerPts(RectangleF rect)
+    {
+        var ptDict = new Dictionary<string, PointF>();
+
+        ptDict.Add("topLeft", new PointF(rect.Left, rect.Top));
+        ptDict.Add("topRight", new PointF(rect.Right, rect.Top));
+        ptDict.Add("botLeft", new PointF(rect.Left, rect.Bottom));
+        ptDict.Add("botRight", new PointF(rect.Right, rect.Bottom));
+
+        return ptDict;
     }
 }

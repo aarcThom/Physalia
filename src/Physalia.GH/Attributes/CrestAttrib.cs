@@ -17,6 +17,8 @@ namespace Physalia.GH.Attributes;
 /// </summary>
 public class CrestAttrib : GH_ComponentAttributes
 {
+    private static readonly Pen[] _gradientPens = CreateGradientPens();
+
     private readonly Crest _crest; // the crest component
 
     private bool _isConnecting; // is the user adding a new zooid? False is disconnection
@@ -25,6 +27,11 @@ public class CrestAttrib : GH_ComponentAttributes
 
     private RectangleF _gripBounds; // the actual bounds of the grip
     private RectangleF _visualBounds; // the default bounds we want to render
+
+    // bezier segment cache — recomputed only when endpoints change
+    private PointF[]? _cachedSegments;
+    private PointF _lastCrestPt;
+    private PointF _lastWireEnd;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CrestAttrib"/> class.
@@ -102,27 +109,24 @@ public class CrestAttrib : GH_ComponentAttributes
 
             var crestBottomPoint = new PointF(gripCtrX, gripCtrY);
 
-            // create the color gradient
-            var phyBlue = Color.Blue;
-            var phyPurple = Color.Purple;
-
             // draw a bezier curve between the CREST and ZOOID with a gradient that follows the curve
             var bezPt1 = new PointF(crestBottomPoint.X, crestBottomPoint.Y + 80f);
             var bezPt2 = new PointF(wireEnd.X, wireEnd.Y + 80f);
 
-            // break the bezier into segments for a nice smooth gradient
-            int steps = 40;
-            for (int i = 0; i < steps; i++)
+            // recompute segment points only when endpoints change
+            if (_cachedSegments == null || crestBottomPoint != _lastCrestPt || wireEnd != _lastWireEnd)
             {
-                float t0 = (float)i / steps;
-                float t1 = (float)(i + 1) / steps;
-
-                var segStart = SampleBezier(crestBottomPoint, bezPt1, bezPt2, wireEnd, t0);
-                var segEnd = SampleBezier(crestBottomPoint, bezPt1, bezPt2, wireEnd, t1);
-
-                using var segPen = new Pen(LerpColor(phyBlue, phyPurple, t0), 2f);
-                graphics.DrawLine(segPen, segStart, segEnd);
+                int steps = _gradientPens.Length;
+                _cachedSegments = new PointF[steps + 1];
+                for (int i = 0; i <= steps; i++)
+                    _cachedSegments[i] = SampleBezier(crestBottomPoint, bezPt1, bezPt2, wireEnd, (float)i / steps);
+                _lastCrestPt = crestBottomPoint;
+                _lastWireEnd = wireEnd;
             }
+
+            // draw using pre-computed pens and cached points
+            for (int i = 0; i < _gradientPens.Length; i++)
+                graphics.DrawLine(_gradientPens[i], _cachedSegments[i], _cachedSegments[i + 1]);
 
             //draw the triangle at the tip
             float triHeight = 8f;
@@ -131,7 +135,7 @@ public class CrestAttrib : GH_ComponentAttributes
             var tip = new PointF(wireEnd.X, wireEnd.Y - triHeight);
             var baseLeft = new PointF(tip.X - triWidth / 2f, tip.Y + triHeight);
             var baseRight = new PointF(tip.X + triWidth / 2f, tip.Y + triHeight);
-            using var triFill = new SolidBrush(phyPurple);
+            using var triFill = new SolidBrush(Color.Purple);
             graphics.FillPolygon(triFill, new[] { tip, baseLeft, baseRight });
         }
 
@@ -249,6 +253,16 @@ public class CrestAttrib : GH_ComponentAttributes
     }
 
     // HELPERS =======================================================================================
+
+    // pre-computes one pen per gradient step — allocated once, reused every frame
+    private static Pen[] CreateGradientPens()
+    {
+        const int steps = 40;
+        var pens = new Pen[steps];
+        for (int i = 0; i < steps; i++)
+            pens[i] = new Pen(LerpColor(Color.Blue, Color.Purple, i / (float)steps), 2f);
+        return pens;
+    }
 
     // used to break the bezier into small chunks which can be assigned linear gradients
     private static PointF SampleBezier(PointF p0, PointF p1, PointF p2, PointF p3, float t)

@@ -10,9 +10,9 @@ public static class PhyPalette
     private static readonly Color ErrorOutlineCol = Color.FromArgb(255, 60, 0, 0);
 
     //properties
-    public static Pen BlankOutline => new Pen(BlankOutlineCol) { EndCap = System.Drawing.Drawing2D.LineCap.Round };
-    public static Pen WarnOutline => new Pen(WarnOutlineCol) { EndCap = System.Drawing.Drawing2D.LineCap.Round };
-    public static Pen ErrorOutline => new Pen(ErrorOutlineCol) { EndCap = System.Drawing.Drawing2D.LineCap.Round };
+    public static readonly Pen BlankOutline = new Pen(BlankOutlineCol) { EndCap = System.Drawing.Drawing2D.LineCap.Round };
+    public static readonly Pen WarnOutline = new Pen(WarnOutlineCol) { EndCap = System.Drawing.Drawing2D.LineCap.Round };
+    public static readonly Pen ErrorOutline = new Pen(ErrorOutlineCol) { EndCap = System.Drawing.Drawing2D.LineCap.Round };
 
     // methods
     public static Brush SmallButton(float topY, float botY)

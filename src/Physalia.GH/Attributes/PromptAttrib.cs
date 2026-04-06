@@ -88,6 +88,12 @@ public class PromptAttrib : GH_ComponentAttributes
     private RectangleF _scrollbarTrack;
     private RectangleF _scrollbarThumb;
 
+    // message height cache — recomputed only when count or width changes
+    private float[] _cachedMsgHeights = Array.Empty<float>();
+    private float _cachedTotalH;
+    private int _cachedMsgCount = -1;
+    private float _cachedMeasureWidth;
+
     // CONSTRUCTOR =======================================================================================
 
     /// <summary>
@@ -460,9 +466,9 @@ public class PromptAttrib : GH_ComponentAttributes
         using var shineBorder = new Pen(shineGradient, 1f);
         graphics.DrawPath(shineBorder, hilightPath);
 
-
+        // CONVERSATION===============================================================================================================
         // draw conversation messages bottom-to-top (newest at bottom, oldest scroll off the top)
-        var messages = _prompt.Conversation.Messages;
+        var messages = _prompt.Conversation.LlmMessages;
         if (messages.Count == 0)
         {
             return;
@@ -484,18 +490,26 @@ public class PromptAttrib : GH_ComponentAttributes
             Trimming = StringTrimming.Word,
         };
 
-        // pre-measure all messages to compute total content height and cache heights for the draw pass
-        var msgHeights = new float[messages.Count];
-        float totalH = 0f;
-        for (int i = 0; i < messages.Count; i++)
+        // recompute message heights only when count or panel width changes
+        if (messages.Count != _cachedMsgCount || (int)width != (int)_cachedMeasureWidth)
         {
-            var m = messages[i];
-            string d = m.Role == "user" ? $"you: {m.Content}" : $"llm: {m.StatusMessage ?? "[script]"}";
-            msgHeights[i] = graphics.MeasureString(d, font, (int)width, fmt).Height;
-            totalH += msgHeights[i] + msgGap;
+            _cachedMsgHeights = new float[messages.Count];
+            float totalH = 0f;
+            for (int i = 0; i < messages.Count; i++)
+            {
+                var m = messages[i];
+                string d = m.Role == "user" ? $"you: {m.Content}" : $"llm: {m.StatusMessage ?? "[script]"}";
+                _cachedMsgHeights[i] = graphics.MeasureString(d, font, (int)width, fmt).Height;
+                totalH += _cachedMsgHeights[i] + msgGap;
+            }
+
+            _cachedTotalH = totalH;
+            _cachedMsgCount = messages.Count;
+            _cachedMeasureWidth = width;
         }
 
-        _totalContentHeight = totalH;
+        var msgHeights = _cachedMsgHeights;
+        _totalContentHeight = _cachedTotalH;
         float maxScroll = Math.Max(0f, _totalContentHeight - viewH);
         _scrollOffset = Math.Clamp(_scrollOffset, 0f, maxScroll);
 

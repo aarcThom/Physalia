@@ -16,7 +16,6 @@ namespace Physalia.GH.Components;
 public class Prompt : PhyBase
 {
     // FIELDS ==========================================================================================
-
     private readonly Conversation _conversation = new();
 
     // PROPERTIES =======================================================================================
@@ -88,7 +87,7 @@ public class Prompt : PhyBase
     {
         base.AppendAdditionalMenuItems(menu);
 
-        var item = Menu_AppendItem(menu, "Reset Conversation", OnResetConversation, _conversation.Messages.Count > 0);
+        var item = Menu_AppendItem(menu, "Reset Conversation", OnResetConversation, _conversation.LlmMessages.Count > 0);
         item.ToolTipText = "Clear all conversation history.";
     }
 
@@ -99,13 +98,19 @@ public class Prompt : PhyBase
     /// <returns>true.</returns>
     public override bool Write(GH_IWriter writer)
     {
-        writer.SetString("PromptText", UserPromptText ?? string.Empty);
-        writer.SetInt32("MsgCount", _conversation.Messages.Count);
-        for (int i = 0; i < _conversation.Messages.Count; i++)
+        writer.SetString("PromptText", UserPromptText ?? string.Empty); // the unentered text in the input box
+
+        writer.SetInt32("MsgCount", _conversation.LlmMessages.Count);
+
+        for (int i = 0; i < _conversation.LlmMessages.Count; i++)
         {
-            writer.SetString($"Role_{i}", _conversation.Messages[i].Role);
-            writer.SetString($"Content_{i}", _conversation.Messages[i].Content);
-            writer.SetString($"Status_{i}", _conversation.Messages[i].StatusMessage ?? string.Empty);
+            // the LLM readable messages
+            writer.SetString($"LLM_Role_{i}", _conversation.LlmMessages[i].Role);
+            writer.SetString($"LLM_Content_{i}", _conversation.LlmMessages[i].Content);
+            writer.SetString($"LLM_Status_{i}", _conversation.LlmMessages[i].StatusMessage ?? string.Empty);
+
+            // the human readable messages
+            writer.SetString($"human_msg_{i}", _conversation.HumanMessages[i]);
         }
 
         return base.Write(writer);
@@ -123,23 +128,28 @@ public class Prompt : PhyBase
         UserPromptText = promptText;
 
         _conversation.Clear();
+
         int count = 0;
         if (reader.TryGetInt32("MsgCount", ref count))
         {
             for (int i = 0; i < count; i++)
             {
                 string role = string.Empty;
-                string content = string.Empty;
-                reader.TryGetString($"Role_{i}", ref role);
-                reader.TryGetString($"Content_{i}", ref content);
+                string llmContent = string.Empty;
+                string humanMsg = string.Empty;
+                reader.TryGetString($"LLM_Role_{i}", ref role);
+                reader.TryGetString($"LLM_Content_{i}", ref llmContent);
+                reader.TryGetString($"human_msg_{i}", ref humanMsg);
 
                 if (role == "user")
-                    _conversation.AddUserMessage(content);
+                {
+                    _conversation.AddUserMessage(llmContent, false, humanMsg);
+                }
                 else if (role == "assistant")
                 {
                     string status = string.Empty;
                     reader.TryGetString($"Status_{i}", ref status);
-                    _conversation.AddAssistantMessage(content, string.IsNullOrEmpty(status) ? null : status);
+                    _conversation.AddAssistantMessage(llmContent, string.IsNullOrEmpty(status) ? null : status);
                 }
             }
         }
@@ -157,15 +167,17 @@ public class Prompt : PhyBase
     public void SubmitUserMessage()
     {
         if (string.IsNullOrWhiteSpace(UserPromptText))
+        {
             return;
+        }
 
-        _conversation.AddUserMessage(UserPromptText);
+        _conversation.AddUserMessage(UserPromptText, false);
+        _conversation.Trigger = true;
         UserPromptText = string.Empty;
         ExpireSolution(true);
     }
 
     // PRIVATE METHODS =======================================================================================
-
     private void OnResetConversation(object sender, EventArgs e)
     {
         _conversation.Clear();

@@ -11,6 +11,12 @@ namespace Physalia.GH.Attributes.UiComponents;
 /// </summary>
 public class DropDownButton
 {
+    private static readonly StringFormat _textFmt = new StringFormat
+    {
+        Alignment = StringAlignment.Center,
+        LineAlignment = StringAlignment.Center,
+    };
+
     /// <summary>
     /// Initializes a new instance of the <see cref="DropDownButton"/> class.
     /// A button with text and a triangle to be used as a dropdown menu.
@@ -19,10 +25,11 @@ public class DropDownButton
     /// <param name="owner">The owning GH component.</param>
     /// <param name="graphics">The GH drawing surface.</param>
     /// <param name="buttonText">The text to be displayed on the button.</param>
-    public DropDownButton(RectangleF bounds, IGH_Component owner, Graphics graphics, string buttonText)
+    /// <param name="backgroundBrush">The pre-created brush used to fill the button background.</param>
+    public DropDownButton(RectangleF bounds, IGH_Component owner, Graphics graphics, string buttonText, Brush backgroundBrush)
     {
         var outlineStyle = GetOutlineStyle(owner);
-        DrawButton(graphics, bounds, outlineStyle);
+        DrawButton(graphics, bounds, outlineStyle, backgroundBrush);
         DrawTriangle(graphics, bounds);
         DrawText(graphics, bounds, buttonText);
     }
@@ -50,11 +57,10 @@ public class DropDownButton
         return outLine;
     }
 
-    private static void DrawButton(Graphics grphx, RectangleF btnBnds, Pen outlinePen)
+    private static void DrawButton(Graphics grphx, RectangleF btnBnds, Pen outlinePen, Brush backgroundBrush)
     {
-        grphx.FillRectangle(PhyPalette.SmallButton(btnBnds.Top, btnBnds.Bottom), btnBnds);
-        var border = outlinePen;
-        grphx.DrawRectangle(border, btnBnds);
+        grphx.FillRectangle(backgroundBrush, btnBnds);
+        grphx.DrawRectangle(outlinePen, btnBnds);
     }
 
     private static void DrawTriangle(Graphics grphx, RectangleF btnBnds)
@@ -73,12 +79,6 @@ public class DropDownButton
     private static void DrawText(Graphics grphx, RectangleF btnbnds, string txt)
     {
         var labelRect = new RectangleF(btnbnds.Left + 12f, btnbnds.Top + 4f, btnbnds.Width - 12f, btnbnds.Height - 8f);
-
-        var fmt = new StringFormat
-        {
-            Alignment = StringAlignment.Center,
-            LineAlignment = StringAlignment.Center,
-        };
-        grphx.DrawString(txt, GH_FontServer.StandardAdjusted, Brushes.White, labelRect, fmt);
+        grphx.DrawString(txt, GH_FontServer.StandardAdjusted, Brushes.White, labelRect, _textFmt);
     }
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
@@ -25,6 +26,7 @@ public class ProviderSelectorAttrib : GH_ComponentAttributes
     private readonly ProviderSelector providerSelector;
 
     private RectangleF _providerButton;
+    private LinearGradientBrush? _buttonBrush;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ProviderSelectorAttrib"/> class.
@@ -63,6 +65,9 @@ public class ProviderSelectorAttrib : GH_ComponentAttributes
         var modelButtonHeight = Bounds.Height - 8;
 
         _providerButton = new RectangleF(modelButtonX, ownerRectangle.Y + 4, modelButtonWidth, modelButtonHeight);
+
+        _buttonBrush?.Dispose();
+        _buttonBrush = new LinearGradientBrush(new PointF(0, _providerButton.Top), new PointF(0, _providerButton.Bottom), Color.DarkGray, Color.Black);
     }
 
     /// <summary>
@@ -79,7 +84,8 @@ public class ProviderSelectorAttrib : GH_ComponentAttributes
         if (channel == GH_CanvasChannel.Objects)
         {
             // draw the button
-            var dropdownButton = new DropDownButton(_providerButton, Owner, graphics, providerSelector.SelectedProvider);
+            if (_buttonBrush != null)
+                _ = new DropDownButton(_providerButton, Owner, graphics, providerSelector.SelectedProvider, _buttonBrush);
         }
     }
 

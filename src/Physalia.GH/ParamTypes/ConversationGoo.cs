@@ -58,7 +58,7 @@ public class ConversationGoo : GH_Goo<Conversation>
     /// </summary>
     /// <returns>A human-readable summary of the wrapped conversation.</returns>
     public override string ToString() =>
-        Value == null ? "null" : $"Conversation ({Value.Messages.Count} messages)";
+        Value == null ? "null" : $"Conversation ({Value.LlmMessages.Count} messages)";
 
     /// <summary>
     /// Casting out is not supported.

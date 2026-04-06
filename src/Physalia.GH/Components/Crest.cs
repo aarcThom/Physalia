@@ -29,7 +29,6 @@ public class Crest : PhyBase
     private int _maxAutoFixAttemps;
     private Task? _pendingRequest;
     private string? _errorMsg;
-    private string? _lastPrompt;
     private bool _autoFix;
     private int _autoFixAttempts;
     private bool _waitingForAutoFix;
@@ -74,7 +73,6 @@ public class Crest : PhyBase
     {
         pManager.AddParameter(new LlmProviderGhParam(), "Llm", "Llm", "Large language model from DREAM", GH_ParamAccess.item);
         pManager.AddParameter(new ConversationGhParam(), "Conversation", "Conv", "The conversation from PROMPT", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Send", "Snd", "Send Prompt to defined model", GH_ParamAccess.item);
         pManager.AddBooleanParameter("AutoFix", "Fix", "Set True if you want the LLM to attempt to fix errors as they occur. Defaults to True.", GH_ParamAccess.item, true);
         pManager.AddIntegerParameter("Fix Attemps", "Fix #", "Number of times you want to send error codes back to the LLM for fixing. Defaults to 3", GH_ParamAccess.item, 3);
     }
@@ -96,7 +94,6 @@ public class Crest : PhyBase
         // INPUTS -------------------------------
         LlmProviderGoo? llmGoo = null;
         ConversationGoo? convGoo = null;
-        bool send = false;
 
         if (!DA.GetData(0, ref llmGoo) || llmGoo == null)
         {
@@ -108,17 +105,16 @@ public class Crest : PhyBase
             return;
         }
 
-        if (!DA.GetData(2, ref send))
+        // consume the Shift+Enter trigger from Prompt; reset immediately so it only fires once
+        bool triggered = convGoo!.Value.Trigger;
+        convGoo.Value.Trigger = false;
+
+        if (!DA.GetData(2, ref _autoFix))
         {
             return;
         }
 
-        if (!DA.GetData(3, ref _autoFix))
-        {
-            return;
-        }
-
-        if (!DA.GetData(4, ref _maxAutoFixAttemps))
+        if (!DA.GetData(3, ref _maxAutoFixAttemps))
         {
             return;
         }
@@ -135,7 +131,7 @@ public class Crest : PhyBase
             return; // no zooid linked yet
         }
 
-        if (send && (_pendingRequest == null || _pendingRequest.IsCompleted) && !_waitingForAutoFix)
+        if (triggered && (_pendingRequest == null || _pendingRequest.IsCompleted) && !_waitingForAutoFix)
         {
             _autoFixAttempts = 0;
 
@@ -243,10 +239,9 @@ public class Crest : PhyBase
         try
         {
             // SEND THE CONVERSATION - GET AND FORMAT THE RESULT
-            var history = BuildHistoryWithParams(conversation.Messages, paramPrompt);
+            var history = BuildHistoryWithParams(conversation.LlmMessages, paramPrompt);
             var rawResult = await llModel.SendConversationAsync(SystemPrompt.Default, history);
             var formattedResult = ResponseParser.Parse(rawResult);
-            _lastPrompt = conversation.LastUserMessage;
 
             // APPEND ASSISTANT RESPONSE TO SHARED CONVERSATION
             conversation.AddAssistantMessage(rawResult, formattedResult.StatusMessage);
@@ -302,11 +297,12 @@ public class Crest : PhyBase
         Message = $"Fixing ({_autoFixAttempts}/{_maxAutoFixAttemps})";
 
         // append the error context as a new user turn — conversation already holds prior script as assistant turn
-        conversation.AddUserMessage(BuildFixMessage(zooid.LastDiagnostics, zooid.LastRuntimeError));
+        var fixMessage = BuildFixMessage(zooid.LastDiagnostics, zooid.LastRuntimeError);
+        conversation.AddUserMessage(fixMessage, true);
 
         try
         {
-            var rawResult = await llModel.SendConversationAsync(SystemPrompt.Default, conversation.Messages);
+            var rawResult = await llModel.SendConversationAsync(SystemPrompt.Default, conversation.LlmMessages);
             var formattedResult = ResponseParser.Parse(rawResult);
 
             // append assistant response before sending to zooid

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
@@ -25,6 +26,7 @@ public class ModelSelectorAttrib : GH_ComponentAttributes
     private readonly ModelSelector modelSelector;
 
     private RectangleF _modelButton;
+    private LinearGradientBrush? _buttonBrush;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ModelSelectorAttrib"/> class.
@@ -63,6 +65,9 @@ public class ModelSelectorAttrib : GH_ComponentAttributes
         var modelButtonHeight = Bounds.Height - 8;
 
         _modelButton = new RectangleF(modelButtonX, ownerRectangle.Y + 4, modelButtonWidth, modelButtonHeight);
+
+        _buttonBrush?.Dispose();
+        _buttonBrush = new LinearGradientBrush(new PointF(0, _modelButton.Top), new PointF(0, _modelButton.Bottom), Color.DarkGray, Color.Black);
     }
 
     /// <summary>
@@ -79,7 +84,8 @@ public class ModelSelectorAttrib : GH_ComponentAttributes
         if (channel == GH_CanvasChannel.Objects)
         {
             // draw the button
-            var dropdownButton = new DropDownButton(_modelButton, Owner, graphics, modelSelector.SelectedModel);
+            if (_buttonBrush != null)
+                _ = new DropDownButton(_modelButton, Owner, graphics, modelSelector.SelectedModel, _buttonBrush);
         }
     }
 

@@ -11,6 +11,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Windows.Forms;
 
@@ -43,8 +44,10 @@ public class PromptAttrib : GH_ComponentAttributes
     private const float DefaultWidth = 220f;
     private const float DefaultConvoHeight = 120f;
     private const float DefaultInputHeight = 80f;
-    private const float ConvoPadding = 6f;
+    private const float ConvoPadding = 6f; // room between conversation and convo panel
     private const float ScrollbarWidth = 10f;
+
+    private readonly Font _convoFont = GH_FontServer.ConsoleSmallAdjusted;
 
     private readonly Color _outlineColor = Color.FromArgb(255, 47, 8, 87);
     private readonly Color _titleHilightColor = Color.FromArgb(255, 232, 188, 255);
@@ -52,6 +55,9 @@ public class PromptAttrib : GH_ComponentAttributes
     private readonly Color _convoColor = Color.FromArgb(255, 218, 243, 245); // formerly 255, 245, 234, 250
     private readonly Color _inputColor = Color.FromArgb(255, 138, 194, 207);
     private readonly Color _inputLoLight = Color.FromArgb(255, 36, 84, 107);
+
+    private readonly Color _userMsgColor = Color.FromArgb(255, 119, 0, 255);
+    private readonly Color _llmMsgColor = Color.FromArgb(255, 0, 34, 255);
 
     // FIELDS =======================================================================================
     private readonly Prompt _prompt; // the prompt component
@@ -65,7 +71,8 @@ public class PromptAttrib : GH_ComponentAttributes
 
     // computed section rectangles — rebuilt in Layout()
     private RectangleF _boundsTitle;
-    private RectangleF _boundsConvo;
+    private RectangleF _boundsConvoPanel; // the panel that holders the conversation + scrollbar
+    private RectangleF _boundsConvo; // the bounds of only the conversation itself
     private RectangleF _boundsInput;
     private RectangleF _gripConvo;
     private RectangleF _gripInput;
@@ -84,13 +91,12 @@ public class PromptAttrib : GH_ComponentAttributes
     // convo scroll state
     private float _scrollOffset = 0f;
     private float _scrollOffsetAtDragStart;
-    private float _totalContentHeight;
     private RectangleF _scrollbarTrack;
     private RectangleF _scrollbarThumb;
 
     // message height cache — recomputed only when count or width changes
-    private float[] _cachedMsgHeights = Array.Empty<float>();
-    private float _cachedTotalH;
+    private float _cacheMsgHeight = -1;
+    private float _totalContentHeight;
     private int _cachedMsgCount = -1;
     private float _cachedMeasureWidth;
 
@@ -163,7 +169,15 @@ public class PromptAttrib : GH_ComponentAttributes
         float y = Pivot.Y;
 
         _boundsTitle = new RectangleF(x, y, _width, TitleHeight);
-        _boundsConvo = new RectangleF(x, y + TitleHeight, _width, _convoHeight);
+
+        _boundsConvoPanel = new RectangleF(x, y + TitleHeight, _width, _convoHeight);
+
+        float convoX = _boundsConvoPanel.X + ConvoPadding;
+        float convoY = _boundsConvoPanel.Y + ConvoPadding;
+        float convoWidth = _boundsConvoPanel.Width - (ConvoPadding * 3f) - ScrollbarWidth - GripSize; // added a bit extra space on side.. convoPadding * 3
+        float convoHeight = _boundsConvoPanel.Height - (ConvoPadding * 2f);
+        _boundsConvo = new RectangleF(convoX, convoY, convoWidth, convoHeight);
+
         _boundsInput = new RectangleF(x, y + TitleHeight + _convoHeight, _width, _inputHeight);
 
         // use the renderBounds / layoutBounds so we can make sure our output wire is actually clickable
@@ -173,12 +187,12 @@ public class PromptAttrib : GH_ComponentAttributes
 
         Bounds = _renderBounds;
 
-        _gripConvo = new RectangleF(_boundsConvo.Right - GripSize - 1f, _boundsConvo.Bottom - GripSize, GripSize, GripSize);
+        _gripConvo = new RectangleF(_boundsConvoPanel.Right - GripSize - 1f, _boundsConvoPanel.Bottom - GripSize, GripSize, GripSize);
         _gripInput = new RectangleF(_boundsInput.Right - GripSize - 1f, _boundsInput.Bottom - GripSize - 1f, GripSize, GripSize);
 
-        _scrollbarTrack = new RectangleF(_boundsConvo.Right - GripSize + 0.5f, _boundsConvo.Top + 2.5f, GripSize - 3f, _boundsConvo.Height - GripSize - 3f);
+        _scrollbarTrack = new RectangleF(_boundsConvoPanel.Right - GripSize + 0.5f, _boundsConvoPanel.Top + 2.5f, GripSize - 3f, _boundsConvoPanel.Height - GripSize - 3f);
 
-        _wireOutputGrip = new RectangleF(_boundsConvo.Right - 3f, _boundsConvo.Bottom - (_boundsConvo.Height / 2) - 4f, 8f, 8f);
+        _wireOutputGrip = new RectangleF(_boundsConvoPanel.Right - 3f, _boundsConvoPanel.Bottom - (_boundsConvoPanel.Height / 2) - 4f, 8f, 8f);
 
         LayoutOutputParam();
     }
@@ -198,7 +212,7 @@ public class PromptAttrib : GH_ComponentAttributes
         {
             DrawWireGrip(graphics, _wireOutputGrip);
             DrawTitle(graphics, _boundsTitle);
-            DrawConvo(graphics, _boundsConvo);
+            DrawConvo(graphics, _boundsConvoPanel);
             DrawIdlingInput(graphics, _boundsInput);
             DrawResizeGrip(graphics, _gripConvo);
             DrawResizeGrip(graphics, _gripInput);
@@ -220,7 +234,7 @@ public class PromptAttrib : GH_ComponentAttributes
     /// <returns>Handled if the input section was double-clicked; otherwise the base response.</returns>
     public override GH_ObjectResponse RespondToMouseDoubleClick(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
-        // creating the input box 
+        // creating the input box
         if (_boundsInput.Contains(e.CanvasLocation))
         {
             var inputBox = DrawActiveInput(sender);
@@ -285,7 +299,7 @@ public class PromptAttrib : GH_ComponentAttributes
             {
                 // click on track (not thumb) — jump scroll to that position
                 float clickFrac = (e.CanvasLocation.Y - _scrollbarTrack.Y) / _scrollbarTrack.Height;
-                float maxScroll = Math.Max(0f, _totalContentHeight - (_boundsConvo.Height - ConvoPadding * 2f));
+                float maxScroll = Math.Max(0f, _totalContentHeight - (_boundsConvoPanel.Height - (ConvoPadding * 2f)));
                 _scrollOffset = Math.Clamp(maxScroll * (1f - clickFrac), 0f, maxScroll);
                 ExpireLayout();
                 sender.ScheduleRegen(2);
@@ -330,12 +344,12 @@ public class PromptAttrib : GH_ComponentAttributes
 
             if (_activeGrip == ResizeTarget.ScrollThumb)
             {
-                float maxScroll = Math.Max(0f, _totalContentHeight - (_boundsConvo.Height - ConvoPadding * 2f));
+                float maxScroll = Math.Max(0f, _totalContentHeight - (_boundsConvoPanel.Height - (ConvoPadding * 2f)));
                 float trackRange = _scrollbarTrack.Height - _scrollbarThumb.Height;
                 if (trackRange > 0f)
                 {
-                    // dragging thumb up (dy < 0) increases scroll offset (reveals older messages)
-                    _scrollOffset = Math.Clamp(_scrollOffsetAtDragStart - dy * maxScroll / trackRange, 0f, maxScroll);
+                    // dragging thumb up (dy < 0) increases scroll offset (reveals older displayMessages)
+                    _scrollOffset = Math.Clamp(_scrollOffsetAtDragStart - (dy * maxScroll / trackRange), 0f, maxScroll);
                 }
 
                 sender.Cursor = Cursors.SizeNS;
@@ -396,7 +410,7 @@ public class PromptAttrib : GH_ComponentAttributes
     private void LayoutOutputParam()
     {
         var param = Owner.Params.Output[0];
-        float midY = _boundsConvo.Y + (_boundsConvo.Height / 2f);
+        float midY = _boundsConvoPanel.Y + (_boundsConvoPanel.Height / 2f);
         param.Attributes.Pivot = new PointF(Bounds.Right, midY);
         param.Attributes.Bounds = new RectangleF(Bounds.Right - 5f, midY - 5f, 10f, 10f);
     }
@@ -437,8 +451,6 @@ public class PromptAttrib : GH_ComponentAttributes
     // draws the conversation in the convo bounds
     private void DrawConvo(Graphics graphics, RectangleF bounds)
     {
-        var textArea = bounds; // capture before inflate modifies the local copy
-
         // the main convo rectangle
         using var fill = new SolidBrush(_convoColor);
         graphics.FillRectangle(fill, bounds);
@@ -467,21 +479,16 @@ public class PromptAttrib : GH_ComponentAttributes
         graphics.DrawPath(shineBorder, hilightPath);
 
         // CONVERSATION===============================================================================================================
-        // draw conversation messages bottom-to-top (newest at bottom, oldest scroll off the top)
-        var messages = _prompt.Conversation.LlmMessages;
-        if (messages.Count == 0)
+        // draw conversation displayMessages bottom-to-top (newest at bottom, oldest scroll off the top)
+        var displayMessages = _prompt.Conversation.HumanMessages;
+        var llmMessages = _prompt.Conversation.LlmMessages;
+        if (displayMessages.Count == 0)
         {
             return;
         }
 
-        const float msgGap = 2f;
-        var font = GH_FontServer.ConsoleSmallAdjusted;
-        float x = textArea.X + ConvoPadding;
-        float width = textArea.Width - (ConvoPadding * 2f) - 14f - ScrollbarWidth - 4f; // inset from wire grip and scrollbar on right
-        float viewH = textArea.Height - ConvoPadding * 2f;
-
-        using var userBrush = new SolidBrush(_outlineColor);
-        using var assistantBrush = new SolidBrush(Color.FromArgb(160, 47, 8, 87));
+        using var userBrush = new SolidBrush(_userMsgColor); // user text color
+        using var assistantBrush = new SolidBrush(_llmMsgColor); // llm text color
 
         using var fmt = new StringFormat
         {
@@ -491,67 +498,65 @@ public class PromptAttrib : GH_ComponentAttributes
         };
 
         // recompute message heights only when count or panel width changes
-        if (messages.Count != _cachedMsgCount || (int)width != (int)_cachedMeasureWidth)
+        var msgHeights = new float[displayMessages.Count];
+        if (_cacheMsgHeight < 0 || displayMessages.Count != _cachedMsgCount || (int)_boundsConvo.Width != (int)_cachedMeasureWidth)
         {
-            _cachedMsgHeights = new float[messages.Count];
-            float totalH = 0f;
-            for (int i = 0; i < messages.Count; i++)
+            float totalMsgHeight = 0f; // total pixel height of messages
+
+            for (int i = 0; i < displayMessages.Count; i++)
             {
-                var m = messages[i];
-                string d = m.Role == "user" ? $"you: {m.Content}" : $"llm: {m.StatusMessage ?? "[script]"}";
-                _cachedMsgHeights[i] = graphics.MeasureString(d, font, (int)width, fmt).Height;
-                totalH += _cachedMsgHeights[i] + msgGap;
+                var displayMsg = displayMessages[i];
+                msgHeights[i] = graphics.MeasureString(displayMsg, _convoFont, (int)_boundsConvo.Width, fmt).Height;
+                totalMsgHeight += msgHeights[i];
             }
 
-            _cachedTotalH = totalH;
-            _cachedMsgCount = messages.Count;
-            _cachedMeasureWidth = width;
+            _cacheMsgHeight = totalMsgHeight;
+            _totalContentHeight = totalMsgHeight;
+            _cachedMsgCount = displayMessages.Count;
+            _cachedMeasureWidth = _boundsConvo.Width;
         }
 
-        var msgHeights = _cachedMsgHeights;
-        _totalContentHeight = _cachedTotalH;
-        float maxScroll = Math.Max(0f, _totalContentHeight - viewH);
+        float maxScroll = Math.Max(0f, _cacheMsgHeight - _boundsConvo.Height);
         _scrollOffset = Math.Clamp(_scrollOffset, 0f, maxScroll);
 
         DrawScrollbar(graphics, _scrollbarTrack, maxScroll);
 
-        // clip drawing to the text area so partially-visible messages are trimmed at the edges
-        var clipRect = new RectangleF(x, textArea.Y + ConvoPadding, width, viewH);
+        // clip drawing to the text area so partially-visible displayMessages are trimmed at the edges
         var state = graphics.Save();
-        graphics.SetClip(clipRect);
+        graphics.SetClip(_boundsConvo);
 
-        float y = textArea.Bottom - ConvoPadding + _scrollOffset;
-        for (int i = messages.Count - 1; i >= 0; i--)
+        float msgYPos = _boundsConvo.Bottom + _scrollOffset;
+        for (int i = displayMessages.Count - 1; i >= 0; i--)
         {
-            var msg = messages[i];
-            bool isUser = msg.Role == "user";
-            string display = isUser ? $"you: {msg.Content}" : $"llm: {msg.StatusMessage ?? "[script]"}";
+            var displayMsg = displayMessages[i];
+
 
             float msgHeight = msgHeights[i];
-            y -= msgHeight;
+            msgYPos -= msgHeight;
 
             // completely above the viewport — nothing older will be visible either
-            if (y + msgHeight < textArea.Top + ConvoPadding)
+            if (msgYPos + msgHeight < _boundsConvo.Top)
             {
                 break;
             }
 
             // completely below the viewport — skip but keep iterating upward
-            if (y > textArea.Bottom - ConvoPadding)
+            if (msgYPos > _boundsConvo.Bottom)
             {
-                y -= msgGap;
                 continue;
             }
 
+            // figuring out if the message is llm or user
+            var role = llmMessages[i].Role;
+            var isUser = role == "user";
+
             // clip region handles any partial visibility at top or bottom
             graphics.DrawString(
-                display,
-                font,
+                displayMsg,
+                _convoFont,
                 isUser ? userBrush : assistantBrush,
-                new RectangleF(x, y, width, msgHeight),
+                new RectangleF(_boundsConvo.X, msgYPos, _boundsConvo.Width, msgHeight),
                 fmt);
-
-            y -= msgGap;
         }
 
         graphics.Restore(state);

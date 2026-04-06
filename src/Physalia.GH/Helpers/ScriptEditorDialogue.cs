@@ -22,7 +22,7 @@ public class ScriptEditorDialog : Dialog<string?>
     private readonly Label _statusLabel;
     private readonly List<string> _inputNames;
 
-    private readonly Font _editorFont; // Store the font so the canvas can use it
+    private readonly Font _editorFont; // Store the ConvoFont so the canvas can use it
     private readonly float _dynamicLineHeight; // the line height used to sync gutter and editor
     private HashSet<int> _errorLines = new (); // Tracks broken lines
 
@@ -48,7 +48,7 @@ public class ScriptEditorDialog : Dialog<string?>
         _editorFont = new Font(FontFamilies.Monospace, 10);
 
         _dynamicLineHeight = _editorFont.LineHeight + 1;
-        /* Measuring the font size to set the line height for the editor
+        /* Measuring the ConvoFont size to set the line height for the editor
         // Create a  1x1 off-screen bitmap to borrow its Graphics context
         using (var bmp = new Bitmap(1, 1, PixelFormat.Format32bppRgba))
         using (var g = new Graphics(bmp))

@@ -11,8 +11,6 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
-using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Windows.Forms;
 
 namespace Physalia.GH.Attributes;
@@ -20,7 +18,6 @@ namespace Physalia.GH.Attributes;
 /// <summary>
 /// Custom attributes for the Prompt component. A panel-inspired prompting interface
 /// divided into three vertically stacked sections: title, conversation and entry.
-/// This really needs to be cleaned up!.
 /// </summary>
 public class PromptAttrib : GH_ComponentAttributes
 {
@@ -212,8 +209,10 @@ public class PromptAttrib : GH_ComponentAttributes
         {
             DrawWireGrip(graphics, _wireOutputGrip);
             DrawTitle(graphics, _boundsTitle);
-            DrawConvo(graphics, _boundsConvoPanel);
-            DrawIdlingInput(graphics, _boundsInput);
+            DrawConvoPanel(graphics, _boundsConvoPanel);
+            DrawConvoText(graphics);
+            DrawInputPanel(graphics, _boundsInput);
+            DrawInputText(graphics, _boundsInput);
             DrawResizeGrip(graphics, _gripConvo);
             DrawResizeGrip(graphics, _gripInput);
             return;
@@ -237,7 +236,7 @@ public class PromptAttrib : GH_ComponentAttributes
         // creating the input box
         if (_boundsInput.Contains(e.CanvasLocation))
         {
-            var inputBox = DrawActiveInput(sender);
+            var inputBox = DrawInputTextBox(sender);
             inputPromptCurrent = true;
             sender.Controls.Add(inputBox);
             inputBox.BringToFront();
@@ -449,7 +448,7 @@ public class PromptAttrib : GH_ComponentAttributes
     }
 
     // draws the conversation in the convo bounds
-    private void DrawConvo(Graphics graphics, RectangleF bounds)
+    private void DrawConvoPanel(Graphics graphics, RectangleF bounds)
     {
         // the main convo rectangle
         using var fill = new SolidBrush(_convoColor);
@@ -477,9 +476,11 @@ public class PromptAttrib : GH_ComponentAttributes
         shineGradient.WrapMode = WrapMode.TileFlipXY;
         using var shineBorder = new Pen(shineGradient, 1f);
         graphics.DrawPath(shineBorder, hilightPath);
+    }
 
-        // CONVERSATION===============================================================================================================
-        // draw conversation displayMessages bottom-to-top (newest at bottom, oldest scroll off the top)
+    // draw conversation displayMessages bottom-to-top (newest at bottom, oldest scroll off the top)
+    private void DrawConvoText(Graphics graphics)
+    {
         var displayMessages = _prompt.Conversation.HumanMessages;
         var llmMessages = _prompt.Conversation.LlmMessages;
         if (displayMessages.Count == 0)
@@ -529,7 +530,6 @@ public class PromptAttrib : GH_ComponentAttributes
         {
             var displayMsg = displayMessages[i];
 
-
             float msgHeight = _cachedMsgHeights[i];
             msgYPos -= msgHeight;
 
@@ -562,7 +562,7 @@ public class PromptAttrib : GH_ComponentAttributes
     }
 
     // the input box when the user is currently inputting text
-    private void DrawIdlingInput(Graphics graphics, RectangleF bounds)
+    private void DrawInputPanel(Graphics graphics, RectangleF bounds)
     {
         using var fillPath = BottomRoundedRect(bounds, CornerRadius);
         using var fill = new LinearGradientBrush(bounds, _convoColor, _inputColor, LinearGradientMode.Vertical);
@@ -585,18 +585,28 @@ public class PromptAttrib : GH_ComponentAttributes
         hilightGrad.WrapMode = WrapMode.TileFlipXY;
         using var hilightBorder = new Pen(hilightGrad, 1f);
         graphics.DrawPath(hilightBorder, hilightPath);
+    }
 
-        // draw text when user isn't currently inputting
-        if (!inputPromptCurrent)
+    // draw the text when the user isn't actively inputting.
+    // will be default message if no WIP prompt '_prompt' exists.
+    // will be animation if CREST is WIP.
+    private void DrawInputText(Graphics graphics, RectangleF bounds)
+    {
+        using var txtBrush = new SolidBrush(Color.White);
+        using var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+
+        if (!inputPromptCurrent && _prompt.UserPromptText != string.Empty) // the user started filling out a prompt and clicked away
         {
-            using var txtBrush = new SolidBrush(_outlineColor);
-            using var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
             graphics.DrawString(_prompt.UserPromptText, GH_FontServer.ConsoleSmallAdjusted, txtBrush, bounds, fmt);
+        }
+        else if (!inputPromptCurrent) // there isn't an active input text box
+        {
+            graphics.DrawString("Double click to enter prompt", _convoFont, txtBrush, bounds, fmt);
         }
     }
 
     // the textbox for active input
-    private TextBox DrawActiveInput(GH_Canvas sender)
+    private TextBox DrawInputTextBox(GH_Canvas sender)
     {
         float zoom = sender.Viewport.Zoom;
         PointF origin = sender.Viewport.ProjectPoint(_boundsInput.Location);

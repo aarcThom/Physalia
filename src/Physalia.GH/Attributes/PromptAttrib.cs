@@ -95,7 +95,7 @@ public class PromptAttrib : GH_ComponentAttributes
     private RectangleF _scrollbarThumb;
 
     // message height cache — recomputed only when count or width changes
-    private float _cacheMsgHeight = -1;
+    private float[] _cachedMsgHeights = Array.Empty<float>();
     private float _totalContentHeight;
     private int _cachedMsgCount = -1;
     private float _cachedMeasureWidth;
@@ -498,25 +498,24 @@ public class PromptAttrib : GH_ComponentAttributes
         };
 
         // recompute message heights only when count or panel width changes
-        var msgHeights = new float[displayMessages.Count];
-        if (_cacheMsgHeight < 0 || displayMessages.Count != _cachedMsgCount || (int)_boundsConvo.Width != (int)_cachedMeasureWidth)
+        if (displayMessages.Count != _cachedMsgCount || (int)_boundsConvo.Width != (int)_cachedMeasureWidth)
         {
+            _cachedMsgHeights = new float[displayMessages.Count];
             float totalMsgHeight = 0f; // total pixel height of messages
 
             for (int i = 0; i < displayMessages.Count; i++)
             {
                 var displayMsg = displayMessages[i];
-                msgHeights[i] = graphics.MeasureString(displayMsg, _convoFont, (int)_boundsConvo.Width, fmt).Height;
-                totalMsgHeight += msgHeights[i];
+                _cachedMsgHeights[i] = graphics.MeasureString(displayMsg, _convoFont, (int)_boundsConvo.Width, fmt).Height;
+                totalMsgHeight += _cachedMsgHeights[i];
             }
 
-            _cacheMsgHeight = totalMsgHeight;
             _totalContentHeight = totalMsgHeight;
             _cachedMsgCount = displayMessages.Count;
             _cachedMeasureWidth = _boundsConvo.Width;
         }
 
-        float maxScroll = Math.Max(0f, _cacheMsgHeight - _boundsConvo.Height);
+        float maxScroll = Math.Max(0f, _totalContentHeight - _boundsConvo.Height);
         _scrollOffset = Math.Clamp(_scrollOffset, 0f, maxScroll);
 
         DrawScrollbar(graphics, _scrollbarTrack, maxScroll);
@@ -531,7 +530,7 @@ public class PromptAttrib : GH_ComponentAttributes
             var displayMsg = displayMessages[i];
 
 
-            float msgHeight = msgHeights[i];
+            float msgHeight = _cachedMsgHeights[i];
             msgYPos -= msgHeight;
 
             // completely above the viewport — nothing older will be visible either

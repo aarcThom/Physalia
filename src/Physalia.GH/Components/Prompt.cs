@@ -68,7 +68,7 @@ public class Prompt : PhyBase
     /// <summary>
     /// This is the method that actually does the work.
     /// </summary>
-    /// <param name="DA">The DA object is used to retrieve from inputs and store in outputs.</param>
+    /// <param name="DA">The DA object is used to retrieve from inputs and store in connectedComponents.</param>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
         DA.SetData(0, new ConversationGoo(_conversation));

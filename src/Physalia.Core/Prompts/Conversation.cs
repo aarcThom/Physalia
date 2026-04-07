@@ -63,11 +63,16 @@ public class Conversation
         if (restoreHuman != null)
         {
             _humanMessages.Add(restoreHuman);
+            return;
+        }
+
+        if (isAutoFixError)
+        {
+            _humanMessages.Add(FormatHumanMessage("Physalia", "Sending autofix request to LLM."));
         }
         else
         {
-            var humanRole = isAutoFixError ? "Physalia" : "You";
-            _humanMessages.Add(FormatHumanMessage(humanRole, content));
+            _humanMessages.Add(FormatHumanMessage("You", content));
         }
     }
 
@@ -100,6 +105,6 @@ public class Conversation
 
     private static string FormatHumanMessage(string role, string content)
     {
-        return role + "================" + Environment.NewLine + content + Environment.NewLine;
+        return role + ":" + Environment.NewLine + content + Environment.NewLine + Environment.NewLine;
     }
 }

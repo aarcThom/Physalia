@@ -32,6 +32,8 @@ public class Crest : PhyBase
     private bool _autoFix;
     private int _autoFixAttempts;
     private bool _waitingForAutoFix;
+    private bool _isBusy = false; // used to prevent connected prompt component from passing messages mid call.
+    private bool _llmConnected = false; // used to prevent prompt from entering prompt if no llm hooked up.
 
     // PROPERTIES =======================================================================================
 
@@ -52,6 +54,16 @@ public class Crest : PhyBase
     /// Gets or sets the instance GUID of the linked ZOOID component, used for serialization and reconnection.
     /// </summary>
     public Guid ZooidGuid { get; set; }
+
+    /// <summary>
+    /// Gets a value that will be set to true if an API call is currently being made or an autofix is queued.
+    /// </summary>
+    public bool IsBusy => _isBusy;
+
+    /// <summary>
+    /// Gets true if LLM is actively connected.
+    /// </summary>
+    public bool LlmConnected => _llmConnected;
 
     // CONSTRUCTOR =======================================================================================
 
@@ -97,7 +109,14 @@ public class Crest : PhyBase
 
         if (!DA.GetData(0, ref llmGoo) || llmGoo == null)
         {
+            _llmConnected = false;
             return;
+        }
+
+        // needed to prevent the connected prompt component from being able to enter text when a model isn't specified
+        if (llmGoo.Value.CurrentModel != null)
+        {
+            _llmConnected = true;
         }
 
         if (!DA.GetData(1, ref convGoo) || convGoo?.Value == null)
@@ -134,6 +153,8 @@ public class Crest : PhyBase
         if (triggered && (_pendingRequest == null || _pendingRequest.IsCompleted) && !_waitingForAutoFix)
         {
             _autoFixAttempts = 0;
+
+            _isBusy = true;
 
             var llm = llmGoo.Value;
             _pendingRequest = SendRequestAsync(convGoo.Value, llm, ZooidComponent);
@@ -265,6 +286,7 @@ public class Crest : PhyBase
         {
             _errorMsg = ex.InnerException?.Message ?? ex.Message;
             Message = "Error";
+            _isBusy = false;
             ExpireSolution(true);
         }
     }
@@ -278,6 +300,10 @@ public class Crest : PhyBase
         {
             _autoFixAttempts++;
             _pendingRequest = AutoFixAsync(conversation, llModel, zooid);
+        }
+        else
+        {
+            _isBusy = false; // our work is done - user can re-enter prompt.
         }
     }
 
@@ -318,11 +344,16 @@ public class Crest : PhyBase
                 _waitingForAutoFix = true;
                 OnPingDocument()?.ScheduleSolution(1500, _ => TriggerAutoFix(conversation, llModel, zooid));
             }
+            else
+            {
+                _isBusy = false; // just in case the max-auto fixes can't fix the issue.
+            }
         }
         catch (Exception ex)
         {
             _errorMsg = ex.InnerException?.Message ?? ex.Message;
             Message = "Fix failed";
+            _isBusy = false;
             ExpireSolution(true);
         }
     }

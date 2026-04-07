@@ -6,7 +6,9 @@ using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
+using Physalia.Core.Providers;
 using Physalia.GH.Components;
+using Physalia.GH.ParamTypes;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -56,8 +58,10 @@ public class PromptAttrib : GH_ComponentAttributes
     private readonly Color _userMsgColor = Color.FromArgb(255, 119, 0, 255);
     private readonly Color _llmMsgColor = Color.FromArgb(255, 0, 34, 255);
 
+    private readonly System.Windows.Forms.Timer _animTimer; // used for the little status message animations
+
     // FIELDS =======================================================================================
-    private readonly Prompt _prompt; // the prompt component
+    private readonly Prompt _promptComponent; // the prompt component
     private bool inputPromptCurrent = false; // is the user currently inputing text?
     private bool _submitting = false; // true while a Shift+Enter submit is in flight
 
@@ -97,6 +101,13 @@ public class PromptAttrib : GH_ComponentAttributes
     private int _cachedMsgCount = -1;
     private float _cachedMeasureWidth;
 
+    // input message and can input text bool - comes from connected composer component
+    private string _inputMsg = string.Empty;
+    private bool _canInput = false;
+
+    // current animation frame
+    private int _animFrame = 0;
+
     // CONSTRUCTOR =======================================================================================
 
     /// <summary>
@@ -106,7 +117,15 @@ public class PromptAttrib : GH_ComponentAttributes
     public PromptAttrib(Prompt prompt)
         : base(prompt)
     {
-        _prompt = prompt;
+        _promptComponent = prompt;
+
+        // used for the animations when api status is shown in input
+        _animTimer = new System.Windows.Forms.Timer { Interval = 400 };
+        _animTimer.Tick += (s, e) =>
+        {
+            _animFrame++;
+            Grasshopper.Instances.ActiveCanvas?.Refresh();
+        };
     }
 
     // PUBLIC METHODS =======================================================================================
@@ -121,7 +140,7 @@ public class PromptAttrib : GH_ComponentAttributes
         writer.SetDouble("Width", _width);
         writer.SetDouble("ConvoHeight", _convoHeight);
         writer.SetDouble("InputHeight", _inputHeight);
-        writer.SetString("PromptText", _prompt.UserPromptText ?? string.Empty);
+        writer.SetString("PromptText", _promptComponent.UserPromptText ?? string.Empty);
         return base.Write(writer);
     }
 
@@ -142,7 +161,7 @@ public class PromptAttrib : GH_ComponentAttributes
         string promptText = string.Empty;
         if (reader.TryGetString("PromptText", ref promptText))
         {
-            _prompt.UserPromptText = promptText;
+            _promptComponent.UserPromptText = promptText;
         }
 
         return base.Read(reader);
@@ -205,6 +224,10 @@ public class PromptAttrib : GH_ComponentAttributes
     {
         Bounds = _renderBounds; // SET THE BOUNDS BACK TO DEFAULT FOR RENDER PASS
 
+        // have to grab the connected component in the render pass since solveinstance isn't triggered on output wire connection
+        // TODO - FIGURE OUT IF THERE IS A CHEAPER WAY TO DO THIS, or maybe this isn't super expensive. LOOK INTO IT!
+        (_inputMsg, _canInput) = GetPromptInfo();
+
         if (channel == GH_CanvasChannel.Objects)
         {
             DrawWireGrip(graphics, _wireOutputGrip);
@@ -234,7 +257,7 @@ public class PromptAttrib : GH_ComponentAttributes
     public override GH_ObjectResponse RespondToMouseDoubleClick(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
         // creating the input box
-        if (_boundsInput.Contains(e.CanvasLocation))
+        if (_boundsInput.Contains(e.CanvasLocation) && _canInput)
         {
             var inputBox = DrawInputTextBox(sender);
             inputPromptCurrent = true;
@@ -248,8 +271,8 @@ public class PromptAttrib : GH_ComponentAttributes
                 if (!_submitting)
                 {
                     // user clicked away without submitting — just persist the draft text
-                    _prompt.UserPromptText = inputBox.Text;
-                    _prompt.ExpireSolution(true);
+                    _promptComponent.UserPromptText = inputBox.Text;
+                    _promptComponent.ExpireSolution(true);
                 }
 
                 _submitting = false;
@@ -263,9 +286,9 @@ public class PromptAttrib : GH_ComponentAttributes
                 if (keyArgs.KeyCode == Keys.Enter && keyArgs.Shift)
                 {
                     keyArgs.SuppressKeyPress = true; // prevent the newline being added
-                    _prompt.UserPromptText = inputBox.Text;
+                    _promptComponent.UserPromptText = inputBox.Text;
                     _submitting = true;
-                    _prompt.SubmitUserMessage(); // appends to history, clears UserPromptText, expires solution
+                    _promptComponent.SubmitUserMessage(); // appends to history, clears UserPromptText, expires solution
                     sender.Focus(); // triggers Leave, which removes the TextBox
                 }
             };
@@ -481,8 +504,8 @@ public class PromptAttrib : GH_ComponentAttributes
     // draw conversation displayMessages bottom-to-top (newest at bottom, oldest scroll off the top)
     private void DrawConvoText(Graphics graphics)
     {
-        var displayMessages = _prompt.Conversation.HumanMessages;
-        var llmMessages = _prompt.Conversation.LlmMessages;
+        var displayMessages = _promptComponent.Conversation.HumanMessages;
+        var llmMessages = _promptComponent.Conversation.LlmMessages;
         if (displayMessages.Count == 0)
         {
             return;
@@ -588,21 +611,16 @@ public class PromptAttrib : GH_ComponentAttributes
     }
 
     // draw the text when the user isn't actively inputting.
-    // will be default message if no WIP prompt '_prompt' exists.
+    // will be default message if no WIP prompt '_promptComponent' exists.
     // will be animation if CREST is WIP.
     private void DrawInputText(Graphics graphics, RectangleF bounds)
     {
         using var txtBrush = new SolidBrush(Color.White);
         using var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
 
-        if (!inputPromptCurrent && _prompt.UserPromptText != string.Empty) // the user started filling out a prompt and clicked away
-        {
-            graphics.DrawString(_prompt.UserPromptText, GH_FontServer.ConsoleSmallAdjusted, txtBrush, bounds, fmt);
-        }
-        else if (!inputPromptCurrent) // there isn't an active input text box
-        {
-            graphics.DrawString("Double click to enter prompt", _convoFont, txtBrush, bounds, fmt);
-        }
+        // set input msg based on composer status, unless user started entering prompt and clicked away.
+        var inputMsg = (!inputPromptCurrent && _promptComponent.UserPromptText != string.Empty) ? _promptComponent.UserPromptText : _inputMsg;
+        graphics.DrawString(inputMsg, GH_FontServer.ConsoleSmallAdjusted, txtBrush, bounds, fmt);
     }
 
     // the textbox for active input
@@ -619,7 +637,7 @@ public class PromptAttrib : GH_ComponentAttributes
             BorderStyle = BorderStyle.None,
             BackColor = _inputColor,
             Font = GH_FontServer.Console,
-            Text = _prompt.UserPromptText,
+            Text = _promptComponent.UserPromptText,
             Bounds = new Rectangle((int)origin.X + 10, (int)origin.Y + 60, (int)((_boundsInput.Width * zoom) - 20), (int)((_boundsInput.Height * zoom) - 108)),
         };
         return tb;
@@ -714,5 +732,92 @@ public class PromptAttrib : GH_ComponentAttributes
         ptDict.Add("botRight", new PointF(rect.Right, rect.Bottom));
 
         return ptDict;
+    }
+
+    // I need to call this within the render loop unfortunately. Connecting an output wire doesn't trigger a resolve.
+    // need to get the connected component to pass status methods to prompt panel
+    // msg returns the msg to be displayed on the prompt input panel
+    // canPrompt let's us know if the user should be able to open the prompt textbox for input
+    private (string msg, bool canPrompt) GetPromptInfo()
+    {
+        // see if the component is actually hooked up.
+        var connectedComponents = _promptComponent.Params.Output[0].Recipients;
+        Crest composer = null;
+
+        foreach (var comp in connectedComponents)
+        {
+            var docObj = comp.Attributes?.GetTopLevel?.DocObject;
+            if (docObj is Crest)
+            {
+                composer = (Crest)docObj;
+                break;
+            }
+        }
+
+        // set animationFrame or stop timer if need be
+        SetAnimationFrame(composer);
+
+        // composer isn't hooked up
+        if (composer == null)
+        {
+            return ("Connect a composer to begin.", false);
+        }
+
+        // check if the actual inputs to the LLM input are LLM providers or LLM isn't hooked up
+        if (!composer.LlmConnected)
+        {
+            return ("Connect an LLM to begin.", false);
+        }
+
+        // check if any Zooid component is hooked up
+        if (composer.ZooidComponent == null)
+        {
+            return ("Target a Zooid component to begin.", false);
+        }
+
+        // the composer is busy
+        if (composer.IsBusy)
+        {
+            var ani = GetAnimation(_animFrame, "wave");
+            return ($"{ani} {composer.Message} {ani}", false);
+        }
+
+        // good to prompt!
+        return ("Double click to prompt.", true);
+    }
+
+    // returns an ascii animation frame
+    private string GetAnimation(int time, string animation)
+    {
+        // add animations here
+        Dictionary<string, List<string>> aniDict = new ();
+
+        // standard waves
+        var chosenAni = new List<string> { "~-~__", "_~-~_", "__~-~", "~__~-" };
+        aniDict.Add("wave", chosenAni);
+
+        if (aniDict.ContainsKey(animation))
+        {
+           chosenAni = aniDict[animation];
+        }
+
+        int currentFrame = (time + 1) % chosenAni.Count;
+        return chosenAni[currentFrame];
+    }
+
+    private void SetAnimationFrame(Crest composer)
+    {
+        if (composer != null && composer.IsBusy)
+        {
+            if (!_animTimer.Enabled)
+            {
+                _animTimer.Start();
+            }
+        }
+        else
+        {
+            _animTimer.Stop();
+            _animFrame = 0;
+        }
     }
 }

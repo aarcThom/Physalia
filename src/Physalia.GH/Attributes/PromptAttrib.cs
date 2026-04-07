@@ -656,7 +656,6 @@ public class PromptAttrib : GH_ComponentAttributes
         graphics.FillEllipse(shadow, grip);
     }
 
-    // TO DO - THIS SHOULD BE STORED IN UI COMPONENTS....
     private void DrawScrollbar(Graphics graphics, RectangleF track, float maxScroll)
     {
         // track background
@@ -734,7 +733,7 @@ public class PromptAttrib : GH_ComponentAttributes
         return ptDict;
     }
 
-    // I need to call this within the render loop unfortunately. Connecting an output wire doesn't trigger a resolve.
+    // I need to call this within the render loop. Connecting an output wire doesn't trigger a resolve.
     // need to get the connected component to pass status methods to prompt panel
     // msg returns the msg to be displayed on the prompt input panel
     // canPrompt let's us know if the user should be able to open the prompt textbox for input

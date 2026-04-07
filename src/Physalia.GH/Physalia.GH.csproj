@@ -67,7 +67,8 @@
     
 	<!-- The python script that populated the model .json-->
 	<Target Name="PreBuild" BeforeTargets="PreBuildEvent">
-		<Exec Command="python &quot;$(SolutionDir)scripts\update_model_info.py&quot; &quot;$(OutputPath)model_info.json&quot;" />
+		<Exec Command="python &quot;$(SolutionDir)scripts\update_model_info.py&quot; &quot;$(TargetDir)model_info.json&quot;"
+			  ContinueOnError="WarnAndContinue" />
 	</Target>
   
 </Project>

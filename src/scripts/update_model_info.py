@@ -3,9 +3,19 @@ import re
 import json
 import sys
 
-# get all concrete classes
+
+# Lookup table mapping C# class names to LiteLLM provider prefixes
+PROVIDER_LOOKUP = {
+    "AnthropicProvider": "anthropic",
+    "OpenAiProvider":    "openai",
+    "GroqProvider":      "groq",
+    # add new providers here as they are implemented
+}
+
+
+# get the provider names of all concrete provider classes
 def find_concrete_provider_files(src_dir):
-    concrete_files = set()
+    provider_names = set()
     
     for root, dirs, files in os.walk(src_dir):
         for file in files:
@@ -21,10 +31,20 @@ def find_concrete_provider_files(src_dir):
                 re.MULTILINE
             )
             
-            if not has_abstract:
-                concrete_files.add(file)
+            if has_abstract:
+                continue
+
+            provider_name = re.search(
+                r'public\s+override\s+string\s+ProviderName\s*=>\s*"(\w+)"',
+                content
+            )
+            
+            if provider_name:
+                provider_names.add(provider_name.group(1))
+            else:
+                print(f"##[warning]{file} has no ProviderName property.")
     
-    return concrete_files
+    return provider_names
 
 # MAIN ==================================================================================================
 

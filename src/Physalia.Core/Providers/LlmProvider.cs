@@ -37,9 +37,19 @@ public abstract class LlmProvider
     public IReadOnlyList<string> Models => _models;
 
     /// <summary>
-    /// The selected LLM. Will be used for the API request.
+    /// The backing field for <see cref="CurrentModel"/>.
     /// </summary>
-    public string CurrentModel { get; set; } = string.Empty;
+    private string _currentModel = string.Empty;
+
+    /// <summary>
+    /// The selected LLM. Will be used for the API request.
+    /// Subclasses may override the setter to update <see cref="MaxTokens"/> when the model changes.
+    /// </summary>
+    public virtual string CurrentModel
+    {
+        get => _currentModel;
+        set => _currentModel = value;
+    }
 
     /// <summary>
     /// The name of the LLM provider.
@@ -47,10 +57,12 @@ public abstract class LlmProvider
     public abstract string ProviderName { get; }
 
     /// <summary>
-    /// The max tokens set for the provider.
+    /// The maximum number of output tokens for the currently selected model.
+    /// Set automatically when <see cref="CurrentModel"/> is changed by providers that
+    /// expose per-model limits via their API. Defaults to 4096 for providers that do not.
     /// See: https://learn.microsoft.com/en-us/dotnet/ai/conceptual/understanding-tokens .
     /// </summary>
-    public abstract int MaxTokens { get; }
+    public int MaxTokens { get; protected set; } = 4096;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LlmProvider"/> class.

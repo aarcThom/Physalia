@@ -26,11 +26,6 @@ internal class OllamaProvider : OpenAiCompatibleProvider
     public override string ProviderName => "ollama";
 
     /// <summary>
-    /// Gets the maximum number of output tokens for Ollama API requests.
-    /// </summary>
-    public override int MaxTokens => 4096;
-
-    /// <summary>
     /// Gets the Ollama local API base URL.
     /// </summary>
     protected override string BaseUrl => "http://localhost:11434/v1";

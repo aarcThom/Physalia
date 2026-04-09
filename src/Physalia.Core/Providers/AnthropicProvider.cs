@@ -19,14 +19,31 @@ public class AnthropicProvider : LlmProvider
     private const string ApiVersion = "2023-06-01";
 
     /// <summary>
+    /// Per-model output token limits populated during <see cref="GetModelsAsync"/>.
+    /// </summary>
+    private Dictionary<string, int> _modelMaxTokens = new ();
+
+    /// <summary>
     /// The name of the Anthropic provider.
     /// </summary>
     public override string ProviderName => "Anthropic";
 
     /// <summary>
-    /// Maximum number of tokens for Anthropic API requests.
+    /// Sets the current model and updates <see cref="LlmProvider.MaxTokens"/> from the
+    /// per-model limit fetched during <see cref="GetModelsAsync"/>.
     /// </summary>
-    public override int MaxTokens => 16000; // claude-sonnet-4-6 supports up to 64K; 16K is a practical ceiling for GH scripts
+    public override string CurrentModel
+    {
+        get => base.CurrentModel;
+        set
+        {
+            base.CurrentModel = value;
+            if (_modelMaxTokens.TryGetValue(value, out var tokens))
+            {
+                MaxTokens = tokens;
+            }
+        }
+    }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AnthropicProvider"/> class.
@@ -38,7 +55,8 @@ public class AnthropicProvider : LlmProvider
     }
 
     /// <summary>
-    /// Fetches available Claude models from the Anthropic API and populates <see cref="_models"/>.
+    /// Fetches available Claude models from the Anthropic API and populates <see cref="_models"/>
+    /// and per-model output token limits.
     /// </summary>
     /// <exception cref="HttpRequestException">Thrown when the API returns a non-success status code.</exception>
     public override async Task GetModelsAsync()
@@ -59,6 +77,9 @@ public class AnthropicProvider : LlmProvider
 
         var parsed = JsonSerializer.Deserialize<ModelsResponse>(body);
         _models = parsed?.Data.Select(m => m.Id).ToList() ?? new List<string>();
+        _modelMaxTokens = parsed?.Data
+            .Where(m => m.MaxTokens > 0)
+            .ToDictionary(m => m.Id, m => m.MaxTokens) ?? new Dictionary<string, int>();
     }
 
     /// <summary>
@@ -131,6 +152,9 @@ public class AnthropicProvider : LlmProvider
     {
         [JsonPropertyName("id")]
         public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("max_tokens")]
+        public int MaxTokens { get; set; }
     }
 
     /// <summary>

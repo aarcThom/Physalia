@@ -23,12 +23,20 @@ namespace Physalia.Core.Providers;
 internal class ClaudeCodeProvider : LlmProvider
 {
 
-    // NOTE: THIS IS HARDCODED. ENSURE THIS IS UPDATED AS NEW MODELS RELEASE WITH CLAUDE CODE.
+    // NOTE: THESE ARE HARDCODED. ENSURE THEY ARE UPDATED AS NEW MODELS RELEASE WITH CLAUDE CODE.
     private static readonly List<string> KnownModels = new ()
     {
         "claude-opus-4-6",
         "claude-sonnet-4-6",
         "claude-haiku-4-5-20251001",
+    };
+
+    // Output token limits per model. Source: https://platform.claude.com/docs/en/about-claude/models/overview
+    private static readonly Dictionary<string, int> KnownModelMaxTokens = new ()
+    {
+        { "claude-opus-4-6",          32000 },
+        { "claude-sonnet-4-6",        64000 },
+        { "claude-haiku-4-5-20251001", 8096 },
     };
 
     /// <summary>
@@ -46,12 +54,21 @@ internal class ClaudeCodeProvider : LlmProvider
     public override string ProviderName => "claude code";
 
     /// <summary>
-    /// Gets the maximum number of output tokens.
+    /// Sets the current model and updates <see cref="LlmProvider.MaxTokens"/> from
+    /// <see cref="KnownModelMaxTokens"/>.
     /// </summary>
-    /// <remarks>
-    /// Not passed to the CLI directly — defined here to satisfy the base class contract.
-    /// </remarks>
-    public override int MaxTokens => 4096;
+    public override string CurrentModel
+    {
+        get => base.CurrentModel;
+        set
+        {
+            base.CurrentModel = value;
+            if (KnownModelMaxTokens.TryGetValue(value, out var tokens))
+            {
+                MaxTokens = tokens;
+            }
+        }
+    }
 
     /// <summary>
     /// Populates <see cref="_models"/> with a static list of known Claude models available via the CLI.

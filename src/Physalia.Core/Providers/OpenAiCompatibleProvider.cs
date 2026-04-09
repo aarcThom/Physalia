@@ -15,8 +15,8 @@ namespace Physalia.Core.Providers;
 /// with <c>Authorization: Bearer</c> authentication.
 /// </summary>
 /// <remarks>
-/// Subclasses only need to supply <see cref="ProviderName"/>, <see cref="MaxTokens"/>,
-/// and <see cref="BaseUrl"/>. All HTTP logic is handled here.
+/// Subclasses only need to supply <see cref="ProviderName"/> and <see cref="BaseUrl"/>.
+/// All HTTP logic is handled here.
 /// </remarks>
 internal abstract class OpenAiCompatibleProvider : LlmProvider
 {

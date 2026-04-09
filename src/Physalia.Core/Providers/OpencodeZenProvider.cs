@@ -26,11 +26,6 @@ internal class OpencodeZenProvider : OpenAiCompatibleProvider
     public override string ProviderName => "opencode zen";
 
     /// <summary>
-    /// Gets the maximum number of output tokens for OpenCode Zen API requests.
-    /// </summary>
-    public override int MaxTokens => 4096;
-
-    /// <summary>
     /// Gets the OpenCode Zen API base URL.
     /// </summary>
     protected override string BaseUrl => "https://opencode.ai/zen/v1";

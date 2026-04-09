@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace Physalia.Core.Providers;
 
 /// <summary>
@@ -11,6 +14,13 @@ namespace Physalia.Core.Providers;
 /// </summary>
 internal class GitHubModelsProvider : OpenAiCompatibleProvider
 {
+    private const string CatalogUrl = "https://models.github.ai/catalog/models";
+
+    /// <summary>
+    /// Per-model output token limits populated during <see cref="GetModelsAsync"/>.
+    /// </summary>
+    private Dictionary<string, int> _modelMaxTokens = new ();
+
     /// <summary>
     /// Initializes a new instance of the <see cref="GitHubModelsProvider"/> class.
     /// </summary>
@@ -26,12 +36,69 @@ internal class GitHubModelsProvider : OpenAiCompatibleProvider
     public override string ProviderName => "github models";
 
     /// <summary>
-    /// Gets the maximum number of output tokens for GitHub Models API requests.
-    /// </summary>
-    public override int MaxTokens => 4096;
-
-    /// <summary>
     /// Gets the GitHub Models inference API base URL.
     /// </summary>
     protected override string BaseUrl => "https://models.github.ai/inference";
+
+    /// <summary>
+    /// Sets the current model and updates <see cref="LlmProvider.MaxTokens"/> from the
+    /// per-model limit fetched during <see cref="GetModelsAsync"/>.
+    /// </summary>
+    public override string CurrentModel
+    {
+        get => base.CurrentModel;
+        set
+        {
+            base.CurrentModel = value;
+            if (_modelMaxTokens.TryGetValue(value, out var tokens))
+            {
+                MaxTokens = tokens;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fetches available models from the GitHub Models catalog endpoint and populates
+    /// <see cref="_models"/> and per-model output token limits. The catalog returns a
+    /// <c>limits</c> object per model containing <c>max_output_tokens</c>.
+    /// </summary>
+    /// <exception cref="HttpRequestException">Thrown when the API returns a non-success status code.</exception>
+    public override async Task GetModelsAsync()
+    {
+        // The inference /models endpoint does not include token limits.
+        // The catalog endpoint does, so we use it as the source of truth.
+        // see: https://docs.github.com/en/rest/models/catalog
+        using var request = new HttpRequestMessage(HttpMethod.Get, CatalogUrl);
+        request.Headers.Add("Authorization", $"Bearer {_apiKey}");
+        request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
+
+        using var response = await _http.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException($"{ProviderName} models error {(int)response.StatusCode}: {body}");
+        }
+
+        var entries = JsonSerializer.Deserialize<List<CatalogModelEntry>>(body) ?? new List<CatalogModelEntry>();
+        _models = entries.Select(m => m.Id).ToList();
+        _modelMaxTokens = entries
+            .Where(m => m.Limits?.MaxOutputTokens is > 0)
+            .ToDictionary(m => m.Id, m => m.Limits!.MaxOutputTokens);
+    }
+
+    private class CatalogModelEntry
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("limits")]
+        public ModelLimits? Limits { get; set; }
+    }
+
+    private class ModelLimits
+    {
+        [JsonPropertyName("max_output_tokens")]
+        public int MaxOutputTokens { get; set; }
+    }
 }

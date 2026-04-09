@@ -25,11 +25,6 @@ internal class OpenAiProvider : OpenAiCompatibleProvider
     public override string ProviderName => "openai";
 
     /// <summary>
-    /// Gets the maximum number of output tokens for OpenAI API requests.
-    /// </summary>
-    public override int MaxTokens => 4096;
-
-    /// <summary>
     /// Gets the OpenAI API base URL.
     /// </summary>
     protected override string BaseUrl => "https://api.openai.com/v1";

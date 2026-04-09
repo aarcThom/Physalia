@@ -27,18 +27,35 @@ internal class GeminiProvider : LlmProvider
     }
 
     /// <summary>
+    /// Per-model output token limits populated during <see cref="GetModelsAsync"/>.
+    /// </summary>
+    private Dictionary<string, int> _modelMaxTokens = new ();
+
+    /// <summary>
     /// Gets the display name of the Google Gemini provider.
     /// </summary>
     public override string ProviderName => "Google";
 
     /// <summary>
-    /// Gets the maximum number of output tokens for Gemini API requests.
+    /// Sets the current model and updates <see cref="LlmProvider.MaxTokens"/> from the
+    /// per-model limit fetched during <see cref="GetModelsAsync"/>.
     /// </summary>
-    public override int MaxTokens => 8192;
+    public override string CurrentModel
+    {
+        get => base.CurrentModel;
+        set
+        {
+            base.CurrentModel = value;
+            if (_modelMaxTokens.TryGetValue(value, out var tokens))
+            {
+                MaxTokens = tokens;
+            }
+        }
+    }
 
     /// <summary>
-    /// Fetches available Gemini models that support generateContent and populates <see cref="_models"/>.
-    /// Model names are stripped of their "models/" prefix before being stored.
+    /// Fetches available Gemini models that support generateContent and populates <see cref="_models"/>
+    /// and per-model output token limits. Model names are stripped of their "models/" prefix before being stored.
     /// </summary>
     /// <exception cref="HttpRequestException">Thrown when the API returns a non-success status code.</exception>
     public override async Task GetModelsAsync()
@@ -57,10 +74,18 @@ internal class GeminiProvider : LlmProvider
 
         var parsed = JsonSerializer.Deserialize<ModelsResponse>(body);
 
-        _models = parsed?.Models
+        var eligible = parsed?.Models
             .Where(m => m.SupportedGenerationMethods.Contains("generateContent"))
+            .ToList() ?? new List<ModelEntry>();
+
+        _models = eligible
             .Select(m => m.Name.StartsWith("models/") ? m.Name["models/".Length..] : m.Name)
-            .ToList() ?? new List<string>();
+            .ToList();
+
+        _modelMaxTokens = eligible
+            .ToDictionary(
+                m => m.Name.StartsWith("models/") ? m.Name["models/".Length..] : m.Name,
+                m => m.OutputTokenLimit);
     }
 
     /// <summary>
@@ -142,6 +167,9 @@ internal class GeminiProvider : LlmProvider
 
         [JsonPropertyName("supportedGenerationMethods")]
         public List<string> SupportedGenerationMethods { get; set; } = new ();
+
+        [JsonPropertyName("outputTokenLimit")]
+        public int OutputTokenLimit { get; set; }
     }
 
     /// <summary>

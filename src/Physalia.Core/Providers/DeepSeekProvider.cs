@@ -26,11 +26,6 @@ internal class DeepSeekProvider : OpenAiCompatibleProvider
     public override string ProviderName => "deepseek";
 
     /// <summary>
-    /// Gets the maximum number of output tokens for DeepSeek API requests.
-    /// </summary>
-    public override int MaxTokens => 4096;
-
-    /// <summary>
     /// Gets the DeepSeek API base URL.
     /// </summary>
     protected override string BaseUrl => "https://api.deepseek.com/v1";

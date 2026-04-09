@@ -612,7 +612,7 @@ public class PromptAttrib : GH_ComponentAttributes
 
     // draw the text when the user isn't actively inputting.
     // will be default message if no WIP prompt '_promptComponent' exists.
-    // will be animation if CREST is WIP.
+    // will be animation if COMPOSER is WIP.
     private void DrawInputText(Graphics graphics, RectangleF bounds)
     {
         using var txtBrush = new SolidBrush(Color.White);
@@ -741,14 +741,14 @@ public class PromptAttrib : GH_ComponentAttributes
     {
         // see if the component is actually hooked up.
         var connectedComponents = _promptComponent.Params.Output[0].Recipients;
-        Crest composer = null;
+        Composer composer = null;
 
         foreach (var comp in connectedComponents)
         {
             var docObj = comp.Attributes?.GetTopLevel?.DocObject;
-            if (docObj is Crest)
+            if (docObj is Composer)
             {
-                composer = (Crest)docObj;
+                composer = (Composer)docObj;
                 break;
             }
         }
@@ -804,7 +804,7 @@ public class PromptAttrib : GH_ComponentAttributes
         return chosenAni[currentFrame];
     }
 
-    private void SetAnimationFrame(Crest composer)
+    private void SetAnimationFrame(Composer composer)
     {
         if (composer != null && composer.IsBusy)
         {

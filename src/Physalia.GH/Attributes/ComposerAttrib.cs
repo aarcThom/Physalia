@@ -12,14 +12,14 @@ using Physalia.GH.Components;
 namespace Physalia.GH.Attributes;
 
 /// <summary>
-/// Custom attributes for the CREST component that render a drag-to-link bezier wire
-/// from CREST's bottom-centre grip to the linked ZOOID component.
+/// Custom attributes for the COMPOSER component that render a drag-to-link bezier wire
+/// from COMPOSER's bottom-centre grip to the linked ZOOID component.
 /// </summary>
-public class CrestAttrib : GH_ComponentAttributes
+public class ComposerAttrib : GH_ComponentAttributes
 {
     private static readonly Pen[] _gradientPens = CreateGradientPens();
 
-    private readonly Crest _crest; // the crest component
+    private readonly Composer _composer; // the composer component
 
     private bool _isConnecting; // is the user adding a new zooid? False is disconnection
     private bool _isDragging; // is the user dragging the wire?
@@ -30,17 +30,17 @@ public class CrestAttrib : GH_ComponentAttributes
 
     // bezier segment cache — recomputed only when endpoints change
     private PointF[]? _cachedSegments;
-    private PointF _lastCrestPt;
+    private PointF _lastComposerPt;
     private PointF _lastWireEnd;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="CrestAttrib"/> class.
+    /// Initializes a new instance of the <see cref="ComposerAttrib"/> class.
     /// </summary>
-    /// <param name="crest">The CREST component that owns these attributes.</param>
-    public CrestAttrib(Crest crest)
-        : base(crest)
+    /// <param name="composer">The COMPOSER component that owns these attributes.</param>
+    public ComposerAttrib(Composer composer)
+        : base(composer)
     {
-        _crest = crest;
+        _composer = composer;
     }
 
     /// <summary>
@@ -89,7 +89,7 @@ public class CrestAttrib : GH_ComponentAttributes
 
         if (channel == GH_CanvasChannel.Wires)
         {
-            if (_crest.ZooidComponent == null && !_isDragging)
+            if (_composer.ZooidComponent == null && !_isDragging)
             {
                 base.Render(canvas, graphics, channel);
                 Bounds = _gripBounds; // revert back to expanded bounds for clickable grip
@@ -103,24 +103,24 @@ public class CrestAttrib : GH_ComponentAttributes
             }
             else
             {
-                var zooidBounds = _crest.ZooidComponent.Attributes.Bounds;
+                var zooidBounds = _composer.ZooidComponent.Attributes.Bounds;
                 wireEnd = new PointF(zooidBounds.Left + zooidBounds.Width / 2f, zooidBounds.Y + zooidBounds.Height);
             }
 
-            var crestBottomPoint = new PointF(gripCtrX, gripCtrY);
+            var composerBottomPoint = new PointF(gripCtrX, gripCtrY);
 
-            // draw a bezier curve between the CREST and ZOOID with a gradient that follows the curve
-            var bezPt1 = new PointF(crestBottomPoint.X, crestBottomPoint.Y + 80f);
+            // draw a bezier curve between the COMPOSER and ZOOID with a gradient that follows the curve
+            var bezPt1 = new PointF(composerBottomPoint.X, composerBottomPoint.Y + 80f);
             var bezPt2 = new PointF(wireEnd.X, wireEnd.Y + 80f);
 
             // recompute segment points only when endpoints change
-            if (_cachedSegments == null || crestBottomPoint != _lastCrestPt || wireEnd != _lastWireEnd)
+            if (_cachedSegments == null || composerBottomPoint != _lastComposerPt || wireEnd != _lastWireEnd)
             {
                 int steps = _gradientPens.Length;
                 _cachedSegments = new PointF[steps + 1];
                 for (int i = 0; i <= steps; i++)
-                    _cachedSegments[i] = SampleBezier(crestBottomPoint, bezPt1, bezPt2, wireEnd, (float)i / steps);
-                _lastCrestPt = crestBottomPoint;
+                    _cachedSegments[i] = SampleBezier(composerBottomPoint, bezPt1, bezPt2, wireEnd, (float)i / steps);
+                _lastComposerPt = composerBottomPoint;
                 _lastWireEnd = wireEnd;
             }
 
@@ -197,7 +197,7 @@ public class CrestAttrib : GH_ComponentAttributes
     }
 
     /// <summary>
-    /// Completes the drag and links the CREST to a ZOOID component if the mouse was released over one.
+    /// Completes the drag and links the COMPOSER to a ZOOID component if the mouse was released over one.
     /// </summary>
     /// <param name="sender">The Grasshopper canvas that raised the event.</param>
     /// <param name="e">The mouse event data.</param>
@@ -211,8 +211,8 @@ public class CrestAttrib : GH_ComponentAttributes
             // can disattach if dragging to empty space
             if ( sender.Document.FindObject(e.CanvasLocation, 3f) == null)
             {
-                _crest.ZooidComponent = null;
-                _crest.ZooidGuid = Guid.Empty;
+                _composer.ZooidComponent = null;
+                _composer.ZooidGuid = Guid.Empty;
 
                 sender.ScheduleRegen(2);
                 return GH_ObjectResponse.Handled;
@@ -221,25 +221,25 @@ public class CrestAttrib : GH_ComponentAttributes
             // cycle through the components on the canvas
             foreach (var obj in sender.Document.Objects)
             {
-                if (obj is not Zooid && obj.Attributes.Bounds.Contains(e.CanvasLocation)) // filter out non-zooids
+                if (obj is not PyZooid && obj.Attributes.Bounds.Contains(e.CanvasLocation)) // filter out non-zooids
                 {
-                    _crest.ZooidComponent = null;
-                    _crest.ZooidGuid = Guid.Empty;
+                    _composer.ZooidComponent = null;
+                    _composer.ZooidGuid = Guid.Empty;
                     break;
                 }
 
-                if (obj is Zooid zooid && zooid.Attributes.Bounds.Contains(e.CanvasLocation) && _isConnecting) // connect to a zooid
+                if (obj is PyZooid zooid && zooid.Attributes.Bounds.Contains(e.CanvasLocation) && _isConnecting) // connect to a zooid
                 {
-                    _crest.ZooidComponent = zooid; // set the ref'd zooid
-                    _crest.ZooidGuid = zooid.InstanceGuid;
+                    _composer.ZooidComponent = zooid; // set the ref'd zooid
+                    _composer.ZooidGuid = zooid.InstanceGuid;
 
                     break;
                 }
 
-                if (_crest.ZooidComponent != null && _crest.ZooidComponent.Attributes.Bounds.Contains(e.CanvasLocation) && !_isConnecting) // disconnecting a zooid with ctrl
+                if (_composer.ZooidComponent != null && _composer.ZooidComponent.Attributes.Bounds.Contains(e.CanvasLocation) && !_isConnecting) // disconnecting a zooid with ctrl
                 {
-                    _crest.ZooidComponent = null;
-                    _crest.ZooidGuid = Guid.Empty;
+                    _composer.ZooidComponent = null;
+                    _composer.ZooidGuid = Guid.Empty;
 
                     break;
                 }

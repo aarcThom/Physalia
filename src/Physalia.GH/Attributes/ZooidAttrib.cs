@@ -32,7 +32,7 @@ public class ZooidAttrib : GH_ComponentAttributes
     /// <returns>Handled if the script editor was opened; otherwise the base response.</returns>
     public override GH_ObjectResponse RespondToMouseDoubleClick(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
-        if (Owner is Components.Zooid component)
+        if (Owner is Components.PyZooid component)
         {
             component.OpenScriptEditor();
             return GH_ObjectResponse.Handled;

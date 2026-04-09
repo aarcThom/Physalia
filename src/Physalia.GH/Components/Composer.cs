@@ -20,10 +20,10 @@ using Physalia.GH.ParamTypes;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// The CREST component receives an LLM provider from MODEL SELECTOR, accepts a user prompt,
+/// The COMPOSER component receives an LLM provider from MODEL SELECTOR, accepts a user prompt,
 /// calls the LLM API asynchronously, and forwards the parsed response to a linked ZOOID component.
 /// </summary>
-public class Crest : PhyBase
+public class Composer : PhyBase
 {
     // FIELDS ==========================================================================================
     private int _maxAutoFixAttemps;
@@ -48,7 +48,7 @@ public class Crest : PhyBase
     /// <summary>
     /// Gets or sets the ZOOID component that receives the LLM-generated script.
     /// </summary>
-    public Zooid? ZooidComponent { get; set; }
+    public PyZooid? ZooidComponent { get; set; }
 
     /// <summary>
     /// Gets or sets the instance GUID of the linked ZOOID component, used for serialization and reconnection.
@@ -68,10 +68,10 @@ public class Crest : PhyBase
     // CONSTRUCTOR =======================================================================================
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Crest"/> class.
+    /// Initializes a new instance of the <see cref="Composer"/> class.
     /// </summary>
-    public Crest()
-        : base("CREST", "CREST", "Description", "Core")
+    public Composer()
+        : base("Composer", "Composer", "Description", "Core")
     {
     }
 
@@ -83,10 +83,10 @@ public class Crest : PhyBase
     /// <param name="pManager">The GH_InputParamManager for registering input parameters.</param>
     protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new LlmProviderGhParam(), "Llm", "Llm", "Large language model from DREAM", GH_ParamAccess.item);
+        pManager.AddParameter(new LlmProviderGhParam(), "Llm", "Llm", "Large language model.", GH_ParamAccess.item);
         pManager.AddParameter(new ConversationGhParam(), "Conversation", "Conv", "The conversation from PROMPT", GH_ParamAccess.item);
         pManager.AddBooleanParameter("AutoFix", "Fix", "Set True if you want the LLM to attempt to fix errors as they occur. Defaults to True.", GH_ParamAccess.item, true);
-        pManager.AddIntegerParameter("Fix Attemps", "Fix #", "Number of times you want to send error codes back to the LLM for fixing. Defaults to 3", GH_ParamAccess.item, 3);
+        pManager.AddIntegerParameter("Fix Attempts", "Fix #", "Number of times you want to send error codes back to the LLM for fixing. Defaults to 3", GH_ParamAccess.item, 3);
     }
 
     /// <summary>
@@ -162,9 +162,9 @@ public class Crest : PhyBase
     }
 
     /// <summary>
-    /// Assigns the custom <see cref="CrestAttrib"/> attribute class to this component.
+    /// Assigns the custom <see cref="ComposerAttrib"/> attribute class to this component.
     /// </summary>
-    public override void CreateAttributes() => m_attributes = new CrestAttrib(this);
+    public override void CreateAttributes() => m_attributes = new ComposerAttrib(this);
 
     /// <summary>
     /// Serializes the linked ZOOID's instance GUID so the connection survives save/load.
@@ -231,7 +231,7 @@ public class Crest : PhyBase
         base.AppendAdditionalMenuItems(menu);
 
         var item = Menu_AppendItem(menu, "Disconnect Zooid", OnDisconnectZooid, ZooidComponent != null);
-        item.ToolTipText = "Remove the link between this CREST and its ZOOID.";
+        item.ToolTipText = "Remove the link between this COMPOSER and its ZOOID.";
     }
 
     // removes the reference zooid when removed via the right click menu
@@ -248,7 +248,7 @@ public class Crest : PhyBase
     private async Task SendRequestAsync(
         Conversation conversation,
         LlmProvider llModel,
-        Zooid zooid)
+        PyZooid zooid)
     {
         Message = "Calling API";
 
@@ -292,7 +292,7 @@ public class Crest : PhyBase
     }
 
     // CHECKS IF FIX IS NEEDED / ALLOWED AND THEN RECALLS THE LLM
-    private void TriggerAutoFix(Conversation conversation, LlmProvider llModel, Zooid zooid)
+    private void TriggerAutoFix(Conversation conversation, LlmProvider llModel, PyZooid zooid)
     {
         _waitingForAutoFix = false;
 
@@ -308,7 +308,7 @@ public class Crest : PhyBase
     }
 
     // DETERMINES WHETHER OR NOT AN AUTOFIX SHOULD BE ATTEMPTED
-    private static bool ShouldAutoFix(Zooid zooid)
+    private static bool ShouldAutoFix(PyZooid zooid)
     {
         bool hasErrors = !string.IsNullOrEmpty(zooid.LastRuntimeError);
 
@@ -318,7 +318,7 @@ public class Crest : PhyBase
     }
 
     // THE AUTOFIX REQUEST
-    private async Task AutoFixAsync(Conversation conversation, LlmProvider llModel, Zooid zooid)
+    private async Task AutoFixAsync(Conversation conversation, LlmProvider llModel, PyZooid zooid)
     {
         Message = $"Fixing ({_autoFixAttempts}/{_maxAutoFixAttemps})";
 
@@ -412,7 +412,7 @@ public class Crest : PhyBase
     private void ReconnectZooid(GH_Document doc)
     {
         var obj = doc.FindObject(ZooidGuid, true);
-        if (obj is Zooid zooid)
+        if (obj is PyZooid zooid)
         {
             ZooidComponent = zooid;
         }

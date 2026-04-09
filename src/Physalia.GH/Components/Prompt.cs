@@ -62,7 +62,7 @@ public class Prompt : PhyBase
     /// </summary>
     protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new ConversationGhParam(), "Conversation", "Conv", "The conversation history to be fed into Crest.", GH_ParamAccess.item);
+        pManager.AddParameter(new ConversationGhParam(), "Conversation", "Conv", "The conversation history to be fed into Composer.", GH_ParamAccess.item);
     }
 
     /// <summary>

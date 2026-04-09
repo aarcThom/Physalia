@@ -13,7 +13,7 @@ namespace Physalia.GH.ParamTypes;
 /// </summary>
 /// <remarks>
 /// The wrapped <see cref="Conversation"/> is shared by reference. <see cref="Duplicate"/>
-/// returns a new Goo wrapping the same instance, so that CREST can append assistant
+/// returns a new Goo wrapping the same instance, so that COMPOSER can append assistant
 /// responses directly without requiring a back-reference to the Prompt component.
 /// Serialisation is a no-op here — the Prompt component is responsible for persisting
 /// conversation history via its own <c>Write</c>/<c>Read</c> overrides.

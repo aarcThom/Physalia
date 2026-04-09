@@ -15,7 +15,7 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// The ModelSelector component resolves API keys, lets the user select a provider and model
-/// via inline dropdowns, and outputs a configured <see cref="LlmProvider"/> to CREST.
+/// via inline dropdowns, and outputs a configured <see cref="LlmProvider"/> to COMPOSER.
 /// </summary>
 public class ModelSelector : PhyBase
 {
@@ -147,7 +147,7 @@ public class ModelSelector : PhyBase
 
         if (!string.IsNullOrEmpty(SelectedModel))
         {
-            _llmProvider.CurrentModel = SelectedModel; // set the model to user selection before sending to crest
+            _llmProvider.CurrentModel = SelectedModel; // set the model to user selection before sending to composer
             DA.SetData(0, new LlmProviderGoo(_llmProvider));
         }
     }

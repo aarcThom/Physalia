@@ -7,7 +7,7 @@ namespace Physalia.Core.Prompts;
 
 /// <summary>
 /// Maintains the ordered history of a multi-turn LLM conversation.
-/// Shared by reference through the Grasshopper graph so that CREST can
+/// Shared by reference through the Grasshopper graph so that COMPOSER can
 /// append assistant responses without requiring a back-reference to the Prompt component.
 /// </summary>
 public class Conversation
@@ -32,8 +32,8 @@ public class Conversation
     public IReadOnlyList<string> HumanMessages => _humanMessages;
 
     /// <summary>
-    /// Gets or sets a value indicating whether the next solve should trigger an API call in CREST.
-    /// Set by the Prompt component when the user submits via Shift+Enter; consumed and reset by CREST.
+    /// Gets or sets a value indicating whether the next solve should trigger an API call in COMPOSER.
+    /// Set by the Prompt component when the user submits via Shift+Enter; consumed and reset by COMPOSER.
     /// </summary>
     public bool Trigger { get; set; }
 

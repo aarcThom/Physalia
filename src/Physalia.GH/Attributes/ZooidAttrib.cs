@@ -25,16 +25,16 @@ public class ZooidAttrib : GH_ComponentAttributes
     public ZooidAttrib(GH_Component owner) : base(owner){ }
 
     /// <summary>
-    /// Intercepts double-click events and opens the script editor when the owner is a pyZooid component.
+    /// Intercepts double-click events and opens the editor when the owner is a ZooidBase component.
     /// </summary>
     /// <param name="sender">The Grasshopper canvas that raised the event.</param>
     /// <param name="e">The mouse event data.</param>
-    /// <returns>Handled if the script editor was opened; otherwise the base response.</returns>
+    /// <returns>Handled if the editor was opened; otherwise the base response.</returns>
     public override GH_ObjectResponse RespondToMouseDoubleClick(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
-        if (Owner is Components.PyZooid component)
+        if (Owner is Components.ZooidBase zooid)
         {
-            component.OpenScriptEditor();
+            zooid.OpenEditor();
             return GH_ObjectResponse.Handled;
         }
 

@@ -4,12 +4,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Parameters;
-using Physalia.Core.Config;
 using Physalia.Core.Parsing;
 using Physalia.GH.Attributes;
 using Physalia.GH.Helpers;
@@ -21,12 +20,13 @@ namespace Physalia.GH.Components;
 /// Its input and output parameters are rebuilt dynamically from the LLM response and can
 /// also be extended manually by the user via the variable parameter interface.
 /// </summary>
-public class PyZooid : PhyBase, IGH_VariableParameterComponent
+public class PyZooid : ZooidBase
 {
     // FIELDS ==========================================================================================
     private readonly ScriptRunner _scriptRunner = new ();
     private ScriptResponse? _lastResponse;
     private bool _needsCheck;
+    private string? _lastRuntimeError;
 
     // PROPERTIES =======================================================================================
 
@@ -45,14 +45,80 @@ public class PyZooid : PhyBase, IGH_VariableParameterComponent
     public IReadOnlyList<Diagnostic> LastDiagnostics { get; private set; } = new List<Diagnostic>();
 
     /// <summary>
-    /// Gets the runtime error message from the last failed script execution, or null if the last run succeeded.
+    /// Gets the system prompt fragment describing the Python 3 script format and JSON response
+    /// schema. Combined with <see cref="Physalia.Core.Prompts.SystemPrompt.Preamble"/> by COMPOSER.
     /// </summary>
-    public string? LastRuntimeError { get; private set; }
+    public override string FormatPrompt => """
+        You generate Python 3 scripts that run inside a Grasshopper Script Component.
+
+        RULES:
+        1. Do NOT include the "#! python 3" shebang — it will be added automatically.
+        2. Input variables are available directly by name (they are injected by Grasshopper).
+        3. Assign results to output variable names directly (e.g. `result = ...`).
+        4. You may import from: Rhino, Rhino.Geometry, Grasshopper, System, math, etc.
+        5. Keep scripts concise and well-commented.
+
+        RESPONSE FORMAT:
+        You MUST respond with ONLY a JSON object (no markdown fences, no preamble) matching
+        this exact schema:
+
+        {
+          "statusMessage": "<one short sentence describing what you did, e.g. 'Generated a script that moves points along a vector.' or 'Fixed the loop to handle empty lists.'>",
+          "script": "<python code as a single string with \\n for newlines>",
+          "inputs": [
+            {
+              "name": "<variable_name>",
+              "prettyName": "<Human Readable Name>",
+              "tooltip": "<short description>",
+              "typeHint": "<GH type hint>",
+              "access": "item|list|tree",
+              "optional": false
+            }
+          ],
+          "outputs": [
+            {
+              "name": "<variable_name>",
+              "prettyName": "<Human Readable Name>",
+              "tooltip": "<short description>"
+            }
+          ]
+        }
+
+        VALID TYPE HINTS (use these exact strings):
+        - Primitives: "Number", "Integer", "Boolean", "Text"
+        - Geometry: "Point", "Vector", "Plane", "Line", "Circle", "Arc",
+          "Curve", "Surface", "Brep", "Mesh", "Geometry", "Box",
+          "Transform", "Interval"
+        - Other: "Colour"
+
+        ACCESS MODES:
+        - "item": single value per iteration (default)
+        - "list": a list of values
+        - "tree": a data tree
+
+        IMPORTANT:
+        - Use "list" access when the user's request implies working with collections.
+        - Outputs do NOT need typeHint or access fields.
+        - Every input/output in the JSON must correspond to a variable used in the script.
+        - Always include "statusMessage" as the first key in the JSON object.
+        - Respond with ONLY the JSON object. No other text.
+        """;
+
+    /// <summary>
+    /// Gets the generated Python script from the most recent LLM response, or null if none received.
+    /// </summary>
+    public override string? State => _lastResponse?.Script;
+
+    /// <summary>
+    /// Gets a description of the current script's purpose from its status message,
+    /// or null if no response has been received.
+    /// </summary>
+    public override string? ZooidDescription => _lastResponse?.StatusMessage;
 
     // CONSTRUCTOR =======================================================================================
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Zooid"/> class.
+    /// Initializes a new instance of the <see cref="PyZooid"/> class.
     /// </summary>
     public PyZooid()
       : base(
@@ -67,7 +133,7 @@ public class PyZooid : PhyBase, IGH_VariableParameterComponent
 
     /// <summary>
     /// No fixed input parameters are registered; all inputs are added dynamically via
-    /// <see cref="ReceiveResponse"/> or by the user through the variable parameter interface.
+    /// <see cref="ApplyLlmResponse"/> or by the user through the variable parameter interface.
     /// </summary>
     /// <param name="pManager">The input parameter manager (unused).</param>
     protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
@@ -76,7 +142,7 @@ public class PyZooid : PhyBase, IGH_VariableParameterComponent
 
     /// <summary>
     /// No fixed output parameters are registered; all outputs are added dynamically via
-    /// <see cref="ReceiveResponse"/> or by the user through the variable parameter interface.
+    /// <see cref="ApplyLlmResponse"/> or by the user through the variable parameter interface.
     /// </summary>
     /// <param name="pManager">The output parameter manager (unused).</param>
     protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
@@ -104,7 +170,7 @@ public class PyZooid : PhyBase, IGH_VariableParameterComponent
             _needsCheck = false;
         }
 
-        LastRuntimeError = null;
+        _lastRuntimeError = null;
 
         try
         {
@@ -112,7 +178,7 @@ public class PyZooid : PhyBase, IGH_VariableParameterComponent
         }
         catch (Exception ex)
         {
-            LastRuntimeError = ex.Message;
+            _lastRuntimeError = ex.Message;
             AddRuntimeMessage(GH_RuntimeMessageLevel.Error, $"Script execution failed: {ex.Message}");
         }
     }
@@ -186,22 +252,23 @@ public class PyZooid : PhyBase, IGH_VariableParameterComponent
     // LLM RESPONSE AND SCRIPT EDITING ==================================================================
 
     /// <summary>
-    /// Stores the latest LLM response, rebuilds the component's dynamic parameters,
-    /// and schedules a solution refresh.
+    /// Parses the raw LLM response, stores the result, rebuilds the component's dynamic
+    /// parameters, and schedules a solution refresh.
     /// </summary>
-    /// <param name="response">The parsed LLM response containing the script and parameter definitions.</param>
-    public void ReceiveResponse(ScriptResponse response)
+    /// <param name="rawResponse">The raw JSON string returned by the LLM.</param>
+    public override void ApplyLlmResponse(string rawResponse)
     {
-        _lastResponse = response;
+        _lastResponse = ResponseParser.Parse(rawResponse);
+        LastStatusMessage = _lastResponse.StatusMessage;
         _needsCheck = true;
-        ParamBuilder.Rebuild(this, response);
+        ParamBuilder.Rebuild(this, _lastResponse);
         ExpireSolution(true);
     }
 
     /// <summary>
     /// Opens the Eto.Forms script editor dialog for the currently stored script.
     /// </summary>
-    public void OpenScriptEditor()
+    public override void OpenEditor()
     {
         if (_lastResponse == null)
         {
@@ -220,89 +287,44 @@ public class PyZooid : PhyBase, IGH_VariableParameterComponent
         }
     }
 
-    // PARAMETER BUILDERS ======================================================================================
-
     /// <summary>
-    /// Always returns true; users may insert parameters on either side at any index.
+    /// Builds a complete auto-fix prompt from the current pyflakes diagnostics and runtime
+    /// error. Returns null if the script has no errors.
     /// </summary>
-    /// <param name="side">The parameter side (input or output).</param>
-    /// <param name="index">The insertion index.</param>
-    /// <returns>true.</returns>
-    public bool CanInsertParameter(GH_ParameterSide side, int index)
+    /// <returns>A formatted fix message string, or null if there are no errors.</returns>
+    public override string? GetFixMessage()
     {
-        return true;
-    }
-
-    /// <summary>
-    /// Always returns true; users may remove any parameter from either side.
-    /// </summary>
-    /// <param name="side">The parameter side (input or output).</param>
-    /// <param name="index">The index of the parameter to remove.</param>
-    /// <returns>true.</returns>
-    public bool CanRemoveParameter(GH_ParameterSide side, int index)
-    {
-        return true;
-    }
-
-    /// <summary>
-    /// Creates a new generic parameter when the user adds one manually.
-    /// Inputs are named "in_N" and outputs "out_N", where N is the lowest available integer.
-    /// </summary>
-    /// <param name="side">The side on which the parameter will be created.</param>
-    /// <param name="index">The index at which the parameter will be inserted.</param>
-    /// <returns>A new Param_GenericObject with a unique auto-incremented name.</returns>
-    public IGH_Param CreateParameter(GH_ParameterSide side, int index)
-    {
-        if (side == GH_ParameterSide.Input)
+        bool hasErrors = !string.IsNullOrEmpty(_lastRuntimeError) || LastDiagnostics.Count > 0;
+        if (!hasErrors)
         {
-            string nick = NextParamName("in", Params.Input.Select(p => p.NickName));
-            return new Param_GenericObject { Name = nick, NickName = nick, Description = "user defined parameter", Optional = true };
+            return null;
         }
-        else
+
+        var sb = new StringBuilder();
+        sb.AppendLine("The script has errors that need fixing. Return a corrected JSON response in the same format.");
+
+        if (LastDiagnostics.Count > 0)
         {
-            string nick = NextParamName("out", Params.Output.Select(p => p.NickName));
-            return new Param_GenericObject { Name = nick, NickName = nick, Description = "user defined parameter", Optional = true };
-        }
-    }
-
-    /// <summary>
-    /// Always returns true; no cleanup is required when a parameter is removed.
-    /// </summary>
-    /// <param name="side">The side from which the parameter is being removed.</param>
-    /// <param name="index">The index of the parameter being removed.</param>
-    /// <returns>true.</returns>
-    public bool DestroyParameter(GH_ParameterSide side, int index)
-    {
-        return true;
-    }
-
-    /// <summary>
-    /// Sanitizes the names of all parameters to valid Python identifiers after any parameter change.
-    /// Also subscribes to <see cref="OnUserParamChanged"/> for any newly added user params.
-    /// </summary>
-    public void VariableParameterMaintenance()
-    {
-        var userParams = Params.Input.Concat(Params.Output).ToList();
-        var taken = new HashSet<string>();
-
-        foreach (var p in userParams)
-        {
-            var clean = SanitizePythonName(p.NickName);
-            clean = Deduplicate(clean, taken);
-            taken.Add(clean);
-
-            if (clean != p.NickName)
+            sb.AppendLine();
+            sb.AppendLine("Static analysis errors:");
+            foreach (var d in LastDiagnostics)
             {
-                p.Name = clean;
-                p.NickName = clean;
+                sb.AppendLine($"  {d}");
             }
         }
 
-        SubscribeUserParamEvents();
+        if (!string.IsNullOrEmpty(_lastRuntimeError))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Runtime error:");
+            sb.AppendLine($"  {_lastRuntimeError}");
+        }
+
+        return sb.ToString();
     }
 
     // makes sure the input names are proper python variables
-    private static string SanitizePythonName(string name)
+    protected override string SanitizeParamName(string name)
     {
         // Replace any non-alphanumeric/underscore character (including spaces) with _
         var clean = Regex.Replace(name, @"[^a-zA-Z0-9_]", "_");
@@ -324,93 +346,7 @@ public class PyZooid : PhyBase, IGH_VariableParameterComponent
         return clean;
     }
 
-    // can't have duplicate names - ensures no duplicates
-    private static string Deduplicate(string name, HashSet<string> taken)
-    {
-        if (!taken.Contains(name))
-        {
-            return name;
-        }
-
-        int i = 1;
-        string candidate;
-        do
-        {
-            candidate = $"{name}_{i++}";
-        }
-        while (taken.Contains(candidate));
-
-        return candidate;
-    }
-
-    // default parameter names when adding param with the little + symbol appends a number
-    private static string NextParamName(string prefix, IEnumerable<string> existingParams)
-    {
-        // check to see the next available param name
-        for (int i = 0; ; i++)
-        {
-            string candidate = $"{prefix}_{i}";
-            if (!existingParams.Contains(candidate))
-            {
-                return candidate;
-            }
-        }
-    }
-
-    // subscribe to parameter changes - used for auto-updating the python names
-    private void SubscribeUserParamEvents()
-    {
-        foreach (var p in Params.Input.Concat(Params.Output))
-        {
-            // Unsubscribe first to avoid double-subscribing
-            p.ObjectChanged -= OnUserParamChanged;
-            p.ObjectChanged += OnUserParamChanged;
-        }
-    }
-
-    private void OnUserParamChanged(IGH_DocumentObject sender, GH_ObjectChangedEventArgs e)
-    {
-        if (e.Type != GH_ObjectEventType.NickName)
-        {
-            return;
-        }
-
-        if (sender is not IGH_Param p)
-        {
-            return;
-        }
-
-        var clean = SanitizePythonName(p.NickName);
-
-        // Build taken set from all other params
-        var taken = new HashSet<string>(
-            Params.Input.Concat(Params.Output)
-                .Where(other => other != p)
-                .Select(other => other.NickName));
-
-        clean = Deduplicate(clean, taken);
-
-        if (clean == p.NickName)
-        {
-            return;
-        }
-
-        // Unsubscribe to avoid re-entrancy when setting NickName
-        p.ObjectChanged -= OnUserParamChanged;
-        p.Name = clean;
-        p.NickName = clean;
-        p.ObjectChanged += OnUserParamChanged;
-    }
-
     // RIGHT CLICK MENU HELPERS ===================================================================================================
-
-    // walks the document to find the composer that is currently pointing at this zooid
-    private Composer? FindLinkedComposer()
-    {
-        return OnPingDocument()?.Objects
-            .OfType<Composer>()
-            .FirstOrDefault(c => c.ZooidComponent?.InstanceGuid == InstanceGuid);
-    }
 
     // clears the link on the composer side and redraws
     private void OnDisconnectComposer(object sender, EventArgs e)

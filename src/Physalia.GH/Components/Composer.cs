@@ -46,9 +46,9 @@ public class Composer : PhyBase
     }
 
     /// <summary>
-    /// Gets or sets the ZOOID component that receives the LLM-generated script.
+    /// Gets or sets the ZOOID component that receives the LLM-generated response.
     /// </summary>
-    public PyZooid? ZooidComponent { get; set; }
+    public ZooidBase? ZooidComponent { get; set; }
 
     /// <summary>
     /// Gets or sets the instance GUID of the linked ZOOID component, used for serialization and reconnection.
@@ -248,27 +248,24 @@ public class Composer : PhyBase
     private async Task SendRequestAsync(
         Conversation conversation,
         LlmProvider llModel,
-        PyZooid zooid)
+        ZooidBase zooid)
     {
         Message = "Calling API";
 
         // GET PRE-EXISTING INPUTS AND OUTPUTS
-        var zooidInputs = ParamBuilder.GetUserParams(zooid.Params.Input, true);
-        var zooidOutputs = ParamBuilder.GetUserParams(zooid.Params.Output, false);
-        var paramPrompt = ParamBuilder.UserParamsPrompt(zooidInputs, zooidOutputs);
+        var paramPrompt = zooid.UserParamsPrompt();
 
         try
         {
             // SEND THE CONVERSATION - GET AND FORMAT THE RESULT
             var history = BuildHistoryWithParams(conversation.LlmMessages, paramPrompt);
-            var rawResult = await llModel.SendConversationAsync(SystemPrompt.Default, history);
-            var formattedResult = ResponseParser.Parse(rawResult);
+            var rawResult = await llModel.SendConversationAsync(SystemPrompt.Build(zooid.FormatPrompt), history);
 
-            // APPEND ASSISTANT RESPONSE TO SHARED CONVERSATION
-            conversation.AddAssistantMessage(rawResult, formattedResult.StatusMessage);
+            // APPLY RESPONSE TO ZOOID AND APPEND TO SHARED CONVERSATION
+            zooid.ApplyLlmResponse(rawResult);
+            conversation.AddAssistantMessage(rawResult, zooid.LastStatusMessage);
 
             // SEND TO ZOOID AND EXPIRE SOLUTION
-            zooid.ReceiveResponse(formattedResult);
             Message = "Done";
             OnPingDocument()?.ScheduleSolution(1, _ => { }); // triggers canvas redraw so Prompt re-renders history
             ExpireSolution(true);
@@ -292,7 +289,7 @@ public class Composer : PhyBase
     }
 
     // CHECKS IF FIX IS NEEDED / ALLOWED AND THEN RECALLS THE LLM
-    private void TriggerAutoFix(Conversation conversation, LlmProvider llModel, PyZooid zooid)
+    private void TriggerAutoFix(Conversation conversation, LlmProvider llModel, ZooidBase zooid)
     {
         _waitingForAutoFix = false;
 
@@ -308,33 +305,36 @@ public class Composer : PhyBase
     }
 
     // DETERMINES WHETHER OR NOT AN AUTOFIX SHOULD BE ATTEMPTED
-    private static bool ShouldAutoFix(PyZooid zooid)
+    private static bool ShouldAutoFix(ZooidBase zooid)
     {
-        bool hasErrors = !string.IsNullOrEmpty(zooid.LastRuntimeError);
-
         // can't really fix components that aren't fully connected
         bool allInputsUnconnected = zooid.Params.Input.Count > 0 && zooid.Params.Input.All(p => p.Sources.Count == 0);
-        return hasErrors && !allInputsUnconnected;
+        return zooid.GetFixMessage() != null && !allInputsUnconnected;
     }
 
     // THE AUTOFIX REQUEST
-    private async Task AutoFixAsync(Conversation conversation, LlmProvider llModel, PyZooid zooid)
+    private async Task AutoFixAsync(Conversation conversation, LlmProvider llModel, ZooidBase zooid)
     {
         Message = $"Fixing ({_autoFixAttempts}/{_maxAutoFixAttemps})";
 
         // append the error context as a new user turn — conversation already holds prior script as assistant turn
-        var fixMessage = BuildFixMessage(zooid.LastDiagnostics, zooid.LastRuntimeError);
+        var fixMessage = zooid.GetFixMessage();
+        if (fixMessage == null)
+        {
+            _isBusy = false;
+            return;
+        }
+
         conversation.AddUserMessage(fixMessage, true);
 
         try
         {
-            var rawResult = await llModel.SendConversationAsync(SystemPrompt.Default, conversation.LlmMessages);
-            var formattedResult = ResponseParser.Parse(rawResult);
+            var rawResult = await llModel.SendConversationAsync(SystemPrompt.Build(zooid.FormatPrompt), conversation.LlmMessages);
 
-            // append assistant response before sending to zooid
-            conversation.AddAssistantMessage(rawResult, formattedResult.StatusMessage);
+            // apply and record in conversation
+            zooid.ApplyLlmResponse(rawResult);
+            conversation.AddAssistantMessage(rawResult, zooid.LastStatusMessage);
 
-            zooid.ReceiveResponse(formattedResult);
             Message = "Done";
             OnPingDocument()?.ScheduleSolution(1, _ => { }); // triggers canvas redraw so Prompt re-renders history
             ExpireSolution(true);
@@ -356,33 +356,6 @@ public class Composer : PhyBase
             _isBusy = false;
             ExpireSolution(true);
         }
-    }
-
-    // TODO - NEED TO MOVE THIS TO PHYSALIA.CORE - SHOULD GO WITH PROMPTS
-    // the prior script is already in the conversation as an assistant turn, so we only describe the errors here
-    private static string BuildFixMessage(IReadOnlyList<Diagnostic> diagnostics, string? runtimeError)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("The script has errors that need fixing. Return a corrected JSON response in the same format.");
-
-        if (diagnostics.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("Static analysis errors:");
-            foreach (var d in diagnostics)
-            {
-                sb.AppendLine($"  {d}");
-            }
-        }
-
-        if (!string.IsNullOrEmpty(runtimeError))
-        {
-            sb.AppendLine();
-            sb.AppendLine("Runtime error:");
-            sb.AppendLine($"  {runtimeError}");
-        }
-
-        return sb.ToString();
     }
 
     // appends paramPrompt to the last user message so the LLM sees existing ZOOID params without mutating the shared conversation
@@ -412,7 +385,7 @@ public class Composer : PhyBase
     private void ReconnectZooid(GH_Document doc)
     {
         var obj = doc.FindObject(ZooidGuid, true);
-        if (obj is PyZooid zooid)
+        if (obj is ZooidBase zooid)
         {
             ZooidComponent = zooid;
         }

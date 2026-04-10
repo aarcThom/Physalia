@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:mcneel.github.io)",
+      "WebFetch(domain:developer.rhino3d.com)",
+      "WebSearch",
+      "Bash(xargs -I{} basename {})",
+      "Bash(powershell:*)",
+      "WebFetch(domain:discourse.mcneel.com)",
+      "Bash(dotnet build:*)"
+    ]
+  }
+}

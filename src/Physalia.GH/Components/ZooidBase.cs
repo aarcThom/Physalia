@@ -179,7 +179,7 @@ public abstract class ZooidBase : PhyBase, IGH_VariableParameterComponent
     /// <summary>
     /// Sanitizes all parameter names after any structural change, and subscribes rename listeners.
     /// </summary>
-    public void VariableParameterMaintenance()
+    public virtual void VariableParameterMaintenance()
     {
         var allParams = Params.Input.Concat(Params.Output).ToList();
         var taken = new HashSet<string>();

@@ -7,7 +7,18 @@
       "Bash(xargs -I{} basename {})",
       "Bash(powershell:*)",
       "WebFetch(domain:discourse.mcneel.com)",
-      "Bash(dotnet build:*)"
+      "Bash(dotnet build:*)",
+      "WebFetch(domain:www.grasshopper3d.com)",
+      "WebFetch(domain:james-ramsden.com)",
+      "WebFetch(domain:generativesurfacing.wordpress.com)",
+      "Bash(ilspycmd \".nuget/packages/grasshopper/8.0.23304.9001/lib/net48/Grasshopper.dll\" -t \"Grasshopper.Kernel.Special.GH_Cluster\")",
+      "Bash(ilspycmd \".nuget/packages/grasshopper/8.0.23304.9001/lib/net48/Grasshopper.dll\" -t \"Grasshopper.Kernel.Special.GH_ClusterInputHook\")",
+      "Bash(ilspycmd \".nuget/packages/grasshopper/8.0.23304.9001/lib/net48/Grasshopper.dll\" -t \"Grasshopper.Kernel.Special.GH_ClusterOutputHook\")",
+      "Bash(ilspycmd \".nuget/packages/grasshopper/8.0.23304.9001/lib/net48/Grasshopper.dll\" -t \"Grasshopper.Kernel.Special.GH_ClusterHook\")",
+      "Bash(dotnet fsi:*)",
+      "Bash(where ilspycmd:*)",
+      "Bash(dotnet tool:*)",
+      "Bash(ilspycmd:*)"
     ]
   }
 }

@@ -14,8 +14,6 @@ public static class SystemPrompt
     /// </summary>
     public const string Preamble = """
         You are an expert Grasshopper / Rhino developer working in Rhino 8+.
-        For all geometry operations use RhinoCommon (Rhino.Geometry namespace).
-        Do NOT use rhinoscriptsyntax (rs) — use RhinoCommon directly.
         """;
 
     /// <summary>

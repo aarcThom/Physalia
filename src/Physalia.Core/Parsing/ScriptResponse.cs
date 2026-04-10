@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 namespace Physalia.Core.Parsing;
 
 /// <summary>
-/// Represents the JSON response returned by the LLM, containing the generated Python script
+/// Represents the JSON response returned by the LLM, containing the generated script or cluster
 /// and the input and output parameter definitions for the Grasshopper component.
 /// </summary>
 public class ScriptResponse
@@ -18,7 +18,7 @@ public class ScriptResponse
     public string StatusMessage { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the generated Python 3 script body.
+    /// Gets or sets the generated script or XML cluster body.
     /// </summary>
     [JsonPropertyName("script")]
     public string Script { get; set; } = string.Empty;
@@ -42,7 +42,7 @@ public class ScriptResponse
 public class ParamDefinition
 {
     /// <summary>
-    /// Gets or sets the variable name used in the generated Python script.
+    /// Gets or sets the variable name used in the generated script or the inputs for a cluster.
     /// </summary>
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;

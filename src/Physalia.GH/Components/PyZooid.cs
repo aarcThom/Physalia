@@ -49,6 +49,8 @@ public class PyZooid : ZooidBase
     /// schema. Combined with <see cref="Physalia.Core.Prompts.SystemPrompt.Preamble"/> by COMPOSER.
     /// </summary>
     public override string FormatPrompt => """
+        For all geometry operations use RhinoCommon (Rhino.Geometry namespace).
+        Do NOT use rhinoscriptsyntax (rs) — use RhinoCommon directly.
         You generate Python 3 scripts that run inside a Grasshopper Script Component.
 
         RULES:

@@ -2,9 +2,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Linq;
 using System.Text.RegularExpressions;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Grasshopper.Kernel.Special;
 using Physalia.GH.Attributes;
 
 namespace Physalia.GH.Components;
@@ -23,9 +27,16 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
     private GH_Document _internalDocument;
 
     // Snapshot of the inner document as XML. Captured in DocumentClosed before GH clears
-    // the document's objects. Restored into a fresh document in OpenEditor. Also the
-    // source of truth for file Write/Read serialization when the inner doc is not live.
+    // the document's objects. Restored into a fresh document on next OpenEditor or SolveInstance.
     private string? _snapshotXml;
+
+    // Maps outer input/output parameter InstanceGuid → inner hook InstanceGuid.
+    // Rebuilt by SyncHooks() whenever parameters change or the inner document is restored.
+    private Dictionary<Guid, Guid> _inputHookMap = new();
+    private Dictionary<Guid, Guid> _outputHookMap = new();
+
+    // Guards DocumentModified against re-entering ExpireSolution during our own solve cycle.
+    private bool _solving;
 
     // PROPERTIES =======================================================================================
 
@@ -33,9 +44,7 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
     /// Gets the unique ID for this component. Do not change this ID after release.
     /// </summary>
     public override Guid ComponentGuid
-    {
-        get { return new Guid("50F82419-28B2-4661-9677-C6B0D718CDC7"); }
-    }
+        => new Guid("50F82419-28B2-4661-9677-C6B0D718CDC7");
 
     /// <summary>
     /// Gets the system prompt fragment describing the cluster format and JSON response schema.
@@ -90,11 +99,64 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
     }
 
     /// <summary>
-    /// Executes the cluster. Not yet implemented.
+    /// Pushes outer input data into the inner document's cluster input hooks,
+    /// solves the inner document, then pulls results from the cluster output hooks
+    /// back into this component's output parameters.
     /// </summary>
     /// <param name="DA">The DA object is used to retrieve from inputs and store in outputs.</param>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
+        // Let the inner document manage all data tree logic; receive everything in one pass.
+        DA.DisableGapLogic();
+        if (DA.Iteration > 0)
+            return;
+
+        _solving = true;
+        try
+        {
+            EnsureLiveDocument();
+
+            // 1. Push outer inputs → inner input hooks
+            for (int i = 0; i < Params.Input.Count; i++)
+            {
+                IGH_Param outer = Params.Input[i];
+                if (!_inputHookMap.TryGetValue(outer.InstanceGuid, out Guid hookGuid))
+                    continue;
+
+                IGH_Param? hook = _internalDocument.FindParameter(hookGuid);
+                if (hook == null)
+                    continue;
+
+                hook.ClearData();
+                hook.ExpireSolution(false);
+                if (outer.VolatileData?.PathCount > 0)
+                    hook.AddVolatileDataTree(outer.VolatileData);
+            }
+
+            // 2. Solve the inner document
+            _internalDocument.Enabled = true;
+            _internalDocument.NewSolution(false);
+            _internalDocument.Enabled = false;
+
+            // 3. Pull inner output hooks → outer output parameters
+            for (int k = 0; k < Params.Output.Count; k++)
+            {
+                IGH_Param outer = Params.Output[k];
+                if (!_outputHookMap.TryGetValue(outer.InstanceGuid, out Guid hookGuid))
+                    continue;
+
+                IGH_Param? hook = _internalDocument.FindParameter(hookGuid);
+                if (hook == null)
+                    continue;
+
+                outer.VolatileData.Clear();
+                outer.AddVolatileDataTree(hook.VolatileData);
+            }
+        }
+        finally
+        {
+            _solving = false;
+        }
     }
 
     /// <summary>
@@ -120,11 +182,23 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
     {
         var server = Grasshopper.Instances.DocumentServer;
         if (server.Contains(_internalDocument))
-        {
             server.SafeRemoveDocument(_internalDocument);
-        }
 
         base.RemovedFromDocument(document);
+    }
+
+    /// <summary>
+    /// Extends the base parameter maintenance to keep inner document hooks in sync
+    /// whenever the outer parameter list changes.
+    /// </summary>
+    public override void VariableParameterMaintenance()
+    {
+        base.VariableParameterMaintenance();
+
+        // Only sync while the inner document is live; if a snapshot is pending the
+        // sync will happen automatically when EnsureLiveDocument is next called.
+        if (_snapshotXml == null)
+            SyncHooks();
     }
 
     // SERIALIZATION ==========================================================================
@@ -141,7 +215,6 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
         string xml;
         if (_snapshotXml != null)
         {
-            // GH cleared the live document — use the snapshot captured in DocumentClosed.
             xml = _snapshotXml;
         }
         else
@@ -157,16 +230,14 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
 
     /// <summary>
     /// Deserialises the cluster state. Stores the XML in <see cref="_snapshotXml"/>
-    /// so <see cref="OpenEditor"/> can restore it into a fresh document on first open.
+    /// so the inner document can be restored into a fresh instance on first use.
     /// </summary>
     /// <param name="reader">The GH_IReader to read from.</param>
     /// <returns>true.</returns>
     public override bool Read(GH_IReader reader)
     {
         if (reader.ItemExists("InternalDocumentXml"))
-        {
             _snapshotXml = reader.GetString("InternalDocumentXml");
-        }
 
         return base.Read(reader);
     }
@@ -175,15 +246,105 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
 
     /// <summary>
     /// Opens the internal Grasshopper document in the GH editor, the same way a native
-    /// cluster component does when double-clicked. If a snapshot exists, a fresh
-    /// <see cref="GH_Document"/> is created and populated from it, avoiding NREs that
-    /// occur when calling Read() on a document that has already been through a GH close cycle.
+    /// cluster component does when double-clicked. Restores from snapshot if needed,
+    /// then switches the active canvas to show the inner document.
     /// </summary>
     public override void OpenEditor()
     {
+        EnsureLiveDocument();
+
+        var server = Grasshopper.Instances.DocumentServer;
+        _internalDocument.Enabled = true;
+        server.PromoteDocument(_internalDocument);
+        Grasshopper.Instances.ActiveCanvas.Document = _internalDocument;
+    }
+
+    // LLM RESPONSE ==================================================================
+
+    /// <summary>
+    /// Parses the raw LLM response and builds the cluster. Not yet implemented.
+    /// </summary>
+    /// <param name="rawResponse">The raw JSON string returned by the LLM.</param>
+    public override void ApplyLlmResponse(string rawResponse)
+    {
+        // TODO: parse response JSON and rebuild params via ParamBuilder.Rebuild().
+        EnsureLiveDocument();
+        SyncHooks();
+        ExpireSolution(true);
+    }
+
+    /// <summary>
+    /// Returns null — cluster error reporting not yet implemented.
+    /// </summary>
+    /// <returns>null.</returns>
+    public override string? GetFixMessage() => null;
+
+    // IGH_DOCUMENT OWNER ====================================================================
+
+    /// <summary>
+    /// Called by the inner document when its contents change.
+    /// Expires this component so its outputs are recalculated, but only outside
+    /// of our own solve cycle to prevent re-entrance.
+    /// </summary>
+    /// <param name="document">The inner document that was modified.</param>
+    public void DocumentModified(GH_Document document)
+    {
+        if (!_solving)
+            ExpireSolution(true);
+    }
+
+    /// <summary>
+    /// Called by the inner document when it is closed (Save &amp; Close). Snapshots the
+    /// current document state to XML before GH clears the document's objects.
+    /// </summary>
+    /// <param name="document">The inner document that was closed.</param>
+    public void DocumentClosed(GH_Document document)
+    {
+        var archive = new GH_Archive();
+        archive.AppendObject(_internalDocument, "ClusterDoc");
+        _snapshotXml = archive.Serialize_Xml();
+
+        // Hook maps are keyed by current outer-param GUIDs and will be rebuilt from
+        // the restored snapshot by SyncHooks() the next time EnsureLiveDocument() runs.
+        _inputHookMap.Clear();
+        _outputHookMap.Clear();
+    }
+
+    /// <summary>
+    /// Returns the parent GH document that contains this component.
+    /// </summary>
+    /// <returns>The parent <see cref="GH_Document"/>.</returns>
+    public GH_Document OwnerDocument() => OnPingDocument();
+
+    // PRIVATE HELPERS ====================================================================
+
+    /// <summary>
+    /// Creates a new <see cref="GH_Document"/> with this component set as owner.
+    /// </summary>
+    private GH_Document MakeFreshDocument()
+    {
+        return new GH_Document
+        {
+            Owner = this,
+            Nested = true,
+        };
+    }
+
+    /// <summary>
+    /// Ensures <see cref="_internalDocument"/> is registered on the GH document server and
+    /// its objects are fully initialised. If a snapshot is pending it is restored into a fresh
+    /// document first. After restoring, <see cref="SyncHooks"/> reconciles the cluster hooks
+    /// with the current outer parameter list.
+    /// </summary>
+    private void EnsureLiveDocument()
+    {
         var server = Grasshopper.Instances.DocumentServer;
 
-        // Remove the old document from the server if it is still registered
+        // Fast path: document is already live on the server with no snapshot pending.
+        if (_snapshotXml == null && server.Contains(_internalDocument))
+            return;
+
+        // Remove the stale document from the server if it is still registered
         // (e.g. an immediate re-open before GH had a chance to remove it).
         if (server.Contains(_internalDocument))
         {
@@ -200,15 +361,12 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
         _internalDocument.Owner = this;
         _internalDocument.Nested = true;
 
-        // Restore from snapshot if one exists (left by DocumentClosed or file Read).
         if (_snapshotXml != null)
         {
             var archive = new GH_Archive();
             if (archive.Deserialize_Xml(_snapshotXml))
             {
-                // Suppress events during Read() — without this, DocumentModified fires
-                // for each object added, which can cascade into a solution cycle that
-                // accesses partially-initialised document state and causes a NRE.
+                // Suppress events during Read() to avoid cascading solution cycles.
                 _internalDocument.RaiseEvents = false;
                 archive.ExtractObject(_internalDocument, "ClusterDoc");
                 _internalDocument.RaiseEvents = true;
@@ -221,79 +379,99 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
         _internalDocument.Owner = this;
         _internalDocument.Nested = true;
 
-        // PromoteDocument reorders the server list; ActiveCanvas.Document switches what is visible
-        server.PromoteDocument(_internalDocument);
-        Grasshopper.Instances.ActiveCanvas.Document = _internalDocument;
-    }
-
-    // LLM RESPONSE ==================================================================
-
-    /// <summary>
-    /// Parses the raw LLM response and builds the cluster. Not yet implemented.
-    /// </summary>
-    /// <param name="rawResponse">The raw JSON string returned by the LLM.</param>
-    public override void ApplyLlmResponse(string rawResponse)
-    {
+        SyncHooks();
     }
 
     /// <summary>
-    /// Returns null — cluster error reporting not yet implemented.
+    /// Synchronises the inner document's <see cref="GH_ClusterInputHook"/> and
+    /// <see cref="GH_ClusterOutputHook"/> instances to match the current outer parameter list.
+    /// Hooks are matched by NickName so existing internal wiring is preserved across rebuilds.
+    /// New hooks are created for new outer params; orphaned hooks are removed.
     /// </summary>
-    /// <returns>null.</returns>
-    public override string? GetFixMessage()
+    private void SyncHooks()
     {
-        return null;
+        if (_internalDocument == null)
+            return;
+
+        // Suppress document events while adding/removing hook objects.
+        bool wasRaisingEvents = _internalDocument.RaiseEvents;
+        _internalDocument.RaiseEvents = false;
+        try
+        {
+            SyncHookSide(
+                Params.Input,
+                _internalDocument.ClusterInputHooks(),
+                ref _inputHookMap,
+                isInput: true);
+
+            SyncHookSide(
+                Params.Output,
+                _internalDocument.ClusterOutputHooks(),
+                ref _outputHookMap,
+                isInput: false);
+        }
+        finally
+        {
+            _internalDocument.RaiseEvents = wasRaisingEvents;
+        }
     }
 
-    // IGH_DOCUMENT OWNER ====================================================================
-
-    /// <summary>
-    /// Called by the inner document when its contents change.
-    /// Expires this component so its outputs are recalculated.
-    /// </summary>
-    /// <param name="document">The inner document that was modified.</param>
-    public void DocumentModified(GH_Document document)
+    // Syncs one side (inputs or outputs) of the hook mapping.
+    // existingHooks is GH_ClusterInputHook[] or GH_ClusterOutputHook[]; both implement IGH_Param.
+    private void SyncHookSide(
+        List<IGH_Param> outerParams,
+        IGH_Param[]? existingHooks,
+        ref Dictionary<Guid, Guid> hookMap,
+        bool isInput)
     {
-        ExpireSolution(true);
+        var byNick = (existingHooks ?? Array.Empty<IGH_Param>()).ToDictionary(h => h.NickName);
+        var newMap = new Dictionary<Guid, Guid>(outerParams.Count);
+        var validNicks = new HashSet<string>(outerParams.Select(p => p.NickName));
+
+        for (int i = 0; i < outerParams.Count; i++)
+        {
+            IGH_Param outer = outerParams[i];
+
+            if (byNick.TryGetValue(outer.NickName, out IGH_Param? existingHook))
+            {
+                // Set Custom* overrides so the hook ignores source/recipient name inheritance.
+                var existingClusterHook = (GH_ClusterHook)existingHook;
+                existingClusterHook.CustomName = outer.NickName;
+                existingClusterHook.CustomNickName = outer.NickName;
+                newMap[outer.InstanceGuid] = existingHook.InstanceGuid;
+            }
+            else
+            {
+                // Create a new hook and place it on the inner canvas.
+                IGH_Param newHook = isInput
+                    ? (IGH_Param)new GH_ClusterInputHook()
+                    : (IGH_Param)new GH_ClusterOutputHook();
+
+                // Set Custom* overrides — plain Name/NickName setters write to the base backing
+                // field but the getter walks Sources/Recipients once the hook is wired, so it
+                // would silently replace our label. CustomName/CustomNickName take priority.
+                var clusterHook = (GH_ClusterHook)newHook;
+                clusterHook.CustomName = outer.NickName;
+                clusterHook.CustomNickName = outer.NickName;
+                newHook.CreateAttributes();
+                newHook.Attributes.Pivot = new PointF(isInput ? 50f : 500f, 100f + i * 60f);
+
+                _internalDocument.AddObject(newHook, update: false);
+                newMap[outer.InstanceGuid] = newHook.InstanceGuid;
+            }
+        }
+
+        // Remove hooks whose corresponding outer param has been removed.
+        foreach (var (nick, hook) in byNick)
+        {
+            if (!validNicks.Contains(nick))
+                _internalDocument.RemoveObject(hook, false);
+        }
+
+        hookMap = newMap;
     }
 
-    /// <summary>
-    /// Called by the inner document when it is closed (Save &amp; Close). Snapshots the
-    /// current document state to XML before GH clears the document's objects.
-    /// </summary>
-    /// <param name="document">The inner document that was closed.</param>
-    public void DocumentClosed(GH_Document document)
-    {
-        // Capture state before GH clears the document's objects.
-        var archive = new GH_Archive();
-        archive.AppendObject(_internalDocument, "ClusterDoc");
-        _snapshotXml = archive.Serialize_Xml();
-    }
-
-    /// <summary>
-    /// Returns the parent GH document that contains this component.
-    /// </summary>
-    /// <returns>The parent <see cref="GH_Document"/>.</returns>
-    public GH_Document OwnerDocument()
-    {
-        return OnPingDocument();
-    }
-
-    // PRIVATE HELPERS ====================================================================
-
-    /// <summary>
-    /// Creates a new <see cref="GH_Document"/> with this component set as owner.
-    /// </summary>
-    /// <returns>A freshly initialised inner document.</returns>
-    private GH_Document MakeFreshDocument()
-    {
-        var doc = new GH_Document();
-        doc.Owner = this;
-        doc.Nested = true;
-        return doc;
-    }
-
-    // sanitizes param names to valid GH parameter names
+    // Sanitizes param names to valid GH parameter names.
     protected override string SanitizeParamName(string name)
     {
         // Replace any character that isn't alphanumeric, underscore, or space with underscore
@@ -303,9 +481,7 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
         clean = Regex.Replace(clean, @"[ _]+", " ").Trim();
 
         if (string.IsNullOrEmpty(clean))
-        {
             return "param";
-        }
 
         return clean;
     }

@@ -221,14 +221,14 @@ public class ComposerAttrib : GH_ComponentAttributes
             // cycle through the components on the canvas
             foreach (var obj in sender.Document.Objects)
             {
-                if (obj is not PyZooid && obj.Attributes.Bounds.Contains(e.CanvasLocation)) // filter out non-zooids
+                if (obj is not ZooidBase && obj.Attributes.Bounds.Contains(e.CanvasLocation)) // filter out non-zooids
                 {
                     _composer.ZooidComponent = null;
                     _composer.ZooidGuid = Guid.Empty;
                     break;
                 }
 
-                if (obj is PyZooid zooid && zooid.Attributes.Bounds.Contains(e.CanvasLocation) && _isConnecting) // connect to a zooid
+                if (obj is ZooidBase zooid && zooid.Attributes.Bounds.Contains(e.CanvasLocation) && _isConnecting) // connect to a zooid
                 {
                     _composer.ZooidComponent = zooid; // set the ref'd zooid
                     _composer.ZooidGuid = zooid.InstanceGuid;

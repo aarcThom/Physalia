@@ -218,6 +218,7 @@ public abstract class ZooidBase : PhyBase, IGH_VariableParameterComponent
 
         if (clean == p.NickName)
         {
+            AfterParamNickNameChanged(p);
             return;
         }
 
@@ -226,6 +227,17 @@ public abstract class ZooidBase : PhyBase, IGH_VariableParameterComponent
         p.Name = clean;
         p.NickName = clean;
         p.ObjectChanged += OnUserParamChanged;
+
+        AfterParamNickNameChanged(p);
+    }
+
+    /// <summary>
+    /// Called after a user param's NickName has been sanitized. Override in subclasses
+    /// to react to renames (e.g. sync inner document hooks). No-op by default.
+    /// </summary>
+    /// <param name="p">The renamed parameter.</param>
+    protected virtual void AfterParamNickNameChanged(IGH_Param p)
+    {
     }
 
     private static string Deduplicate(string name, HashSet<string> taken)

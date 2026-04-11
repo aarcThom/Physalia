@@ -84,7 +84,7 @@ public class Composer : PhyBase
     protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
     {
         pManager.AddParameter(new LlmProviderGhParam(), "Llm", "Llm", "Large language model.", GH_ParamAccess.item);
-        pManager.AddParameter(new ConversationGhParam(), "Conversation", "Conv", "The conversation from PROMPT", GH_ParamAccess.item);
+        pManager.AddParameter(new ConversationGhParam(), "Prompt", "Prt", "The conversation from PROMPT", GH_ParamAccess.item);
         pManager.AddBooleanParameter("AutoFix", "Fix", "Set True if you want the LLM to attempt to fix errors as they occur. Defaults to True.", GH_ParamAccess.item, true);
         pManager.AddIntegerParameter("Fix Attempts", "Fix #", "Number of times you want to send error codes back to the LLM for fixing. Defaults to 3", GH_ParamAccess.item, 3);
     }

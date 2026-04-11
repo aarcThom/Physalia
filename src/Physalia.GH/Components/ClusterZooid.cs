@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Grasshopper.Kernel.Parameters;
 using Grasshopper.Kernel.Special;
 using Physalia.GH.Attributes;
 
@@ -37,6 +38,10 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
 
     // Guards DocumentModified against re-entering ExpireSolution during our own solve cycle.
     private bool _solving;
+
+    // Guards SyncOuterFromInner from running while SyncHooks() is pushing outer → inner,
+    // preventing a re-entrant reverse sync.
+    private bool _syncingHooks;
 
     // PROPERTIES =======================================================================================
 
@@ -283,14 +288,18 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
 
     /// <summary>
     /// Called by the inner document when its contents change.
-    /// Expires this component so its outputs are recalculated, but only outside
-    /// of our own solve cycle to prevent re-entrance.
+    /// Expires this component so its outputs are recalculated, and syncs any newly placed
+    /// inner hooks back to outer params — both only outside of our own solve/sync cycles
+    /// to prevent re-entrance.
     /// </summary>
     /// <param name="document">The inner document that was modified.</param>
     public void DocumentModified(GH_Document document)
     {
         if (!_solving)
             ExpireSolution(true);
+
+        if (!_solving && !_syncingHooks && _snapshotXml == null)
+            SyncOuterFromInner();
     }
 
     /// <summary>
@@ -393,7 +402,9 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
         if (_internalDocument == null)
             return;
 
-        // Suppress document events while adding/removing hook objects.
+        // Suppress document events and guard against re-entrant reverse sync while
+        // pushing outer → inner changes.
+        _syncingHooks = true;
         bool wasRaisingEvents = _internalDocument.RaiseEvents;
         _internalDocument.RaiseEvents = false;
         try
@@ -413,6 +424,63 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
         finally
         {
             _internalDocument.RaiseEvents = wasRaisingEvents;
+            _syncingHooks = false;
+        }
+    }
+
+    /// <summary>
+    /// Reverse-syncs outer params from the inner document's hooks. Called from
+    /// <see cref="DocumentModified"/> when the user places a hook on the inner canvas.
+    /// Creates an outer param for any hook that has no corresponding outer param by NickName.
+    /// </summary>
+    private void SyncOuterFromInner()
+    {
+        var inputHooks = _internalDocument.ClusterInputHooks() ?? Array.Empty<IGH_Param>();
+        var outputHooks = _internalDocument.ClusterOutputHooks() ?? Array.Empty<IGH_Param>();
+
+        var outerInputNicks = new HashSet<string>(Params.Input.Select(p => p.NickName));
+        var outerOutputNicks = new HashSet<string>(Params.Output.Select(p => p.NickName));
+
+        bool changed = false;
+
+        foreach (var hook in inputHooks)
+        {
+            if (outerInputNicks.Contains(hook.NickName))
+                continue;
+
+            var param = new Param_GenericObject
+            {
+                Name = hook.NickName,
+                NickName = hook.NickName,
+                Description = "user defined parameter",
+                Optional = true,
+            };
+            Params.RegisterInputParam(param);
+            _inputHookMap[param.InstanceGuid] = hook.InstanceGuid;
+            changed = true;
+        }
+
+        foreach (var hook in outputHooks)
+        {
+            if (outerOutputNicks.Contains(hook.NickName))
+                continue;
+
+            var param = new Param_GenericObject
+            {
+                Name = hook.NickName,
+                NickName = hook.NickName,
+                Description = "user defined parameter",
+                Optional = true,
+            };
+            Params.RegisterOutputParam(param);
+            _outputHookMap[param.InstanceGuid] = hook.InstanceGuid;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            Params.OnParametersChanged();
+            ExpireSolution(true);
         }
     }
 
@@ -469,6 +537,18 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
         }
 
         hookMap = newMap;
+    }
+
+    /// <summary>
+    /// Syncs inner document hooks and expires the solution when a user renames an outer param.
+    /// </summary>
+    /// <param name="p">The renamed parameter.</param>
+    protected override void AfterParamNickNameChanged(IGH_Param p)
+    {
+        if (_snapshotXml == null)
+            SyncHooks();
+
+        ExpireSolution(true);
     }
 
     // Sanitizes param names to valid GH parameter names.

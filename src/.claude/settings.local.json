@@ -18,7 +18,8 @@
       "Bash(dotnet fsi:*)",
       "Bash(where ilspycmd:*)",
       "Bash(dotnet tool:*)",
-      "Bash(ilspycmd:*)"
+      "Bash(ilspycmd:*)",
+      "WebFetch(domain:docs.yfiles.com)"
     ]
   }
 }

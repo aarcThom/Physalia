@@ -34,6 +34,7 @@ public class Composer : PhyBase
     private bool _waitingForAutoFix;
     private bool _isBusy = false; // used to prevent connected prompt component from passing messages mid call.
     private bool _llmConnected = false; // used to prevent prompt from entering prompt if no llm hooked up.
+    private string _debugLog = string.Empty;
 
     // PROPERTIES =======================================================================================
 
@@ -73,6 +74,7 @@ public class Composer : PhyBase
     public Composer()
         : base("Composer", "Composer", "Description", "Core")
     {
+        IconPath = "Physalia.GH.Resources.composer.png";
     }
 
     // GH COMPONENT OVERRIDES ============================================================================================
@@ -95,6 +97,7 @@ public class Composer : PhyBase
     /// <param name="pManager">The GH_OutputParamManager for registering output parameters.</param>
     protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
     {
+        pManager.AddTextParameter("Log", "Log", "Debug log of LLM responses and error messages, newest first.", GH_ParamAccess.item);
     }
 
     /// <summary>
@@ -149,6 +152,8 @@ public class Composer : PhyBase
         {
             return; // no zooid linked yet
         }
+
+        DA.SetData(0, _debugLog);
 
         if (triggered && (_pendingRequest == null || _pendingRequest.IsCompleted) && !_waitingForAutoFix)
         {
@@ -251,6 +256,7 @@ public class Composer : PhyBase
         ZooidBase zooid)
     {
         Message = "Calling API";
+        _debugLog = string.Empty;
 
         // GET PRE-EXISTING INPUTS AND OUTPUTS
         var paramPrompt = zooid.UserParamsPrompt();
@@ -264,6 +270,8 @@ public class Composer : PhyBase
             // APPLY RESPONSE TO ZOOID AND APPEND TO SHARED CONVERSATION
             zooid.ApplyLlmResponse(rawResult);
             conversation.AddAssistantMessage(rawResult, zooid.LastStatusMessage);
+
+            AppendDebugEntry("=== Response ===", rawResult);
 
             // SEND TO ZOOID AND EXPIRE SOLUTION
             Message = "Done";
@@ -282,6 +290,7 @@ public class Composer : PhyBase
         catch (Exception ex)
         {
             _errorMsg = ex.InnerException?.Message ?? ex.Message;
+            AppendDebugEntry("=== Error ===", _errorMsg);
             Message = "Error";
             _isBusy = false;
             ExpireSolution(true);
@@ -325,7 +334,12 @@ public class Composer : PhyBase
             return;
         }
 
-        conversation.AddUserMessage(fixMessage, true);
+        // reinject user param constraints so the LLM is reminded of exact names on every fix attempt
+        var paramPrompt = zooid.UserParamsPrompt();
+        var fullFixMessage = string.IsNullOrEmpty(paramPrompt) ? fixMessage : fixMessage + "\n\n" + paramPrompt;
+
+        AppendDebugEntry($"=== Fix message sent ({_autoFixAttempts}/{_maxAutoFixAttemps}) ===", fullFixMessage);
+        conversation.AddUserMessage(fullFixMessage, true);
 
         try
         {
@@ -334,6 +348,8 @@ public class Composer : PhyBase
             // apply and record in conversation
             zooid.ApplyLlmResponse(rawResult);
             conversation.AddAssistantMessage(rawResult, zooid.LastStatusMessage);
+
+            AppendDebugEntry($"=== Fix response ({_autoFixAttempts}/{_maxAutoFixAttemps}) ===", rawResult);
 
             Message = "Done";
             OnPingDocument()?.ScheduleSolution(1, _ => { }); // triggers canvas redraw so Prompt re-renders history
@@ -352,6 +368,7 @@ public class Composer : PhyBase
         catch (Exception ex)
         {
             _errorMsg = ex.InnerException?.Message ?? ex.Message;
+            AppendDebugEntry("=== Fix error ===", _errorMsg);
             Message = "Fix failed";
             _isBusy = false;
             ExpireSolution(true);
@@ -379,6 +396,13 @@ public class Composer : PhyBase
             ZooidGuid = Guid.Empty;
             ExpireSolution(true);
         }
+    }
+
+    // Prepends a labelled entry to the debug log so the newest entry is always at the top.
+    private void AppendDebugEntry(string header, string? body)
+    {
+        var entry = string.IsNullOrEmpty(body) ? header : $"{header}\n{body}";
+        _debugLog = string.IsNullOrEmpty(_debugLog) ? entry : entry + "\n\n" + _debugLog;
     }
 
     // reconnects zooid - call from on opening event on saved document

@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Parameters;
 using Physalia.GH.Helpers;
@@ -74,12 +75,25 @@ public abstract class ZooidBase : PhyBase, IGH_VariableParameterComponent
     public abstract string? GetFixMessage();
 
     /// <summary>
-    /// Sanitizes a parameter name to a valid identifier for this Zooid's target language
-    /// or environment.
+    /// Sanitizes a parameter name to a valid identifier. Replaces any non-alphanumeric,
+    /// non-underscore character with an underscore, collapses runs, trims leading/trailing
+    /// underscores, and prepends an underscore if the name starts with a digit.
     /// </summary>
     /// <param name="name">The raw name to sanitize.</param>
     /// <returns>A valid sanitized identifier string.</returns>
-    protected abstract string SanitizeParamName(string name);
+    protected virtual string SanitizeParamName(string name)
+    {
+        var clean = Regex.Replace(name, @"[^a-zA-Z0-9_]", "_");
+        clean = Regex.Replace(clean, @"_+", "_").Trim('_');
+
+        if (string.IsNullOrEmpty(clean))
+            return "param";
+
+        if (char.IsDigit(clean[0]))
+            clean = "_" + clean;
+
+        return clean;
+    }
 
     // VIRTUAL METHODS ===============================================================================
 

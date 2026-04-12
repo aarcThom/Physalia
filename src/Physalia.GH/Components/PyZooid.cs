@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Parsing;
@@ -263,7 +262,8 @@ public class PyZooid : ZooidBase
         _lastResponse = ResponseParser.Parse(rawResponse);
         LastStatusMessage = _lastResponse.StatusMessage;
         _needsCheck = true;
-        ParamBuilder.Rebuild(this, _lastResponse);
+        if (Params.Input.Count == 0 && Params.Output.Count == 0)
+            ParamBuilder.Rebuild(this, _lastResponse);
         ExpireSolution(true);
     }
 
@@ -323,29 +323,6 @@ public class PyZooid : ZooidBase
         }
 
         return sb.ToString();
-    }
-
-    // makes sure the input names are proper python variables
-    protected override string SanitizeParamName(string name)
-    {
-        // Replace any non-alphanumeric/underscore character (including spaces) with _
-        var clean = Regex.Replace(name, @"[^a-zA-Z0-9_]", "_");
-
-        // Collapse runs of underscores and trim leading/trailing ones
-        clean = Regex.Replace(clean, @"_+", "_").Trim('_');
-
-        if (string.IsNullOrEmpty(clean))
-        {
-            return "param";
-        }
-
-        // Python identifiers cannot start with a digit — check after trimming
-        if (char.IsDigit(clean[0]))
-        {
-            clean = "_" + clean;
-        }
-
-        return clean;
     }
 
     // RIGHT CLICK MENU HELPERS ===================================================================================================

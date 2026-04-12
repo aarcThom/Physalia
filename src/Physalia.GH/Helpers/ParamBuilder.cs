@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Parameters;
 using Physalia.Core.Config;
@@ -24,22 +25,35 @@ public static class ParamBuilder
     /// <param name="component">GH component to rebuild parameters for.</param>
     /// <param name="response">JSON response returned by the LLM.</param>
     public static void Rebuild(GH_Component component, ScriptResponse response)
+        => Rebuild(component, response.Inputs, response.Outputs);
+
+    /// <summary>
+    /// Clear all current parameters on a component and rebuild from explicit input and output lists.
+    /// Connections on params whose NickName survives in the new lists are preserved.
+    /// </summary>
+    /// <param name="component">GH component to rebuild parameters for.</param>
+    /// <param name="inputs">Input parameter definitions.</param>
+    /// <param name="outputs">Output parameter definitions.</param>
+    public static void Rebuild(GH_Component component, IList<ParamDefinition> inputs, IList<ParamDefinition> outputs)
     {
-        // Snapshot connections by NickName before clearing
+        // Snapshot connections by normalized NickName before clearing.
+        // Normalization bridges the gap between raw LLM names (e.g. "input_points") and
+        // sanitized NickNames (e.g. "input points") so connections survive a rebuild
+        // that is triggered by an unrelated change (e.g. a different output count).
         var inputSources = component.Params.Input
-            .ToDictionary(p => p.NickName, p => p.Sources.ToList());
+            .ToDictionary(p => NormalizeParamName(p.NickName), p => p.Sources.ToList());
         var outputRecipients = component.Params.Output
-            .ToDictionary(p => p.NickName, p => p.Recipients.ToList());
+            .ToDictionary(p => NormalizeParamName(p.NickName), p => p.Recipients.ToList());
 
         component.Params.Clear();
 
         // Add new inputs and restore any matching connections
-        foreach (var input in response.Inputs)
+        foreach (var input in inputs)
         {
             var param = CreateInputParam(input);
             component.Params.RegisterInputParam(param);
 
-            if (inputSources.TryGetValue(input.Name, out var sources))
+            if (inputSources.TryGetValue(NormalizeParamName(input.Name), out var sources))
             {
                 foreach (var source in sources)
                 {
@@ -49,12 +63,12 @@ public static class ParamBuilder
         }
 
         // Add new outputs and restore any matching connections
-        foreach (var output in response.Outputs)
+        foreach (var output in outputs)
         {
             var param = CreateOutputParam(output);
             component.Params.RegisterOutputParam(param);
 
-            if (outputRecipients.TryGetValue(output.Name, out var recipients))
+            if (outputRecipients.TryGetValue(NormalizeParamName(output.Name), out var recipients))
             {
                 foreach (var recipient in recipients)
                 {
@@ -123,7 +137,7 @@ public static class ParamBuilder
 
         if (inputs.Count > 0)
         {
-            sb.AppendLine("YOU MUST INCLUDE THE FOLLOWING INPUT PARAMETERS IN YOUR RESPONSE (do not rename or reorder them):");
+            sb.AppendLine("YOU MUST USE EXACTLY THESE INPUT PARAMETERS — do not add, remove, or rename any:");
             sb.AppendLine();
             foreach (var p in inputs)
             {
@@ -139,7 +153,7 @@ public static class ParamBuilder
 
         if (outputs.Count > 0)
         {
-            sb.AppendLine("YOU MUST INCLUDE THE FOLLOWING OUTPUT PARAMETERS IN YOUR RESPONSE (do not rename or reorder them):");
+            sb.AppendLine("YOU MUST USE EXACTLY THESE OUTPUT PARAMETERS — do not add, remove, or rename any:");
             sb.AppendLine();
             foreach (var p in outputs)
             {
@@ -218,6 +232,12 @@ public static class ParamBuilder
 
         return param;
     }
+
+    // Strips underscores and whitespace, lowercases — mirrors ClusterZooid.NormalizeParamName
+    // so that raw LLM names (e.g. "input_points") round-trip correctly against sanitized
+    // NickNames (e.g. "input points") when snapshotting and restoring connections.
+    private static string NormalizeParamName(string s) =>
+        Regex.Replace(s, @"[\s_]+", string.Empty).ToLowerInvariant();
 
     private static IGH_Param CreateOutputParam(ParamDefinition def)
     {

@@ -34,6 +34,7 @@
   
   <ItemGroup>
     <None Remove="Resources\brain.png" />
+    <None Remove="Resources\composer.png" />
   </ItemGroup>
   
   <ItemGroup>
@@ -63,12 +64,12 @@
 
 	<ItemGroup>
 	  <EmbeddedResource Include="Resources\brain.png" />
+	  <EmbeddedResource Include="Resources\composer.png" />
 	</ItemGroup>
     
 	<!-- The python script that populated the model .json-->
 	<Target Name="PreBuild" BeforeTargets="PreBuildEvent">
-		<Exec Command="python &quot;$(SolutionDir)scripts\update_model_info.py&quot; &quot;$(TargetDir)model_info.json&quot;"
-			  ContinueOnError="WarnAndContinue" />
+		<Exec Command="python &quot;$(SolutionDir)scripts\update_model_info.py&quot; &quot;$(TargetDir)model_info.json&quot;" ContinueOnError="WarnAndContinue" />
 	</Target>
   
 </Project>

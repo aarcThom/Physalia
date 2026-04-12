@@ -38,6 +38,24 @@ public static class ResponseParser
         return result;
     }
 
+    /// <summary>
+    /// Strips markdown code fences from the raw response and deserializes the JSON into a <see cref="ClusterResponse"/>.
+    /// </summary>
+    /// <param name="rawText">The raw text returned by the LLM, which may contain markdown fences.</param>
+    /// <returns>A populated <see cref="ClusterResponse"/> instance.</returns>
+    /// <exception cref="Exception">Thrown when the raw text is empty or deserialization returns null.</exception>
+    public static ClusterResponse ParseCluster(string rawText)
+    {
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+            throw new Exception("Response is empty.");
+        }
+
+        string json = StripCodeFences(rawText).Trim();
+
+        return JsonSerializer.Deserialize<ClusterResponse>(json, JsonOptions) ?? throw new Exception("JSON deserialization returned null.");
+    }
+
     private static string StripCodeFences(string text)
     {
         // Matches ```json ... ``` or ``` ... ``` or atleast Clause says it does...

@@ -10,6 +10,7 @@ public abstract class PhyBase : GH_Component
     protected readonly Assembly GHAssembly = Assembly.GetExecutingAssembly();
 
     protected string IconPath;
+    private Bitmap? _iconCache;
 
     protected PhyBase(string name, string nickname, string description, string subCategory)
         : base(name, nickname, description, "Physalia", subCategory)
@@ -23,13 +24,26 @@ public abstract class PhyBase : GH_Component
     {
         get
         {
+            if (_iconCache != null)
+            {
+                return _iconCache;
+            }
+
             if (IconPath == null)
             {
                 IconPath = "Physalia.GH.Resources.brain.png";
             }
 
-            System.IO.Stream stream = GHAssembly.GetManifestResourceStream(IconPath);
-            return new Bitmap(stream);
+            using System.IO.Stream? stream = GHAssembly.GetManifestResourceStream(IconPath);
+            if (stream == null)
+            {
+                // Fallback to an empty bitmap so GH doesn't crash if the resource isn't found.
+                _iconCache = new Bitmap(24, 24);
+                return _iconCache;
+            }
+
+            _iconCache = new Bitmap(stream);
+            return _iconCache;
         }
     }
 }

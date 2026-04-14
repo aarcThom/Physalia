@@ -14,6 +14,7 @@ using Grasshopper.Kernel.Parameters;
 using Grasshopper.Kernel.Special;
 using Grasshopper.Kernel.Types;
 using Physalia.Core.Parsing;
+using Physalia.Core.Prompts;
 using Physalia.GH.Attributes;
 using Physalia.GH.Helpers;
 
@@ -77,91 +78,10 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
     {
         get
         {
-            var plugins = GetInstalledPluginNames();
-            var pluginLine = plugins.Count > 0
-                ? $"Installed GH plugins: {string.Join(", ", plugins)}"
-                : "No third-party plugins are installed.";
-            return _formatPromptTemplate.Replace("{PLUGIN_LINE}", pluginLine);
+            var plugins = GHSystemHelpers.GetInstalledPluginNames();
+            return SystemPrompt.GetClusterPrompt(plugins);
         }
     }
-
-    // Template for FormatPrompt. {PLUGIN_LINE} is replaced at runtime with the actual plugin list.
-    private static readonly string _formatPromptTemplate = """
-        You generate Grasshopper cluster definitions as a JSON node graph.
-        Each cluster has outer input/output parameters and an inner graph of GH components connected by wires.
-
-        {PLUGIN_LINE}
-        Only use standard Grasshopper components or components from the plugins listed above.
-        Do not use components from plugins that are not listed.
-
-        WIRE NOTATION:
-        - "input.<name>"    connects from a cluster input hook named <name>
-        - "<id>.<nickName>" connects from component <id>'s output parameter <nickName>
-        - "<id>.output"     connects from a Number, Integer, or Boolean parameter component
-
-        RESPONSE FORMAT:
-        You MUST respond with ONLY a JSON object (no markdown fences, no preamble) matching
-        this exact schema:
-
-        {
-          "statusMessage": "<one short sentence describing what you built>",
-          "inputs": [
-            {
-              "name": "<param_name>",
-              "prettyName": "<Human Readable Name>",
-              "tooltip": "<short description>",
-              "typeHint": "<GH type hint>",
-              "access": "item|list|tree",
-              "optional": false
-            }
-          ],
-          "outputs": [
-            {
-              "name": "<param_name>",
-              "prettyName": "<Human Readable Name>",
-              "tooltip": "<short description>",
-              "from": "<wire source>"
-            }
-          ],
-          "components": [
-            {
-              "id": "<unique id, e.g. c1>",
-              "type": "<GH component Name>",
-              "nickname": "<optional display label>",
-              "inputs": {
-                "<inputNickName>": "<wire source>"
-              }
-            }
-          ]
-        }
-
-        VALID TYPE HINTS (use these exact strings):
-        - Primitives: "Number", "Integer", "Boolean", "Text"
-        - Geometry: "Point", "Vector", "Plane", "Line", "Circle", "Arc",
-          "Curve", "Surface", "Brep", "Mesh", "Geometry", "Box",
-          "Transform", "Interval"
-        - Other: "Colour"
-
-        ACCESS MODES:
-        - "item": single value per iteration (default)
-        - "list": a list of values
-        - "tree": a data tree
-
-        IMPORTANT:
-        - Component "type" must be the exact GH component Name (e.g. "Addition", "Move", "Bounding Box").
-        - Use the component's standard output parameter NickName in wire sources (e.g. "c1.R" for Addition's Result).
-        - Always include "statusMessage" as the first key in the JSON object.
-        - Do NOT use scripting components of any kind (Python Script, C# Script, VB Script, or any script/code component).
-        - Add Panel components (type: "Panel", inputs: {}) to annotate important steps or groups.
-          Set nickname to the description text. Set annotates to the id of the component being described.
-          Panels are purely decorative — they cannot be wired from.
-        - For all static constant values use a parameter component, NOT a Panel:
-            - Float/decimal constant → type "Number",  nickname: the value e.g. "3.14"
-            - Integer constant       → type "Integer", nickname: the value e.g. "10"
-            - Boolean constant       → type "Boolean", nickname: "true" or "false"
-          Wire from these using "<id>.output".
-        - Respond with ONLY the JSON object. No other text.
-        """;
 
     /// <summary>
     /// Gets the current state of this Zooid. Returns null until a response has been received.
@@ -186,7 +106,7 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
             "Generated Grasshopper Cluster",
             "Core")
     {
-        IconPath = "Physalia.GH.Resources.microbe.png";
+        // IconPath = "Physalia.GH.Resources.microbe.png";
         _internalDocument = MakeFreshDocument();
     }
 
@@ -973,15 +893,4 @@ public class ClusterZooid : ZooidBase, IGH_DocumentOwner
 
         return null;
     }
-
-    // Returns the names of all non-core GH libraries currently loaded in the component server.
-    private static List<string> GetInstalledPluginNames()
-    {
-        return Grasshopper.Instances.ComponentServer.Libraries
-            .Where(lib => !lib.Name.Equals("Grasshopper", StringComparison.OrdinalIgnoreCase))
-            .Select(lib => lib.Name)
-            .OrderBy(n => n)
-            .ToList();
-    }
-
 }

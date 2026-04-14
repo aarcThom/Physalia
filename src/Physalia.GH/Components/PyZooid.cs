@@ -9,6 +9,7 @@ using System.Text.Json;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Parsing;
+using Physalia.Core.Prompts;
 using Physalia.GH.Attributes;
 using Physalia.GH.Helpers;
 
@@ -45,65 +46,9 @@ public class PyZooid : ZooidBase
 
     /// <summary>
     /// Gets the system prompt fragment describing the Python 3 script format and JSON response
-    /// schema. Combined with <see cref="Physalia.Core.Prompts.SystemPrompt.Preamble"/> by COMPOSER.
+    /// schema.
     /// </summary>
-    public override string FormatPrompt => """
-        For all geometry operations use RhinoCommon (Rhino.Geometry namespace).
-        Do NOT use rhinoscriptsyntax (rs) — use RhinoCommon directly.
-        You generate Python 3 scripts that run inside a Grasshopper Script Component.
-
-        RULES:
-        1. Do NOT include the "#! python 3" shebang — it will be added automatically.
-        2. Input variables are available directly by name (they are injected by Grasshopper).
-        3. Assign results to output variable names directly (e.g. `result = ...`).
-        4. You may import from: Rhino, Rhino.Geometry, Grasshopper, System, math, etc.
-        5. Keep scripts concise and well-commented.
-
-        RESPONSE FORMAT:
-        You MUST respond with ONLY a JSON object (no markdown fences, no preamble) matching
-        this exact schema:
-
-        {
-          "statusMessage": "<one short sentence describing what you did, e.g. 'Generated a script that moves points along a vector.' or 'Fixed the loop to handle empty lists.'>",
-          "script": "<python code as a single string with \\n for newlines>",
-          "inputs": [
-            {
-              "name": "<variable_name>",
-              "prettyName": "<Human Readable Name>",
-              "tooltip": "<short description>",
-              "typeHint": "<GH type hint>",
-              "access": "item|list|tree",
-              "optional": false
-            }
-          ],
-          "outputs": [
-            {
-              "name": "<variable_name>",
-              "prettyName": "<Human Readable Name>",
-              "tooltip": "<short description>"
-            }
-          ]
-        }
-
-        VALID TYPE HINTS (use these exact strings):
-        - Primitives: "Number", "Integer", "Boolean", "Text"
-        - Geometry: "Point", "Vector", "Plane", "Line", "Circle", "Arc",
-          "Curve", "Surface", "Brep", "Mesh", "Geometry", "Box",
-          "Transform", "Interval"
-        - Other: "Colour"
-
-        ACCESS MODES:
-        - "item": single value per iteration (default)
-        - "list": a list of values
-        - "tree": a data tree
-
-        IMPORTANT:
-        - Use "list" access when the user's request implies working with collections.
-        - Outputs do NOT need typeHint or access fields.
-        - Every input/output in the JSON must correspond to a variable used in the script.
-        - Always include "statusMessage" as the first key in the JSON object.
-        - Respond with ONLY the JSON object. No other text.
-        """;
+    public override string FormatPrompt => SystemPrompt.GetPythonPrompt();
 
     /// <summary>
     /// Gets the generated Python script from the most recent LLM response, or null if none received.

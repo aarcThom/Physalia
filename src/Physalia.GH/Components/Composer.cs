@@ -265,7 +265,7 @@ public class Composer : PhyBase
         {
             // SEND THE CONVERSATION - GET AND FORMAT THE RESULT
             var history = BuildHistoryWithParams(conversation.LlmMessages, paramPrompt);
-            var rawResult = await llModel.SendConversationAsync(SystemPrompt.Build(zooid.FormatPrompt), history);
+            var rawResult = await llModel.SendConversationAsync(zooid.FormatPrompt, history);
 
             // APPLY RESPONSE TO ZOOID AND APPEND TO SHARED CONVERSATION
             zooid.ApplyLlmResponse(rawResult);
@@ -343,7 +343,7 @@ public class Composer : PhyBase
 
         try
         {
-            var rawResult = await llModel.SendConversationAsync(SystemPrompt.Build(zooid.FormatPrompt), conversation.LlmMessages);
+            var rawResult = await llModel.SendConversationAsync(zooid.FormatPrompt, conversation.LlmMessages);
 
             // apply and record in conversation
             zooid.ApplyLlmResponse(rawResult);

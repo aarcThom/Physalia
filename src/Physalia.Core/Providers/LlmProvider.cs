@@ -89,7 +89,6 @@ public abstract class LlmProvider
     /// Throws <see cref="ArgumentException"/> if <paramref name="systemPrompt"/>, <paramref name="history"/>,
     /// or <see cref="CurrentModel"/> are null or empty.
     /// </summary>
-    /// <param name="systemPrompt">The system prompt that defines the model's behavior and context.</param>
     /// <param name="history">The ordered list of conversation messages to send.</param>
     /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
     /// <returns>The raw response string returned by the LLM.</returns>

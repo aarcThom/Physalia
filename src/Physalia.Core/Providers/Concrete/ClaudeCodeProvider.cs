@@ -8,7 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Physalia.Core.Providers;
+namespace Physalia.Core.Providers.Concrete;
 
 /// <summary>
 /// Claude Code CLI implementation of <see cref="LlmProvider"/> that invokes the locally

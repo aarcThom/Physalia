@@ -4,16 +4,15 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Physalia.Core.Providers;
+namespace Physalia.Core.Providers.Concrete;
 
 /// <summary>
-/// OpenRouter implementation of <see cref="OpenAiCompatibleProvider"/>.
-/// Provides access to hundreds of models from multiple providers through a
-/// single OpenAI-compatible API endpoint, including a rotating selection of
-/// free open-weight models.
-/// See: https://openrouter.ai/docs/quickstart.
+/// Groq implementation of <see cref="OpenAiCompatibleProvider"/>.
+/// Provides high-speed inference via Groq's LPU hardware using its
+/// OpenAI-compatible API.
+/// See: https://console.groq.com/docs/overview.
 /// </summary>
-internal class OpenRouterProvider : OpenAiCompatibleProvider
+internal class GroqProvider : OpenAiCompatibleProvider
 {
     /// <summary>
     /// Per-model output token limits populated during <see cref="GetModelsAsync"/>.
@@ -21,23 +20,23 @@ internal class OpenRouterProvider : OpenAiCompatibleProvider
     private Dictionary<string, int> _modelMaxTokens = new ();
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="OpenRouterProvider"/> class.
+    /// Initializes a new instance of the <see cref="GroqProvider"/> class.
     /// </summary>
-    /// <param name="apiKey">The API key used to authenticate requests to the OpenRouter API.</param>
-    public OpenRouterProvider(string apiKey)
+    /// <param name="apiKey">The API key used to authenticate requests to the Groq API.</param>
+    public GroqProvider(string apiKey)
         : base(apiKey)
     {
     }
 
     /// <summary>
-    /// Gets the display name of the OpenRouter provider.
+    /// Gets the display name of the Groq provider.
     /// </summary>
-    public override string ProviderName => "openrouter";
+    public override string ProviderName => "groq";
 
     /// <summary>
-    /// Gets the OpenRouter API base URL.
+    /// Gets the Groq API base URL.
     /// </summary>
-    protected override string BaseUrl => "https://openrouter.ai/api/v1";
+    protected override string BaseUrl => "https://api.groq.com/openai/v1";
 
     /// <summary>
     /// Sets the current model and updates <see cref="LlmProvider.MaxTokens"/> from the
@@ -57,9 +56,9 @@ internal class OpenRouterProvider : OpenAiCompatibleProvider
     }
 
     /// <summary>
-    /// Fetches available OpenRouter models and populates <see cref="_models"/> and per-model
-    /// output token limits. The OpenRouter models endpoint returns a <c>top_provider</c> object
-    /// per model containing <c>max_completion_tokens</c>.
+    /// Fetches available Groq models and populates <see cref="_models"/> and per-model
+    /// output token limits. The Groq models endpoint returns <c>max_completion_tokens</c>
+    /// per model alongside the standard OpenAI-compatible fields.
     /// </summary>
     /// <exception cref="HttpRequestException">Thrown when the API returns a non-success status code.</exception>
     public override async Task GetModelsAsync()
@@ -78,9 +77,8 @@ internal class OpenRouterProvider : OpenAiCompatibleProvider
         var parsed = JsonSerializer.Deserialize<ModelsResponse>(body);
         _models = parsed?.Data.Select(m => m.Id).ToList() ?? new List<string>();
         _modelMaxTokens = parsed?.Data
-            .Where(m => m.TopProvider?.MaxCompletionTokens is > 0)
-            .ToDictionary(m => m.Id, m => m.TopProvider!.MaxCompletionTokens!.Value)
-            ?? new Dictionary<string, int>();
+            .Where(m => m.MaxCompletionTokens > 0)
+            .ToDictionary(m => m.Id, m => m.MaxCompletionTokens) ?? new Dictionary<string, int>();
     }
 
     private class ModelsResponse
@@ -94,13 +92,7 @@ internal class OpenRouterProvider : OpenAiCompatibleProvider
         [JsonPropertyName("id")]
         public string Id { get; set; } = string.Empty;
 
-        [JsonPropertyName("top_provider")]
-        public TopProvider? TopProvider { get; set; }
-    }
-
-    private class TopProvider
-    {
         [JsonPropertyName("max_completion_tokens")]
-        public int? MaxCompletionTokens { get; set; }
+        public int MaxCompletionTokens { get; set; }
     }
 }

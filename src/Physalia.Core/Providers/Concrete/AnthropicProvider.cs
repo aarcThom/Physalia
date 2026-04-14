@@ -6,7 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Physalia.Core.Providers;
+namespace Physalia.Core.Providers.Concrete;
 
 /// <summary>
 /// Anthropic-specific implementation of <see cref="LlmProvider"/> that communicates

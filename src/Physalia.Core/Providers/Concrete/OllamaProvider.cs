@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-namespace Physalia.Core.Providers;
+namespace Physalia.Core.Providers.Concrete;
 
 /// <summary>
 /// Ollama implementation of <see cref="OpenAiCompatibleProvider"/>.

@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Config;
+using Physalia.Core.Providers;
 using Physalia.GH.Attributes;
 using Physalia.GH.ParamTypes;
 

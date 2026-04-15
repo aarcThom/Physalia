@@ -30,7 +30,6 @@ public class Composer : PhyBase
     private Task? _pendingRequest;
     private string? _errorMsg;
     private bool _autoFix;
-    private int _autoFixAttempts;
     private bool _waitingForAutoFix;
     private bool _isBusy = false; // used to prevent connected prompt component from passing messages mid call.
     private bool _llmConnected = false; // used to prevent prompt from entering prompt if no llm hooked up.
@@ -157,12 +156,8 @@ public class Composer : PhyBase
 
         if (triggered && (_pendingRequest == null || _pendingRequest.IsCompleted) && !_waitingForAutoFix)
         {
-            _autoFixAttempts = 0;
-
             _isBusy = true;
-
-            var llm = llmGoo.Value;
-            _pendingRequest = SendRequestAsync(convGoo.Value, llm, ZooidComponent);
+            _pendingRequest = SendAsync(convGoo.Value, llmGoo.Value, ZooidComponent, 0);
         }
     }
 
@@ -249,67 +244,74 @@ public class Composer : PhyBase
 
     // LLM REQUESTS METHODS ======================================================================================================
 
-    // THE MAIN LLM REQUEST
-    private async Task SendRequestAsync(
-        Conversation conversation,
-        LlmProvider llModel,
-        ZooidBase zooid)
+    // Sends the conversation to the LLM. attempt=0 is the initial request; attempt=1,2,… are
+    // successive auto-fix passes. Each pass appends the error context as a new user turn, calls
+    // the LLM, and recursively schedules the next pass if errors remain.
+    private async Task SendAsync(Conversation conversation, LlmProvider llm, ZooidBase zooid, int attempt)
     {
-        Message = "Calling API";
-        _debugLog = string.Empty;
+        if (attempt == 0)
+        {
+            Message = "Calling API";
+            _debugLog = string.Empty;
+        }
+        else
+        {
+            Message = $"Fixing ({attempt}/{_maxAutoFixAttemps})";
 
-        // GET PRE-EXISTING INPUTS AND OUTPUTS
-        var paramPrompt = zooid.UserParamsPrompt();
+            // append the error context as a new user turn — conversation already holds prior script as assistant turn
+            var fixMessage = zooid.GetFixMessage();
+            if (fixMessage == null)
+            {
+                _isBusy = false;
+                return;
+            }
+
+            // reinject user param constraints so the LLM is reminded of exact names on every fix attempt
+            var paramPrompt = zooid.UserParamsPrompt();
+            var fullFix = string.IsNullOrEmpty(paramPrompt) ? fixMessage : fixMessage + "\n\n" + paramPrompt;
+            AppendDebugEntry($"=== Fix message sent ({attempt}/{_maxAutoFixAttemps}) ===", fullFix);
+            conversation.AddUserMessage(fullFix, true);
+        }
+
+        // Initial call injects params without mutating the shared conversation;
+        // fix calls already have them baked into the latest user turn.
+        var history = attempt == 0
+            ? PromptHelpers.AppendParamsToLastMessage(conversation.LlmMessages, zooid.UserParamsPrompt())
+            : conversation.LlmMessages;
 
         try
         {
-            // SEND THE CONVERSATION - GET AND FORMAT THE RESULT
-            var history = BuildHistoryWithParams(conversation.LlmMessages, paramPrompt);
-            var rawResult = await llModel.SendConversationAsync(zooid.FormatPrompt, history);
+            var rawResult = await llm.SendConversationAsync(zooid.FormatPrompt, history);
 
-            // APPLY RESPONSE TO ZOOID AND APPEND TO SHARED CONVERSATION
             zooid.ApplyLlmResponse(rawResult);
             conversation.AddAssistantMessage(rawResult, zooid.LastStatusMessage);
+            AppendDebugEntry(attempt == 0 ? "=== Response ===" : $"=== Fix response ({attempt}/{_maxAutoFixAttemps}) ===", rawResult);
 
-            AppendDebugEntry("=== Response ===", rawResult);
-
-            // SEND TO ZOOID AND EXPIRE SOLUTION
             Message = "Done";
             OnPingDocument()?.ScheduleSolution(1, _ => { }); // triggers canvas redraw so Prompt re-renders history
             ExpireSolution(true);
 
-            // WAIT A BIT AND THEN AUTOFIX IF NEED BE
-            if (_autoFix && _autoFixAttempts < _maxAutoFixAttemps)
+            if (_autoFix && attempt < _maxAutoFixAttemps && ShouldAutoFix(zooid))
             {
                 _waitingForAutoFix = true;
-
-                var currentDoc = OnPingDocument();
-                currentDoc.ScheduleSolution(1500, _ => TriggerAutoFix(conversation, llModel, zooid));
+                OnPingDocument()?.ScheduleSolution(1500, _ =>
+                {
+                    _waitingForAutoFix = false;
+                    _pendingRequest = SendAsync(conversation, llm, zooid, attempt + 1);
+                });
+            }
+            else
+            {
+                _isBusy = false;
             }
         }
         catch (Exception ex)
         {
             _errorMsg = ex.InnerException?.Message ?? ex.Message;
-            AppendDebugEntry("=== Error ===", _errorMsg);
-            Message = "Error";
+            AppendDebugEntry(attempt == 0 ? "=== Error ===" : "=== Fix error ===", _errorMsg);
+            Message = attempt == 0 ? "Error" : "Fix failed";
             _isBusy = false;
             ExpireSolution(true);
-        }
-    }
-
-    // CHECKS IF FIX IS NEEDED / ALLOWED AND THEN RECALLS THE LLM
-    private void TriggerAutoFix(Conversation conversation, LlmProvider llModel, ZooidBase zooid)
-    {
-        _waitingForAutoFix = false;
-
-        if (_autoFix && _autoFixAttempts < _maxAutoFixAttemps && ShouldAutoFix(zooid))
-        {
-            _autoFixAttempts++;
-            _pendingRequest = AutoFixAsync(conversation, llModel, zooid);
-        }
-        else
-        {
-            _isBusy = false; // our work is done - user can re-enter prompt.
         }
     }
 
@@ -319,72 +321,6 @@ public class Composer : PhyBase
         // can't really fix components that aren't fully connected
         bool allInputsUnconnected = zooid.Params.Input.Count > 0 && zooid.Params.Input.All(p => p.Sources.Count == 0);
         return zooid.GetFixMessage() != null && !allInputsUnconnected;
-    }
-
-    // THE AUTOFIX REQUEST
-    private async Task AutoFixAsync(Conversation conversation, LlmProvider llModel, ZooidBase zooid)
-    {
-        Message = $"Fixing ({_autoFixAttempts}/{_maxAutoFixAttemps})";
-
-        // append the error context as a new user turn — conversation already holds prior script as assistant turn
-        var fixMessage = zooid.GetFixMessage();
-        if (fixMessage == null)
-        {
-            _isBusy = false;
-            return;
-        }
-
-        // reinject user param constraints so the LLM is reminded of exact names on every fix attempt
-        var paramPrompt = zooid.UserParamsPrompt();
-        var fullFixMessage = string.IsNullOrEmpty(paramPrompt) ? fixMessage : fixMessage + "\n\n" + paramPrompt;
-
-        AppendDebugEntry($"=== Fix message sent ({_autoFixAttempts}/{_maxAutoFixAttemps}) ===", fullFixMessage);
-        conversation.AddUserMessage(fullFixMessage, true);
-
-        try
-        {
-            var rawResult = await llModel.SendConversationAsync(zooid.FormatPrompt, conversation.LlmMessages);
-
-            // apply and record in conversation
-            zooid.ApplyLlmResponse(rawResult);
-            conversation.AddAssistantMessage(rawResult, zooid.LastStatusMessage);
-
-            AppendDebugEntry($"=== Fix response ({_autoFixAttempts}/{_maxAutoFixAttemps}) ===", rawResult);
-
-            Message = "Done";
-            OnPingDocument()?.ScheduleSolution(1, _ => { }); // triggers canvas redraw so Prompt re-renders history
-            ExpireSolution(true);
-
-            if (_autoFix && _autoFixAttempts < _maxAutoFixAttemps)
-            {
-                _waitingForAutoFix = true;
-                OnPingDocument()?.ScheduleSolution(1500, _ => TriggerAutoFix(conversation, llModel, zooid));
-            }
-            else
-            {
-                _isBusy = false; // just in case the max-auto fixes can't fix the issue.
-            }
-        }
-        catch (Exception ex)
-        {
-            _errorMsg = ex.InnerException?.Message ?? ex.Message;
-            AppendDebugEntry("=== Fix error ===", _errorMsg);
-            Message = "Fix failed";
-            _isBusy = false;
-            ExpireSolution(true);
-        }
-    }
-
-    // appends paramPrompt to the last user message so the LLM sees existing ZOOID params without mutating the shared conversation
-    private static IReadOnlyList<ConversationMessage> BuildHistoryWithParams(IReadOnlyList<ConversationMessage> messages, string paramPrompt)
-    {
-        if (string.IsNullOrEmpty(paramPrompt) || messages.Count == 0)
-            return messages;
-
-        var list = new List<ConversationMessage>(messages);
-        var last = list[list.Count - 1];
-        list[list.Count - 1] = new ConversationMessage(last.Role, last.Content + paramPrompt);
-        return list;
     }
 
     // if the linked ZOOID is deleted from the canvas, clear the reference so the wire disappears

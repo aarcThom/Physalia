@@ -1,7 +1,9 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-namespace Physalia.Core.Providers.Concrete;
+using Physalia.Core.Providers.Concrete;
+
+namespace Physalia.Core.Providers;
 
 /// <summary>
 /// Creates <see cref="LlmProvider"/> instances for a given provider name and API key.

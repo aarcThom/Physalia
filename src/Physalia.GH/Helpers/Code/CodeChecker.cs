@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using Rhino.Runtime.Code;
 using Rhino.Runtime.Code.Execution;
 
-namespace Physalia.GH.Helpers;
+namespace Physalia.GH.Helpers.Code;
 
 /// <summary>
 /// Runs pyflakes against a Python script using RhinoCode.RunScript.

@@ -5,9 +5,9 @@ using System;
 using System.Collections.Generic;
 using Eto.Drawing;
 using Eto.Forms;
-using Physalia.GH.Helpers;
+using Physalia.GH.Helpers.Code;
 
-namespace Physalia.GH.Helpers;
+namespace Physalia.GH.Dialogues;
 
 /// <summary>
 /// A simple code editor dialog for viewing and editing the generated Python script.

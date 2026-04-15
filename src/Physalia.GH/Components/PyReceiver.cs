@@ -12,6 +12,8 @@ using Physalia.Core.Parsing;
 using Physalia.Core.Prompts;
 using Physalia.GH.Attributes;
 using Physalia.GH.Helpers;
+using Physalia.GH.Helpers.Code;
+using Physalia.GH.Dialogues;
 
 namespace Physalia.GH.Components;
 

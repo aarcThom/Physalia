@@ -4,7 +4,7 @@
 using System.IO;
 using Rhino;
 
-namespace Physalia.GH.RunPython;
+namespace Physalia.GH.Helpers.Code;
 
 /// <summary>
 /// Provides helper methods for initialising Rhino's embedded Python 3 runtime.

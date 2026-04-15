@@ -6,11 +6,10 @@ using System.Linq;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Types;
 using Physalia.Core.Parsing;
-using Physalia.GH.RunPython;
 using Rhino.Runtime.Code;
 using Rhino.Runtime.Code.Execution;
 
-namespace Physalia.GH.Helpers;
+namespace Physalia.GH.Helpers.Code;
 
 /// <summary>
 /// Executes the Python 3 script produced by the LLM inside Rhino's embedded CPython runtime.

@@ -7,6 +7,16 @@ namespace Physalia.Core.Prompts;
 /// </summary>
 public static class SystemPrompt
 {
+
+    /*
+     * TO DO:
+     * FOR THE CLUSTER PROMPT WE NEED TO INCORPORATE 3 FIELDS TO GIVE GREATER CONTROL OVER THE CLUSTER
+     * 1. REQUIRED CORE COMPONENTS
+     * 2. BANNED CORE COMPONENTS
+     * 3. ALLOWED PLUGINS
+     * 4. REQUIRED PLUGINS
+     */
+
     /// <summary>
     /// The shared preamble sent on every request, establishing the GH/Rhino expert role
     /// and geometry constraints common to all Receiver types.

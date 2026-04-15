@@ -116,6 +116,14 @@ public abstract class ReceiverBase : PhyBase, IGH_VariableParameterComponent
     {
     }
 
+    /// <summary>
+    /// Returns a description of this Receiver's current state for injection into a fresh LLM
+    /// prompt, giving the LLM an accurate starting point when the user sends a follow-up request.
+    /// Returns null if no state exists yet (i.e. this is the first prompt).
+    /// </summary>
+    /// <returns>A formatted state description, or null if no state has been established.</returns>
+    public virtual string? GetCurrentStatePrompt() => null;
+
     // CONCRETE METHODS ==============================================================================
 
     /// <summary>

@@ -157,7 +157,7 @@ public class Transmitter : PhyBase
         if (triggered && (_pendingRequest == null || _pendingRequest.IsCompleted) && !_waitingForAutoFix)
         {
             _isBusy = true;
-            _pendingRequest = SendAsync(convGoo.Value, llmGoo.Value, ReceiverComponent, 0);
+            _pendingRequest = SendUserPromptAsync(convGoo.Value, llmGoo.Value, ReceiverComponent);
         }
     }
 
@@ -242,46 +242,67 @@ public class Transmitter : PhyBase
         OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(true));
     }
 
-    // LLM REQUESTS METHODS ======================================================================================================
+    // LLM REQUEST METHODS ======================================================================================================
 
-    // Sends the conversation to the LLM. attempt=0 is the initial request; attempt=1,2,… are
-    // successive auto-fix passes. Each pass appends the error context as a new user turn, calls
-    // the LLM, and recursively schedules the next pass if errors remain.
-    private async Task SendAsync(Conversation conversation, LlmProvider llm, ReceiverBase receiver, int attempt)
+    // Entry point for a fresh user prompt. Builds a minimal single-turn context from the
+    // receiver's current state and the user's latest message — no prior history — so the LLM
+    // always works from an accurate starting point rather than potentially stale prior turns.
+    private async Task SendUserPromptAsync(Conversation conversation, LlmProvider llm, ReceiverBase receiver)
     {
-        if (attempt == 0)
+        Message = "Calling API";
+        _debugLog = string.Empty;
+
+        // Combine current state (if any) with the user's latest message into one fresh turn.
+        var lastUserMsg = conversation.LlmMessages[^1];
+        var statePrompt = receiver.GetCurrentStatePrompt();
+
+        string userContent = string.IsNullOrEmpty(statePrompt)
+            ? lastUserMsg.Content
+            : statePrompt + "\n\n" + lastUserMsg.Content;
+
+        var freshMessages = new List<ConversationMessage> { new ConversationMessage(lastUserMsg.Role, userContent) };
+
+        // Append param constraints so the LLM knows the exact names to preserve.
+        var history = PromptHelpers.AppendParamsToLastMessage(freshMessages, receiver.UserParamsPrompt());
+
+        await ExecuteRequestAsync(conversation, llm, receiver, history, attempt: 0);
+    }
+
+    // Entry point for an autofix pass. Appends the current error context as a new user turn
+    // and sends the full conversation history so the LLM can see what it already tried.
+    private async Task SendAutoFixAsync(Conversation conversation, LlmProvider llm, ReceiverBase receiver, int attempt)
+    {
+        Message = $"Fixing ({attempt}/{_maxAutoFixAttemps})";
+
+        // append the error context as a new user turn — conversation already holds prior response as assistant turn
+        var fixMessage = receiver.GetFixMessage();
+        if (fixMessage == null)
         {
-            Message = "Calling API";
-            _debugLog = string.Empty;
-        }
-        else
-        {
-            Message = $"Fixing ({attempt}/{_maxAutoFixAttemps})";
-
-            // append the error context as a new user turn — conversation already holds prior script as assistant turn
-            var fixMessage = receiver.GetFixMessage();
-            if (fixMessage == null)
-            {
-                _isBusy = false;
-                return;
-            }
-
-            // reinject user param constraints so the LLM is reminded of exact names on every fix attempt
-            var paramPrompt = receiver.UserParamsPrompt();
-            var fullFix = string.IsNullOrEmpty(paramPrompt) ? fixMessage : fixMessage + "\n\n" + paramPrompt;
-            AppendDebugEntry($"=== Fix message sent ({attempt}/{_maxAutoFixAttemps}) ===", fullFix);
-            conversation.AddUserMessage(fullFix, true);
+            _isBusy = false;
+            return;
         }
 
-        // Initial call injects params without mutating the shared conversation;
-        // fix calls already have them baked into the latest user turn.
-        var history = attempt == 0
-            ? PromptHelpers.AppendParamsToLastMessage(conversation.LlmMessages, receiver.UserParamsPrompt())
-            : conversation.LlmMessages;
+        // reinject user param constraints so the LLM is reminded of exact names on every fix attempt
+        var paramPrompt = receiver.UserParamsPrompt();
+        var fullFix = string.IsNullOrEmpty(paramPrompt) ? fixMessage : fixMessage + "\n\n" + paramPrompt;
+        AppendDebugEntry($"=== Fix message sent ({attempt}/{_maxAutoFixAttemps}) ===", fullFix);
+        conversation.AddUserMessage(fullFix, true);
 
+        await ExecuteRequestAsync(conversation, llm, receiver, conversation.LlmMessages, attempt);
+    }
+
+    // Shared helper: makes the API call, applies the response, updates conversation history,
+    // and schedules the next autofix pass if errors remain.
+    private async Task ExecuteRequestAsync(
+        Conversation conversation,
+        LlmProvider llm,
+        ReceiverBase receiver,
+        IReadOnlyList<ConversationMessage> messages,
+        int attempt)
+    {
         try
         {
-            var rawResult = await llm.SendConversationAsync(receiver.FormatPrompt, history);
+            var rawResult = await llm.SendConversationAsync(receiver.FormatPrompt, messages);
 
             receiver.ApplyLlmResponse(rawResult);
             conversation.AddAssistantMessage(rawResult, receiver.LastStatusMessage);
@@ -297,7 +318,7 @@ public class Transmitter : PhyBase
                 OnPingDocument()?.ScheduleSolution(1500, _ =>
                 {
                     _waitingForAutoFix = false;
-                    _pendingRequest = SendAsync(conversation, llm, receiver, attempt + 1);
+                    _pendingRequest = SendAutoFixAsync(conversation, llm, receiver, attempt + 1);
                 });
             }
             else

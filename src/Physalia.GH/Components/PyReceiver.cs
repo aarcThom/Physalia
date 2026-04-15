@@ -270,6 +270,20 @@ public class PyReceiver : ReceiverBase
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Returns the current Python script for injection into fresh LLM prompts, so the LLM
+    /// can modify the existing script rather than generating from scratch.
+    /// Returns null if no script has been received yet.
+    /// </summary>
+    /// <returns>A formatted description of the current script, or null if no script exists.</returns>
+    public override string? GetCurrentStatePrompt()
+    {
+        if (_lastResponse?.Script == null)
+            return null;
+
+        return $"The current script is:\n```python\n{_lastResponse.Script}\n```";
+    }
+
     // RIGHT CLICK MENU HELPERS ===================================================================================================
 
     // clears the link on the transmitter side and redraws

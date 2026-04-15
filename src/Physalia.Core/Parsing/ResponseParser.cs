@@ -60,6 +60,16 @@ public static class ResponseParser
     {
         // Matches ```json ... ``` or ``` ... ``` or atleast Clause says it does...
         var match = Regex.Match(text, @"```(?:json)?\s*([\s\S]*?)```");
-        return match.Success ? match.Groups[1].Value : text;
+        if (match.Success)
+            return match.Groups[1].Value;
+
+        // If no fences, try to extract the first {...} block in case the LLM
+        // prefixed the JSON with prose (e.g. "Let me explain: {...}").
+        int start = text.IndexOf('{');
+        int end = text.LastIndexOf('}');
+        if (start >= 0 && end > start)
+            return text[start..(end + 1)];
+
+        return text;
     }
 }

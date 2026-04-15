@@ -33,9 +33,10 @@ public static class SystemPrompt
         - "<id>.output"     connects from a Number, Integer, or Boolean parameter component
         
         RESPONSE FORMAT:
-        You MUST respond with ONLY a JSON object (no markdown fences, no preamble) matching
-        this exact schema:
-        
+        Your entire response MUST be a single raw JSON object and nothing else.
+        Do NOT include any text, explanation, or markdown before or after the JSON.
+        Do NOT wrap it in code fences. Any non-JSON output will cause a parse error.
+
         {
           "statusMessage": "<one short sentence describing what you built>",
           "inputs": [
@@ -93,7 +94,6 @@ public static class SystemPrompt
             - Integer constant       → type "Integer", nickname: the value e.g. "10"
             - Boolean constant       → type "Boolean", nickname: "true" or "false"
           Wire from these using "<id>.output".
-        - Respond with ONLY the JSON object. No other text.
         """;
 
     /// <summary>
@@ -112,8 +112,9 @@ public static class SystemPrompt
         5. Keep scripts concise and well-commented.
 
         RESPONSE FORMAT:
-        You MUST respond with ONLY a JSON object (no markdown fences, no preamble) matching
-        this exact schema:
+        Your entire response MUST be a single raw JSON object and nothing else.
+        Do NOT include any text, explanation, or markdown before or after the JSON.
+        Do NOT wrap it in code fences. Any non-JSON output will cause a parse error.
 
         {
           "statusMessage": "<one short sentence describing what you did, e.g. 'Generated a script that moves points along a vector.' or 'Fixed the loop to handle empty lists.'>",
@@ -154,7 +155,6 @@ public static class SystemPrompt
         - Outputs do NOT need typeHint or access fields.
         - Every input/output in the JSON must correspond to a variable used in the script.
         - Always include "statusMessage" as the first key in the JSON object.
-        - Respond with ONLY the JSON object. No other text.
         """;
 
     /// <summary>

@@ -11,9 +11,9 @@ using Physalia.GH.ParamTypes;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// The prompt class.
+/// The COMPOSER component. Manages the conversation history and provides the prompt UI.
 /// </summary>
-public class Prompt : PhyBase
+public class Composer : PhyBase
 {
     // FIELDS ==========================================================================================
     private readonly Conversation _conversation = new();
@@ -41,10 +41,10 @@ public class Prompt : PhyBase
     // CONSTRUCTOR =======================================================================================
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Prompt"/> class.
+    /// Initializes a new instance of the <see cref="Composer"/> class.
     /// </summary>
-    public Prompt()
-        : base("Prompt", "Prmpt", "Prompt the LLM", "Core")
+    public Composer()
+        : base("Composer", "Comp", "Compose and manage the LLM conversation.", "Core")
     {
     }
 
@@ -62,7 +62,7 @@ public class Prompt : PhyBase
     /// </summary>
     protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new ConversationGhParam(), "Conversation", "Conv", "The conversation history to be fed into Composer.", GH_ParamAccess.item);
+        pManager.AddParameter(new ConversationGhParam(), "Conversation", "Conv", "The conversation history to be fed into Transmitter.", GH_ParamAccess.item);
     }
 
     /// <summary>
@@ -75,9 +75,9 @@ public class Prompt : PhyBase
     }
 
     /// <summary>
-    /// Assigns the custom <see cref="PromptAttrib"/> attribute class to this component.
+    /// Assigns the custom <see cref="ComposerAttrib"/> attribute class to this component.
     /// </summary>
-    public override void CreateAttributes() => m_attributes = new PromptAttrib(this);
+    public override void CreateAttributes() => m_attributes = new ComposerAttrib(this);
 
     /// <summary>
     /// Appends a Reset Conversation item to the standard component context menu.

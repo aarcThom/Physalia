@@ -14,7 +14,7 @@ namespace Physalia.GH.Helpers;
 
 /// <summary>
 /// Static helper methods for creating and rebuilding Grasshopper parameters from LLM responses,
-/// and for inspecting user-defined dynamic parameters on a ZOOID component.
+/// and for inspecting user-defined dynamic parameters on a RECEIVER component.
 /// </summary>
 public static class ParamBuilder
 {
@@ -233,7 +233,7 @@ public static class ParamBuilder
         return param;
     }
 
-    // Strips underscores and whitespace, lowercases — mirrors ClusterZooid.NormalizeParamName
+    // Strips underscores and whitespace, lowercases — mirrors ClusterReceiver.NormalizeParamName
     // so that raw LLM names (e.g. "input_points") round-trip correctly against sanitized
     // NickNames (e.g. "input points") when snapshotting and restoring connections.
     private static string NormalizeParamName(string s) =>

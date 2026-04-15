@@ -9,14 +9,14 @@ public static class SystemPrompt
 {
     /// <summary>
     /// The shared preamble sent on every request, establishing the GH/Rhino expert role
-    /// and geometry constraints common to all Zooid types.
+    /// and geometry constraints common to all Receiver types.
     /// </summary>
     private const string _preamble = """
         You are an expert Grasshopper / Rhino developer working in Rhino 8+.
         """;
 
     /// <summary>
-    /// The format prompt used for the Cluster Receiver (formerlly Zooid) component.
+    /// The format prompt used for the Cluster Receiver component.
     /// Ensure this contains {PLUGIN_LINE}. {PLUGIN_LINE} is replaced at runtime with the actual plugin list.
     /// </summary>
     private const string _clusterFormatPrompt = """

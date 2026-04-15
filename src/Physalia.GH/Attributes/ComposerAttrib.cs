@@ -18,10 +18,10 @@ using System.Windows.Forms;
 namespace Physalia.GH.Attributes;
 
 /// <summary>
-/// Custom attributes for the Prompt component. A panel-inspired prompting interface
+/// Custom attributes for the COMPOSER component. A panel-inspired prompting interface
 /// divided into three vertically stacked sections: title, conversation and entry.
 /// </summary>
-public class PromptAttrib : GH_ComponentAttributes
+public class ComposerAttrib : GH_ComponentAttributes
 {
     // NESTED TYPES =======================================================================================
 
@@ -61,7 +61,7 @@ public class PromptAttrib : GH_ComponentAttributes
     private readonly System.Windows.Forms.Timer _animTimer; // used for the little status message animations
 
     // FIELDS =======================================================================================
-    private readonly Prompt _promptComponent; // the prompt component
+    private readonly Composer _composerComponent; // the composer component
     private bool inputPromptCurrent = false; // is the user currently inputing text?
     private bool _submitting = false; // true while a Shift+Enter submit is in flight
 
@@ -101,7 +101,7 @@ public class PromptAttrib : GH_ComponentAttributes
     private int _cachedMsgCount = -1;
     private float _cachedMeasureWidth;
 
-    // input message and can input text bool - comes from connected composer component
+    // input message and can input text bool - comes from connected transmitter component
     private string _inputMsg = string.Empty;
     private bool _canInput = false;
 
@@ -111,13 +111,13 @@ public class PromptAttrib : GH_ComponentAttributes
     // CONSTRUCTOR =======================================================================================
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="PromptAttrib"/> class.
+    /// Initializes a new instance of the <see cref="ComposerAttrib"/> class.
     /// </summary>
-    /// <param name="prompt">The Prompt component that owns these attributes.</param>
-    public PromptAttrib(Prompt prompt)
-        : base(prompt)
+    /// <param name="composer">The COMPOSER component that owns these attributes.</param>
+    public ComposerAttrib(Composer composer)
+        : base(composer)
     {
-        _promptComponent = prompt;
+        _composerComponent = composer;
 
         // used for the animations when api status is shown in input
         _animTimer = new System.Windows.Forms.Timer { Interval = 400 };
@@ -140,7 +140,7 @@ public class PromptAttrib : GH_ComponentAttributes
         writer.SetDouble("Width", _width);
         writer.SetDouble("ConvoHeight", _convoHeight);
         writer.SetDouble("InputHeight", _inputHeight);
-        writer.SetString("PromptText", _promptComponent.UserPromptText ?? string.Empty);
+        writer.SetString("PromptText", _composerComponent.UserPromptText ?? string.Empty);
         return base.Write(writer);
     }
 
@@ -161,7 +161,7 @@ public class PromptAttrib : GH_ComponentAttributes
         string promptText = string.Empty;
         if (reader.TryGetString("PromptText", ref promptText))
         {
-            _promptComponent.UserPromptText = promptText;
+            _composerComponent.UserPromptText = promptText;
         }
 
         return base.Read(reader);
@@ -271,8 +271,8 @@ public class PromptAttrib : GH_ComponentAttributes
                 if (!_submitting)
                 {
                     // user clicked away without submitting — just persist the draft text
-                    _promptComponent.UserPromptText = inputBox.Text;
-                    _promptComponent.ExpireSolution(true);
+                    _composerComponent.UserPromptText = inputBox.Text;
+                    _composerComponent.ExpireSolution(true);
                 }
 
                 _submitting = false;
@@ -286,9 +286,9 @@ public class PromptAttrib : GH_ComponentAttributes
                 if (keyArgs.KeyCode == Keys.Enter && keyArgs.Shift)
                 {
                     keyArgs.SuppressKeyPress = true; // prevent the newline being added
-                    _promptComponent.UserPromptText = inputBox.Text;
+                    _composerComponent.UserPromptText = inputBox.Text;
                     _submitting = true;
-                    _promptComponent.SubmitUserMessage(); // appends to history, clears UserPromptText, expires solution
+                    _composerComponent.SubmitUserMessage(); // appends to history, clears UserPromptText, expires solution
                     sender.Focus(); // triggers Leave, which removes the TextBox
                 }
             };
@@ -504,8 +504,8 @@ public class PromptAttrib : GH_ComponentAttributes
     // draw conversation displayMessages bottom-to-top (newest at bottom, oldest scroll off the top)
     private void DrawConvoText(Graphics graphics)
     {
-        var displayMessages = _promptComponent.Conversation.HumanMessages;
-        var llmMessages = _promptComponent.Conversation.LlmMessages;
+        var displayMessages = _composerComponent.Conversation.HumanMessages;
+        var llmMessages = _composerComponent.Conversation.LlmMessages;
         if (displayMessages.Count == 0)
         {
             return;
@@ -611,15 +611,15 @@ public class PromptAttrib : GH_ComponentAttributes
     }
 
     // draw the text when the user isn't actively inputting.
-    // will be default message if no WIP prompt '_promptComponent' exists.
+    // will be default message if no WIP prompt text exists.
     // will be animation if COMPOSER is WIP.
     private void DrawInputText(Graphics graphics, RectangleF bounds)
     {
         using var txtBrush = new SolidBrush(Color.White);
         using var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
 
-        // set input msg based on composer status, unless user started entering prompt and clicked away.
-        var inputMsg = (!inputPromptCurrent && _promptComponent.UserPromptText != string.Empty) ? _promptComponent.UserPromptText : _inputMsg;
+        // set input msg based on transmitter status, unless user started entering prompt and clicked away.
+        var inputMsg = (!inputPromptCurrent && _composerComponent.UserPromptText != string.Empty) ? _composerComponent.UserPromptText : _inputMsg;
         graphics.DrawString(inputMsg, GH_FontServer.ConsoleSmallAdjusted, txtBrush, bounds, fmt);
     }
 
@@ -637,7 +637,7 @@ public class PromptAttrib : GH_ComponentAttributes
             BorderStyle = BorderStyle.None,
             BackColor = _inputColor,
             Font = GH_FontServer.Console,
-            Text = _promptComponent.UserPromptText,
+            Text = _composerComponent.UserPromptText,
             Bounds = new Rectangle((int)origin.X + 10, (int)origin.Y + 60, (int)((_boundsInput.Width * zoom) - 20), (int)((_boundsInput.Height * zoom) - 108)),
         };
         return tb;
@@ -740,45 +740,45 @@ public class PromptAttrib : GH_ComponentAttributes
     private (string msg, bool canPrompt) GetPromptInfo()
     {
         // see if the component is actually hooked up.
-        var connectedComponents = _promptComponent.Params.Output[0].Recipients;
-        Composer composer = null;
+        var connectedComponents = _composerComponent.Params.Output[0].Recipients;
+        Transmitter transmitter = null;
 
         foreach (var comp in connectedComponents)
         {
             var docObj = comp.Attributes?.GetTopLevel?.DocObject;
-            if (docObj is Composer)
+            if (docObj is Transmitter)
             {
-                composer = (Composer)docObj;
+                transmitter = (Transmitter)docObj;
                 break;
             }
         }
 
         // set animationFrame or stop timer if need be
-        SetAnimationFrame(composer);
+        SetAnimationFrame(transmitter);
 
-        // composer isn't hooked up
-        if (composer == null)
+        // transmitter isn't hooked up
+        if (transmitter == null)
         {
-            return ("Connect a composer to begin.", false);
+            return ("Connect a Transmitter to begin.", false);
         }
 
         // check if the actual inputs to the LLM input are LLM providers or LLM isn't hooked up
-        if (!composer.LlmConnected)
+        if (!transmitter.LlmConnected)
         {
             return ("Connect an LLM to begin.", false);
         }
 
-        // check if any Zooid component is hooked up
-        if (composer.ZooidComponent == null)
+        // check if any Receiver component is hooked up
+        if (transmitter.ReceiverComponent == null)
         {
-            return ("Target a Zooid component to begin.", false);
+            return ("Target a Receiver component to begin.", false);
         }
 
-        // the composer is busy
-        if (composer.IsBusy)
+        // the transmitter is busy
+        if (transmitter.IsBusy)
         {
             var ani = GetAnimation(_animFrame, "wave");
-            return ($"{ani} {composer.Message} {ani}", false);
+            return ($"{ani} {transmitter.Message} {ani}", false);
         }
 
         // good to prompt!
@@ -804,9 +804,9 @@ public class PromptAttrib : GH_ComponentAttributes
         return chosenAni[currentFrame];
     }
 
-    private void SetAnimationFrame(Composer composer)
+    private void SetAnimationFrame(Transmitter transmitter)
     {
-        if (composer != null && composer.IsBusy)
+        if (transmitter != null && transmitter.IsBusy)
         {
             if (!_animTimer.Enabled)
             {

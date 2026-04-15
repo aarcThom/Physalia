@@ -147,7 +147,7 @@ public class ModelSelector : PhyBase
 
         if (!string.IsNullOrEmpty(SelectedModel))
         {
-            _llmProvider.CurrentModel = SelectedModel; // set the model to user selection before sending to composer
+            _llmProvider.CurrentModel = SelectedModel; // set the model to user selection before sending to transmitter
             DA.SetData(0, new LlmProviderGoo(_llmProvider));
         }
     }

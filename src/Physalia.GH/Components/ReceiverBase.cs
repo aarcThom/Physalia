@@ -11,32 +11,32 @@ using Physalia.GH.Helpers;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Abstract base class for all ZOOID component types.
+/// Abstract base class for all RECEIVER component types.
 /// Provides the shared variable-parameter machinery and defines the contract
 /// that COMPOSER uses to deliver LLM responses and query error state.
 /// </summary>
-public abstract class ZooidBase : PhyBase, IGH_VariableParameterComponent
+public abstract class ReceiverBase : PhyBase, IGH_VariableParameterComponent
 {
     // PROPERTIES ====================================================================================
 
     /// <summary>
     /// Gets the system prompt fragment that instructs the LLM how to format its response
-    /// for this Zooid type. Combined with
-    /// <see cref="Physalia.Core.Prompts.SystemPrompt.Preamble"/> by COMPOSER before sending.
+    /// for this Receiver type. Combined with
+    /// <see cref="Physalia.Core.Prompts.SystemPrompt.Preamble"/> by TRANSMITTER before sending.
     /// </summary>
     public abstract string FormatPrompt { get; }
 
     /// <summary>
-    /// Gets the current state of this Zooid as a string — the generated code, component
+    /// Gets the current state of this Receiver as a string — the generated code, component
     /// config, or equivalent. Returns null if no response has been received yet.
     /// </summary>
     public abstract string? State { get; }
 
     /// <summary>
-    /// Gets a human-readable description of this Zooid's current inputs, outputs, and
+    /// Gets a human-readable description of this Receiver's current inputs, outputs, and
     /// functionality. Returns null if no response has been received yet.
     /// </summary>
-    public abstract string? ZooidDescription { get; }
+    public abstract string? ReceiverDescription { get; }
 
     /// <summary>
     /// Gets the status message from the most recent LLM response, for display in conversation
@@ -47,13 +47,13 @@ public abstract class ZooidBase : PhyBase, IGH_VariableParameterComponent
     // CONSTRUCTOR ====================================================================================
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="ZooidBase"/> class.
+    /// Initializes a new instance of the <see cref="ReceiverBase"/> class.
     /// </summary>
     /// <param name="name">Component name.</param>
     /// <param name="nickname">Component nickname.</param>
     /// <param name="description">Component description.</param>
     /// <param name="subCategory">Grasshopper sub-category.</param>
-    protected ZooidBase(string name, string nickname, string description, string subCategory)
+    protected ReceiverBase(string name, string nickname, string description, string subCategory)
         : base(name, nickname, description, subCategory)
     {
     }
@@ -69,7 +69,7 @@ public abstract class ZooidBase : PhyBase, IGH_VariableParameterComponent
 
     /// <summary>
     /// Builds a complete auto-fix prompt describing the current errors, ready to send to
-    /// the LLM as a user turn. Returns null if the Zooid currently has no errors to fix.
+    /// the LLM as a user turn. Returns null if the Receiver currently has no errors to fix.
     /// </summary>
     /// <returns>A formatted fix message string, or null if there are no errors.</returns>
     public abstract string? GetFixMessage();
@@ -98,7 +98,7 @@ public abstract class ZooidBase : PhyBase, IGH_VariableParameterComponent
     // VIRTUAL METHODS ===============================================================================
 
     /// <summary>
-    /// Returns a prompt fragment describing the user-defined parameters on this Zooid,
+    /// Returns a prompt fragment describing the user-defined parameters on this Receiver,
     /// for injection into the LLM request. Returns an empty string if there are no user params.
     /// </summary>
     /// <returns>A formatted param description string, or empty if no user params exist.</returns>
@@ -110,7 +110,7 @@ public abstract class ZooidBase : PhyBase, IGH_VariableParameterComponent
     }
 
     /// <summary>
-    /// Opens an editor for the current Zooid state. No-op by default; override in subclasses.
+    /// Opens an editor for the current Receiver state. No-op by default; override in subclasses.
     /// </summary>
     public virtual void OpenEditor()
     {
@@ -119,15 +119,15 @@ public abstract class ZooidBase : PhyBase, IGH_VariableParameterComponent
     // CONCRETE METHODS ==============================================================================
 
     /// <summary>
-    /// Finds the COMPOSER component in the current document that is linked to this Zooid.
+    /// Finds the TRANSMITTER component in the current document that is linked to this Receiver.
     /// Returns null if none is found.
     /// </summary>
-    /// <returns>The linked <see cref="Composer"/>, or null.</returns>
-    protected Composer? FindLinkedComposer()
+    /// <returns>The linked <see cref="Transmitter"/>, or null.</returns>
+    protected Transmitter? FindLinkedTransmitter()
     {
         return OnPingDocument()?.Objects
-            .OfType<Composer>()
-            .FirstOrDefault(c => c.ZooidComponent?.InstanceGuid == InstanceGuid);
+            .OfType<Transmitter>()
+            .FirstOrDefault(c => c.ReceiverComponent?.InstanceGuid == InstanceGuid);
     }
 
     /// <summary>

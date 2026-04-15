@@ -7,7 +7,7 @@ using System.Text.Json.Serialization;
 namespace Physalia.Core.Parsing;
 
 /// <summary>
-/// Represents the JSON response returned by the LLM for a cluster zooid,
+/// Represents the JSON response returned by the LLM for a cluster receiver,
 /// describing the outer parameters and internal component graph.
 /// </summary>
 public class ClusterResponse

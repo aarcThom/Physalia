@@ -12,16 +12,16 @@ using Physalia.GH.Components;
 namespace Physalia.GH.Attributes;
 
 /// <summary>
-/// Custom attributes for the COMPOSER component that render a drag-to-link bezier wire
-/// from COMPOSER's bottom-centre grip to the linked ZOOID component.
+/// Custom attributes for the TRANSMITTER component that render a drag-to-link bezier wire
+/// from TRANSMITTER's bottom-centre grip to the linked RECEIVER component.
 /// </summary>
-public class ComposerAttrib : GH_ComponentAttributes
+public class TransmitterAttrib : GH_ComponentAttributes
 {
     private static readonly Pen[] _gradientPens = CreateGradientPens();
 
-    private readonly Composer _composer; // the composer component
+    private readonly Transmitter _transmitter; // the transmitter component
 
-    private bool _isConnecting; // is the user adding a new zooid? False is disconnection
+    private bool _isConnecting; // is the user adding a new receiver? False is disconnection
     private bool _isDragging; // is the user dragging the wire?
     private PointF _dragPoint; // the current positon of the drag
 
@@ -30,17 +30,17 @@ public class ComposerAttrib : GH_ComponentAttributes
 
     // bezier segment cache — recomputed only when endpoints change
     private PointF[]? _cachedSegments;
-    private PointF _lastComposerPt;
+    private PointF _lastTransmitterPt;
     private PointF _lastWireEnd;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="ComposerAttrib"/> class.
+    /// Initializes a new instance of the <see cref="TransmitterAttrib"/> class.
     /// </summary>
-    /// <param name="composer">The COMPOSER component that owns these attributes.</param>
-    public ComposerAttrib(Composer composer)
-        : base(composer)
+    /// <param name="transmitter">The TRANSMITTER component that owns these attributes.</param>
+    public TransmitterAttrib(Transmitter transmitter)
+        : base(transmitter)
     {
-        _composer = composer;
+        _transmitter = transmitter;
     }
 
     /// <summary>
@@ -57,8 +57,8 @@ public class ComposerAttrib : GH_ComponentAttributes
     }
 
     /// <summary>
-    /// Renders the component and, when a ZOOID is linked or a drag is in progress,
-    /// draws the bezier wire from the bottom grip to the ZOOID component.
+    /// Renders the component and, when a RECEIVER is linked or a drag is in progress,
+    /// draws the bezier wire from the bottom grip to the RECEIVER component.
     /// </summary>
     /// <param name="canvas">The Grasshopper canvas being rendered.</param>
     /// <param name="graphics">The GDI+ graphics context.</param>
@@ -89,7 +89,7 @@ public class ComposerAttrib : GH_ComponentAttributes
 
         if (channel == GH_CanvasChannel.Wires)
         {
-            if (_composer.ZooidComponent == null && !_isDragging)
+            if (_transmitter.ReceiverComponent == null && !_isDragging)
             {
                 base.Render(canvas, graphics, channel);
                 Bounds = _gripBounds; // revert back to expanded bounds for clickable grip
@@ -103,24 +103,24 @@ public class ComposerAttrib : GH_ComponentAttributes
             }
             else
             {
-                var zooidBounds = _composer.ZooidComponent.Attributes.Bounds;
-                wireEnd = new PointF(zooidBounds.Left + zooidBounds.Width / 2f, zooidBounds.Y + zooidBounds.Height);
+                var receiverBounds = _transmitter.ReceiverComponent.Attributes.Bounds;
+                wireEnd = new PointF(receiverBounds.Left + receiverBounds.Width / 2f, receiverBounds.Y + receiverBounds.Height);
             }
 
-            var composerBottomPoint = new PointF(gripCtrX, gripCtrY);
+            var transmitterBottomPoint = new PointF(gripCtrX, gripCtrY);
 
-            // draw a bezier curve between the COMPOSER and ZOOID with a gradient that follows the curve
-            var bezPt1 = new PointF(composerBottomPoint.X, composerBottomPoint.Y + 80f);
+            // draw a bezier curve between the TRANSMITTER and RECEIVER with a gradient that follows the curve
+            var bezPt1 = new PointF(transmitterBottomPoint.X, transmitterBottomPoint.Y + 80f);
             var bezPt2 = new PointF(wireEnd.X, wireEnd.Y + 80f);
 
             // recompute segment points only when endpoints change
-            if (_cachedSegments == null || composerBottomPoint != _lastComposerPt || wireEnd != _lastWireEnd)
+            if (_cachedSegments == null || transmitterBottomPoint != _lastTransmitterPt || wireEnd != _lastWireEnd)
             {
                 int steps = _gradientPens.Length;
                 _cachedSegments = new PointF[steps + 1];
                 for (int i = 0; i <= steps; i++)
-                    _cachedSegments[i] = SampleBezier(composerBottomPoint, bezPt1, bezPt2, wireEnd, (float)i / steps);
-                _lastComposerPt = composerBottomPoint;
+                    _cachedSegments[i] = SampleBezier(transmitterBottomPoint, bezPt1, bezPt2, wireEnd, (float)i / steps);
+                _lastTransmitterPt = transmitterBottomPoint;
                 _lastWireEnd = wireEnd;
             }
 
@@ -197,7 +197,7 @@ public class ComposerAttrib : GH_ComponentAttributes
     }
 
     /// <summary>
-    /// Completes the drag and links the COMPOSER to a ZOOID component if the mouse was released over one.
+    /// Completes the drag and links the TRANSMITTER to a RECEIVER component if the mouse was released over one.
     /// </summary>
     /// <param name="sender">The Grasshopper canvas that raised the event.</param>
     /// <param name="e">The mouse event data.</param>
@@ -211,8 +211,8 @@ public class ComposerAttrib : GH_ComponentAttributes
             // can disattach if dragging to empty space
             if ( sender.Document.FindObject(e.CanvasLocation, 3f) == null)
             {
-                _composer.ZooidComponent = null;
-                _composer.ZooidGuid = Guid.Empty;
+                _transmitter.ReceiverComponent = null;
+                _transmitter.ReceiverGuid = Guid.Empty;
 
                 sender.ScheduleRegen(2);
                 return GH_ObjectResponse.Handled;
@@ -221,25 +221,25 @@ public class ComposerAttrib : GH_ComponentAttributes
             // cycle through the components on the canvas
             foreach (var obj in sender.Document.Objects)
             {
-                if (obj is not ZooidBase && obj.Attributes.Bounds.Contains(e.CanvasLocation)) // filter out non-zooids
+                if (obj is not ReceiverBase && obj.Attributes.Bounds.Contains(e.CanvasLocation)) // filter out non-receivers
                 {
-                    _composer.ZooidComponent = null;
-                    _composer.ZooidGuid = Guid.Empty;
+                    _transmitter.ReceiverComponent = null;
+                    _transmitter.ReceiverGuid = Guid.Empty;
                     break;
                 }
 
-                if (obj is ZooidBase zooid && zooid.Attributes.Bounds.Contains(e.CanvasLocation) && _isConnecting) // connect to a zooid
+                if (obj is ReceiverBase receiver && receiver.Attributes.Bounds.Contains(e.CanvasLocation) && _isConnecting) // connect to a receiver
                 {
-                    _composer.ZooidComponent = zooid; // set the ref'd zooid
-                    _composer.ZooidGuid = zooid.InstanceGuid;
+                    _transmitter.ReceiverComponent = receiver; // set the ref'd receiver
+                    _transmitter.ReceiverGuid = receiver.InstanceGuid;
 
                     break;
                 }
 
-                if (_composer.ZooidComponent != null && _composer.ZooidComponent.Attributes.Bounds.Contains(e.CanvasLocation) && !_isConnecting) // disconnecting a zooid with ctrl
+                if (_transmitter.ReceiverComponent != null && _transmitter.ReceiverComponent.Attributes.Bounds.Contains(e.CanvasLocation) && !_isConnecting) // disconnecting a receiver with ctrl
                 {
-                    _composer.ZooidComponent = null;
-                    _composer.ZooidGuid = Guid.Empty;
+                    _transmitter.ReceiverComponent = null;
+                    _transmitter.ReceiverGuid = Guid.Empty;
 
                     break;
                 }

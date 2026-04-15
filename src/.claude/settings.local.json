@@ -19,7 +19,8 @@
       "Bash(where ilspycmd:*)",
       "Bash(dotnet tool:*)",
       "Bash(ilspycmd:*)",
-      "WebFetch(domain:docs.yfiles.com)"
+      "WebFetch(domain:docs.yfiles.com)",
+      "Bash(git mv:*)"
     ]
   }
 }

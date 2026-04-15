@@ -20,10 +20,10 @@ using Physalia.GH.ParamTypes;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// The COMPOSER component receives an LLM provider from MODEL SELECTOR, accepts a user prompt,
-/// calls the LLM API asynchronously, and forwards the parsed response to a linked ZOOID component.
+/// The TRANSMITTER component receives an LLM provider from MODEL SELECTOR, accepts a user prompt,
+/// calls the LLM API asynchronously, and forwards the parsed response to a linked RECEIVER component.
 /// </summary>
-public class Composer : PhyBase
+public class Transmitter : PhyBase
 {
     // FIELDS ==========================================================================================
     private int _maxAutoFixAttemps;
@@ -31,8 +31,8 @@ public class Composer : PhyBase
     private string? _errorMsg;
     private bool _autoFix;
     private bool _waitingForAutoFix;
-    private bool _isBusy = false; // used to prevent connected prompt component from passing messages mid call.
-    private bool _llmConnected = false; // used to prevent prompt from entering prompt if no llm hooked up.
+    private bool _isBusy = false; // used to prevent connected composer component from passing messages mid call.
+    private bool _llmConnected = false; // used to prevent composer from entering a prompt if no llm hooked up.
     private string _debugLog = string.Empty;
 
     // PROPERTIES =======================================================================================
@@ -46,14 +46,14 @@ public class Composer : PhyBase
     }
 
     /// <summary>
-    /// Gets or sets the ZOOID component that receives the LLM-generated response.
+    /// Gets or sets the RECEIVER component that receives the LLM-generated response.
     /// </summary>
-    public ZooidBase? ZooidComponent { get; set; }
+    public ReceiverBase? ReceiverComponent { get; set; }
 
     /// <summary>
-    /// Gets or sets the instance GUID of the linked ZOOID component, used for serialization and reconnection.
+    /// Gets or sets the instance GUID of the linked RECEIVER component, used for serialization and reconnection.
     /// </summary>
-    public Guid ZooidGuid { get; set; }
+    public Guid ReceiverGuid { get; set; }
 
     /// <summary>
     /// Gets a value that will be set to true if an API call is currently being made or an autofix is queued.
@@ -68,12 +68,12 @@ public class Composer : PhyBase
     // CONSTRUCTOR =======================================================================================
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Composer"/> class.
+    /// Initializes a new instance of the <see cref="Transmitter"/> class.
     /// </summary>
-    public Composer()
-        : base("Composer", "Composer", "Description", "Core")
+    public Transmitter()
+        : base("Transmitter", "Transmitter", "Description", "Core")
     {
-        IconPath = "Physalia.GH.Resources.composer.png";
+        IconPath = "Physalia.GH.Resources.transmitter.png";
     }
 
     // GH COMPONENT OVERRIDES ============================================================================================
@@ -85,7 +85,7 @@ public class Composer : PhyBase
     protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
     {
         pManager.AddParameter(new LlmProviderGhParam(), "Llm", "Llm", "Large language model.", GH_ParamAccess.item);
-        pManager.AddParameter(new ConversationGhParam(), "Prompt", "Prt", "The conversation from PROMPT", GH_ParamAccess.item);
+        pManager.AddParameter(new ConversationGhParam(), "Prompt", "Prt", "The conversation from COMPOSER", GH_ParamAccess.item);
         pManager.AddBooleanParameter("AutoFix", "Fix", "Set True if you want the LLM to attempt to fix errors as they occur. Defaults to True.", GH_ParamAccess.item, true);
         pManager.AddIntegerParameter("Fix Attempts", "Fix #", "Number of times you want to send error codes back to the LLM for fixing. Defaults to 3", GH_ParamAccess.item, 3);
     }
@@ -115,7 +115,7 @@ public class Composer : PhyBase
             return;
         }
 
-        // needed to prevent the connected prompt component from being able to enter text when a model isn't specified
+        // needed to prevent the connected composer component from being able to enter text when a model isn't specified
         if (llmGoo.Value.CurrentModel != null)
         {
             _llmConnected = true;
@@ -126,7 +126,7 @@ public class Composer : PhyBase
             return;
         }
 
-        // consume the Shift+Enter trigger from Prompt; reset immediately so it only fires once
+        // consume the Shift+Enter trigger from Composer; reset immediately so it only fires once
         bool triggered = convGoo!.Value.Trigger;
         convGoo.Value.Trigger = false;
 
@@ -147,9 +147,9 @@ public class Composer : PhyBase
             _errorMsg = null;
         }
 
-        if (ZooidComponent == null)
+        if (ReceiverComponent == null)
         {
-            return; // no zooid linked yet
+            return; // no receiver linked yet
         }
 
         DA.SetData(0, _debugLog);
@@ -157,28 +157,28 @@ public class Composer : PhyBase
         if (triggered && (_pendingRequest == null || _pendingRequest.IsCompleted) && !_waitingForAutoFix)
         {
             _isBusy = true;
-            _pendingRequest = SendAsync(convGoo.Value, llmGoo.Value, ZooidComponent, 0);
+            _pendingRequest = SendAsync(convGoo.Value, llmGoo.Value, ReceiverComponent, 0);
         }
     }
 
     /// <summary>
-    /// Assigns the custom <see cref="ComposerAttrib"/> attribute class to this component.
+    /// Assigns the custom <see cref="TransmitterAttrib"/> attribute class to this component.
     /// </summary>
-    public override void CreateAttributes() => m_attributes = new ComposerAttrib(this);
+    public override void CreateAttributes() => m_attributes = new TransmitterAttrib(this);
 
     /// <summary>
-    /// Serializes the linked ZOOID's instance GUID so the connection survives save/load.
+    /// Serializes the linked RECEIVER's instance GUID so the connection survives save/load.
     /// </summary>
     /// <param name="writer">The GH_IWriter to write to.</param>
     /// <returns>true.</returns>
     public override bool Write(GH_IWriter writer)
     {
-        writer.SetString("ZooidGuid", ZooidGuid.ToString());
+        writer.SetString("ZooidGuid", ReceiverGuid.ToString());
         return base.Write(writer);
     }
 
     /// <summary>
-    /// Deserialises the linked ZOOID's instance GUID. The live reference is restored later in
+    /// Deserialises the linked RECEIVER's instance GUID. The live reference is restored later in
     /// <see cref="AddedToDocument"/>, once all document objects are available.
     /// </summary>
     /// <param name="reader">The GH_IReader to read from.</param>
@@ -188,14 +188,14 @@ public class Composer : PhyBase
         string guidStr = string.Empty;
         if (reader.TryGetString("ZooidGuid", ref guidStr) && Guid.TryParse(guidStr, out Guid guid))
         {
-            ZooidGuid = guid;
+            ReceiverGuid = guid;
         }
 
         return base.Read(reader);
     }
 
     /// <summary>
-    /// Schedules a reconnect to the linked ZOOID after the document finishes loading,
+    /// Schedules a reconnect to the linked RECEIVER after the document finishes loading,
     /// ensuring all objects are present before the GUID lookup runs.
     /// </summary>
     /// <param name="document">The document this component was added to.</param>
@@ -203,12 +203,12 @@ public class Composer : PhyBase
     {
         base.AddedToDocument(document);
 
-        // subscribe to deletion events so we can clean up the ZOOID link if it gets deleted
+        // subscribe to deletion events so we can clean up the RECEIVER link if it gets deleted
         document.ObjectsDeleted += OnDocumentObjectsDeleted;
 
-        if (ZooidGuid != Guid.Empty)
+        if (ReceiverGuid != Guid.Empty)
         {
-            document.ScheduleSolution(10, ReconnectZooid);
+            document.ScheduleSolution(10, ReconnectReceiver);
         }
     }
 
@@ -223,22 +223,22 @@ public class Composer : PhyBase
     }
 
     /// <summary>
-    /// Appends a Disconnect Zooid item to the standard component context menu.
+    /// Appends a Disconnect Receiver item to the standard component context menu.
     /// </summary>
     /// <param name="menu">The context menu being built.</param>
     public override void AppendAdditionalMenuItems(System.Windows.Forms.ToolStripDropDown menu)
     {
         base.AppendAdditionalMenuItems(menu);
 
-        var item = Menu_AppendItem(menu, "Disconnect Zooid", OnDisconnectZooid, ZooidComponent != null);
-        item.ToolTipText = "Remove the link between this COMPOSER and its ZOOID.";
+        var item = Menu_AppendItem(menu, "Disconnect Receiver", OnDisconnectReceiver, ReceiverComponent != null);
+        item.ToolTipText = "Remove the link between this TRANSMITTER and its RECEIVER.";
     }
 
-    // removes the reference zooid when removed via the right click menu
-    private void OnDisconnectZooid(object sender, EventArgs e)
+    // removes the reference receiver when removed via the right click menu
+    private void OnDisconnectReceiver(object sender, EventArgs e)
     {
-        ZooidComponent = null;
-        ZooidGuid = Guid.Empty;
+        ReceiverComponent = null;
+        ReceiverGuid = Guid.Empty;
         OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(true));
     }
 
@@ -247,7 +247,7 @@ public class Composer : PhyBase
     // Sends the conversation to the LLM. attempt=0 is the initial request; attempt=1,2,… are
     // successive auto-fix passes. Each pass appends the error context as a new user turn, calls
     // the LLM, and recursively schedules the next pass if errors remain.
-    private async Task SendAsync(Conversation conversation, LlmProvider llm, ZooidBase zooid, int attempt)
+    private async Task SendAsync(Conversation conversation, LlmProvider llm, ReceiverBase receiver, int attempt)
     {
         if (attempt == 0)
         {
@@ -259,7 +259,7 @@ public class Composer : PhyBase
             Message = $"Fixing ({attempt}/{_maxAutoFixAttemps})";
 
             // append the error context as a new user turn — conversation already holds prior script as assistant turn
-            var fixMessage = zooid.GetFixMessage();
+            var fixMessage = receiver.GetFixMessage();
             if (fixMessage == null)
             {
                 _isBusy = false;
@@ -267,7 +267,7 @@ public class Composer : PhyBase
             }
 
             // reinject user param constraints so the LLM is reminded of exact names on every fix attempt
-            var paramPrompt = zooid.UserParamsPrompt();
+            var paramPrompt = receiver.UserParamsPrompt();
             var fullFix = string.IsNullOrEmpty(paramPrompt) ? fixMessage : fixMessage + "\n\n" + paramPrompt;
             AppendDebugEntry($"=== Fix message sent ({attempt}/{_maxAutoFixAttemps}) ===", fullFix);
             conversation.AddUserMessage(fullFix, true);
@@ -276,28 +276,28 @@ public class Composer : PhyBase
         // Initial call injects params without mutating the shared conversation;
         // fix calls already have them baked into the latest user turn.
         var history = attempt == 0
-            ? PromptHelpers.AppendParamsToLastMessage(conversation.LlmMessages, zooid.UserParamsPrompt())
+            ? PromptHelpers.AppendParamsToLastMessage(conversation.LlmMessages, receiver.UserParamsPrompt())
             : conversation.LlmMessages;
 
         try
         {
-            var rawResult = await llm.SendConversationAsync(zooid.FormatPrompt, history);
+            var rawResult = await llm.SendConversationAsync(receiver.FormatPrompt, history);
 
-            zooid.ApplyLlmResponse(rawResult);
-            conversation.AddAssistantMessage(rawResult, zooid.LastStatusMessage);
+            receiver.ApplyLlmResponse(rawResult);
+            conversation.AddAssistantMessage(rawResult, receiver.LastStatusMessage);
             AppendDebugEntry(attempt == 0 ? "=== Response ===" : $"=== Fix response ({attempt}/{_maxAutoFixAttemps}) ===", rawResult);
 
             Message = "Done";
-            OnPingDocument()?.ScheduleSolution(1, _ => { }); // triggers canvas redraw so Prompt re-renders history
+            OnPingDocument()?.ScheduleSolution(1, _ => { }); // triggers canvas redraw so Composer re-renders history
             ExpireSolution(true);
 
-            if (_autoFix && attempt < _maxAutoFixAttemps && ShouldAutoFix(zooid))
+            if (_autoFix && attempt < _maxAutoFixAttemps && ShouldAutoFix(receiver))
             {
                 _waitingForAutoFix = true;
                 OnPingDocument()?.ScheduleSolution(1500, _ =>
                 {
                     _waitingForAutoFix = false;
-                    _pendingRequest = SendAsync(conversation, llm, zooid, attempt + 1);
+                    _pendingRequest = SendAsync(conversation, llm, receiver, attempt + 1);
                 });
             }
             else
@@ -316,20 +316,20 @@ public class Composer : PhyBase
     }
 
     // DETERMINES WHETHER OR NOT AN AUTOFIX SHOULD BE ATTEMPTED
-    private static bool ShouldAutoFix(ZooidBase zooid)
+    private static bool ShouldAutoFix(ReceiverBase receiver)
     {
         // can't really fix components that aren't fully connected
-        bool allInputsUnconnected = zooid.Params.Input.Count > 0 && zooid.Params.Input.All(p => p.Sources.Count == 0);
-        return zooid.GetFixMessage() != null && !allInputsUnconnected;
+        bool allInputsUnconnected = receiver.Params.Input.Count > 0 && receiver.Params.Input.All(p => p.Sources.Count == 0);
+        return receiver.GetFixMessage() != null && !allInputsUnconnected;
     }
 
-    // if the linked ZOOID is deleted from the canvas, clear the reference so the wire disappears
+    // if the linked RECEIVER is deleted from the canvas, clear the reference so the wire disappears
     private void OnDocumentObjectsDeleted(object sender, GH_DocObjectEventArgs e)
     {
-        if (ZooidGuid != Guid.Empty && e.Objects.Any(o => o.InstanceGuid == ZooidGuid))
+        if (ReceiverGuid != Guid.Empty && e.Objects.Any(o => o.InstanceGuid == ReceiverGuid))
         {
-            ZooidComponent = null;
-            ZooidGuid = Guid.Empty;
+            ReceiverComponent = null;
+            ReceiverGuid = Guid.Empty;
             ExpireSolution(true);
         }
     }
@@ -341,13 +341,13 @@ public class Composer : PhyBase
         _debugLog = string.IsNullOrEmpty(_debugLog) ? entry : entry + "\n\n" + _debugLog;
     }
 
-    // reconnects zooid - call from on opening event on saved document
-    private void ReconnectZooid(GH_Document doc)
+    // reconnects receiver - call from on opening event on saved document
+    private void ReconnectReceiver(GH_Document doc)
     {
-        var obj = doc.FindObject(ZooidGuid, true);
-        if (obj is ZooidBase zooid)
+        var obj = doc.FindObject(ReceiverGuid, true);
+        if (obj is ReceiverBase receiver)
         {
-            ZooidComponent = zooid;
+            ReceiverComponent = receiver;
         }
     }
 }

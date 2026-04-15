@@ -14,8 +14,8 @@ namespace Physalia.GH.ParamTypes;
 /// <remarks>
 /// The wrapped <see cref="Conversation"/> is shared by reference. <see cref="Duplicate"/>
 /// returns a new Goo wrapping the same instance, so that COMPOSER can append assistant
-/// responses directly without requiring a back-reference to the Prompt component.
-/// Serialisation is a no-op here — the Prompt component is responsible for persisting
+/// responses directly without requiring a back-reference to the Composer component.
+/// Serialisation is a no-op here — the Composer component is responsible for persisting
 /// conversation history via its own <c>Write</c>/<c>Read</c> overrides.
 /// </remarks>
 public class ConversationGoo : GH_Goo<Conversation>
@@ -75,14 +75,14 @@ public class ConversationGoo : GH_Goo<Conversation>
     public override bool CastFrom(object source) => false;
 
     /// <summary>
-    /// Serialisation stub — intentionally writes nothing; the Prompt component persists conversation history.
+    /// Serialisation stub — intentionally writes nothing; the Composer component persists conversation history.
     /// </summary>
     /// <param name="writer">The GH_IWriter to write to.</param>
     /// <returns>true.</returns>
     public override bool Write(GH_IO.Serialization.GH_IWriter writer) => true;
 
     /// <summary>
-    /// Deserialisation stub — intentionally reads nothing; the Prompt component restores conversation history.
+    /// Deserialisation stub — intentionally reads nothing; the Composer component restores conversation history.
     /// </summary>
     /// <param name="reader">The GH_IReader to read from.</param>
     /// <returns>true.</returns>

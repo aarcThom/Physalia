@@ -7,6 +7,7 @@ using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
 using Physalia.Core.Providers;
+using Physalia.GH.Attributes.UiComponents;
 using Physalia.GH.Components;
 using Physalia.GH.ParamTypes;
 using System;
@@ -261,27 +262,28 @@ public class ComposerAttrib : GH_ComponentAttributes
         {
             var inputBox = DrawInputTextBox(sender);
             inputPromptCurrent = true;
-            sender.Controls.Add(inputBox);
-            inputBox.BringToFront();
-            inputBox.Focus();
-            inputBox.SelectAll();
 
-            inputBox.Leave += (s, _) =>
+            // user clicked away — persist the draft and close
+            inputBox.Popup.Deactivate += (s, _) =>
             {
-                if (!_submitting)
-                {
-                    // user clicked away without submitting — just persist the draft text
-                    _composerComponent.UserPromptText = inputBox.Text;
-                    _composerComponent.ExpireSolution(true);
-                }
+                if (_submitting)
+                    return; // Shift+Enter path handles everything; avoid double-fire
 
+                _composerComponent.UserPromptText = inputBox.Text;
+                _composerComponent.ExpireSolution(true);
+                inputPromptCurrent = false;
+                inputBox.Close();
+            };
+
+            // cleanup flags once the popup is fully gone (covers both exit paths)
+            inputBox.Popup.FormClosed += (s, _) =>
+            {
                 _submitting = false;
                 inputPromptCurrent = false;
-                sender.Controls.Remove(inputBox);
             };
 
             // shift + enter submits the message to the conversation history
-            inputBox.KeyDown += (s, keyArgs) =>
+            inputBox.RichTextBox.KeyDown += (s, keyArgs) =>
             {
                 if (keyArgs.KeyCode == Keys.Enter && keyArgs.Shift)
                 {
@@ -289,10 +291,12 @@ public class ComposerAttrib : GH_ComponentAttributes
                     _composerComponent.UserPromptText = inputBox.Text;
                     _submitting = true;
                     _composerComponent.SubmitUserMessage(); // appends to history, clears UserPromptText, expires solution
-                    sender.Focus(); // triggers Leave, which removes the TextBox
+                    inputBox.Close(); // programmatic close does not fire Deactivate
                 }
             };
 
+            inputBox.Show(sender.FindForm()); // owned by GH editor; stays on top, disappears on deactivate
+            inputBox.SelectAll();
             return GH_ObjectResponse.Handled;
         }
 
@@ -623,24 +627,20 @@ public class ComposerAttrib : GH_ComponentAttributes
         graphics.DrawString(inputMsg, GH_FontServer.ConsoleSmallAdjusted, txtBrush, bounds, fmt);
     }
 
-    // the textbox for active input
-    private TextBox DrawInputTextBox(GH_Canvas sender)
+    // the textbox for active input — shown as a floating popup over the canvas
+    private EtoRichTextBox DrawInputTextBox(GH_Canvas sender)
     {
-        float zoom = sender.Viewport.Zoom;
-        PointF origin = sender.Viewport.ProjectPoint(_boundsInput.Location);
+        // Inset the popup slightly inside the drawn input panel bounds.
+        const float padding = 4f;
+        var inputBounds = new RectangleF(
+            _boundsInput.X + padding,
+            _boundsInput.Y + padding,
+            _boundsInput.Width - (padding * 2f),
+            _boundsInput.Height - (padding * 2f));
 
-        var tb = new TextBox
-        {
-            Multiline = true,
-            WordWrap = true,
-            ScrollBars = ScrollBars.None,
-            BorderStyle = BorderStyle.None,
-            BackColor = _inputColor,
-            Font = GH_FontServer.Console,
-            Text = _composerComponent.UserPromptText,
-            Bounds = new Rectangle((int)origin.X + 10, (int)origin.Y + 60, (int)((_boundsInput.Width * zoom) - 20), (int)((_boundsInput.Height * zoom) - 108)),
-        };
-        return tb;
+        // ConsoleSmallAdjusted is already scaled by the current viewport zoom, so the popup
+        // text matches the apparent size of canvas-drawn text at any zoom level.
+        return new EtoRichTextBox(sender, inputBounds, _inputColor, GH_FontServer.Console, _composerComponent.UserPromptText);
     }
 
     private void DrawResizeGrip(Graphics graphics, RectangleF grip)

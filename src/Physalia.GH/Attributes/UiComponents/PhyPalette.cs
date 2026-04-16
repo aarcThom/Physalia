@@ -15,7 +15,7 @@ public static class PhyPalette
     public static readonly Pen ErrorOutline = new Pen(ErrorOutlineCol) { EndCap = System.Drawing.Drawing2D.LineCap.Round };
 
     // methods
-    public static Brush SmallButton(float topY, float botY)
+    public static Brush SmallButtonBrush(float topY, float botY)
     {
         return new LinearGradientBrush(new PointF(0, topY), new PointF(0, botY), Color.DarkGray, Color.Black);
     }

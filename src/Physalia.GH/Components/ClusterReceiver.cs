@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -12,7 +11,6 @@ using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Parameters;
 using Grasshopper.Kernel.Special;
-using Grasshopper.Kernel.Types;
 using Physalia.Core.Parsing;
 using Physalia.Core.Prompts;
 using Physalia.GH.Attributes;
@@ -375,7 +373,7 @@ public class ClusterReceiver : ReceiverBase, IGH_DocumentOwner
         }
 
         // Append the live document structure so the LLM has exact NickNames for wiring.
-        var structure = DescribeInnerDocumentStructure();
+        var structure = GHSystemHelpers.DescribeDocumentStructure(GhDocState.FromDocument(_internalDocument));
         if (!string.IsNullOrEmpty(structure))
         {
             sb.AppendLine();
@@ -398,7 +396,7 @@ public class ClusterReceiver : ReceiverBase, IGH_DocumentOwner
         if (_lastResponse == null)
             return null;
 
-        var structure = DescribeInnerDocumentStructure();
+        var structure = GHSystemHelpers.DescribeDocumentStructure(GhDocState.FromDocument(_internalDocument));
         if (!string.IsNullOrEmpty(structure))
             return $"The current cluster state is:\n{structure}";
 
@@ -732,109 +730,11 @@ public class ClusterReceiver : ReceiverBase, IGH_DocumentOwner
     // surfaces them on this component's bubble, and stores them for GetFixMessage().
     private void CollectInnerRuntimeErrors()
     {
-        // Iterate both levels in one pass over the document objects to avoid duplicating the loop.
-        var levels = new[] { GH_RuntimeMessageLevel.Error, GH_RuntimeMessageLevel.Warning };
-
-        foreach (var obj in _internalDocument.Objects)
+        foreach (var (level, msg) in GHSystemHelpers.CollectErrors(_internalDocument))
         {
-            if (obj is not IGH_ActiveObject active)
-                continue;
-
-            foreach (var level in levels)
-            {
-                foreach (var msg in active.RuntimeMessages(level))
-                {
-                    _lastInnerRuntimeErrors.Add($"[{obj.NickName}] {msg}");
-                    AddRuntimeMessage(level, $"Inner \"{obj.NickName}\": {msg}");
-                }
-            }
+            _lastInnerRuntimeErrors.Add(msg);
+            AddRuntimeMessage(level, $"Inner {msg}");
         }
-    }
-
-    // Walks the live inner document and builds a structured text description of its
-    // components and wiring, suitable for injection into a fresh LLM prompt or fix message.
-    private string? DescribeInnerDocumentStructure()
-    {
-        var allObjects = _internalDocument.Objects.ToList();
-        if (allObjects.Count == 0)
-            return null;
-
-        IGH_Param[] inputHooks = _internalDocument.ClusterInputHooks() ?? Array.Empty<GH_ClusterInputHook>();
-        IGH_Param[] outputHooks = _internalDocument.ClusterOutputHooks() ?? Array.Empty<GH_ClusterOutputHook>();
-
-        // All non-hook objects, assigned sequential IDs for wire source notation.
-        var innerObjects = allObjects
-            .Where(o => o is not GH_ClusterInputHook && o is not GH_ClusterOutputHook)
-            .ToList();
-
-        var idByGuid = new Dictionary<Guid, string>(innerObjects.Count);
-        for (int i = 0; i < innerObjects.Count; i++)
-            idByGuid[innerObjects[i].InstanceGuid] = $"comp{i}";
-
-        var sb = new StringBuilder();
-        sb.AppendLine($"  Inputs: {string.Join(", ", inputHooks.Select(h => h.NickName))}");
-        sb.AppendLine($"  Outputs: {string.Join(", ", outputHooks.Select(h => h.NickName))}");
-
-        if (innerObjects.Count > 0)
-        {
-            sb.AppendLine("  Components:");
-            foreach (var obj in innerObjects)
-            {
-                string id = idByGuid[obj.InstanceGuid];
-
-                if (obj is IGH_Component comp)
-                {
-                    // Show each input with its wire source(s) in parentheses.
-                    var inputDescs = comp.Params.Input.Select(p =>
-                    {
-                        var sources = p.Sources
-                            .Select(s => SourceLabel(s, idByGuid, inputHooks))
-                            .ToList();
-                        return sources.Count > 0
-                            ? $"{p.NickName}(←{string.Join(",", sources)})"
-                            : p.NickName;
-                    });
-
-                    var outputNames = string.Join(", ", comp.Params.Output.Select(p => p.NickName));
-                    sb.AppendLine($"    {id} ({comp.Name} \"{comp.NickName}\"): inputs [{string.Join(", ", inputDescs)}]  outputs [{outputNames}]");
-                }
-                else if (obj is IGH_Param param)
-                {
-                    sb.AppendLine($"    {id} (Param \"{param.NickName}\")");
-                }
-            }
-        }
-
-        sb.AppendLine("  Output wiring:");
-        foreach (var hook in outputHooks)
-        {
-            var sources = hook.Sources
-                .Select(s => SourceLabel(s, idByGuid, inputHooks))
-                .ToList();
-            sb.AppendLine($"    {hook.NickName} ← {(sources.Count > 0 ? string.Join(", ", sources) : "(none)")}");
-        }
-
-        return sb.ToString();
-    }
-
-    // Returns a human-readable label for a wire source parameter, using the
-    // sequential IDs assigned during DescribeInnerDocumentStructure().
-    private static string SourceLabel(IGH_Param source, Dictionary<Guid, string> idByGuid, IGH_Param[] inputHooks)
-    {
-        // Check if it's a cluster input hook.
-        if (inputHooks.Any(h => h.InstanceGuid == source.InstanceGuid))
-            return $"input.{source.NickName}";
-
-        // For a component output param, GetTopLevel.DocObject returns the owning component.
-        var ownerObj = source.Attributes?.GetTopLevel?.DocObject;
-        if (ownerObj != null && idByGuid.TryGetValue(ownerObj.InstanceGuid, out var ownerId))
-            return $"{ownerId}.{source.NickName}";
-
-        // Standalone param (e.g. Panel, Param_Number) — the param itself is the object.
-        if (idByGuid.TryGetValue(source.InstanceGuid, out var paramId))
-            return paramId;
-
-        return source.NickName;
     }
 
     // Coordinates the full inner-document build: places objects, wires inputs and output hooks,
@@ -844,226 +744,15 @@ public class ClusterReceiver : ReceiverBase, IGH_DocumentOwner
     {
         WithEventsSuppressed(() =>
         {
-            var (byId, paramById, panelTargets) = PlaceObjects(response.Components);
-            WireComponentInputs(response.Components, byId, paramById);
-            WireOutputHooks(response.Outputs, byId, paramById);
+            var state = GHSystemHelpers.PlaceObjects(_internalDocument, response.Components);
+            GHSystemHelpers.WireComponentInputs(response.Components, state);
+            GHSystemHelpers.WireOutputHooks(response.Outputs, state);
+            _lastClusterErrors.AddRange(state.Errors);
 
             // Assign canvas positions to all inner objects using a left-to-right
             // hierarchical layout based on data-flow depth.
-            HierarchicalLayout.Apply(_internalDocument, panelTargets);
+            HierarchicalLayout.Apply(_internalDocument, state.PanelTargets);
         });
     }
 
-    // Resolves all component proxies from the GH server, adds them to the inner document,
-    // and returns lookup dictionaries for wiring plus panel annotation targets for layout.
-    // Unresolvable component types are recorded in _lastClusterErrors.
-    private (Dictionary<string, IGH_Component> ById, Dictionary<string, IGH_Param> ParamById, Dictionary<Guid, Guid> PanelTargets)
-        PlaceObjects(List<ClusterComponentDef> defs)
-    {
-        var byId = new Dictionary<string, IGH_Component>(StringComparer.OrdinalIgnoreCase);
-        var paramById = new Dictionary<string, IGH_Param>(StringComparer.OrdinalIgnoreCase);
-        var panelTargets = new Dictionary<Guid, Guid>();
-
-        // Pass 1: resolve proxies and separate into IGH_Component vs standalone IGH_Param.
-        // All types are resolved before any are added to the document so that the document
-        // state is not partially mutated if a type lookup fails.
-        var resolvedComponents = new List<(ClusterComponentDef Def, IGH_Component Comp)>();
-        var resolvedParams = new List<(ClusterComponentDef Def, IGH_Param Param)>();
-
-        foreach (var def in defs)
-        {
-            var proxy = Grasshopper.Instances.ComponentServer.FindObjectByName(def.Type, true, true);
-            if (proxy == null)
-            {
-                _lastClusterErrors.Add($"Component type not found: \"{def.Type}\"");
-                continue;
-            }
-
-            var obj = proxy.CreateInstance();
-
-            if (obj is GH_Panel panel)
-            {
-                if (!string.IsNullOrWhiteSpace(def.Nickname))
-                    panel.UserText = def.Nickname;
-                resolvedParams.Add((def, panel));
-            }
-            else if (obj is IGH_Param param)
-            {
-                SetParamValue(param, def.Nickname);
-                resolvedParams.Add((def, param));
-            }
-            else if (obj is IGH_Component comp)
-            {
-                if (def.Nickname != null)
-                    comp.NickName = def.Nickname;
-                resolvedComponents.Add((def, comp));
-            }
-            else
-            {
-                _lastClusterErrors.Add($"\"{def.Type}\" is not a usable GH object");
-            }
-        }
-
-        // Pass 2: add IGH_Component objects to the document.
-        // HierarchicalLayout.Apply will assign final positions after wiring is complete.
-        foreach (var (def, comp) in resolvedComponents)
-        {
-            comp.CreateAttributes();
-            _internalDocument.AddObject(comp, false);
-            byId[def.Id] = comp;
-        }
-
-        // Pass 3: add standalone params and build panel annotation targets.
-        // Panel targets map a panel's InstanceGuid → the component it annotates, used by
-        // HierarchicalLayout to place each panel beside the component it describes.
-        foreach (var (def, param) in resolvedParams)
-        {
-            param.CreateAttributes();
-            _internalDocument.AddObject(param, false);
-            paramById[def.Id] = param;
-
-            if (def.Annotates != null && byId.TryGetValue(def.Annotates, out var targetComp))
-                panelTargets[param.InstanceGuid] = targetComp.InstanceGuid;
-        }
-
-        return (byId, paramById, panelTargets);
-    }
-
-    // Wires each component's inputs according to the LLM-specified wire sources.
-    // Missing target params or unresolvable sources are recorded in _lastClusterErrors.
-    private void WireComponentInputs(
-        List<ClusterComponentDef> defs,
-        Dictionary<string, IGH_Component> byId,
-        Dictionary<string, IGH_Param> paramById)
-    {
-        foreach (var def in defs)
-        {
-            // Skip defs that were not successfully placed (type not found).
-            if (!byId.TryGetValue(def.Id, out var comp))
-                continue;
-
-            foreach (var (nickName, source) in def.Inputs)
-            {
-                // Find the target input param by NickName (case-insensitive fallback).
-                var targetParam = comp.Params.Input.FirstOrDefault(p => p.NickName == nickName)
-                    ?? comp.Params.Input.FirstOrDefault(p => string.Equals(p.NickName, nickName, StringComparison.OrdinalIgnoreCase))
-                    ?? comp.Params.Input.FirstOrDefault(p => string.Equals(p.Name, nickName, StringComparison.OrdinalIgnoreCase));
-
-                if (targetParam == null)
-                {
-                    var available = string.Join(", ", comp.Params.Input.Select(p => p.NickName));
-                    _lastClusterErrors.Add($"Component \"{def.Id}\" ({def.Type}) has no input \"{nickName}\". Available: [{available}]");
-                    continue;
-                }
-
-                var sourceParam = ResolveSource(source, byId, paramById);
-                if (sourceParam == null)
-                {
-                    AddWireSourceError(source, byId);
-                    continue;
-                }
-
-                targetParam.AddSource(sourceParam);
-            }
-        }
-    }
-
-    // Wires each cluster output hook to its source according to the LLM-specified wire sources.
-    // Missing hooks or unresolvable sources are recorded in _lastClusterErrors.
-    private void WireOutputHooks(
-        List<ClusterOutputDef> outputs,
-        Dictionary<string, IGH_Component> byId,
-        Dictionary<string, IGH_Param> paramById)
-    {
-        var outputHooks = _internalDocument.ClusterOutputHooks() ?? Array.Empty<IGH_Param>();
-
-        foreach (var outDef in outputs)
-        {
-            var hook = outputHooks.FirstOrDefault(h => h.NickName == outDef.Name);
-            if (hook == null)
-            {
-                var available = string.Join(", ", outputHooks.Select(h => $"\"{h.NickName}\""));
-                _lastClusterErrors.Add($"Cluster output hook not found: \"{outDef.Name}\". Available: [{available}]");
-                continue;
-            }
-
-            var sourceParam = ResolveSource(outDef.From, byId, paramById);
-            if (sourceParam == null)
-            {
-                AddWireSourceError(outDef.From, byId);
-                continue;
-            }
-
-            hook.AddSource(sourceParam);
-        }
-    }
-
-    // Adds a descriptive wire-source error to _lastClusterErrors.
-    // If the source component ID is found, the available output NickNames are listed so the
-    // LLM can self-correct the output param name on the next autofix pass.
-    private void AddWireSourceError(string source, Dictionary<string, IGH_Component> byId)
-    {
-        int srcDot = source.IndexOf('.');
-        string srcId = srcDot >= 0 ? source[..srcDot] : source;
-
-        if (byId.TryGetValue(srcId, out var srcComp))
-        {
-            var available = string.Join(", ", srcComp.Params.Output.Select(p => p.NickName));
-            _lastClusterErrors.Add($"Wire source \"{source}\" not found. \"{srcId}\" ({srcComp.Name}) has outputs: [{available}]");
-        }
-        else
-        {
-            _lastClusterErrors.Add($"Wire source not found: \"{source}\"");
-        }
-    }
-
-    // Sets persistent data on a standalone parameter component from the nickname string value.
-    private static void SetParamValue(IGH_Param param, string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return;
-
-        if (param is Param_Number numP
-            && double.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out double d))
-            numP.SetPersistentData(new GH_Number(d));
-        else if (param is Param_Integer intP
-            && int.TryParse(value, out int i))
-            intP.SetPersistentData(new GH_Integer(i));
-        else if (param is Param_Boolean boolP)
-            boolP.SetPersistentData(new GH_Boolean(
-                value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) || value.Trim() == "1"));
-        else if (param is Param_String strP)
-            strP.SetPersistentData(new GH_String(value));
-
-        param.NickName = value;
-    }
-
-    // Resolves a wire source string to the corresponding IGH_Param in the inner document.
-    // "input.<name>" → cluster input hook; "<id>.output" → Panel param; "<id>.<nickName>" → component output param.
-    private IGH_Param? ResolveSource(string source, Dictionary<string, IGH_Component> byId, Dictionary<string, IGH_Param> paramById)
-    {
-        int dot = source.IndexOf('.');
-        if (dot < 0)
-            return null;
-
-        string id = source[..dot];
-        string nickName = source[(dot + 1)..];
-
-        if (id.Equals("input", StringComparison.OrdinalIgnoreCase))
-        {
-            return _internalDocument.ClusterInputHooks()
-                ?.FirstOrDefault(h => h.NickName == nickName);
-        }
-
-        // Panels and other standalone params are themselves the output; nickName is ignored.
-        if (paramById.TryGetValue(id, out var param))
-            return param;
-
-        if (byId.TryGetValue(id, out var comp))
-            return comp.Params.Output.FirstOrDefault(p => p.NickName == nickName)
-                ?? comp.Params.Output.FirstOrDefault(p => string.Equals(p.NickName, nickName, StringComparison.OrdinalIgnoreCase))
-                ?? comp.Params.Output.FirstOrDefault(p => string.Equals(p.Name, nickName, StringComparison.OrdinalIgnoreCase));
-
-        return null;
-    }
 }

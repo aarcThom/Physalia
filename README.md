@@ -1,12 +1,4 @@
-```
-██████╗ ██╗  ██╗██╗   ██╗███████╗ █████╗ ██╗     ██╗ █████╗ 
-██╔══██╗██║  ██║╚██╗ ██╔╝██╔════╝██╔══██╗██║     ██║██╔══██╗
-██████╔╝███████║ ╚████╔╝ ███████╗███████║██║     ██║███████║
-██╔═══╝ ██╔══██║  ╚██╔╝  ╚════██║██╔══██║██║     ██║██╔══██║
-██║     ██║  ██║   ██║   ███████║██║  ██║███████╗██║██║  ██║
-╚═╝     ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚══════╝╚═╝╚═╝  ╚═╝
-                                                         
-```
+![Physalia](src/Physalia.GH/Resources/physalia.svg)
 
 > **⚠️ This is a v0.1.0-alpha prototype.** The core functionality works, but the architecture is being rewritten for v0.2. Expect breaking changes. See [Roadmap](#roadmap).
 

@@ -75,6 +75,7 @@ public class PyReceiver : ReceiverBase
             "Generated Python Script",
             "Core")
     {
+        IconPath = "Physalia.GH.Resources.python.png";
     }
 
     // GH COMPONENT OVERRIDES ============================================================================================

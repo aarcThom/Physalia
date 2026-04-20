@@ -103,7 +103,7 @@ public class ClusterReceiver : ReceiverBase, IGH_DocumentOwner
             "Generated Grasshopper Cluster",
             "Core")
     {
-        // IconPath = "Physalia.GH.Resources.microbe.png";
+        IconPath = "Physalia.GH.Resources.cluster.png";
         _internalDocument = MakeFreshDocument();
     }
 

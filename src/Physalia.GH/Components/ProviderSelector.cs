@@ -37,6 +37,7 @@ public class ProviderSelector : PhyBase
     public ProviderSelector()
       : base("Provider", "Pvdr", "The LLM provider from which you will select a model. Right click to set API key if needed.", "Core")
     {
+        IconPath = "Physalia.GH.Resources.provider.png";
         // get the available providers
         _apiKeyResolver = new ApiKeyResolver();
     }

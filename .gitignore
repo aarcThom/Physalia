@@ -419,4 +419,4 @@ FodyWeavers.xsd
 
 # Claude code stuff
 CLAUDE.md
-/.claude
+**/.claude/

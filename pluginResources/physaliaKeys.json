@@ -1,0 +1,32 @@
+{
+  "anthropic": {
+    "api_key": "YOUR_API_KEY_HERE"
+  },
+  "claude code": {
+    "api_key": "NO_API_KEY_NEEDED_JUST_MAKE_SURE_CLAUDE_CODE_IS_RUNNING"
+  },
+  "deepseek": {
+    "api_key": "YOUR_API_KEY_HERE"
+  },
+  "github models": {
+    "api_key": "YOUR_API_KEY_HERE"
+  },
+  "google": {
+    "api_key": "YOUR_API_KEY_HERE"
+  },
+  "groq": {
+    "api_key": "YOUR_API_KEY_HERE"
+  },
+  "ollama": {
+    "api_key": "NO_API_KEY_NEEDED_JUST_MAKE_SURE_OLLAMA_IS_RUNNING"
+  },
+  "openai": {
+    "api_key": "YOUR_API_KEY_HERE"
+  },
+  "opencode zen": {
+    "api_key": "YOUR_API_KEY_HERE"
+  },
+  "openrouter": {
+    "api_key": "YOUR_API_KEY_HERE"
+  }
+}

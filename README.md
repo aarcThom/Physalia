@@ -63,7 +63,7 @@ For providers that require a key:
 
 1. In Grasshopper, right-click the **Provider** component
 2. Select **Edit API Keys File**
-3. Add your API key to the `.txt` file that opens
+3. Add your API key to the 'physaliaKeys.json' file that opens.
 
 For Ollama, ensure Ollama is running locally before launching Grasshopper.
 

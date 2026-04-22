@@ -34,6 +34,8 @@
   
   <ItemGroup>
     <None Remove="Resources\brain.png" />
+    <None Remove="Resources\model.png" />
+    <None Remove="Resources\provider.png" />
     <None Remove="Resources\transmitter.png" />
   </ItemGroup>
   
@@ -56,6 +58,8 @@
 
 	<ItemGroup>
 	  <EmbeddedResource Include="Resources\brain.png" />
+	  <EmbeddedResource Include="Resources\model.png" />
+	  <EmbeddedResource Include="Resources\provider.png" />
 	  <EmbeddedResource Include="Resources\transmitter.png" />
 	</ItemGroup>
     

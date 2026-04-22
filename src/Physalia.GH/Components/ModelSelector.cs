@@ -30,6 +30,7 @@ public class ModelSelector : PhyBase
     public ModelSelector()
         : base("Model", "LLM", "The LLM that you want to work with.", "Core")
     {
+        IconPath = "Physalia.GH.Resources.model.png";
     }
 
     /// <summary>

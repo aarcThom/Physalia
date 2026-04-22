@@ -620,7 +620,7 @@ public class ComposerAttrib : GH_ComponentAttributes
 
         // set input msg based on transmitter status, unless user started entering prompt and clicked away.
         var inputMsg = (!inputPromptCurrent && _composerComponent.UserPromptText != string.Empty) ? _composerComponent.UserPromptText : _inputMsg;
-        graphics.DrawString(inputMsg, GH_FontServer.Console, txtBrush, bounds, fmt);
+        graphics.DrawString(inputMsg, GH_FontServer.ConsoleAdjusted, txtBrush, bounds, fmt);
     }
 
     // the textbox for active input

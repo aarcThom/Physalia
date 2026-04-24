@@ -1,4 +1,4 @@
-![Physalia](src/Physalia.GH/Resources/physalia.svg)
+![Physalia](src/Images/physalia.svg)
 
 > **⚠️ This is a v0.1.0-alpha prototype.** The core functionality works, but the architecture is being rewritten for v0.2. Expect breaking changes. See [Roadmap](#roadmap).
 
@@ -13,6 +13,8 @@ AGPL-3.0 licensed.
 ---
 
 ## What it does
+
+![Physalia](src/Images/overview_components.png)
 
 - Generates Python Script components with correct inputs and outputs from a natural language prompt
 - Generates node-based components
@@ -80,7 +82,7 @@ For Claude Code, ensure `claude` is running in a terminal session before using t
 - BYOK, multi-provider support
 - Local models via Ollama
 - Claude Code SDK support
-- Prototype architecture — functional but not extensible. This was my first time using LLMs to write code - I feel like this code base slipped away form me, but I learnt a lot doing it!!
+- Prototype architecture — functional but not extensible.
 
 ### v0.2.0 — in development ([`dev`](../../tree/dev))
 A ground-up architectural rewrite. v0.2 will support image reference, Grasshopper document awareness, and — most importantly — the ability for the system to reference and build on previously generated components.

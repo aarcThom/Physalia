@@ -6,15 +6,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
-using Physalia.Core.Parsing;
 using Physalia.Core.Prompts;
 using Physalia.Core.Providers;
 using Physalia.GH.Attributes;
-using Physalia.GH.Helpers;
 using Physalia.GH.ParamTypes;
 
 namespace Physalia.GH.Components;
@@ -28,6 +26,7 @@ public class Transmitter : PhyBase
     // FIELDS ==========================================================================================
     private int _maxAutoFixAttemps;
     private Task? _pendingRequest;
+    private CancellationTokenSource? _cts;
     private string? _errorMsg;
     private bool _autoFix;
     private bool _waitingForAutoFix;
@@ -84,10 +83,11 @@ public class Transmitter : PhyBase
     /// <param name="pManager">The GH_InputParamManager for registering input parameters.</param>
     protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new LlmProviderGhParam(), "Llm", "Llm", "Large language model.", GH_ParamAccess.item);
-        pManager.AddParameter(new ConversationGhParam(), "Prompt", "Prt", "The conversation from COMPOSER", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("AutoFix", "Fix", "Set True if you want the LLM to attempt to fix errors as they occur. Defaults to True.", GH_ParamAccess.item, true);
-        pManager.AddIntegerParameter("Fix Attempts", "Fix #", "Number of times you want to send error codes back to the LLM for fixing. Defaults to 3", GH_ParamAccess.item, 3);
+        pManager.AddParameter(new LlmProviderGhParam(), "Model", "llm", "Large language model.", GH_ParamAccess.item);
+        pManager.AddParameter(new ConversationGhParam(), "Composer", "cmpsr", "The conversation from COMPOSER", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("AutoFix", "fix", "Set True if you want the LLM to attempt to fix errors as they occur. Defaults to True.", GH_ParamAccess.item, true);
+        pManager.AddIntegerParameter("Fix Attempts", "fix#", "Number of times you want to send error codes back to the LLM for fixing. Defaults to 3", GH_ParamAccess.item, 3);
+        pManager.AddBooleanParameter("Cancel", "cncl", "Set True to send cancelation token to LLM", GH_ParamAccess.item, false);
     }
 
     /// <summary>
@@ -140,6 +140,13 @@ public class Transmitter : PhyBase
             return;
         }
 
+        bool cancel = false;
+        DA.GetData(4, ref cancel);
+        if (cancel && _pendingRequest != null && !_pendingRequest.IsCompleted)
+        {
+            _cts?.Cancel();
+        }
+
         // error message from original LLM call or auto fix attemps
         if (_errorMsg != null)
         {
@@ -156,8 +163,10 @@ public class Transmitter : PhyBase
 
         if (triggered && (_pendingRequest == null || _pendingRequest.IsCompleted) && !_waitingForAutoFix)
         {
+            _cts?.Dispose();
+            _cts = new CancellationTokenSource();
             _isBusy = true;
-            _pendingRequest = SendUserPromptAsync(convGoo.Value, llmGoo.Value, ReceiverComponent);
+            _pendingRequest = SendUserPromptAsync(convGoo.Value, llmGoo.Value, ReceiverComponent, _cts.Token);
         }
     }
 
@@ -247,7 +256,7 @@ public class Transmitter : PhyBase
     // Entry point for a fresh user prompt. Builds a minimal single-turn context from the
     // receiver's current state and the user's latest message — no prior history — so the LLM
     // always works from an accurate starting point rather than potentially stale prior turns.
-    private async Task SendUserPromptAsync(Conversation conversation, LlmProvider llm, ReceiverBase receiver)
+    private async Task SendUserPromptAsync(Conversation conversation, LlmProvider llm, ReceiverBase receiver, CancellationToken cancellationToken)
     {
         Message = "Calling API";
         _debugLog = string.Empty;
@@ -265,12 +274,12 @@ public class Transmitter : PhyBase
         // Append param constraints so the LLM knows the exact names to preserve.
         var history = PromptHelpers.AppendParamsToLastMessage(freshMessages, receiver.UserParamsPrompt());
 
-        await ExecuteRequestAsync(conversation, llm, receiver, history, attempt: 0);
+        await ExecuteRequestAsync(conversation, llm, receiver, history, attempt: 0, cancellationToken);
     }
 
     // Entry point for an autofix pass. Appends the current error context as a new user turn
     // and sends the full conversation history so the LLM can see what it already tried.
-    private async Task SendAutoFixAsync(Conversation conversation, LlmProvider llm, ReceiverBase receiver, int attempt)
+    private async Task SendAutoFixAsync(Conversation conversation, LlmProvider llm, ReceiverBase receiver, int attempt, CancellationToken cancellationToken)
     {
         Message = $"Fixing ({attempt}/{_maxAutoFixAttemps})";
 
@@ -288,7 +297,7 @@ public class Transmitter : PhyBase
         AppendDebugEntry($"=== Fix message sent ({attempt}/{_maxAutoFixAttemps}) ===", fullFix);
         conversation.AddUserMessage(fullFix, true);
 
-        await ExecuteRequestAsync(conversation, llm, receiver, conversation.LlmMessages, attempt);
+        await ExecuteRequestAsync(conversation, llm, receiver, conversation.LlmMessages, attempt, cancellationToken);
     }
 
     // Shared helper: makes the API call, applies the response, updates conversation history,
@@ -298,11 +307,12 @@ public class Transmitter : PhyBase
         LlmProvider llm,
         ReceiverBase receiver,
         IReadOnlyList<ConversationMessage> messages,
-        int attempt)
+        int attempt,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var rawResult = await llm.SendConversationAsync(receiver.FormatPrompt, messages);
+            var rawResult = await llm.SendConversationAsync(receiver.FormatPrompt, messages, cancellationToken);
 
             receiver.ApplyLlmResponse(rawResult);
             conversation.AddAssistantMessage(rawResult, receiver.LastStatusMessage);
@@ -318,13 +328,20 @@ public class Transmitter : PhyBase
                 OnPingDocument()?.ScheduleSolution(1500, _ =>
                 {
                     _waitingForAutoFix = false;
-                    _pendingRequest = SendAutoFixAsync(conversation, llm, receiver, attempt + 1);
+                    _pendingRequest = SendAutoFixAsync(conversation, llm, receiver, attempt + 1, cancellationToken);
                 });
             }
             else
             {
                 _isBusy = false;
             }
+        }
+        catch (OperationCanceledException)
+        {
+            Message = "Cancelled";
+            _isBusy = false;
+            _waitingForAutoFix = false;
+            ExpireSolution(true);
         }
         catch (Exception ex)
         {

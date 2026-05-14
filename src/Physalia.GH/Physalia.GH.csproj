@@ -7,15 +7,19 @@
         Rhino 8 Windows: net48, net7.0, net7.0-windows, net7.0-windows10.0.22000.0, etc
         Rhino 8 Mac: net7.0, net7.0-macos, net7.0-macos12.0, etc
     -->
-    <TargetFramework>net7.0-windows</TargetFramework>
+    <TargetFrameworks>net7.0-windows;net7.0</TargetFrameworks>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <TargetExt>.gha</TargetExt>
     <NoWarn>NU1701</NoWarn>
-	<!-- We need to supress the below to avoid the system.drawing warnings for Mac. Rhino implements system.drawing in Mac. 
-	https://discourse.mcneel.com/t/system-drawing-common-not-compatible-with-macos-anymore/166565 
+	<!-- Suppress System.Drawing platform warnings — Rhino ships its own compatibility layer on Mac.
+	https://discourse.mcneel.com/t/system-drawing-common-not-compatible-with-macos-anymore/166565
 	-->
 	<NoWarn>$(NoWarn);CA1416</NoWarn>
-	<UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <!-- WinForms only available on the Windows TFM -->
+  <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">
+    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
   
   <PropertyGroup>
@@ -50,10 +54,18 @@
     <ProjectReference Include="..\Physalia.Core\Physalia.Core.csproj" />
   </ItemGroup>
 
-	<ItemGroup>
+	<ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
 		<!-- The Python script execution engine -->
 		<Reference Include="Rhino.Runtime.Code">
 			<HintPath>C:\Program Files\Rhino 8\System\Rhino.Runtime.Code.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+	</ItemGroup>
+
+	<ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
+		<!-- The Python script execution engine — Mac path (best guess, verify against your Rhino 8 install) -->
+		<Reference Include="Rhino.Runtime.Code">
+			<HintPath>/Applications/Rhino 8.app/Contents/Frameworks/RhCore.framework/Versions/Current/Resources/ManagedPlugIns/RhinoCommon.framework/Versions/Current/Rhino.Runtime.Code.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
 	</ItemGroup>

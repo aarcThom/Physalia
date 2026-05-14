@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-namespace Physalia.Core.Conversation;
+namespace Physalia.Core.Conversations;
 
 /// <summary>
 /// A single content block within a conversation message.

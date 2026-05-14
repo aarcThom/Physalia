@@ -3,7 +3,7 @@
 
 using System;
 using Grasshopper.Kernel;
-using Physalia.Core.Conversation;
+using Physalia.Core.Conversations;
 
 namespace Physalia.GH.Components;
 

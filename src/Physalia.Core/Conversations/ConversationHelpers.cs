@@ -3,7 +3,7 @@
 
 using System.Text;
 
-namespace Physalia.Core.Conversation;
+namespace Physalia.Core.Conversations;
 
 /// <summary>
 /// Utility methods for working with <see cref="Conversation"/> instances.

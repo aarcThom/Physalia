@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Windows.Forms;
 using Grasshopper.Kernel;
+using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
@@ -18,6 +19,7 @@ namespace Physalia.GH.Components;
 public class Recorder : PhyBase
 {
     private Conversation _conversation = Conversation.Empty;
+    private string _lastPrompt = string.Empty;
     private bool _lastTrigger;
 
     /// <summary>
@@ -79,7 +81,7 @@ public class Recorder : PhyBase
             {
                 foreach (string fb in feedbackItems)
                 {
-                    if (string.IsNullOrEmpty(fb)) continue;
+                    if (!StringHelpers.IsNonBlank(fb)) continue;
 
                     Role nextRole = _conversation.Count == 0 || _conversation.Messages[_conversation.Count - 1].Role == Role.Assistant
                         ? Role.User
@@ -95,11 +97,12 @@ public class Recorder : PhyBase
                     }
                 }
             }
-            else if (!string.IsNullOrEmpty(prompt))
+            else if (StringHelpers.IsNonBlank(prompt) && !StringHelpers.AreEquivalent(prompt, _lastPrompt))
             {
                 try
                 {
                     _conversation = _conversation.Append(new ConversationMessage(Role.User, prompt));
+                    _lastPrompt = prompt;
                 }
                 catch (InvalidOperationException ex)
                 {

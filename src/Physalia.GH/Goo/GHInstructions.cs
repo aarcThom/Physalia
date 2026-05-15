@@ -40,7 +40,7 @@ public class GH_Instructions : GH_Goo<Instructions>
     public override IGH_Goo Duplicate() => new GH_Instructions(Value);
 
     /// <inheritdoc/>
-    public override string ToString() => Value is null ? "null" : $"Instructions ({Value.Conversation.Count} turns)";
+    public override string ToString() => Value is null ? string.Empty : ConversationHelpers.ToDisplayString(Value.Conversation);
 
     /// <inheritdoc/>
     public override bool Write(GH_IO.Serialization.GH_IWriter writer) => true;

@@ -24,7 +24,7 @@ namespace Physalia.Core.Providers.Anthropic;
 /// Handles HTTP transport, SSE parsing, and message serialisation.
 /// Subclasses override <see cref="BuildRequestBody"/> to inject provider-specific parameters.
 /// </summary>
-public abstract class AnthropicProtocolProvider
+public abstract class AnthropicProtocolProvider : ILlmProvider
 {
     private const string AnthropicVersion = "2023-06-01";
     private const int FallbackMaxTokens = 4096;
@@ -102,15 +102,27 @@ public abstract class AnthropicProtocolProvider
         // max_tokens is required by the Anthropic API.
         int maxTokens = config.MaxTokens > 0 ? config.MaxTokens : FallbackMaxTokens;
 
+        // Anthropic rejects requests that include both temperature and top_p.
+        // top_p < 1.0 means the user has explicitly engaged nucleus sampling — use it exclusively.
+        // Otherwise fall back to temperature.
+        bool useTopP = config.TopP < 1.0f;
+
         var body = new JsonObject
         {
             ["model"] = config.ModelId,
             ["max_tokens"] = maxTokens,
             ["stream"] = true,
-            ["temperature"] = temperature,
-            ["top_p"] = config.TopP,
             ["messages"] = BuildMessagesArray(conversation),
         };
+
+        if (useTopP)
+        {
+            body["top_p"] = config.TopP;
+        }
+        else
+        {
+            body["temperature"] = temperature;
+        }
 
         if (!string.IsNullOrEmpty(systemPrompt))
         {

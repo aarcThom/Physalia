@@ -25,7 +25,7 @@ namespace Physalia.Core.Providers.OpenAiProtocol;
 /// Implements HTTP transport, SSE parsing, and message serialisation once.
 /// Subclasses override <see cref="BuildRequestBody"/> to inject provider-specific parameters.
 /// </summary>
-public abstract class OpenAIProtocolProvider
+public abstract class OpenAIProtocolProvider : ILlmProvider
 {
     /// <summary>
     /// Shared HTTP client. Instantiated once per provider instance and never per-request.

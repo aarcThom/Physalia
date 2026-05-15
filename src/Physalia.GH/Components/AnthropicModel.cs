@@ -9,9 +9,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Special;
-using Physalia.Core.Models.Named;
-using Physalia.Core.Providers.Named;
 using Physalia.Core.Common;
+using Physalia.Core.Config;
+using Physalia.Core.Models.Named;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -157,8 +157,8 @@ public class AnthropicModel : PhyBase
 
         Task.Run(async () =>
         {
-            var provider = new AnthropicProvider();
             var config = new AnthropicConfig(ModelId: string.Empty, ApiKey: apiKey);
+            var provider = LlmProviderFactory.GetProvider(config)!;
             var result = await provider.GetAvailableModelsAsync(config, ct);
 
             if (ct.IsCancellationRequested) return;

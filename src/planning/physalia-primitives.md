@@ -87,7 +87,6 @@ Right Click
 Inputs:
 - `instructions` — string (most probably from recorder or library)
 - `model` — Model record, provider, model id, API key, inference parameters
-- `reference` — file path string, optional, loaded and base64 encoded internally if model is vision-capable
 - `trigger` — boolean from Recorder
 - `cancel` - boolean from button - sends cancel token
 

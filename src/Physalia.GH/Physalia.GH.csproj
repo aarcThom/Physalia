@@ -7,7 +7,9 @@
         Rhino 8 Windows: net48, net7.0, net7.0-windows, net7.0-windows10.0.22000.0, etc
         Rhino 8 Mac: net7.0, net7.0-macos, net7.0-macos12.0, etc
     -->
-    <TargetFrameworks>net7.0-windows;net7.0</TargetFrameworks>
+    <!-- Build only the relevant TFM per OS — each ships WinForms through different paths -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))">net7.0-windows</TargetFrameworks>
+    <TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('Windows'))">net7.0</TargetFrameworks>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <TargetExt>.gha</TargetExt>
     <NoWarn>NU1701</NoWarn>
@@ -30,13 +32,7 @@
     <Description>Description of Physalia.GH</Description>
   </PropertyGroup>
   
-  <ItemGroup>
-    <Compile Remove="Goo\**" />
-    <EmbeddedResource Remove="Goo\**" />
-    <None Remove="Goo\**" />
-  </ItemGroup>
-  
-  <ItemGroup>
+<ItemGroup>
     <None Remove="Resources\brain.png" />
     <None Remove="Resources\cluster.png" />
     <None Remove="Resources\model.png" />

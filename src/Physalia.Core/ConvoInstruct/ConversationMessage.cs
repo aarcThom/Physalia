@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-namespace Physalia.Core.Conversations;
+namespace Physalia.Core.ConvoInstruct;
 
 /// <summary>
 /// A single turn in a conversation, carrying one or more content blocks.

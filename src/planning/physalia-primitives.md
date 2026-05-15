@@ -68,7 +68,6 @@ Inputs:
 
 Outputs:
 - `conversation` — string, full accumulated history
-- `reference` — file path string, optional, passed through from Prompter
 - `trigger` — boolean, passes through to initiate Reasoner call
 
 Right Click

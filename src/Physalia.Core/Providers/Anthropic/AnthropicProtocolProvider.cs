@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -18,34 +17,37 @@ using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Models;
 using Physalia.Core.Models.Protocol;
 
-namespace Physalia.Core.Providers.OpenAiProtocol;
+namespace Physalia.Core.Providers.Anthropic;
 
 /// <summary>
-/// Abstract base class for all providers that speak the OpenAI Chat Completions wire format.
-/// Implements HTTP transport, SSE parsing, and message serialisation once.
+/// Abstract base class for all providers that speak the Anthropic Messages wire format.
+/// Handles HTTP transport, SSE parsing, and message serialisation.
 /// Subclasses override <see cref="BuildRequestBody"/> to inject provider-specific parameters.
 /// </summary>
-public abstract class OpenAIProtocolProvider
+public abstract class AnthropicProtocolProvider
 {
+    private const string AnthropicVersion = "2023-06-01";
+    private const int FallbackMaxTokens = 4096;
+
     /// <summary>
     /// Shared HTTP client. Instantiated once per provider instance and never per-request.
     /// </summary>
     protected readonly HttpClient _httpClient;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="OpenAIProtocolProvider"/> class.
+    /// Initializes a new instance of the <see cref="AnthropicProtocolProvider"/> class.
     /// </summary>
-    protected OpenAIProtocolProvider()
+    protected AnthropicProtocolProvider()
     {
         _httpClient = new HttpClient();
     }
 
     /// <summary>
-    /// Streams an inference call to the provider and yields response chunks as they arrive.
+    /// Streams an inference call to the Anthropic Messages API and yields response chunks as they arrive.
     /// </summary>
     /// <param name="conversation">The conversation history to send.</param>
     /// <param name="systemPrompt">The system prompt, passed at call time and not stored in the conversation.</param>
-    /// <param name="config">Provider configuration. Must be an <see cref="OpenAIProtocolConfig"/> instance.</param>
+    /// <param name="config">Provider configuration. Must be an <see cref="AnthropicProtocolConfig"/> instance.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>An async sequence of result chunks.</returns>
     public async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
@@ -57,15 +59,15 @@ public abstract class OpenAIProtocolProvider
         ArgumentNullException.ThrowIfNull(conversation);
         ArgumentNullException.ThrowIfNull(config);
 
-        if (config is not OpenAIProtocolConfig openAIConfig)
+        if (config is not AnthropicProtocolConfig anthropicConfig)
         {
             yield return new Result<LlmResponseChunk, LlmError>.Err(
                 new LlmError(LlmErrorKind.InvalidRequest,
-                    $"Expected {nameof(OpenAIProtocolConfig)} but received {config.GetType().Name}."));
+                    $"Expected {nameof(AnthropicProtocolConfig)} but received {config.GetType().Name}."));
             yield break;
         }
 
-        var httpResult = await SendHttpRequestAsync(conversation, systemPrompt, openAIConfig, ct);
+        var httpResult = await SendHttpRequestAsync(conversation, systemPrompt, anthropicConfig, ct);
 
         if (httpResult is Result<HttpResponseMessage, LlmError>.Err httpErr)
         {
@@ -83,8 +85,7 @@ public abstract class OpenAIProtocolProvider
     }
 
     /// <summary>
-    /// Builds the JSON request body. Override in subclasses to add or strip provider-specific fields
-    /// (e.g. DeepSeek thinking mode, Ollama keep_alive, OpenRouter provider routing).
+    /// Builds the JSON request body. Override in subclasses to inject provider-specific fields.
     /// </summary>
     /// <param name="conversation">The conversation history.</param>
     /// <param name="systemPrompt">The system prompt.</param>
@@ -93,39 +94,58 @@ public abstract class OpenAIProtocolProvider
     protected virtual JsonObject BuildRequestBody(
         Conversation conversation,
         string systemPrompt,
-        OpenAIProtocolConfig config)
+        AnthropicProtocolConfig config)
     {
-        return new JsonObject
+        // Anthropic temperature is 0.0–1.0. Clamp values that come from a wider range.
+        float temperature = Math.Min(Math.Max(config.Temperature, 0.0f), 1.0f);
+
+        // max_tokens is required by the Anthropic API.
+        int maxTokens = config.MaxTokens > 0 ? config.MaxTokens : FallbackMaxTokens;
+
+        var body = new JsonObject
         {
             ["model"] = config.ModelId,
+            ["max_tokens"] = maxTokens,
             ["stream"] = true,
-            ["max_tokens"] = config.MaxTokens,
-            ["temperature"] = config.Temperature,
+            ["temperature"] = temperature,
             ["top_p"] = config.TopP,
-            ["messages"] = BuildMessagesArray(conversation, systemPrompt),
+            ["messages"] = BuildMessagesArray(conversation),
         };
+
+        if (!string.IsNullOrEmpty(systemPrompt))
+        {
+            body["system"] = systemPrompt;
+        }
+
+        // top_k is optional — omit when zero so the provider default applies.
+        if (config.TopK > 0)
+        {
+            body["top_k"] = config.TopK;
+        }
+
+        return body;
     }
 
     /// <summary>
-    /// Returns the list of model IDs available at the configured endpoint.
-    /// For llama-server this will be a single entry — the model currently loaded.
+    /// Returns the list of model IDs available on the Anthropic API.
     /// </summary>
-    /// <param name="config">Provider configuration. Must be an <see cref="OpenAIProtocolConfig"/> instance.</param>
+    /// <param name="config">Provider configuration. Must be an <see cref="AnthropicProtocolConfig"/> instance.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A list of model ID strings, or an error.</returns>
     public async Task<Result<IReadOnlyList<string>, LlmError>> GetAvailableModelsAsync(
         ModelConfig config,
         CancellationToken ct)
     {
-        if (config is not OpenAIProtocolConfig openAIConfig)
+        if (config is not AnthropicProtocolConfig anthropicConfig)
         {
             return new Result<IReadOnlyList<string>, LlmError>.Err(
                 new LlmError(LlmErrorKind.InvalidRequest,
-                    $"Expected {nameof(OpenAIProtocolConfig)} but received {config.GetType().Name}."));
+                    $"Expected {nameof(AnthropicProtocolConfig)} but received {config.GetType().Name}."));
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{openAIConfig.BaseUrl}/models");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", openAIConfig.ApiKey);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{anthropicConfig.BaseUrl}/models");
+        request.Headers.Add("x-api-key", anthropicConfig.ApiKey);
+        request.Headers.Add("anthropic-version", AnthropicVersion);
 
         try
         {
@@ -171,14 +191,15 @@ public abstract class OpenAIProtocolProvider
     private async Task<Result<HttpResponseMessage, LlmError>> SendHttpRequestAsync(
         Conversation conversation,
         string systemPrompt,
-        OpenAIProtocolConfig config,
+        AnthropicProtocolConfig config,
         CancellationToken ct)
     {
         var body = BuildRequestBody(conversation, systemPrompt, config);
         var json = body.ToJsonString();
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{config.BaseUrl}/chat/completions");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{config.BaseUrl}/messages");
+        request.Headers.Add("x-api-key", config.ApiKey);
+        request.Headers.Add("anthropic-version", AnthropicVersion);
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
         try
@@ -208,13 +229,22 @@ public abstract class OpenAIProtocolProvider
         }
     }
 
+    /// <summary>
+    /// Parses the Anthropic SSE stream. Each event block is delimited by a blank line and
+    /// carries both an "event:" type line and a "data:" JSON payload.
+    /// </summary>
     private static async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> ParseSseStreamAsync(
         Stream stream,
         [EnumeratorCancellation] CancellationToken ct)
     {
         using var reader = new StreamReader(stream);
 
-        while (!ct.IsCancellationRequested)
+        string currentEventType = string.Empty;
+        string currentData = string.Empty;
+        int inputTokens = 0;
+        bool done = false;
+
+        while (!ct.IsCancellationRequested && !done)
         {
             string? line = null;
             bool wasCancelled = false;
@@ -248,18 +278,82 @@ public abstract class OpenAIProtocolProvider
             }
 
             if (line == null) break;
-            if (line.Length == 0) continue;
-            if (!line.StartsWith("data: ", StringComparison.Ordinal)) continue;
 
-            var data = line.Substring(6);
-            if (data == "[DONE]") break;
+            if (line.StartsWith("event: ", StringComparison.Ordinal))
+            {
+                currentEventType = line.Substring(7);
+                continue;
+            }
 
-            Result<LlmResponseChunk, LlmError>? parsed = null;
+            if (line.StartsWith("data: ", StringComparison.Ordinal))
+            {
+                currentData = line.Substring(6);
+                continue;
+            }
+
+            // Blank line signals end of event block.
+            if (line.Length != 0 || currentData.Length == 0) continue;
+
+            string eventType = currentEventType;
+            string data = currentData;
+            currentEventType = string.Empty;
+            currentData = string.Empty;
+
+            // Parse outside any yield so exceptions can be caught cleanly.
+            Result<LlmResponseChunk, LlmError>? chunk = null;
             Exception? parseError = null;
 
             try
             {
-                parsed = ParseSseChunk(data);
+                switch (eventType)
+                {
+                    case "message_start":
+                    {
+                        using var doc = JsonDocument.Parse(data);
+                        var root = doc.RootElement;
+                        if (root.TryGetProperty("message", out var msg) &&
+                            msg.TryGetProperty("usage", out var usage) &&
+                            usage.TryGetProperty("input_tokens", out var it))
+                        {
+                            inputTokens = it.GetInt32();
+                        }
+
+                        break;
+                    }
+
+                    case "content_block_delta":
+                    {
+                        using var doc = JsonDocument.Parse(data);
+                        var root = doc.RootElement;
+                        if (root.TryGetProperty("delta", out var delta) &&
+                            delta.TryGetProperty("type", out var type) &&
+                            type.GetString() == "text_delta" &&
+                            delta.TryGetProperty("text", out var text))
+                        {
+                            chunk = new Result<LlmResponseChunk, LlmError>.Ok(
+                                new LlmResponseChunk(text.GetString(), false, null));
+                        }
+
+                        break;
+                    }
+
+                    case "message_delta":
+                    {
+                        using var doc = JsonDocument.Parse(data);
+                        var root = doc.RootElement;
+                        int outputTokens = 0;
+                        if (root.TryGetProperty("usage", out var usage) &&
+                            usage.TryGetProperty("output_tokens", out var ot))
+                        {
+                            outputTokens = ot.GetInt32();
+                        }
+
+                        chunk = new Result<LlmResponseChunk, LlmError>.Ok(
+                            new LlmResponseChunk(null, true, new LlmUsage(inputTokens, outputTokens)));
+                        done = true;
+                        break;
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -269,13 +363,13 @@ public abstract class OpenAIProtocolProvider
             if (parseError != null)
             {
                 yield return new Result<LlmResponseChunk, LlmError>.Err(
-                    new LlmError(LlmErrorKind.InvalidRequest, $"Failed to parse chunk: {parseError.Message}"));
+                    new LlmError(LlmErrorKind.InvalidRequest, $"Failed to parse event '{eventType}': {parseError.Message}"));
                 yield break;
             }
 
-            if (parsed is not null)
+            if (chunk is not null)
             {
-                yield return parsed;
+                yield return chunk;
             }
         }
 
@@ -286,44 +380,9 @@ public abstract class OpenAIProtocolProvider
         }
     }
 
-    private static Result<LlmResponseChunk, LlmError> ParseSseChunk(string json)
-    {
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-
-        string? contentDelta = null;
-        bool isLast = false;
-
-        if (root.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
-        {
-            var choice = choices[0];
-
-            if (choice.TryGetProperty("delta", out var delta) &&
-                delta.TryGetProperty("content", out var content) &&
-                content.ValueKind == JsonValueKind.String)
-            {
-                contentDelta = content.GetString();
-            }
-
-            if (choice.TryGetProperty("finish_reason", out var finishReason) &&
-                finishReason.ValueKind != JsonValueKind.Null)
-            {
-                isLast = true;
-            }
-        }
-
-        return new Result<LlmResponseChunk, LlmError>.Ok(
-            new LlmResponseChunk(contentDelta, isLast, null));
-    }
-
-    private static JsonArray BuildMessagesArray(Conversation conversation, string systemPrompt)
+    private static JsonArray BuildMessagesArray(Conversation conversation)
     {
         var messages = new JsonArray();
-
-        if (!string.IsNullOrEmpty(systemPrompt))
-        {
-            messages.Add(new JsonObject { ["role"] = "system", ["content"] = systemPrompt });
-        }
 
         foreach (var message in conversation.Messages)
         {
@@ -337,7 +396,7 @@ public abstract class OpenAIProtocolProvider
     {
         var role = message.Role == Role.User ? "user" : "assistant";
 
-        // Single text block: use the compact string form rather than a content array.
+        // Single text block: use the compact string form.
         if (message.Content.Count == 1 && message.Content[0] is TextContent text)
         {
             return new JsonObject { ["role"] = role, ["content"] = text.Text };
@@ -364,22 +423,34 @@ public abstract class OpenAIProtocolProvider
 
             ImageContent { Source: InlineImage img } => new JsonObject
             {
-                ["type"] = "image_url",
-                ["image_url"] = new JsonObject
+                ["type"] = "image",
+                ["source"] = new JsonObject
                 {
-                    ["url"] = $"data:{img.MimeType};base64,{Convert.ToBase64String(img.Data)}",
+                    ["type"] = "base64",
+                    ["media_type"] = img.MimeType,
+                    ["data"] = Convert.ToBase64String(img.Data),
                 },
             },
 
             ImageContent { Source: UrlImage url } => new JsonObject
             {
-                ["type"] = "image_url",
-                ["image_url"] = new JsonObject { ["url"] = url.Url },
+                ["type"] = "image",
+                ["source"] = new JsonObject
+                {
+                    ["type"] = "url",
+                    ["url"] = url.Url,
+                },
             },
 
-            ImageContent { Source: ManagedImage } =>
-                throw new InvalidOperationException(
-                    "OpenAI Chat Completions does not support managed file references. Use InlineImage or UrlImage."),
+            ImageContent { Source: ManagedImage managed } => new JsonObject
+            {
+                ["type"] = "image",
+                ["source"] = new JsonObject
+                {
+                    ["type"] = "file",
+                    ["file_id"] = managed.FileHandle,
+                },
+            },
 
             _ => throw new InvalidOperationException(
                     $"Unsupported content block type: {block.GetType().Name}."),

@@ -2,25 +2,29 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
+using System.Collections.Generic;
+using System.Windows.Forms;
 using Grasshopper.Kernel;
-using Physalia.Core.Conversations;
+using Physalia.Core.ConvoInstruct;
+using Physalia.GH.Goo;
+using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Maintains an append-only conversation history and outputs it as a formatted display string.
+/// Maintains the full conversation history as an append-only log.
+/// Arbitrates between forward data flow (prompt) and returning Feedback signals.
 /// </summary>
 public class Recorder : PhyBase
 {
     private Conversation _conversation = Conversation.Empty;
-    private bool _lastAppend;
-    private bool _lastClear;
+    private bool _lastTrigger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Recorder"/> class.
     /// </summary>
     public Recorder()
-        : base("Recorder", "Rec", "Maintains conversation history as an append-only log.", "Core")
+        : base("Recorder", "Rec", "Maintains the full conversation history as an append-only log.", "Core")
     {
     }
 
@@ -30,45 +34,101 @@ public class Recorder : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("text", "t", "Text to append to the conversation.", GH_ParamAccess.item, string.Empty);
-        pManager.AddBooleanParameter("append", "a", "Appends text to the conversation on rising edge. Alternates between User and Assistant roles.", GH_ParamAccess.item, false);
-        pManager.AddBooleanParameter("clear", "c", "Clears the conversation on rising edge.", GH_ParamAccess.item, false);
+        pManager.AddTextParameter("system prompt", "S", "System prompt from Composer.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("prompt", "P", "User prompt from Prompter.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("feedback", "F", "Feedback strings from paired Feedback components.", GH_ParamAccess.list);
+        pManager.AddBooleanParameter("trigger", "T", "Trigger from Prompter or Feedback. Initiates downstream solve.", GH_ParamAccess.item, false);
+
+        pManager[2].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("text out", "t", "Conversation formatted for display.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Instructions(), "instructions", "I", "Conversation history and system prompt bundled for inference.", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("trigger", "T", "Trigger passed through to Reasoner.", GH_ParamAccess.item);
+    }
+
+    /// <inheritdoc/>
+    public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
+    {
+        base.AppendAdditionalMenuItems(menu);
+        Menu_AppendSeparator(menu);
+        Menu_AppendItem(menu, "Save Conversation", OnSaveConversation);
+        Menu_AppendItem(menu, "Load Conversation", OnLoadConversation);
+        Menu_AppendItem(menu, "Clear Conversation", OnClearConversation);
     }
 
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        string text = string.Empty;
-        bool append = false;
-        bool clear = false;
+        string systemPrompt = string.Empty;
+        string prompt = string.Empty;
+        var feedbackItems = new List<string>();
+        bool trigger = false;
 
-        if (!DA.GetData(0, ref text)) return;
-        if (!DA.GetData(1, ref append)) return;
-        if (!DA.GetData(2, ref clear)) return;
+        DA.GetData(0, ref systemPrompt);
+        DA.GetData(1, ref prompt);
+        DA.GetDataList(2, feedbackItems);
+        if (!DA.GetData(3, ref trigger)) return;
 
-        if (clear && !_lastClear)
+        if (trigger && !_lastTrigger)
         {
-            _conversation = Conversation.Empty;
+            // Feedback takes priority — when feedback is present, the forward prompt is blocked.
+            if (feedbackItems.Count > 0)
+            {
+                foreach (string fb in feedbackItems)
+                {
+                    if (string.IsNullOrEmpty(fb)) continue;
+
+                    Role nextRole = _conversation.Count == 0 || _conversation.Messages[_conversation.Count - 1].Role == Role.Assistant
+                        ? Role.User
+                        : Role.Assistant;
+
+                    try
+                    {
+                        _conversation = _conversation.Append(new ConversationMessage(nextRole, fb));
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, ex.Message);
+                    }
+                }
+            }
+            else if (!string.IsNullOrEmpty(prompt))
+            {
+                try
+                {
+                    _conversation = _conversation.Append(new ConversationMessage(Role.User, prompt));
+                }
+                catch (InvalidOperationException ex)
+                {
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, ex.Message);
+                }
+            }
         }
 
-        if (append && !_lastAppend && !string.IsNullOrEmpty(text))
-        {
-            Role nextRole = _conversation.Count == 0 || _conversation.Messages[_conversation.Count - 1].Role == Role.Assistant
-                ? Role.User
-                : Role.Assistant;
+        _lastTrigger = trigger;
 
-            _conversation = _conversation.Append(new ConversationMessage(nextRole, text));
-        }
+        DA.SetData(0, new GH_Instructions(new Instructions(systemPrompt, _conversation)));
+        DA.SetData(1, trigger);
+    }
 
-        _lastAppend = append;
-        _lastClear = clear;
+    private void OnSaveConversation(object sender, EventArgs e)
+    {
+        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Save Conversation is not yet implemented.");
+        ExpireSolution(true);
+    }
 
-        DA.SetData(0, ConversationHelpers.ToDisplayString(_conversation));
+    private void OnLoadConversation(object sender, EventArgs e)
+    {
+        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Load Conversation is not yet implemented.");
+        ExpireSolution(true);
+    }
+
+    private void OnClearConversation(object sender, EventArgs e)
+    {
+        _conversation = Conversation.Empty;
+        ExpireSolution(true);
     }
 }

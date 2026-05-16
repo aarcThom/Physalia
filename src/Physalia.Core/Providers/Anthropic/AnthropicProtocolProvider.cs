@@ -244,6 +244,7 @@ public abstract class AnthropicProtocolProvider : ILlmProvider
     /// <summary>
     /// Parses the Anthropic SSE stream. Each event block is delimited by a blank line and
     /// carries both an "event:" type line and a "data:" JSON payload.
+    /// Tracks content_block_start/delta/stop events to accumulate tool call arguments.
     /// </summary>
     private static async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> ParseSseStreamAsync(
         Stream stream,
@@ -255,6 +256,12 @@ public abstract class AnthropicProtocolProvider : ILlmProvider
         string currentData = string.Empty;
         int inputTokens = 0;
         bool done = false;
+
+        // Tool call accumulation across content_block_* events.
+        string? pendingToolId = null;
+        string? pendingToolName = null;
+        StringBuilder? pendingToolArgs = null;
+        var completedToolCalls = new List<LlmToolCall>();
 
         while (!ct.IsCancellationRequested && !done)
         {
@@ -311,7 +318,6 @@ public abstract class AnthropicProtocolProvider : ILlmProvider
             currentEventType = string.Empty;
             currentData = string.Empty;
 
-            // Parse outside any yield so exceptions can be caught cleanly.
             Result<LlmResponseChunk, LlmError>? chunk = null;
             Exception? parseError = null;
 
@@ -333,17 +339,63 @@ public abstract class AnthropicProtocolProvider : ILlmProvider
                         break;
                     }
 
+                    case "content_block_start":
+                    {
+                        using var doc = JsonDocument.Parse(data);
+                        var root = doc.RootElement;
+                        if (root.TryGetProperty("content_block", out var cb) &&
+                            cb.TryGetProperty("type", out var typeEl) &&
+                            typeEl.GetString() == "tool_use")
+                        {
+                            pendingToolId = cb.TryGetProperty("id", out var idEl)
+                                ? idEl.GetString() ?? string.Empty
+                                : string.Empty;
+                            pendingToolName = cb.TryGetProperty("name", out var nameEl)
+                                ? nameEl.GetString() ?? string.Empty
+                                : string.Empty;
+                            pendingToolArgs = new StringBuilder();
+                        }
+
+                        break;
+                    }
+
                     case "content_block_delta":
                     {
                         using var doc = JsonDocument.Parse(data);
                         var root = doc.RootElement;
                         if (root.TryGetProperty("delta", out var delta) &&
-                            delta.TryGetProperty("type", out var type) &&
-                            type.GetString() == "text_delta" &&
-                            delta.TryGetProperty("text", out var text))
+                            delta.TryGetProperty("type", out var typeEl))
                         {
-                            chunk = new Result<LlmResponseChunk, LlmError>.Ok(
-                                new LlmResponseChunk(text.GetString(), false, null));
+                            string deltaType = typeEl.GetString() ?? string.Empty;
+
+                            if (deltaType == "text_delta" &&
+                                delta.TryGetProperty("text", out var text))
+                            {
+                                chunk = new Result<LlmResponseChunk, LlmError>.Ok(
+                                    new LlmResponseChunk(text.GetString(), false, null));
+                            }
+                            else if (deltaType == "input_json_delta" &&
+                                delta.TryGetProperty("partial_json", out var partial) &&
+                                pendingToolArgs != null)
+                            {
+                                pendingToolArgs.Append(partial.GetString());
+                            }
+                        }
+
+                        break;
+                    }
+
+                    case "content_block_stop":
+                    {
+                        if (pendingToolId != null && pendingToolArgs != null)
+                        {
+                            completedToolCalls.Add(new LlmToolCall(
+                                pendingToolId,
+                                pendingToolName ?? string.Empty,
+                                pendingToolArgs.ToString()));
+                            pendingToolId = null;
+                            pendingToolName = null;
+                            pendingToolArgs = null;
                         }
 
                         break;
@@ -360,8 +412,12 @@ public abstract class AnthropicProtocolProvider : ILlmProvider
                             outputTokens = ot.GetInt32();
                         }
 
+                        IReadOnlyList<LlmToolCall>? toolCalls = completedToolCalls.Count > 0
+                            ? completedToolCalls
+                            : null;
+
                         chunk = new Result<LlmResponseChunk, LlmError>.Ok(
-                            new LlmResponseChunk(null, true, new LlmUsage(inputTokens, outputTokens)));
+                            new LlmResponseChunk(null, true, new LlmUsage(inputTokens, outputTokens), toolCalls));
                         done = true;
                         break;
                     }
@@ -462,6 +518,23 @@ public abstract class AnthropicProtocolProvider : ILlmProvider
                     ["type"] = "file",
                     ["file_id"] = managed.FileHandle,
                 },
+            },
+
+            // Anthropic uses tool_use / tool_result content block types.
+            ToolCallContent call => new JsonObject
+            {
+                ["type"] = "tool_use",
+                ["id"] = call.Id,
+                ["name"] = call.Name,
+                ["input"] = JsonNode.Parse(call.InputJson) ?? new JsonObject(),
+            },
+
+            ToolResultContent result => new JsonObject
+            {
+                ["type"] = "tool_result",
+                ["tool_use_id"] = result.ToolCallId,
+                ["content"] = result.Content,
+                ["is_error"] = result.IsError,
             },
 
             _ => throw new InvalidOperationException(

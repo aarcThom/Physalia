@@ -43,6 +43,15 @@ public static class ConversationHelpers
                     case ImageContent image:
                         sb.AppendLine(FormatImageSource(image.Source));
                         break;
+                    case ToolCallContent call:
+                        sb.AppendLine($"[Tool call: {call.Name} (id:{call.Id})]");
+                        sb.AppendLine(call.InputJson);
+                        break;
+                    case ToolResultContent result:
+                        string label = result.IsError ? "Tool error" : "Tool result";
+                        sb.AppendLine($"[{label}: id:{result.ToolCallId}]");
+                        sb.AppendLine(result.Content);
+                        break;
                 }
             }
 

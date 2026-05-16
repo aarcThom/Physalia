@@ -24,4 +24,12 @@ public record LlmUsage(int InputTokens, int OutputTokens);
 /// <param name="Usage">
 /// Token usage, populated on the final chunk when the provider includes it.
 /// </param>
-public record LlmResponseChunk(string? ContentDelta, bool IsLast, LlmUsage? Usage);
+/// <param name="ToolCalls">
+/// Tool calls requested by the model, populated on the final chunk when the model
+/// invokes one or more tools. Null when the response contains only text.
+/// </param>
+public record LlmResponseChunk(
+    string? ContentDelta,
+    bool IsLast,
+    LlmUsage? Usage,
+    IReadOnlyList<LlmToolCall>? ToolCalls = null);

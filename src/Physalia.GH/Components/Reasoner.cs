@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,6 +24,7 @@ namespace Physalia.GH.Components;
 public class Reasoner : PhyBase
 {
     private string _response = string.Empty;
+    private IReadOnlyList<LlmToolCall>? _toolCalls;
     private bool _hasNewResult;
     private bool _isRunning;
     private bool _lastTrigger;
@@ -53,8 +56,8 @@ public class Reasoner : PhyBase
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
         pManager.AddTextParameter("response", "R", "Raw LLM response text.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_LlmToolCall(), "tool calls", "TC", "Tool calls requested by the model. Null when the response contains only text.", GH_ParamAccess.list);
         pManager.AddBooleanParameter("trigger", "T", "Fires true once when inference completes.", GH_ParamAccess.item);
-        pManager.AddTextParameter("feedback", "F", "Same as response on success; null on failure or cancellation.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -87,6 +90,7 @@ public class Reasoner : PhyBase
             && modelGoo.Value is ModelConfig config)
         {
             _response = string.Empty;
+            _toolCalls = null;
             _hasNewResult = false;
             StartInference(instructions, config);
         }
@@ -100,12 +104,17 @@ public class Reasoner : PhyBase
         }
 
         bool triggerOut = _hasNewResult;
-        string? feedbackOut = _hasNewResult ? _response : null;
+        var toolCallsOut = _hasNewResult ? _toolCalls : null;
         _hasNewResult = false;
 
         DA.SetData(0, _response);
-        DA.SetData(1, triggerOut);
-        DA.SetData(2, feedbackOut);
+
+        if (toolCallsOut != null)
+        {
+            DA.SetDataList(1, toolCallsOut.Select(tc => new GH_LlmToolCall(tc)));
+        }
+
+        DA.SetData(2, triggerOut);
     }
 
     private void StartInference(Instructions instructions, ModelConfig config)
@@ -129,6 +138,7 @@ public class Reasoner : PhyBase
             }
 
             var sb = new StringBuilder();
+            IReadOnlyList<LlmToolCall>? toolCalls = null;
             bool success = true;
 
             await foreach (var chunk in provider.StreamAsync(
@@ -142,6 +152,11 @@ public class Reasoner : PhyBase
                     if (ok.Value.ContentDelta != null)
                     {
                         sb.Append(ok.Value.ContentDelta);
+                    }
+
+                    if (ok.Value.ToolCalls != null)
+                    {
+                        toolCalls = ok.Value.ToolCalls;
                     }
                 }
                 else if (chunk is Result<LlmResponseChunk, LlmError>.Err err)
@@ -161,6 +176,7 @@ public class Reasoner : PhyBase
             if (success && !ct.IsCancellationRequested)
             {
                 _response = sb.ToString();
+                _toolCalls = toolCalls;
                 _hasNewResult = true;
             }
 

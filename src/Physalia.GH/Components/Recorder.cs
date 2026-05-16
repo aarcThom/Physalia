@@ -9,6 +9,7 @@ using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
+using System.Linq;
 
 namespace Physalia.GH.Components;
 
@@ -38,10 +39,12 @@ public class Recorder : PhyBase
     {
         pManager.AddTextParameter("system prompt", "S", "System prompt from Composer.", GH_ParamAccess.item, string.Empty);
         pManager.AddTextParameter("prompt", "P", "User prompt from Prompter.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("feedback", "F", "Feedback strings from paired Feedback components.", GH_ParamAccess.list);
+        pManager.AddTextParameter("llmResponse", "L", "LLM text response from Reasoner, recorded as an assistant message.", GH_ParamAccess.item, string.Empty);
+        pManager.AddParameter(new Param_LlmToolCall(), "tool call", "TC", "Tool calls from Reasoner to record as an assistant message.", GH_ParamAccess.list);
         pManager.AddBooleanParameter("trigger", "T", "Trigger from Prompter or Feedback. Initiates downstream solve.", GH_ParamAccess.item, false);
 
         pManager[2].Optional = true;
+        pManager[3].Optional = true;
     }
 
     /// <inheritdoc/>
@@ -66,30 +69,71 @@ public class Recorder : PhyBase
     {
         string systemPrompt = string.Empty;
         string prompt = string.Empty;
-        var feedbackItems = new List<string>();
+        string llmResponse = string.Empty;
+        var toolCallItems = new List<GH_LlmToolCall>();
         bool trigger = false;
 
         DA.GetData(0, ref systemPrompt);
         DA.GetData(1, ref prompt);
-        DA.GetDataList(2, feedbackItems);
-        if (!DA.GetData(3, ref trigger)) return;
+        DA.GetData(2, ref llmResponse);
+        DA.GetDataList(3, toolCallItems);
+        if (!DA.GetData(4, ref trigger)) return;
+
+        bool appendedUserMessage = false;
 
         if (trigger && !_lastTrigger)
         {
-            // Feedback takes priority — when feedback is present, the forward prompt is blocked.
-            if (feedbackItems.Count > 0)
-            {
-                foreach (string fb in feedbackItems)
-                {
-                    if (!StringHelpers.IsNonBlank(fb)) continue;
+            // Determine whether the next turn should be User or Assistant.
+            Role nextRole = _conversation.Count == 0 || _conversation.Messages[_conversation.Count - 1].Role == Role.Assistant
+                ? Role.User
+                : Role.Assistant;
 
-                    Role nextRole = _conversation.Count == 0 || _conversation.Messages[_conversation.Count - 1].Role == Role.Assistant
-                        ? Role.User
-                        : Role.Assistant;
+            if (nextRole == Role.Assistant)
+            {
+                // Assistant turn: tool calls take priority over plain text response.
+                var validToolCalls = toolCallItems
+                    .Where(g => g?.Value != null)
+                    .Select(g => g.Value)
+                    .ToList();
+
+                if (validToolCalls.Count > 0)
+                {
+                    var blocks = validToolCalls
+                        .Select(tc => (MessageContent)new ToolCallContent(tc.Id, tc.Name, tc.InputJson))
+                        .ToList();
 
                     try
                     {
-                        _conversation = _conversation.Append(new ConversationMessage(nextRole, fb));
+                        _conversation = _conversation.Append(new ConversationMessage(Role.Assistant, blocks));
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, ex.Message);
+                    }
+                }
+                else if (StringHelpers.IsNonBlank(llmResponse))
+                {
+                    try
+                    {
+                        _conversation = _conversation.Append(new ConversationMessage(Role.Assistant, llmResponse));
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, ex.Message);
+                    }
+                }
+                // Trigger is NOT forwarded when recording an assistant turn.
+            }
+            else
+            {
+                // User turn: prompt only — llmResponse is never a fallback here.
+                if (StringHelpers.IsNonBlank(prompt) && !StringHelpers.AreEquivalent(prompt, _lastPrompt))
+                {
+                    try
+                    {
+                        _conversation = _conversation.Append(new ConversationMessage(Role.User, prompt));
+                        _lastPrompt = prompt;
+                        appendedUserMessage = true;
                     }
                     catch (InvalidOperationException ex)
                     {
@@ -97,24 +141,12 @@ public class Recorder : PhyBase
                     }
                 }
             }
-            else if (StringHelpers.IsNonBlank(prompt) && !StringHelpers.AreEquivalent(prompt, _lastPrompt))
-            {
-                try
-                {
-                    _conversation = _conversation.Append(new ConversationMessage(Role.User, prompt));
-                    _lastPrompt = prompt;
-                }
-                catch (InvalidOperationException ex)
-                {
-                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, ex.Message);
-                }
-            }
         }
 
         _lastTrigger = trigger;
 
         DA.SetData(0, new GH_Instructions(new Instructions(systemPrompt, _conversation)));
-        DA.SetData(1, trigger);
+        DA.SetData(1, appendedUserMessage);
     }
 
     private void OnSaveConversation(object sender, EventArgs e)
@@ -132,6 +164,7 @@ public class Recorder : PhyBase
     private void OnClearConversation(object sender, EventArgs e)
     {
         _conversation = Conversation.Empty;
+        _lastPrompt = string.Empty;
         ExpireSolution(true);
     }
 }

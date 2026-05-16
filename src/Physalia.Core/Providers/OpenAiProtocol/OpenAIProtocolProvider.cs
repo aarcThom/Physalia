@@ -214,6 +214,9 @@ public abstract class OpenAIProtocolProvider : ILlmProvider
     {
         using var reader = new StreamReader(stream);
 
+        // Tool call argument accumulation keyed by the index field in each delta.
+        var toolCallBuilders = new Dictionary<int, (string Id, string Name, StringBuilder Arguments)>();
+
         while (!ct.IsCancellationRequested)
         {
             string? line = null;
@@ -259,7 +262,82 @@ public abstract class OpenAIProtocolProvider : ILlmProvider
 
             try
             {
-                parsed = ParseSseChunk(data);
+                using var doc = JsonDocument.Parse(data);
+                var root = doc.RootElement;
+
+                string? contentDelta = null;
+                bool isLast = false;
+                IReadOnlyList<LlmToolCall>? toolCalls = null;
+
+                if (root.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
+                {
+                    var choice = choices[0];
+
+                    if (choice.TryGetProperty("delta", out var delta))
+                    {
+                        // Text delta.
+                        if (delta.TryGetProperty("content", out var content) &&
+                            content.ValueKind == JsonValueKind.String)
+                        {
+                            contentDelta = content.GetString();
+                        }
+
+                        // Tool call argument deltas — accumulate by index.
+                        if (delta.TryGetProperty("tool_calls", out var tcArray))
+                        {
+                            foreach (var tc in tcArray.EnumerateArray())
+                            {
+                                int index = tc.TryGetProperty("index", out var indexEl)
+                                    ? indexEl.GetInt32() : 0;
+
+                                if (!toolCallBuilders.ContainsKey(index))
+                                {
+                                    string id = tc.TryGetProperty("id", out var idEl)
+                                        ? idEl.GetString() ?? string.Empty : string.Empty;
+                                    string name = tc.TryGetProperty("function", out var fn) &&
+                                        fn.TryGetProperty("name", out var nameEl)
+                                        ? nameEl.GetString() ?? string.Empty : string.Empty;
+                                    toolCallBuilders[index] = (id, name, new StringBuilder());
+                                }
+
+                                // Append argument fragment. StringBuilder is a reference type so
+                                // indexing the dictionary twice is safe — both hits share the object.
+                                if (tc.TryGetProperty("function", out var funcDelta) &&
+                                    funcDelta.TryGetProperty("arguments", out var args) &&
+                                    args.ValueKind == JsonValueKind.String)
+                                {
+                                    toolCallBuilders[index].Arguments.Append(args.GetString());
+                                }
+                            }
+                        }
+                    }
+
+                    if (choice.TryGetProperty("finish_reason", out var finishReason) &&
+                        finishReason.ValueKind != JsonValueKind.Null)
+                    {
+                        isLast = true;
+
+                        if (toolCallBuilders.Count > 0)
+                        {
+                            var calls = new List<LlmToolCall>(toolCallBuilders.Count);
+                            for (int i = 0; i < toolCallBuilders.Count; i++)
+                            {
+                                if (toolCallBuilders.TryGetValue(i, out var b))
+                                {
+                                    calls.Add(new LlmToolCall(b.Id, b.Name, b.Arguments.ToString()));
+                                }
+                            }
+
+                            toolCalls = calls;
+                        }
+                    }
+                }
+
+                if (contentDelta != null || isLast)
+                {
+                    parsed = new Result<LlmResponseChunk, LlmError>.Ok(
+                        new LlmResponseChunk(contentDelta, isLast, null, toolCalls));
+                }
             }
             catch (Exception ex)
             {
@@ -286,36 +364,6 @@ public abstract class OpenAIProtocolProvider : ILlmProvider
         }
     }
 
-    private static Result<LlmResponseChunk, LlmError> ParseSseChunk(string json)
-    {
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-
-        string? contentDelta = null;
-        bool isLast = false;
-
-        if (root.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
-        {
-            var choice = choices[0];
-
-            if (choice.TryGetProperty("delta", out var delta) &&
-                delta.TryGetProperty("content", out var content) &&
-                content.ValueKind == JsonValueKind.String)
-            {
-                contentDelta = content.GetString();
-            }
-
-            if (choice.TryGetProperty("finish_reason", out var finishReason) &&
-                finishReason.ValueKind != JsonValueKind.Null)
-            {
-                isLast = true;
-            }
-        }
-
-        return new Result<LlmResponseChunk, LlmError>.Ok(
-            new LlmResponseChunk(contentDelta, isLast, null));
-    }
-
     private static JsonArray BuildMessagesArray(Conversation conversation, string systemPrompt)
     {
         var messages = new JsonArray();
@@ -327,7 +375,92 @@ public abstract class OpenAIProtocolProvider : ILlmProvider
 
         foreach (var message in conversation.Messages)
         {
-            messages.Add(BuildMessage(message));
+            if (message.Role == Role.Assistant)
+            {
+                // Separate tool calls from other content — tool calls go in tool_calls[], not content[].
+                var toolCalls = new List<ToolCallContent>();
+                var otherContent = new List<MessageContent>();
+
+                foreach (var block in message.Content)
+                {
+                    if (block is ToolCallContent tc) toolCalls.Add(tc);
+                    else otherContent.Add(block);
+                }
+
+                if (toolCalls.Count > 0)
+                {
+                    var toolCallsArray = new JsonArray();
+                    foreach (var call in toolCalls)
+                    {
+                        toolCallsArray.Add(new JsonObject
+                        {
+                            ["id"] = call.Id,
+                            ["type"] = "function",
+                            ["function"] = new JsonObject
+                            {
+                                ["name"] = call.Name,
+                                ["arguments"] = call.InputJson,
+                            },
+                        });
+                    }
+
+                    var assistantMsg = new JsonObject
+                    {
+                        ["role"] = "assistant",
+                        ["tool_calls"] = toolCallsArray,
+                    };
+
+                    if (otherContent.Count == 1 && otherContent[0] is TextContent singleText)
+                    {
+                        assistantMsg["content"] = singleText.Text;
+                    }
+                    else if (otherContent.Count > 0)
+                    {
+                        var contentArray = new JsonArray();
+                        foreach (var block in otherContent) contentArray.Add(BuildContentBlock(block));
+                        assistantMsg["content"] = contentArray;
+                    }
+
+                    messages.Add(assistantMsg);
+                }
+                else
+                {
+                    messages.Add(BuildMessage(message));
+                }
+            }
+            else
+            {
+                // User messages: tool results become separate role:tool messages.
+                var toolResults = new List<ToolResultContent>();
+                var regularContent = new List<MessageContent>();
+
+                foreach (var block in message.Content)
+                {
+                    if (block is ToolResultContent tr) toolResults.Add(tr);
+                    else regularContent.Add(block);
+                }
+
+                foreach (var result in toolResults)
+                {
+                    messages.Add(new JsonObject
+                    {
+                        ["role"] = "tool",
+                        ["tool_call_id"] = result.ToolCallId,
+                        ["content"] = result.Content,
+                    });
+                }
+
+                if (regularContent.Count == 1 && regularContent[0] is TextContent singleText)
+                {
+                    messages.Add(new JsonObject { ["role"] = "user", ["content"] = singleText.Text });
+                }
+                else if (regularContent.Count > 0)
+                {
+                    var contentArray = new JsonArray();
+                    foreach (var block in regularContent) contentArray.Add(BuildContentBlock(block));
+                    messages.Add(new JsonObject { ["role"] = "user", ["content"] = contentArray });
+                }
+            }
         }
 
         return messages;
@@ -380,6 +513,15 @@ public abstract class OpenAIProtocolProvider : ILlmProvider
             ImageContent { Source: ManagedImage } =>
                 throw new InvalidOperationException(
                     "OpenAI Chat Completions does not support managed file references. Use InlineImage or UrlImage."),
+
+            // Tool calls and results are handled at the message level, not as content blocks.
+            ToolCallContent _ =>
+                throw new InvalidOperationException(
+                    "ToolCallContent must be serialised via the tool_calls message field, not as a content block."),
+
+            ToolResultContent _ =>
+                throw new InvalidOperationException(
+                    "ToolResultContent must be serialised as a role:tool message, not as a content block."),
 
             _ => throw new InvalidOperationException(
                     $"Unsupported content block type: {block.GetType().Name}."),

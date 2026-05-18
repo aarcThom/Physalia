@@ -3,6 +3,7 @@
 
 using System;
 using Grasshopper.Kernel;
+using Physalia.GH.Attributes;
 
 namespace Physalia.GH.Components;
 
@@ -25,6 +26,12 @@ public class FeedbackCollector : PhyBase
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("97C158C6-EDE4-4521-A666-EB76D2E85FB6");
+
+    /// <inheritdoc/>
+    public override void CreateAttributes()
+    {
+        m_attributes = new FeedbackCollectorAttrib(this);
+    }
 
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)

@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -61,23 +60,9 @@ public class AnthropicModel : PhyBase
     {
         base.AddedToDocument(document);
 
-        var modelParam = Params.Input[1];
-        if (modelParam.SourceCount > 0)
-        {
-            return;
-        }
+        if (Params.Input[1].SourceCount > 0) return;
 
-        var list = new GH_ValueList();
-        list.CreateAttributes();
-        list.ListItems.Clear();
-        list.ListItems.Add(new GH_ValueListItem("Enter API key", "\"\""));
-        list.ListMode = GH_ValueListMode.DropDown;
-        list.Attributes.Pivot = new PointF(
-            Attributes.Pivot.X - 300,
-            Attributes.Pivot.Y);
-
-        document.AddObject(list, false);
-        modelParam.AddSource(list);
+        ComponentHelpers.ValueListAdd(this, document, 1, "Enter API key");
     }
 
     /// <inheritdoc/>

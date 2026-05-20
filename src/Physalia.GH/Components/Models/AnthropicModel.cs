@@ -33,7 +33,7 @@ public class AnthropicModel : PhyBase
     /// Initializes a new instance of the <see cref="AnthropicModel"/> class.
     /// </summary>
     public AnthropicModel()
-        : base("Anthropic Model", "Anth", "Configures an Anthropic model and fetches available models from the API.", "Config")
+        : base("Anthropic Model", "Anth", "Configures an Anthropic model and fetches available models from the API.", "Models")
     {
     }
 
@@ -43,14 +43,14 @@ public class AnthropicModel : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("api key", "k", "Anthropic API key.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("model", "m", "Model ID. Connect the auto-placed value list or wire any string.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("API Key", "k", "Anthropic API key.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Model", "m", "Model ID. Connect the auto-placed value list or wire any string.", GH_ParamAccess.item, string.Empty);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ModelConfig(), "model", "M", "Configured Anthropic model.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Configured Anthropic model.", GH_ParamAccess.item);
     }
 
     /// <summary>

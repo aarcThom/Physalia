@@ -46,18 +46,18 @@ public class Reasoner : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Instructions(), "instructions", "I", "Conversation history and system prompt from Recorder.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_ModelConfig(), "model", "M", "Model configuration from an Anthropic Model or Tweaker component.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("trigger", "T", "Boolean trigger from Recorder. Rising edge starts inference.", GH_ParamAccess.item, false);
-        pManager.AddBooleanParameter("cancel", "X", "Boolean button. Rising edge cancels the active inference call.", GH_ParamAccess.item, false);
+        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Conversation history and system prompt from Recorder.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Model configuration from an Anthropic Model or Tweaker component.", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("Trigger", "T", "Boolean trigger from Recorder. Rising edge starts inference.", GH_ParamAccess.item, false);
+        pManager.AddBooleanParameter("Cancel", "X", "Boolean button. Rising edge cancels the active inference call.", GH_ParamAccess.item, false);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("response", "R", "Raw LLM response text.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_LlmToolCall(), "tool calls", "TC", "Tool calls requested by the model. Null when the response contains only text.", GH_ParamAccess.list);
-        pManager.AddBooleanParameter("trigger", "T", "Fires true once when inference completes.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Response", "R", "Raw LLM response text.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_LlmToolCall(), "Tool Calls", "TC", "Tool calls requested by the model. Null when the response contains only text.", GH_ParamAccess.list);
+        pManager.AddBooleanParameter("Trigger", "T", "Fires true once when inference completes.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

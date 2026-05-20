@@ -45,8 +45,8 @@ public class Feedback : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("data", "D", "Feedback string to route wirelessly to paired Feedback Collectors.", GH_ParamAccess.item, string.Empty);
-        pManager.AddBooleanParameter("trigger", "T", "Rising edge routes data to all paired Feedback Collectors.", GH_ParamAccess.item, false);
+        pManager.AddTextParameter("Data", "D", "Feedback string to route wirelessly to paired Feedback Collectors.", GH_ParamAccess.item, string.Empty);
+        pManager.AddBooleanParameter("Trigger", "T", "Rising edge routes data to all paired Feedback Collectors.", GH_ParamAccess.item, false);
     }
 
     /// <inheritdoc/>

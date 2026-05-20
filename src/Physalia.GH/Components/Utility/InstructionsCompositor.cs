@@ -28,14 +28,14 @@ public class InstructionsCompositor : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Conversation(), "conversation", "C", "The conversation history.", GH_ParamAccess.item);
-        pManager.AddTextParameter("system prompt", "S", "The system prompt string.", GH_ParamAccess.item, string.Empty);
+        pManager.AddParameter(new Param_Conversation(), "Conversation", "C", "The conversation history.", GH_ParamAccess.item);
+        pManager.AddTextParameter("System Prompt", "S", "The system prompt string.", GH_ParamAccess.item, string.Empty);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Instructions(), "instructions", "I", "The assembled Instructions for inference.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "The assembled Instructions for inference.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

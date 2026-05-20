@@ -28,14 +28,14 @@ public class MessageCompositor : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("role", "R", "The role for this turn: User or Assistant.", GH_ParamAccess.item, "User");
-        pManager.AddTextParameter("content", "C", "The text content for this turn.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Role", "R", "The role for this turn: User or Assistant.", GH_ParamAccess.item, "User");
+        pManager.AddTextParameter("Content", "C", "The text content for this turn.", GH_ParamAccess.item, string.Empty);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ConversationMessage(), "message", "M", "The composed conversation message.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ConversationMessage(), "Message", "M", "The composed conversation message.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

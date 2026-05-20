@@ -29,13 +29,13 @@ public class ConversationCompositor : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ConversationMessage(), "messages", "M", "Ordered list of conversation turns. Roles must alternate User/Assistant.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_ConversationMessage(), "Messages", "M", "Ordered list of conversation turns. Roles must alternate User/Assistant.", GH_ParamAccess.list);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Conversation(), "conversation", "C", "The assembled conversation.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Conversation(), "Conversation", "C", "The assembled conversation.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

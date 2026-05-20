@@ -28,14 +28,14 @@ public class MessageDecompositor : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ConversationMessage(), "message", "M", "The conversation message to decompose.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ConversationMessage(), "Message", "M", "The conversation message to decompose.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("role", "R", "The role of this turn: User or Assistant.", GH_ParamAccess.item);
-        pManager.AddTextParameter("content", "C", "The content of this turn rendered as a display string.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Role", "R", "The role of this turn: User or Assistant.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Content", "C", "The content of this turn rendered as a display string.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

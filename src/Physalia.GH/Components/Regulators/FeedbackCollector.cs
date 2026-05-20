@@ -42,8 +42,8 @@ public class FeedbackCollector : PhyBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("data", "D", "Last feedback value received from paired Feedback components.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("trigger", "T", "True momentarily when any paired Feedback component fires.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Data", "D", "Last feedback value received from paired Feedback components.", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("Trigger", "T", "True momentarily when any paired Feedback component fires.", GH_ParamAccess.item);
     }
 
     /// <summary>

@@ -29,14 +29,14 @@ public class InstructionsDecompositor : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Instructions(), "instructions", "I", "Instructions to decompose.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Instructions to decompose.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("system prompt", "S", "The system prompt string.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_ConversationMessage(), "messages", "M", "The ordered list of conversation turns.", GH_ParamAccess.list);
+        pManager.AddTextParameter("System Prompt", "S", "The system prompt string.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ConversationMessage(), "Messages", "M", "The ordered list of conversation turns.", GH_ParamAccess.list);
     }
 
     /// <inheritdoc/>

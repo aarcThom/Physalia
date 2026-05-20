@@ -18,7 +18,7 @@ public class AnthropicTweaker : PhyBase
     /// Initializes a new instance of the <see cref="AnthropicTweaker"/> class.
     /// </summary>
     public AnthropicTweaker()
-        : base("Anthropic Tweaker", "AnthTwk", "Adjusts temperature, top-p, and top-k on an Anthropic model configuration.", "Config")
+        : base("Anthropic Tweaker", "AnthTwk", "Adjusts temperature, top-p, and top-k on an Anthropic model configuration.", "Models")
     {
     }
 
@@ -28,16 +28,16 @@ public class AnthropicTweaker : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ModelConfig(), "model", "M", "Anthropic model configuration to adjust.", GH_ParamAccess.item);
-        pManager.AddNumberParameter("temperature", "t", "Sampling temperature (0.0–1.0). Clamped on intake.", GH_ParamAccess.item, 1.0);
-        pManager.AddNumberParameter("top p", "p", "Nucleus sampling threshold (0.0–1.0).", GH_ParamAccess.item, 1.0);
-        pManager.AddIntegerParameter("top k", "k", "Top-K sampling pool size. Set to 0 to use the provider default.", GH_ParamAccess.item, 0);
+        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Anthropic model configuration to adjust.", GH_ParamAccess.item);
+        pManager.AddNumberParameter("Temperature", "t", "Sampling temperature (0.0–1.0). Clamped on intake.", GH_ParamAccess.item, 1.0);
+        pManager.AddNumberParameter("Top P", "p", "Nucleus sampling threshold (0.0–1.0).", GH_ParamAccess.item, 1.0);
+        pManager.AddIntegerParameter("Top K", "k", "Top-K sampling pool size. Set to 0 to use the provider default.", GH_ParamAccess.item, 0);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ModelConfig(), "model", "M", "Adjusted Anthropic model configuration.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Adjusted Anthropic model configuration.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

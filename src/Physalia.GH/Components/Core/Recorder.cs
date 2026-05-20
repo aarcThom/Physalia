@@ -37,11 +37,11 @@ public class Recorder : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("system prompt", "S", "System prompt from Composer.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("prompt", "P", "User prompt from Prompter.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("llmResponse", "L", "LLM text response from Reasoner, recorded as an assistant message.", GH_ParamAccess.item, string.Empty);
-        pManager.AddParameter(new Param_LlmToolCall(), "tool call", "TC", "Tool calls from Reasoner to record as an assistant message.", GH_ParamAccess.list);
-        pManager.AddBooleanParameter("trigger", "T", "Trigger from Prompter or Feedback. Initiates downstream solve.", GH_ParamAccess.item, false);
+        pManager.AddTextParameter("System Prompt", "S", "System prompt from Composer.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Prompt", "P", "User prompt from Prompter.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("LLM Response", "L", "LLM text response from Reasoner, recorded as an assistant message.", GH_ParamAccess.item, string.Empty);
+        pManager.AddParameter(new Param_LlmToolCall(), "Tool Call", "TC", "Tool calls from Reasoner to record as an assistant message.", GH_ParamAccess.list);
+        pManager.AddBooleanParameter("Trigger", "T", "Trigger from Prompter or Feedback. Initiates downstream solve.", GH_ParamAccess.item, false);
 
         pManager[2].Optional = true;
         pManager[3].Optional = true;
@@ -50,8 +50,8 @@ public class Recorder : PhyBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Instructions(), "instructions", "I", "Conversation history and system prompt bundled for inference.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("trigger", "T", "Trigger passed through to Reasoner.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Conversation history and system prompt bundled for inference.", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("Trigger", "T", "Trigger passed through to Reasoner.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

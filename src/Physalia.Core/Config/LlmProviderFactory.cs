@@ -5,6 +5,7 @@ using Physalia.Core.Models;
 using Physalia.Core.Models.Named;
 using Physalia.Core.Providers;
 using Physalia.Core.Providers.Named;
+using Physalia.Core.Models.Protocol;
 
 namespace Physalia.Core.Config;
 
@@ -16,6 +17,7 @@ public static class LlmProviderFactory
 {
     private static readonly AnthropicProvider _anthropic = new();
     private static readonly OpenAICompatibleProvider _openAICompatible = new();
+    private static readonly GeminiProvider _gemini = new();
 
     /// <summary>
     /// Returns the provider for the given config, or null if the config type is not recognised.
@@ -24,9 +26,10 @@ public static class LlmProviderFactory
     /// <returns>A shared provider instance, or null.</returns>
     public static ILlmProvider? GetProvider(ModelConfig config) => config switch
     {
-        AnthropicConfig         => _anthropic,
-        OpenAICompatibleConfig  => _openAICompatible,
-        LlamaCppConfig          => _openAICompatible,
-        _                       => null,
+        AnthropicConfig             => _anthropic,
+        GeminiProtocolConfig        => _gemini,
+        OpenAICompatibleConfig      => _openAICompatible,
+        LlamaCppConfig              => _openAICompatible,
+        _                           => null,
     };
 }

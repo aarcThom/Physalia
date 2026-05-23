@@ -14,11 +14,13 @@ namespace Physalia.Core.Models.Named;
 /// <param name="BaseUrl">API base URL. Defaults to "https://generativelanguage.googleapis.com/v1beta".</param>
 /// <param name="Temperature">Sampling temperature in range 0.0–2.0. Defaults to 1.0.</param>
 /// <param name="TopP">Nucleus sampling threshold. Defaults to 0.95.</param>
+/// <param name="TopK">Top-K sampling pool size. Set to 0 to use the provider default.</param>
 public record GeminiConfig(
     string ModelId,
     string ApiKey,
     int MaxTokens = 8192,
     string BaseUrl = "https://generativelanguage.googleapis.com/v1beta",
     float Temperature = 1.0f,
-    float TopP = 0.95f)
-    : GeminiProtocolConfig(ModelId, ApiKey, MaxTokens, BaseUrl, Temperature, TopP);
+    float TopP = 0.95f,
+    int TopK = 0)
+    : GeminiProtocolConfig(ModelId, ApiKey, MaxTokens, BaseUrl, Temperature, TopP, TopK);

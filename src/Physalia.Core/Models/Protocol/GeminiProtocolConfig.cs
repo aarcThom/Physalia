@@ -17,11 +17,16 @@ namespace Physalia.Core.Models.Protocol;
 /// </param>
 /// <param name="Temperature">Sampling temperature in the range 0.0–2.0.</param>
 /// <param name="TopP">Nucleus sampling threshold in the range 0.0–1.0.</param>
+/// <param name="TopK">
+/// Limits the sampling pool to the top-K tokens before nucleus sampling is applied.
+/// Set to 0 to omit from the request (provider default applies).
+/// </param>
 public abstract record GeminiProtocolConfig(
     string ModelId,
     string ApiKey,
     int MaxTokens,
     string BaseUrl,
     float Temperature,
-    float TopP)
+    float TopP,
+    int TopK)
     : ModelConfig(ModelId, ApiKey, MaxTokens);

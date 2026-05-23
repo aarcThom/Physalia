@@ -16,10 +16,14 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Maintains the full conversation history as an append-only log.
 /// Arbitrates between forward data flow (prompt) and returning Feedback signals.
+/// An optional Conversation override replaces the active conversation (for compaction)
+/// while the Recorded History output preserves every message ever seen.
 /// </summary>
 public class Recorder : PhyBase
 {
     private Conversation _conversation = Conversation.Empty;
+    private Conversation _recordedHistory = Conversation.Empty;
+    private Conversation? _lastOverride;
     private string _lastPrompt = string.Empty;
     private bool _lastTrigger;
 
@@ -42,9 +46,11 @@ public class Recorder : PhyBase
         pManager.AddTextParameter("LLM Response", "L", "LLM text response from Reasoner, recorded as an assistant message.", GH_ParamAccess.item, string.Empty);
         pManager.AddParameter(new Param_LlmToolCall(), "Tool Call", "TC", "Tool calls from Reasoner to record as an assistant message.", GH_ParamAccess.list);
         pManager.AddBooleanParameter("Trigger", "T", "Trigger from Prompter or Feedback. Initiates downstream solve.", GH_ParamAccess.item, false);
+        pManager.AddParameter(new Param_Conversation(), "Conversation", "C", "Optional compacted conversation. Replaces the active conversation while all messages are preserved in Recorded History.", GH_ParamAccess.item);
 
         pManager[2].Optional = true;
         pManager[3].Optional = true;
+        pManager[5].Optional = true;
     }
 
     /// <inheritdoc/>
@@ -52,6 +58,7 @@ public class Recorder : PhyBase
     {
         pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Conversation history and system prompt bundled for inference.", GH_ParamAccess.item);
         pManager.AddBooleanParameter("Trigger", "T", "Trigger passed through to Reasoner.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Conversation(), "Recorded History", "H", "Full conversation history including all messages before and after compaction.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -79,6 +86,30 @@ public class Recorder : PhyBase
         DA.GetDataList(3, toolCallItems);
         if (!DA.GetData(4, ref trigger)) return;
 
+        // Apply compacted conversation override when a new one arrives.
+        var overrideGoo = new GH_Conversation();
+        bool hasOverride = DA.GetData(5, ref overrideGoo);
+        Conversation? overrideConversation = hasOverride ? overrideGoo?.Value : null;
+
+        if (overrideConversation is not null && !ReferenceEquals(overrideConversation, _lastOverride))
+        {
+            _lastOverride = overrideConversation;
+            _conversation = overrideConversation;
+
+            // Absorb the compacted conversation into the recorded history so no messages are lost.
+            foreach (var msg in overrideConversation.Messages)
+            {
+                try
+                {
+                    _recordedHistory = _recordedHistory.Append(msg);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"Recorded history skipped a message during compaction: {ex.Message}");
+                }
+            }
+        }
+
         bool appendedUserMessage = false;
 
         if (trigger && !_lastTrigger)
@@ -102,9 +133,11 @@ public class Recorder : PhyBase
                         .Select(tc => (MessageContent)new ToolCallContent(tc.Id, tc.Name, tc.InputJson))
                         .ToList();
 
+                    var message = new ConversationMessage(Role.Assistant, blocks);
                     try
                     {
-                        _conversation = _conversation.Append(new ConversationMessage(Role.Assistant, blocks));
+                        _conversation = _conversation.Append(message);
+                        _recordedHistory = _recordedHistory.Append(message);
                     }
                     catch (InvalidOperationException ex)
                     {
@@ -113,9 +146,11 @@ public class Recorder : PhyBase
                 }
                 else if (StringHelpers.IsNonBlank(llmResponse))
                 {
+                    var message = new ConversationMessage(Role.Assistant, llmResponse);
                     try
                     {
-                        _conversation = _conversation.Append(new ConversationMessage(Role.Assistant, llmResponse));
+                        _conversation = _conversation.Append(message);
+                        _recordedHistory = _recordedHistory.Append(message);
                     }
                     catch (InvalidOperationException ex)
                     {
@@ -129,9 +164,11 @@ public class Recorder : PhyBase
                 // User turn: prompt only — llmResponse is never a fallback here.
                 if (StringHelpers.IsNonBlank(prompt) && !StringHelpers.AreEquivalent(prompt, _lastPrompt))
                 {
+                    var message = new ConversationMessage(Role.User, prompt);
                     try
                     {
-                        _conversation = _conversation.Append(new ConversationMessage(Role.User, prompt));
+                        _conversation = _conversation.Append(message);
+                        _recordedHistory = _recordedHistory.Append(message);
                         _lastPrompt = prompt;
                         appendedUserMessage = true;
                     }
@@ -147,6 +184,7 @@ public class Recorder : PhyBase
 
         DA.SetData(0, new GH_Instructions(new Instructions(systemPrompt, _conversation)));
         DA.SetData(1, appendedUserMessage);
+        DA.SetData(2, new GH_Conversation(_recordedHistory));
     }
 
     private void OnSaveConversation(object sender, EventArgs e)
@@ -164,6 +202,8 @@ public class Recorder : PhyBase
     private void OnClearConversation(object sender, EventArgs e)
     {
         _conversation = Conversation.Empty;
+        _recordedHistory = Conversation.Empty;
+        _lastOverride = null;
         _lastPrompt = string.Empty;
         ExpireSolution(true);
     }

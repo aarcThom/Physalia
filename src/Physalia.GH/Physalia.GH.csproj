@@ -79,5 +79,16 @@
 	<Target Name="PreBuild" BeforeTargets="PreBuildEvent">
 		<Exec Command="python &quot;$(SolutionDir)scripts\update_model_info.py&quot; &quot;$(TargetDir)model_info.json&quot;" ContinueOnError="WarnAndContinue" />
 	</Target>
-  
+
+	<!-- Copy the Files folder (skills, schemas, clusters, receivers, API keys) to the output directory. -->
+	<Target Name="CopyLibraryFiles" AfterTargets="Build">
+		<ItemGroup>
+			<LibraryFiles Include="$(MSBuildProjectDirectory)\..\..\Files\**\*" />
+		</ItemGroup>
+		<Copy
+			SourceFiles="@(LibraryFiles)"
+			DestinationFiles="@(LibraryFiles->'$(TargetDir)Files\%(RecursiveDir)%(Filename)%(Extension)')"
+			SkipUnchangedFiles="true" />
+	</Target>
+
 </Project>

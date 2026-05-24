@@ -1,0 +1,14 @@
+# Physalia API Key Configuration
+# Copy this file to API_KEY_CONFIG.YAML and fill in your keys.
+# API_KEY_CONFIG.YAML is gitignored — never commit your actual keys.
+#
+# Resolution order: environment variable wins over this file.
+# Keys must match the conventional environment variable name for each provider.
+
+ANTHROPIC_API_KEY: ""
+OPENAI_API_KEY: ""
+GEMINI_API_KEY: ""
+GROQ_API_KEY: ""
+OPENROUTER_API_KEY: ""
+DEEPSEEK_API_KEY: ""
+OLLAMA_API_KEY: ""

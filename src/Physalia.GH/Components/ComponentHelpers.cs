@@ -18,13 +18,15 @@ internal static class ComponentHelpers
     /// <param name="paramIndex">Index of the input parameter to wire the list to.</param>
     /// <param name="placeholder">Label and value for the initial placeholder item.</param>
     /// <param name="xOffset">Horizontal offset from the component pivot (negative = left).</param>
+    /// <param name="yOffset">Vertical offset from the component pivot (positive = down).</param>
     /// <returns>The newly created value list.</returns>
     internal static GH_ValueList ValueListAdd(
         GH_Component component,
         GH_Document document,
         int paramIndex,
         string placeholder,
-        float xOffset = -300f)
+        float xOffset = -300f,
+        float yOffset = 0f)
     {
         var list = new GH_ValueList();
         list.CreateAttributes();
@@ -33,7 +35,7 @@ internal static class ComponentHelpers
         list.ListMode = GH_ValueListMode.DropDown;
         list.Attributes.Pivot = new PointF(
             component.Attributes.Pivot.X + xOffset,
-            component.Attributes.Pivot.Y);
+            component.Attributes.Pivot.Y + yOffset);
 
         document.AddObject(list, false);
         component.Params.Input[paramIndex].AddSource(list);

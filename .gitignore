@@ -422,4 +422,4 @@ CLAUDE.md
 .claude/
 
 # Physalia — API keys (never commit)
-Files/API_KEY_CONFIG.YAML
+**/API_KEY_CONFIG.YAML

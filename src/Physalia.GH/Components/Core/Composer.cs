@@ -52,6 +52,7 @@ public class Composer : PhyBase
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
         pManager.AddTextParameter("System Prompt", "SP", "Assembled system prompt for Recorder.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Schema", "S", "Resolved schema string for Auditor.", GH_ParamAccess.item);
     }
 
     /// <summary>
@@ -101,6 +102,7 @@ public class Composer : PhyBase
         string resolvedTools = Resolve(tools, SubfolderTools);
 
         DA.SetData(0, Assemble(resolvedPreamble, resolvedSchema, resolvedTools));
+        DA.SetData(1, resolvedSchema);
     }
 
     /// <summary>

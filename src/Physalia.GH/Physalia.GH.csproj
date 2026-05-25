@@ -80,6 +80,11 @@
 		<Exec Command="python &quot;$(SolutionDir)scripts\update_model_info.py&quot; &quot;$(TargetDir)model_info.json&quot;" ContinueOnError="WarnAndContinue" />
 	</Target>
 
+	<!-- Tell VS fast up-to-date check to watch the Files folder so any change triggers a rebuild. -->
+	<ItemGroup>
+		<UpToDateCheckInput Include="$(MSBuildProjectDirectory)\..\..\Files\**\*" Set="Files" />
+	</ItemGroup>
+
 	<!-- Copy the Files folder (skills, schemas, clusters, receivers, API keys) to the output directory. -->
 	<Target Name="CopyLibraryFiles" AfterTargets="Build">
 		<ItemGroup>

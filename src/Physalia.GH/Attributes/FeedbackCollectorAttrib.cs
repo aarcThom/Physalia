@@ -4,6 +4,7 @@
 using System.Drawing;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel.Attributes;
+using Physalia.GH.Attributes.UiElements;
 using Physalia.GH.Components;
 
 namespace Physalia.GH.Attributes;
@@ -16,6 +17,7 @@ public class FeedbackCollectorAttrib : GH_ComponentAttributes
 {
     private RectangleF _gripBounds;
     private RectangleF _visualBounds;
+    private readonly CanvasGrip _grip = new(PointF.Empty);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FeedbackCollectorAttrib"/> class.
@@ -51,12 +53,8 @@ public class FeedbackCollectorAttrib : GH_ComponentAttributes
         {
             float gripCtrX = Bounds.Left + Bounds.Width / 2f;
             float gripCtrY = Bounds.Y + Bounds.Height;
-            var gripRadius = 4f;
-            var circleBounds = new RectangleF(gripCtrX - gripRadius, gripCtrY - 4f, gripRadius * 2, gripRadius * 2);
-            using var fill = new SolidBrush(Color.White);
-            using var border = new Pen(Color.Black, 2f);
-            graphics.FillEllipse(fill, circleBounds);
-            graphics.DrawEllipse(border, circleBounds);
+            _grip.Location = new PointF(gripCtrX, gripCtrY);
+            _grip.Draw(graphics);
         }
 
         base.Render(canvas, graphics, channel);

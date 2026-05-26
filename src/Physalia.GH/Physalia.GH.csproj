@@ -56,12 +56,31 @@
 			<HintPath>C:\Program Files\Rhino 8\System\Rhino.Runtime.Code.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
+		<!-- GH Script component public interface (IScriptComponent, ScriptParamSet, etc.) -->
+		<Reference Include="RhinoCodePlatform.GH">
+			<HintPath>C:\Program Files\Rhino 8\System\RhinoCodePlatform.GH.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<!-- GH Script component concrete types (ScriptTemplate, SetInputsArray, etc.) -->
+		<Reference Include="RhinoCodePlatform.GH1">
+			<HintPath>C:\Program Files\Rhino 8\System\RhinoCodePlatform.GH1.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
 	</ItemGroup>
 
 	<ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
 		<!-- The Python script execution engine — Mac path (best guess, verify against your Rhino 8 install) -->
 		<Reference Include="Rhino.Runtime.Code">
 			<HintPath>/Applications/Rhino 8.app/Contents/Frameworks/RhCore.framework/Versions/Current/Resources/ManagedPlugIns/RhinoCommon.framework/Versions/Current/Rhino.Runtime.Code.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<!-- TODO (Mac): verify actual paths for RhinoCodePlatform.GH and GH1 on Mac Rhino 8 -->
+		<Reference Include="RhinoCodePlatform.GH">
+			<HintPath>/Applications/Rhino 8.app/Contents/Frameworks/RhCore.framework/Versions/Current/Resources/ManagedPlugIns/RhinoCommon.framework/Versions/Current/RhinoCodePlatform.GH.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="RhinoCodePlatform.GH1">
+			<HintPath>/Applications/Rhino 8.app/Contents/Frameworks/RhCore.framework/Versions/Current/Resources/ManagedPlugIns/RhinoCommon.framework/Versions/Current/RhinoCodePlatform.GH1.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
 	</ItemGroup>

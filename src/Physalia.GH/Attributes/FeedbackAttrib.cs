@@ -8,6 +8,7 @@ using System.Windows.Forms;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel.Attributes;
+using Physalia.GH.Attributes.UiElements;
 using Physalia.GH.Components;
 
 namespace Physalia.GH.Attributes;
@@ -19,7 +20,7 @@ namespace Physalia.GH.Attributes;
 /// </summary>
 public class FeedbackAttrib : GH_ComponentAttributes
 {
-    private static readonly Pen[] _gradientPens = CreateGradientPens();
+    private static readonly WireGradient _defaultGradient = new WireGradient(Color.Blue, Color.Purple);
 
     private readonly Feedback _feedback;
 
@@ -30,8 +31,9 @@ public class FeedbackAttrib : GH_ComponentAttributes
     private RectangleF _gripBounds;
     private RectangleF _visualBounds;
 
-    // bezier segment cache keyed by collector GUID — recomputed only when endpoints change
-    private readonly Dictionary<Guid, (PointF[] Segments, PointF From, PointF To)> _segmentCache = new();
+    private readonly Dictionary<Guid, BezierWire> _wireCache = new();
+    private BezierWire? _dragWire;
+    private readonly CanvasGrip _grip = new(PointF.Empty);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FeedbackAttrib"/> class.
@@ -69,12 +71,8 @@ public class FeedbackAttrib : GH_ComponentAttributes
 
         if (channel == GH_CanvasChannel.Objects)
         {
-            var gripRadius = 4f;
-            var circleBounds = new RectangleF(gripCtrX - gripRadius, gripCtrY - 4f, gripRadius * 2, gripRadius * 2);
-            using var fill = new SolidBrush(Color.White);
-            using var border = new Pen(Color.Black, 2f);
-            graphics.FillEllipse(fill, circleBounds);
-            graphics.DrawEllipse(border, circleBounds);
+            _grip.Location = new PointF(gripCtrX, gripCtrY);
+            _grip.Draw(graphics);
         }
 
         if (channel == GH_CanvasChannel.Wires)
@@ -89,14 +87,31 @@ public class FeedbackAttrib : GH_ComponentAttributes
                 var cb = collector.Attributes.Bounds;
                 var to = new PointF(cb.Left + cb.Width / 2f, cb.Y + cb.Height);
 
-                DrawBezier(graphics, from, to, guid);
-                DrawArrowTip(graphics, to);
+                if (!_wireCache.TryGetValue(guid, out var wire))
+                {
+                    wire = new BezierWire(from, to, _defaultGradient);
+                    _wireCache[guid] = wire;
+                }
+                else
+                {
+                    wire.Start = from;
+                    wire.End = to;
+                }
+
+                wire.Draw(graphics);
             }
 
             if (_isDragging)
             {
-                DrawBezier(graphics, from, _dragPoint, Guid.Empty);
-                DrawArrowTip(graphics, _dragPoint);
+                if (_dragWire is null)
+                    _dragWire = new BezierWire(from, _dragPoint, _defaultGradient);
+                else
+                {
+                    _dragWire.Start = from;
+                    _dragWire.End = _dragPoint;
+                }
+
+                _dragWire.Draw(graphics);
             }
         }
 
@@ -162,6 +177,7 @@ public class FeedbackAttrib : GH_ComponentAttributes
         if (_isDragging)
         {
             _isDragging = false;
+            _dragWire = null;
 
             foreach (var obj in sender.Document.Objects)
             {
@@ -183,69 +199,4 @@ public class FeedbackAttrib : GH_ComponentAttributes
 
         return base.RespondToMouseUp(sender, e);
     }
-
-    // HELPERS ==========================================================================================
-
-    private void DrawBezier(Graphics graphics, PointF from, PointF to, Guid cacheKey)
-    {
-        var cp1 = new PointF(from.X, from.Y + 80f);
-        var cp2 = new PointF(to.X, to.Y + 80f);
-
-        PointF[] segments;
-
-        if (cacheKey != Guid.Empty
-            && _segmentCache.TryGetValue(cacheKey, out var cached)
-            && cached.From == from && cached.To == to)
-        {
-            segments = cached.Segments;
-        }
-        else
-        {
-            int steps = _gradientPens.Length;
-            segments = new PointF[steps + 1];
-            for (int i = 0; i <= steps; i++)
-                segments[i] = SampleBezier(from, cp1, cp2, to, (float)i / steps);
-
-            if (cacheKey != Guid.Empty)
-                _segmentCache[cacheKey] = (segments, from, to);
-        }
-
-        for (int i = 0; i < _gradientPens.Length; i++)
-            graphics.DrawLine(_gradientPens[i], segments[i], segments[i + 1]);
-    }
-
-    private static void DrawArrowTip(Graphics graphics, PointF wireEnd)
-    {
-        float triHeight = 8f;
-        float triWidth = triHeight / 2f;
-        var tip = new PointF(wireEnd.X, wireEnd.Y - triHeight);
-        var baseLeft = new PointF(tip.X - triWidth / 2f, tip.Y + triHeight);
-        var baseRight = new PointF(tip.X + triWidth / 2f, tip.Y + triHeight);
-        using var triFill = new SolidBrush(Color.Purple);
-        graphics.FillPolygon(triFill, new[] { tip, baseLeft, baseRight });
-    }
-
-    private static Pen[] CreateGradientPens()
-    {
-        const int steps = 40;
-        var pens = new Pen[steps];
-        for (int i = 0; i < steps; i++)
-            pens[i] = new Pen(LerpColor(Color.Blue, Color.Purple, i / (float)steps), 2f);
-        return pens;
-    }
-
-    private static PointF SampleBezier(PointF p0, PointF p1, PointF p2, PointF p3, float t)
-    {
-        float u = 1 - t;
-        float x = (u * u * u * p0.X) + (3 * u * u * t * p1.X) + (3 * u * t * t * p2.X) + (t * t * t * p3.X);
-        float y = (u * u * u * p0.Y) + (3 * u * u * t * p1.Y) + (3 * u * t * t * p2.Y) + (t * t * t * p3.Y);
-        return new PointF(x, y);
-    }
-
-    private static Color LerpColor(Color a, Color b, float t)
-        => Color.FromArgb(
-            (int)(a.A + ((b.A - a.A) * t)),
-            (int)(a.R + ((b.R - a.R) * t)),
-            (int)(a.G + ((b.G - a.G) * t)),
-            (int)(a.B + ((b.B - a.B) * t)));
 }

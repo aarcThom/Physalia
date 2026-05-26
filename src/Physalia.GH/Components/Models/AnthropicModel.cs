@@ -3,11 +3,9 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Special;
 using Physalia.Core.Common;
 using Physalia.Core.Config;
 using Physalia.Core.Models.Named;
@@ -18,13 +16,12 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// Grasshopper component that configures an Anthropic model.
-/// Fetches available models from the API and populates a value list automatically.
+/// Fetches available models from the API and exposes them via <see cref="IPickableValuesSource"/>.
 /// </summary>
-public class AnthropicModel : PhyBase
+public class AnthropicModel : PhyBase, IPickableValuesSource
 {
     private string _lastApiKey = string.Empty;
-    private IReadOnlyList<string>? _availableModels;
-    private IReadOnlyList<string>? _populatedWith;
+    private List<string> _availableModels = new();
     private string? _fetchWarning;
     private CancellationTokenSource? _cts;
 
@@ -40,10 +37,22 @@ public class AnthropicModel : PhyBase
     public override Guid ComponentGuid => new Guid("D60822A6-1ABD-4BA8-AB0F-A54937D0B923");
 
     /// <inheritdoc/>
+    public string InputName => "Model";
+
+    /// <inheritdoc/>
+    public IReadOnlyList<string> Values => _availableModels;
+
+    /// <inheritdoc/>
+    public void SetValues(IEnumerable<string> values) => _availableModels = new List<string>(values);
+
+    /// <inheritdoc/>
+    public void ResetValues() => _availableModels.Clear();
+
+    /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter("API Key", "k", "Anthropic API key.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("Model", "m", "Model ID. Connect the auto-placed value list or wire any string.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Model", "m", "Model ID. Wire a Picker component to select from available models.", GH_ParamAccess.item, string.Empty);
     }
 
     /// <inheritdoc/>
@@ -52,23 +61,9 @@ public class AnthropicModel : PhyBase
         pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Configured Anthropic model.", GH_ParamAccess.item);
     }
 
-    /// <summary>
-    /// When dropped onto the canvas, auto-place a value list wired to the model input.
-    /// </summary>
-    /// <param name="document">The active Grasshopper document.</param>
-    public override void AddedToDocument(GH_Document document)
-    {
-        base.AddedToDocument(document);
-
-        if (Params.Input[1].SourceCount > 0) return;
-
-        ComponentHelpers.ValueListAdd(this, document, 1, "Enter API key");
-    }
-
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        // Emit any warning buffered from the async fetch.
         if (_fetchWarning != null)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, _fetchWarning);
@@ -78,40 +73,11 @@ public class AnthropicModel : PhyBase
         string apiKey = string.Empty;
         if (!DA.GetData(0, ref apiKey)) return;
 
-        // Kick off a model fetch whenever the API key changes.
         if (!string.IsNullOrWhiteSpace(apiKey) && apiKey != _lastApiKey)
         {
             _lastApiKey = apiKey;
-            _availableModels = null;
-            _populatedWith = null;
+            ResetValues();
             StartModelFetch(apiKey);
-        }
-
-        // Populate the value list once fetched models arrive.
-        if (_availableModels != null && !ReferenceEquals(_availableModels, _populatedWith))
-        {
-            var valueList = Params.Input[1].Sources.OfType<GH_ValueList>().FirstOrDefault();
-            if (valueList != null)
-            {
-                var models = _availableModels;
-                _populatedWith = models;
-
-                OnPingDocument()?.ScheduleSolution(1, _ =>
-                {
-                    valueList.ListItems.Clear();
-                    foreach (var id in models)
-                    {
-                        valueList.ListItems.Add(new GH_ValueListItem(id, $"\"{id}\""));
-                    }
-
-                    if (valueList.ListItems.Count > 0)
-                    {
-                        valueList.SelectItem(0);
-                    }
-
-                    valueList.ExpireSolution(true);
-                });
-            }
         }
 
         string modelId = string.Empty;
@@ -150,14 +116,22 @@ public class AnthropicModel : PhyBase
 
             if (result is Result<System.Collections.Generic.IReadOnlyList<string>, Core.Common.LlmError>.Ok ok)
             {
-                _availableModels = ok.Value;
+                SetValues(ok.Value);
             }
             else if (result is Result<System.Collections.Generic.IReadOnlyList<string>, Core.Common.LlmError>.Err err)
             {
                 _fetchWarning = $"Failed to fetch models: {err.Error.Message}";
             }
 
-            OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(true));
+            OnPingDocument()?.ScheduleSolution(1, _ =>
+            {
+                foreach (var source in Params.Input[1].Sources)
+                {
+                    (source.Attributes?.GetTopLevel?.DocObject as IGH_ActiveObject)?.ExpireSolution(false);
+                }
+
+                ExpireSolution(true);
+            });
         }, ct);
     }
 }

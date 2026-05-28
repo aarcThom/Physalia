@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
+using System.Collections.Generic;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Special;
 using Physalia.Core.Tokens;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
@@ -12,9 +12,9 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// Selects a tokenization technique and outputs the corresponding <see cref="ITokenEstimator"/>.
-/// An auto-placed value list is wired to the input when the component is dropped onto the canvas.
+/// An auto-placed Picker is wired to the input when the component is dropped onto the canvas.
 /// </summary>
-public class TokenizationTechniques : PhyBase
+public class TokenizationTechniques : PhyBase, IPickableValuesSource
 {
     private static readonly ITokenEstimator _heuristic = new HeuristicTokenEstimator();
     private static readonly Lazy<ITokenEstimator> _tiktoken =
@@ -22,6 +22,8 @@ public class TokenizationTechniques : PhyBase
     private static readonly ITokenEstimator _anthropic = new AnthropicTokenEstimator();
     private static readonly ITokenEstimator _gemini = new GeminiTokenEstimator();
     private static readonly ITokenEstimator _llamaCpp = new LlamaCppTokenEstimator();
+    private static readonly List<string> _techniques =
+        new() { "Heuristic", "Tiktoken", "Anthropic", "Gemini", "LlamaCpp" };
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TokenizationTechniques"/> class.
@@ -39,9 +41,19 @@ public class TokenizationTechniques : PhyBase
     public override Guid ComponentGuid => new Guid("B4E7C291-3F5A-4D89-B012-E6A3F7D2C485");
 
     /// <inheritdoc/>
+    public IReadOnlyList<PickableInput> Inputs =>
+        new[] { new PickableInput("Technique", _techniques) };
+
+    /// <inheritdoc/>
+    public void SetValues(string inputName, IEnumerable<string> values) { }
+
+    /// <inheritdoc/>
+    public void ResetValues() { }
+
+    /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Technique", "T", "Tokenization technique. Connect the auto-placed value list.", GH_ParamAccess.item, "Heuristic");
+        pManager.AddTextParameter("Technique", "T", "Tokenization technique. Connect the auto-placed Picker.", GH_ParamAccess.item, "Heuristic");
     }
 
     /// <inheritdoc/>
@@ -51,7 +63,7 @@ public class TokenizationTechniques : PhyBase
     }
 
     /// <summary>
-    /// When dropped onto the canvas, auto-place a value list wired to the technique input.
+    /// When dropped onto the canvas, auto-place a Picker wired to the technique input.
     /// </summary>
     /// <param name="document">The active Grasshopper document.</param>
     public override void AddedToDocument(GH_Document document)
@@ -60,14 +72,7 @@ public class TokenizationTechniques : PhyBase
 
         if (Params.Input[0].SourceCount > 0) return;
 
-        var list = ComponentHelpers.ValueListAdd(this, document, 0, string.Empty);
-        list.ListItems.Clear();
-        list.ListItems.Add(new GH_ValueListItem("Heuristic", "\"Heuristic\""));
-        list.ListItems.Add(new GH_ValueListItem("Tiktoken", "\"Tiktoken\""));
-        list.ListItems.Add(new GH_ValueListItem("Anthropic", "\"Anthropic\""));
-        list.ListItems.Add(new GH_ValueListItem("Gemini", "\"Gemini\""));
-        list.ListItems.Add(new GH_ValueListItem("LlamaCpp", "\"LlamaCpp\""));
-        list.SelectItem(0);
+        ComponentHelpers.PickerAdd(this, document, 0);
     }
 
     /// <inheritdoc/>

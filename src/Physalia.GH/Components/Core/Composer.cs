@@ -8,7 +8,6 @@ using System.Linq;
 using System.Reflection;
 using System.Windows.Forms;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Special;
 
 namespace Physalia.GH.Components;
 
@@ -17,7 +16,7 @@ namespace Physalia.GH.Components;
 /// Each section can be supplied as a filename resolved from the Files/SYSTEM_PROMPTS folder,
 /// or as inline text wired directly.
 /// </summary>
-public class Composer : PhyBase
+public class Composer : PhyBase, IPickableValuesSource
 {
     private const string SubfolderPreamble = "PREAMBLE";
     private const string SubfolderSchema = "SCHEMA";
@@ -26,6 +25,10 @@ public class Composer : PhyBase
     private string _lastPreambleFiles = string.Empty;
     private string _lastSchemaFiles = string.Empty;
     private string _lastToolsFiles = string.Empty;
+
+    private List<string> _preambleFiles = new();
+    private List<string> _schemaFiles = new();
+    private List<string> _toolsFiles = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Composer"/> class.
@@ -37,6 +40,33 @@ public class Composer : PhyBase
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("BA4FCD24-96DB-4B2B-B7F7-E756A98BC185");
+
+    /// <inheritdoc/>
+    public IReadOnlyList<PickableInput> Inputs => new[]
+    {
+        new PickableInput("Preamble", _preambleFiles),
+        new PickableInput("Schema", _schemaFiles),
+        new PickableInput("Tools", _toolsFiles),
+    };
+
+    /// <inheritdoc/>
+    public void SetValues(string inputName, IEnumerable<string> values)
+    {
+        switch (inputName)
+        {
+            case "Preamble": _preambleFiles = new List<string>(values); break;
+            case "Schema": _schemaFiles = new List<string>(values); break;
+            case "Tools": _toolsFiles = new List<string>(values); break;
+        }
+    }
+
+    /// <inheritdoc/>
+    public void ResetValues()
+    {
+        _preambleFiles.Clear();
+        _schemaFiles.Clear();
+        _toolsFiles.Clear();
+    }
 
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
@@ -56,7 +86,7 @@ public class Composer : PhyBase
     }
 
     /// <summary>
-    /// When dropped onto the canvas, auto-places three dropdown value lists staggered to the left.
+    /// When dropped onto the canvas, auto-places three Pickers staggered to the left.
     /// </summary>
     /// <param name="document">The active Grasshopper document.</param>
     public override void AddedToDocument(GH_Document document)
@@ -64,13 +94,13 @@ public class Composer : PhyBase
         base.AddedToDocument(document);
 
         if (Params.Input[0].SourceCount == 0)
-            ComponentHelpers.ValueListAdd(this, document, 0, "Select preamble...", xOffset: -300f, yOffset: -30f);
+            ComponentHelpers.PickerAdd(this, document, 0, xOffset: -300f, yOffset: -30f);
 
         if (Params.Input[1].SourceCount == 0)
-            ComponentHelpers.ValueListAdd(this, document, 1, "Select schema...", xOffset: -300f, yOffset: 0f);
+            ComponentHelpers.PickerAdd(this, document, 1, xOffset: -300f, yOffset: 0f);
 
         if (Params.Input[2].SourceCount == 0)
-            ComponentHelpers.ValueListAdd(this, document, 2, "Select tools...", xOffset: -300f, yOffset: 30f);
+            ComponentHelpers.PickerAdd(this, document, 2, xOffset: -300f, yOffset: 30f);
     }
 
     /// <inheritdoc/>
@@ -85,9 +115,9 @@ public class Composer : PhyBase
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        RefreshListIfChanged(0, SubfolderPreamble, ref _lastPreambleFiles);
-        RefreshListIfChanged(1, SubfolderSchema, ref _lastSchemaFiles);
-        RefreshListIfChanged(2, SubfolderTools, ref _lastToolsFiles);
+        RefreshListIfChanged(0, SubfolderPreamble, "Preamble", ref _lastPreambleFiles);
+        RefreshListIfChanged(1, SubfolderSchema, "Schema", ref _lastSchemaFiles);
+        RefreshListIfChanged(2, SubfolderTools, "Tools", ref _lastToolsFiles);
 
         string preamble = string.Empty;
         string schema = string.Empty;
@@ -160,34 +190,27 @@ public class Composer : PhyBase
     }
 
     /// <summary>
-    /// Compares the current file list to <paramref name="lastFiles"/>; schedules value-list
-    /// repopulation if the list has changed.
+    /// Compares the current file list to <paramref name="lastFiles"/>; schedules Picker
+    /// refresh if the list has changed.
     /// </summary>
     /// <param name="paramIndex">Input parameter index.</param>
     /// <param name="subfolder">The subfolder to scan.</param>
+    /// <param name="inputName">The PickableInput name matching this parameter.</param>
     /// <param name="lastFiles">Cached file list from the previous solve.</param>
-    private void RefreshListIfChanged(int paramIndex, string subfolder, ref string lastFiles)
+    private void RefreshListIfChanged(int paramIndex, string subfolder, string inputName, ref string lastFiles)
     {
         string current = GetFileList(subfolder);
         if (current == lastFiles) return;
 
         lastFiles = current;
         string[] fileNames = current.Length > 0 ? current.Split(',') : Array.Empty<string>();
+        SetValues(inputName, fileNames);
 
-        var valueList = Params.Input[paramIndex].Sources.OfType<GH_ValueList>().FirstOrDefault();
-        if (valueList is null) return;
-
-        string[] capture = fileNames;
         OnPingDocument()?.ScheduleSolution(1, _ =>
         {
-            valueList.ListItems.Clear();
-            foreach (string name in capture)
-                valueList.ListItems.Add(new GH_ValueListItem(name, $"\"{name}\""));
-
-            if (valueList.ListItems.Count > 0)
-                valueList.SelectItem(0);
-
-            valueList.ExpireSolution(true);
+            foreach (var source in Params.Input[paramIndex].Sources)
+                (source.Attributes?.GetTopLevel?.DocObject as IGH_ActiveObject)?.ExpireSolution(false);
+            ExpireSolution(true);
         });
     }
 

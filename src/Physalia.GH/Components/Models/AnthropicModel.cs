@@ -37,16 +37,31 @@ public class AnthropicModel : PhyBase, IPickableValuesSource
     public override Guid ComponentGuid => new Guid("D60822A6-1ABD-4BA8-AB0F-A54937D0B923");
 
     /// <inheritdoc/>
-    public string InputName => "Model";
+    public IReadOnlyList<PickableInput> Inputs =>
+        new[] { new PickableInput("Model", _availableModels) };
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> Values => _availableModels;
-
-    /// <inheritdoc/>
-    public void SetValues(IEnumerable<string> values) => _availableModels = new List<string>(values);
+    public void SetValues(string inputName, IEnumerable<string> values)
+    {
+        if (inputName == "Model")
+            _availableModels = new List<string>(values);
+    }
 
     /// <inheritdoc/>
     public void ResetValues() => _availableModels.Clear();
+
+    /// <summary>
+    /// When dropped onto the canvas, auto-place a Picker wired to the model input.
+    /// </summary>
+    /// <param name="document">The active Grasshopper document.</param>
+    public override void AddedToDocument(GH_Document document)
+    {
+        base.AddedToDocument(document);
+
+        if (Params.Input[1].SourceCount > 0) return;
+
+        ComponentHelpers.PickerAdd(this, document, 1);
+    }
 
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
@@ -116,7 +131,7 @@ public class AnthropicModel : PhyBase, IPickableValuesSource
 
             if (result is Result<System.Collections.Generic.IReadOnlyList<string>, Core.Common.LlmError>.Ok ok)
             {
-                SetValues(ok.Value);
+                SetValues("Model", ok.Value);
             }
             else if (result is Result<System.Collections.Generic.IReadOnlyList<string>, Core.Common.LlmError>.Err err)
             {

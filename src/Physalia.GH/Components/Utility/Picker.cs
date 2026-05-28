@@ -42,17 +42,17 @@ public class Picker : PhyBase
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        var source = FindPickableSource();
+        var pickable = FindPickableInput();
 
-        if (source == null)
+        if (pickable == null)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning,
-                "Connect the output to an input whose name matches a component's InputName.");
+                "Connect the output to an input whose name matches one of the source component's inputs.");
             DA.SetData(0, string.Empty);
             return;
         }
 
-        var values = source.Values;
+        var values = pickable.Values;
 
         if (values.Count == 0)
         {
@@ -61,9 +61,7 @@ public class Picker : PhyBase
         }
 
         if (string.IsNullOrEmpty(_selectedValue) || !values.Contains(_selectedValue))
-        {
             _selectedValue = values[0];
-        }
 
         DA.SetData(0, _selectedValue);
     }
@@ -73,12 +71,12 @@ public class Picker : PhyBase
     {
         base.AppendAdditionalMenuItems(menu);
 
-        var source = FindPickableSource();
-        if (source == null) return;
+        var pickable = FindPickableInput();
+        if (pickable == null) return;
 
         Menu_AppendSeparator(menu);
 
-        foreach (var value in source.Values)
+        foreach (var value in pickable.Values)
         {
             var item = Menu_AppendItem(menu, value, OnValueSelected, true, value == _selectedValue);
             item.Tag = value;
@@ -100,13 +98,19 @@ public class Picker : PhyBase
         return base.Read(reader);
     }
 
-    private IPickableValues? FindPickableSource()
+    private PickableInput? FindPickableInput()
     {
         foreach (var recipient in Params.Output[0].Recipients)
         {
             var topLevel = recipient.Attributes?.GetTopLevel?.DocObject;
-            if (topLevel is IPickableValues pickable && recipient.Name == pickable.InputName)
-                return pickable;
+            if (topLevel is IPickableValues pickable)
+            {
+                foreach (var input in pickable.Inputs)
+                {
+                    if (input.Name == recipient.Name)
+                        return input;
+                }
+            }
         }
 
         return null;

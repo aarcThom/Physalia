@@ -3,11 +3,9 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Special;
 using Physalia.Core.Common;
 using Physalia.Core.Config;
 using Physalia.Core.Models.Named;
@@ -18,13 +16,12 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// Grasshopper component that configures a Google Gemini model.
-/// Fetches available models from the API and populates a value list automatically.
+/// Fetches available models from the API and exposes them via <see cref="IPickableValuesSource"/>.
 /// </summary>
-public class GeminiModel : PhyBase
+public class GeminiModel : PhyBase, IPickableValuesSource
 {
     private string _lastApiKey = string.Empty;
-    private IReadOnlyList<string>? _availableModels;
-    private IReadOnlyList<string>? _populatedWith;
+    private List<string> _availableModels = new();
     private string? _fetchWarning;
     private CancellationTokenSource? _cts;
 
@@ -40,10 +37,24 @@ public class GeminiModel : PhyBase
     public override Guid ComponentGuid => new Guid("6E412A9E-99CF-4CAC-9323-35B417FDA875");
 
     /// <inheritdoc/>
+    public IReadOnlyList<PickableInput> Inputs =>
+        new[] { new PickableInput("Model", _availableModels) };
+
+    /// <inheritdoc/>
+    public void SetValues(string inputName, IEnumerable<string> values)
+    {
+        if (inputName == "Model")
+            _availableModels = new List<string>(values);
+    }
+
+    /// <inheritdoc/>
+    public void ResetValues() => _availableModels.Clear();
+
+    /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter("API Key", "K", "Google API key.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("Model", "M", "Model ID. Connect the auto-placed value list or wire any string.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Model", "M", "Model ID. Wire a Picker component to select from available models.", GH_ParamAccess.item, string.Empty);
     }
 
     /// <inheritdoc/>
@@ -53,7 +64,7 @@ public class GeminiModel : PhyBase
     }
 
     /// <summary>
-    /// When dropped onto the canvas, auto-place a value list wired to the model input.
+    /// When dropped onto the canvas, auto-place a Picker wired to the model input.
     /// </summary>
     /// <param name="document">The active Grasshopper document.</param>
     public override void AddedToDocument(GH_Document document)
@@ -62,7 +73,7 @@ public class GeminiModel : PhyBase
 
         if (Params.Input[1].SourceCount > 0) return;
 
-        ComponentHelpers.ValueListAdd(this, document, 1, "Enter API key");
+        ComponentHelpers.PickerAdd(this, document, 1);
     }
 
     /// <inheritdoc/>
@@ -80,35 +91,8 @@ public class GeminiModel : PhyBase
         if (!string.IsNullOrWhiteSpace(apiKey) && apiKey != _lastApiKey)
         {
             _lastApiKey = apiKey;
-            _availableModels = null;
-            _populatedWith = null;
+            ResetValues();
             StartModelFetch(apiKey);
-        }
-
-        if (_availableModels != null && !ReferenceEquals(_availableModels, _populatedWith))
-        {
-            var valueList = Params.Input[1].Sources.OfType<GH_ValueList>().FirstOrDefault();
-            if (valueList != null)
-            {
-                var models = _availableModels;
-                _populatedWith = models;
-
-                OnPingDocument()?.ScheduleSolution(1, _ =>
-                {
-                    valueList.ListItems.Clear();
-                    foreach (var id in models)
-                    {
-                        valueList.ListItems.Add(new GH_ValueListItem(id, $"\"{id}\""));
-                    }
-
-                    if (valueList.ListItems.Count > 0)
-                    {
-                        valueList.SelectItem(0);
-                    }
-
-                    valueList.ExpireSolution(true);
-                });
-            }
         }
 
         string modelId = string.Empty;
@@ -147,14 +131,22 @@ public class GeminiModel : PhyBase
 
             if (result is Result<IReadOnlyList<string>, LlmError>.Ok ok)
             {
-                _availableModels = ok.Value;
+                SetValues("Model", ok.Value);
             }
             else if (result is Result<IReadOnlyList<string>, LlmError>.Err err)
             {
                 _fetchWarning = $"Failed to fetch models: {err.Error.Message}";
             }
 
-            OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(true));
+            OnPingDocument()?.ScheduleSolution(1, _ =>
+            {
+                foreach (var source in Params.Input[1].Sources)
+                {
+                    (source.Attributes?.GetTopLevel?.DocObject as IGH_ActiveObject)?.ExpireSolution(false);
+                }
+
+                ExpireSolution(true);
+            });
         }, ct);
     }
 }

@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
-using System.Linq;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Special;
 using Grasshopper.Kernel.Types;
 using Physalia.Core.Common;
 using Physalia.Core.Models.Protocol;
@@ -21,7 +20,7 @@ namespace Physalia.GH.Components;
 /// Estimates token count by dispatching to the appropriate counting strategy
 /// for the selected <see cref="ITokenEstimator"/>.
 /// </summary>
-public class TokenEstimator : PhyBase
+public class TokenEstimator : PhyBase, IPickableValuesSource
 {
     private readonly HttpClient _httpClient = new HttpClient();
 
@@ -33,6 +32,8 @@ public class TokenEstimator : PhyBase
     private int? _lastAsyncResult;
     private string? _asyncWarning;
     private CancellationTokenSource? _cts;
+
+    private List<string> _tiktokenNames = new() { "N/A" };
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TokenEstimator"/> class.
@@ -48,6 +49,20 @@ public class TokenEstimator : PhyBase
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("A2F7B3E1-5C84-4D96-8012-B9D4E7F3A215");
+
+    /// <inheritdoc/>
+    public IReadOnlyList<PickableInput> Inputs =>
+        new[] { new PickableInput("Tiktoken Name", _tiktokenNames) };
+
+    /// <inheritdoc/>
+    public void SetValues(string inputName, IEnumerable<string> values)
+    {
+        if (inputName == "Tiktoken Name")
+            _tiktokenNames = new List<string>(values);
+    }
+
+    /// <inheritdoc/>
+    public void ResetValues() => _tiktokenNames.Clear();
 
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
@@ -66,7 +81,7 @@ public class TokenEstimator : PhyBase
     }
 
     /// <summary>
-    /// When dropped onto the canvas, auto-place a value list wired to the model input.
+    /// When dropped onto the canvas, auto-place a Picker wired to the Tiktoken Name input.
     /// </summary>
     /// <param name="document">The active Grasshopper document.</param>
     public override void AddedToDocument(GH_Document document)
@@ -75,10 +90,7 @@ public class TokenEstimator : PhyBase
 
         if (Params.Input[2].SourceCount > 0) return;
 
-        var list = ComponentHelpers.ValueListAdd(this, document, 2, string.Empty);
-        list.ListItems.Clear();
-        list.ListItems.Add(new GH_ValueListItem("N/A", "\"N/A\""));
-        list.SelectItem(0);
+        ComponentHelpers.PickerAdd(this, document, 2);
     }
 
     /// <inheritdoc/>
@@ -102,7 +114,7 @@ public class TokenEstimator : PhyBase
             _tiktokenCache = null;
             _lastAsyncKey = string.Empty;
             _lastAsyncResult = null;
-            PopulateValueList(estimator);
+            UpdateTiktokenNames(estimator);
         }
 
         IGH_Goo? dataGoo = null;
@@ -129,7 +141,7 @@ public class TokenEstimator : PhyBase
             case TiktokenEstimator _:
                 if (string.IsNullOrEmpty(model) || model == "N/A")
                 {
-                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Select a model from the value list.");
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Select a model from the Picker.");
                     return;
                 }
                 if (model != _lastTiktokenModel || _tiktokenCache is null)
@@ -240,31 +252,22 @@ public class TokenEstimator : PhyBase
         }, ct);
     }
 
-    private void PopulateValueList(ITokenEstimator estimator)
+    private void UpdateTiktokenNames(ITokenEstimator estimator)
     {
-        var valueList = Params.Input[2].Sources.OfType<GH_ValueList>().FirstOrDefault();
-        if (valueList is null) return;
+        if (estimator is TiktokenEstimator)
+        {
+            SetValues("Tiktoken Name", new[] { "gpt-4", "gpt-3.5-turbo", "text-davinci-003", "text-davinci-002" });
+        }
+        else
+        {
+            SetValues("Tiktoken Name", new[] { "N/A" });
+        }
 
         OnPingDocument()?.ScheduleSolution(1, _ =>
         {
-            valueList.ListItems.Clear();
-
-            if (estimator is TiktokenEstimator)
-            {
-                valueList.ListItems.Add(new GH_ValueListItem("gpt-4", "\"gpt-4\""));
-                valueList.ListItems.Add(new GH_ValueListItem("gpt-3.5-turbo", "\"gpt-3.5-turbo\""));
-                valueList.ListItems.Add(new GH_ValueListItem("text-davinci-003", "\"text-davinci-003\""));
-                valueList.ListItems.Add(new GH_ValueListItem("text-davinci-002", "\"text-davinci-002\""));
-            }
-            else
-            {
-                valueList.ListItems.Add(new GH_ValueListItem("N/A", "\"N/A\""));
-            }
-
-            if (valueList.ListItems.Count > 0)
-                valueList.SelectItem(0);
-
-            valueList.ExpireSolution(true);
+            foreach (var source in Params.Input[2].Sources)
+                (source.Attributes?.GetTopLevel?.DocObject as IGH_ActiveObject)?.ExpireSolution(false);
+            ExpireSolution(true);
         });
     }
 }

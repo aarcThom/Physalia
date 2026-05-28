@@ -7,7 +7,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Special;
 using Physalia.Core.Config;
 
 namespace Physalia.GH.Components;
@@ -16,9 +15,10 @@ namespace Physalia.GH.Components;
 /// Reads <c>API_KEY_CONFIG.YAML</c> from the plugin Files folder and outputs the
 /// API key for the selected provider.
 /// </summary>
-public class ApiKeys : PhyBase
+public class ApiKeys : PhyBase, IPickableValuesSource
 {
     private IReadOnlyList<ApiKey> _keys = Array.Empty<ApiKey>();
+    private List<string> _availableProviders = new();
     private string _lastProviderList = string.Empty;
 
     /// <summary>
@@ -33,9 +33,23 @@ public class ApiKeys : PhyBase
     public override Guid ComponentGuid => new Guid("6066E324-4A4D-4C08-B72B-5268ED7DE772");
 
     /// <inheritdoc/>
+    public IReadOnlyList<PickableInput> Inputs =>
+        new[] { new PickableInput("Provider", _availableProviders) };
+
+    /// <inheritdoc/>
+    public void SetValues(string inputName, IEnumerable<string> values)
+    {
+        if (inputName == "Provider")
+            _availableProviders = new List<string>(values);
+    }
+
+    /// <inheritdoc/>
+    public void ResetValues() => _availableProviders.Clear();
+
+    /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Provider", "P", "Provider name. Connect the auto-placed dropdown or wire any string.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Provider", "P", "Provider name. Wire a Picker component to select.", GH_ParamAccess.item, string.Empty);
     }
 
     /// <inheritdoc/>
@@ -45,7 +59,7 @@ public class ApiKeys : PhyBase
     }
 
     /// <summary>
-    /// When dropped onto the canvas, auto-place a value list wired to the provider input.
+    /// When dropped onto the canvas, auto-place a Picker wired to the provider input.
     /// </summary>
     /// <param name="document">The active Grasshopper document.</param>
     public override void AddedToDocument(GH_Document document)
@@ -54,7 +68,7 @@ public class ApiKeys : PhyBase
 
         if (Params.Input[0].SourceCount > 0) return;
 
-        ComponentHelpers.ValueListAdd(this, document, 0, "Load API_KEY_CONFIG.YAML");
+        ComponentHelpers.PickerAdd(this, document, 0);
     }
 
     /// <inheritdoc/>
@@ -63,12 +77,19 @@ public class ApiKeys : PhyBase
         // Re-read the config on every solve so changes to the file are picked up.
         _keys = Api.GetKeys(GetConfigFilePath());
 
-        // Repopulate the value list only when the provider set has changed.
+        // Repopulate the picker only when the provider set has changed.
         string providerList = string.Join(",", _keys.Select(k => k.Provider));
         if (providerList != _lastProviderList)
         {
             _lastProviderList = providerList;
-            PopulateValueList();
+            SetValues("Provider", _keys.Select(k => k.Provider));
+
+            OnPingDocument()?.ScheduleSolution(1, _ =>
+            {
+                foreach (var source in Params.Input[0].Sources)
+                    (source.Attributes?.GetTopLevel?.DocObject as IGH_ActiveObject)?.ExpireSolution(false);
+                ExpireSolution(true);
+            });
         }
 
         if (_keys.Count == 0)
@@ -94,26 +115,6 @@ public class ApiKeys : PhyBase
         }
 
         DA.SetData(0, match.Key);
-    }
-
-    private void PopulateValueList()
-    {
-        var valueList = Params.Input[0].Sources.OfType<GH_ValueList>().FirstOrDefault();
-        if (valueList is null) return;
-
-        var keys = _keys;
-
-        OnPingDocument()?.ScheduleSolution(1, _ =>
-        {
-            valueList.ListItems.Clear();
-            foreach (var k in keys)
-                valueList.ListItems.Add(new GH_ValueListItem(k.Provider, $"\"{k.Provider}\""));
-
-            if (valueList.ListItems.Count > 0)
-                valueList.SelectItem(0);
-
-            valueList.ExpireSolution(true);
-        });
     }
 
     private static string GetConfigFilePath()

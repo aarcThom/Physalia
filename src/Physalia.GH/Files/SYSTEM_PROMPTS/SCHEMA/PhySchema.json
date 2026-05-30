@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PhySchema",
+  "description": "A Grasshopper definition serialised as JSON. Output exactly this structure — no prose, no markdown fences, no explanation. Only the raw JSON object.",
+  "type": "object",
+  "required": ["schema", "components", "connections"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "type": "string",
+      "description": "PhySchema version. Always use '1.0'.",
+      "const": "1.0"
+    },
+    "components": {
+      "type": "array",
+      "description": "All Grasshopper components in the definition.",
+      "items": {
+        "type": "object",
+        "required": ["name", "instanceGuid", "id"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Component display name, e.g. 'Addition', 'Number Slider', 'Panel'."
+          },
+          "instanceGuid": {
+            "type": "string",
+            "description": "A UUID v4 string, unique within the definition.",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          },
+          "id": {
+            "type": "integer",
+            "description": "Short integer identifier used in the connections array. Must be unique."
+          },
+          "componentState": {
+            "type": "object",
+            "description": "Optional extra state. Omit for standard components.",
+            "properties": {
+              "extensions": {
+                "type": "object",
+                "description": "Provider-specific extensions keyed by extension name, e.g. 'gh.numberslider'."
+              }
+            }
+          }
+        }
+      }
+    },
+    "connections": {
+      "type": "array",
+      "description": "Wires between component parameters.",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "object",
+            "required": ["id", "paramName"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "integer", "description": "Source component id." },
+              "paramName": { "type": "string", "description": "Output parameter name on the source component." }
+            }
+          },
+          "to": {
+            "type": "object",
+            "required": ["id", "paramName"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "integer", "description": "Target component id." },
+              "paramName": { "type": "string", "description": "Input parameter name on the target component." }
+            }
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema": "1.0",
+      "components": [
+        {
+          "name": "Number Slider",
+          "instanceGuid": "11111111-1111-1111-1111-111111111111",
+          "id": 1,
+          "componentState": { "extensions": { "gh.numberslider": { "value": "5<0~10>" } } }
+        },
+        {
+          "name": "Addition",
+          "instanceGuid": "22222222-2222-2222-2222-222222222222",
+          "id": 2
+        }
+      ],
+      "connections": [
+        { "from": { "id": 1, "paramName": "Number" }, "to": { "id": 2, "paramName": "A" } }
+      ]
+    }
+  ]
+}

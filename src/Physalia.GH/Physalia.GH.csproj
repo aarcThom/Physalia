@@ -22,6 +22,8 @@
   <!-- WinForms only available on the Windows TFM -->
   <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- Explicit guard symbol for WinForms-only components (e.g. Serializer). -->
+    <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
   
   <PropertyGroup>
@@ -42,8 +44,10 @@
   </ItemGroup>
   
   <ItemGroup>
-    <PackageReference Include="Grasshopper" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+    <PackageReference Include="Grasshopper" Version="8.24.25281.15001" ExcludeAssets="runtime" />
 <PackageReference Include="System.Drawing.Common" Version="7.0.0" />
+    <PackageReference Include="GhJSON.Core" Version="1.0.0" />
+    <PackageReference Include="GhJSON.Grasshopper" Version="1.0.0" />
   </ItemGroup>
   
   <ItemGroup>

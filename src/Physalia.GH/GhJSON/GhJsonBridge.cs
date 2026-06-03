@@ -11,6 +11,7 @@ using GhJSON.Core.SchemaModels;
 using GhJSON.Core.Serialization;
 using GhJSON.Grasshopper;
 using GhJSON.Grasshopper.PutOperations;
+using Grasshopper.Kernel;
 
 namespace Physalia.GH.GhJSON;
 
@@ -39,6 +40,7 @@ internal static class GhJsonBridge
     internal static void ExportToFile(IReadOnlyList<Guid> guids, string path)
     {
         GhJsonDocument doc = GhJsonGrasshopper.GetByGuids(guids);
+        StripNickNames(doc);
         GhJson.ToFile(doc, path, new WriteOptions { Indented = true });
     }
 
@@ -99,8 +101,73 @@ internal static class GhJsonBridge
 
         PutResult result = GhJsonGrasshopper.Put(doc, options);
 
+        if (result.Success)
+        {
+            ExpandNickNames(result.PlacedObjects);
+        }
+
         return result.Success
             ? new PlaceResult(true, result.ComponentsPlaced, result.ConnectionsCreated, result.Warnings.Count, null)
             : new PlaceResult(false, 0, 0, 0, result.ErrorMessage);
+    }
+
+    /// <summary>
+    /// Removes abbreviated <c>nickName</c> entries from all parameter settings in a document so
+    /// that the exported JSON contains only the full <c>parameterName</c> values.
+    /// </summary>
+    /// <param name="doc">The document to normalise in place.</param>
+    private static void StripNickNames(GhJsonDocument doc)
+    {
+        if (doc.Components is null)
+        {
+            return;
+        }
+
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.InputSettings is not null)
+            {
+                foreach (GhJsonParameterSettings s in component.InputSettings)
+                {
+                    s.NickName = null;
+                }
+            }
+
+            if (component.OutputSettings is not null)
+            {
+                foreach (GhJsonParameterSettings s in component.OutputSettings)
+                {
+                    s.NickName = null;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Sets every placed component's parameter <c>NickName</c> to its <c>Name</c> so that the
+    /// full parameter label is visible on the canvas after placement.
+    /// </summary>
+    /// <param name="placedObjects">The objects returned by <c>GhJsonGrasshopper.Put</c>.</param>
+    private static void ExpandNickNames(IEnumerable<IGH_DocumentObject> placedObjects)
+    {
+        foreach (IGH_DocumentObject obj in placedObjects)
+        {
+            if (obj is IGH_Component comp)
+            {
+                foreach (IGH_Param param in comp.Params.Input)
+                {
+                    param.NickName = param.Name;
+                }
+
+                foreach (IGH_Param param in comp.Params.Output)
+                {
+                    param.NickName = param.Name;
+                }
+            }
+            else if (obj is IGH_Param floatingParam)
+            {
+                floatingParam.NickName = floatingParam.Name;
+            }
+        }
     }
 }

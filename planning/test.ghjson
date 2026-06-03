@@ -1,0 +1,455 @@
+{
+  "schema": "1.0",
+  "components": [
+    {
+      "name": "Anthropic Model",
+      "library": "Physalia",
+      "componentGuid": "d60822a6-1abd-4ba8-ab0f-a54937d0b923",
+      "instanceGuid": "b9172836-45a2-42ca-91e9-2c1fdb198455",
+      "id": 1,
+      "pivot": "841,210",
+      "inputSettings": [
+        {
+          "parameterName": "API Key"
+        },
+        {
+          "parameterName": "Model"
+        }
+      ],
+      "outputSettings": [
+        {
+          "parameterName": "Model"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Picker",
+      "library": "Physalia",
+      "nickName": "Pick",
+      "componentGuid": "2d14368f-0302-4d08-bdec-61dd6a28732c",
+      "instanceGuid": "238f0215-83da-4ec2-a7b2-5f79a94ee87b",
+      "id": 2,
+      "pivot": "597,220",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Value",
+          "nickName": "V"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "API Keys",
+      "library": "Physalia",
+      "componentGuid": "6066e324-4a4d-4c08-b72b-5268ed7de772",
+      "instanceGuid": "49b3c03e-dd6c-4260-903d-91a4b749118a",
+      "id": 3,
+      "pivot": "673,162",
+      "inputSettings": [
+        {
+          "parameterName": "Provider"
+        }
+      ],
+      "outputSettings": [
+        {
+          "parameterName": "API Key"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Picker",
+      "library": "Physalia",
+      "nickName": "Pick",
+      "componentGuid": "2d14368f-0302-4d08-bdec-61dd6a28732c",
+      "instanceGuid": "caebb2c8-887f-4fda-9804-0e15a51118b2",
+      "id": 4,
+      "pivot": "473,162",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Value",
+          "nickName": "V"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Composer",
+      "library": "Physalia",
+      "componentGuid": "ba4fcd24-96db-4b2b-b7f7-e756a98bc185",
+      "instanceGuid": "6bfee578-40c8-4c27-8e09-2f7688f7366b",
+      "id": 5,
+      "pivot": "1058,307",
+      "inputSettings": [
+        {
+          "parameterName": "Preamble"
+        },
+        {
+          "parameterName": "Schema"
+        },
+        {
+          "parameterName": "Tools"
+        }
+      ],
+      "outputSettings": [
+        {
+          "parameterName": "System Prompt"
+        },
+        {
+          "parameterName": "Schema"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Picker",
+      "library": "Physalia",
+      "nickName": "Pick",
+      "componentGuid": "2d14368f-0302-4d08-bdec-61dd6a28732c",
+      "instanceGuid": "f6f1834e-7b00-4f58-9873-1c6d6fcd6ecc",
+      "id": 6,
+      "pivot": "758,277",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Value",
+          "nickName": "V"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Picker",
+      "library": "Physalia",
+      "nickName": "Pick",
+      "componentGuid": "2d14368f-0302-4d08-bdec-61dd6a28732c",
+      "instanceGuid": "80a9e980-f746-4406-9ef7-a1c96accefa1",
+      "id": 7,
+      "pivot": "758,307",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Value",
+          "nickName": "V"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Picker",
+      "library": "Physalia",
+      "nickName": "Pick",
+      "componentGuid": "2d14368f-0302-4d08-bdec-61dd6a28732c",
+      "instanceGuid": "140c5f4d-bc8c-42ec-aca2-8a8121c6555c",
+      "id": 8,
+      "pivot": "758,337",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Value",
+          "nickName": "V"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Reasoner",
+      "library": "Physalia",
+      "componentGuid": "f1097b2b-564a-43f8-8f70-ba6961f00e00",
+      "instanceGuid": "ed1a800b-cc7c-49a6-9b48-afcc4570ba94",
+      "id": 9,
+      "pivot": "1606,220",
+      "inputSettings": [
+        {
+          "parameterName": "Instructions"
+        },
+        {
+          "parameterName": "Model"
+        },
+        {
+          "parameterName": "Trigger"
+        },
+        {
+          "parameterName": "Cancel",
+          "internalizedData": {
+            "{0}": {
+              "{0}(0)": "boolean:false"
+            }
+          }
+        }
+      ],
+      "outputSettings": [
+        {
+          "parameterName": "Response"
+        },
+        {
+          "parameterName": "Tool Calls"
+        },
+        {
+          "parameterName": "Trigger"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Recorder",
+      "library": "Physalia",
+      "componentGuid": "43a02f6d-d97d-4241-b4dd-067d7ae0d75e",
+      "instanceGuid": "e9a7ee83-e779-4166-bc3e-bbcc4a8fb8a0",
+      "id": 10,
+      "pivot": "1337,110",
+      "inputSettings": [
+        {
+          "parameterName": "System Prompt"
+        },
+        {
+          "parameterName": "Prompt"
+        },
+        {
+          "parameterName": "LLM Response"
+        },
+        {
+          "parameterName": "Tool Call"
+        },
+        {
+          "parameterName": "Trigger"
+        },
+        {
+          "parameterName": "Conversation"
+        }
+      ],
+      "outputSettings": [
+        {
+          "parameterName": "Instructions"
+        },
+        {
+          "parameterName": "Trigger"
+        },
+        {
+          "parameterName": "Recorded History"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Panel",
+      "library": "Params",
+      "componentGuid": "59e0b89a-e487-49f8-bab8-b5bab16be14c",
+      "instanceGuid": "5d160f59-3928-401e-a7d6-6bca61545779",
+      "id": 11,
+      "pivot": "933.81201171875,73.11399841308594",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Panel"
+        }
+      ],
+      "componentState": {
+        "selected": true,
+        "extensions": {
+          "gh.panel": {
+            "text": "generate a poem",
+            "multiline": true,
+            "wrap": true,
+            "drawIndices": true,
+            "drawPaths": true,
+            "color": "argb:255,255,250,90",
+            "bounds": "160x100"
+          }
+        }
+      }
+    },
+    {
+      "name": "Button",
+      "library": "Params",
+      "componentGuid": "a8b97322-2d53-47cd-905e-b932c3ccd74e",
+      "instanceGuid": "630746da-1b14-4c66-a676-b4fe4834194f",
+      "id": 12,
+      "pivot": "1011,29",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Button"
+        }
+      ],
+      "componentState": {
+        "selected": true,
+        "extensions": {
+          "gh.button": {
+            "normal": "False",
+            "pressed": "True"
+          }
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": {
+        "id": 1,
+        "paramName": "Model",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 9,
+        "paramName": "Model",
+        "paramIndex": 1
+      }
+    },
+    {
+      "from": {
+        "id": 2,
+        "paramName": "Value",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 1,
+        "paramName": "Model",
+        "paramIndex": 1
+      }
+    },
+    {
+      "from": {
+        "id": 3,
+        "paramName": "API Key",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 1,
+        "paramName": "API Key",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 4,
+        "paramName": "Value",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 3,
+        "paramName": "Provider",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 5,
+        "paramName": "System Prompt",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 10,
+        "paramName": "System Prompt",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 6,
+        "paramName": "Value",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 5,
+        "paramName": "Preamble",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 7,
+        "paramName": "Value",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 5,
+        "paramName": "Schema",
+        "paramIndex": 1
+      }
+    },
+    {
+      "from": {
+        "id": 8,
+        "paramName": "Value",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 5,
+        "paramName": "Tools",
+        "paramIndex": 2
+      }
+    },
+    {
+      "from": {
+        "id": 10,
+        "paramName": "Instructions",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 9,
+        "paramName": "Instructions",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 10,
+        "paramName": "Trigger",
+        "paramIndex": 1
+      },
+      "to": {
+        "id": 9,
+        "paramName": "Trigger",
+        "paramIndex": 2
+      }
+    },
+    {
+      "from": {
+        "id": 11,
+        "paramName": "Panel",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 10,
+        "paramName": "Prompt",
+        "paramIndex": 1
+      }
+    },
+    {
+      "from": {
+        "id": 12,
+        "paramName": "Button",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 10,
+        "paramName": "Trigger",
+        "paramIndex": 4
+      }
+    }
+  ]
+}

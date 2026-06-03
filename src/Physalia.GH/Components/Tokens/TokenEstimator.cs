@@ -11,6 +11,7 @@ using Grasshopper.Kernel.Types;
 using Physalia.Core.Common;
 using Physalia.Core.Models.Protocol;
 using Physalia.Core.Tokens;
+using Physalia.GH.GhJSON;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -87,6 +88,7 @@ public class TokenEstimator : PhyBase, IPickableValuesSource
     public override void AddedToDocument(GH_Document document)
     {
         base.AddedToDocument(document);
+        if (GhJsonBridge.IsImporting) return;
 
         if (Params.Input[2].SourceCount > 0) return;
 

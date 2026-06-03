@@ -32,6 +32,12 @@ internal sealed record PlaceResult(
 internal static class GhJsonBridge
 {
     /// <summary>
+    /// True while <see cref="LoadAndPlace"/> is executing. Components that auto-place
+    /// Pickers in <c>AddedToDocument</c> check this flag to suppress duplicate placement
+    /// when the component was already wired in the imported file.
+    /// </summary>
+    internal static bool IsImporting { get; private set; }
+    /// <summary>
     /// Exports the Grasshopper objects identified by <paramref name="guids"/> to a
     /// <c>.ghjson</c> file at <paramref name="path"/>.
     /// </summary>
@@ -99,7 +105,16 @@ internal static class GhJsonBridge
             SelectPlacedObjects = true,
         };
 
-        PutResult result = GhJsonGrasshopper.Put(doc, options);
+        IsImporting = true;
+        PutResult result;
+        try
+        {
+            result = GhJsonGrasshopper.Put(doc, options);
+        }
+        finally
+        {
+            IsImporting = false;
+        }
 
         if (result.Success)
         {

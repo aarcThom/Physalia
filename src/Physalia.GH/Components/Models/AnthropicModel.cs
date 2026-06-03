@@ -9,6 +9,7 @@ using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Config;
 using Physalia.Core.Models.Named;
+using Physalia.GH.GhJSON;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -57,6 +58,7 @@ public class AnthropicModel : PhyBase, IPickableValuesSource
     public override void AddedToDocument(GH_Document document)
     {
         base.AddedToDocument(document);
+        if (GhJsonBridge.IsImporting) return;
 
         if (Params.Input[1].SourceCount > 0) return;
 

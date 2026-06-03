@@ -8,6 +8,7 @@ using System.Linq;
 using System.Reflection;
 using Grasshopper.Kernel;
 using Physalia.Core.Config;
+using Physalia.GH.GhJSON;
 
 namespace Physalia.GH.Components;
 
@@ -65,6 +66,7 @@ public class ApiKeys : PhyBase, IPickableValuesSource
     public override void AddedToDocument(GH_Document document)
     {
         base.AddedToDocument(document);
+        if (GhJsonBridge.IsImporting) return;
 
         if (Params.Input[0].SourceCount > 0) return;
 

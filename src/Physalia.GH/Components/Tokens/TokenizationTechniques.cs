@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using Grasshopper.Kernel;
 using Physalia.Core.Tokens;
+using Physalia.GH.GhJSON;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -69,6 +70,7 @@ public class TokenizationTechniques : PhyBase, IPickableValuesSource
     public override void AddedToDocument(GH_Document document)
     {
         base.AddedToDocument(document);
+        if (GhJsonBridge.IsImporting) return;
 
         if (Params.Input[0].SourceCount > 0) return;
 

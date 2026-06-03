@@ -6,11 +6,8 @@
 using System;
 using System.Drawing;
 using System.IO;
-using GhJSON.Core;
-using GhJSON.Core.SchemaModels;
-using GhJSON.Grasshopper;
-using GhJSON.Grasshopper.PutOperations;
 using Grasshopper.Kernel;
+using Physalia.GH.GhJSON;
 
 namespace Physalia.GH.Components;
 
@@ -125,7 +122,7 @@ public class Deserializer : PhyBase
             return;
         }
 
-        if (!GhJson.IsValid(json, out string? message))
+        if (!GhJsonBridge.IsValidJson(json, out string? message))
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"Not a valid GhJSON file. {message}");
             return;
@@ -158,30 +155,14 @@ public class Deserializer : PhyBase
     {
         try
         {
-            GhJsonDocument doc = GhJson.FromFile(path);
-            if (doc.Components is null || doc.Components.Count == 0)
-            {
-                SetStatus("The GhJSON file contains no components to place.", GH_RuntimeMessageLevel.Warning);
-                return;
-            }
-
-            var options = new PutOptions
-            {
-                Offset = ComputeOffsetRightOfComponent(doc),
-                AutoOffset = false,
-                CreateConnections = true,
-                CreateGroups = true,
-                RegenerateInstanceGuids = true,
-                SkipInvalidComponents = true,
-                SelectPlacedObjects = true,
-            };
-
-            PutResult result = GhJsonGrasshopper.Put(doc, options);
+            RectangleF bounds = Attributes.Bounds;
+            var targetOrigin = new PointF(bounds.Right + PlacementGap, bounds.Y);
+            PlaceResult result = GhJsonBridge.LoadAndPlace(path, targetOrigin);
             if (result.Success)
             {
-                string warnings = result.Warnings.Count > 0 ? $" ({result.Warnings.Count} warning(s))" : string.Empty;
+                string warnings = result.WarningCount > 0 ? $" ({result.WarningCount} warning(s))" : string.Empty;
                 SetStatus(
-                    $"Placed {result.ComponentsPlaced} component(s) and {result.ConnectionsCreated} connection(s){warnings}.",
+                    $"Placed {result.ComponentCount} component(s) and {result.ConnectionCount} connection(s){warnings}.",
                     GH_RuntimeMessageLevel.Remark);
             }
             else
@@ -193,39 +174,6 @@ public class Deserializer : PhyBase
         {
             SetStatus($"Import failed: {ex.Message}", GH_RuntimeMessageLevel.Error);
         }
-    }
-
-    /// <summary>
-    /// Computes the offset that maps the imported content's top-left pivot to a point just to the
-    /// right of this component, so the placed objects appear beside the Deserializer.
-    /// </summary>
-    /// <param name="doc">The document being placed.</param>
-    /// <returns>The pivot offset to apply to every placed object.</returns>
-    private PointF ComputeOffsetRightOfComponent(GhJsonDocument doc)
-    {
-        float srcMinX = float.MaxValue;
-        float srcMinY = float.MaxValue;
-        foreach (GhJsonComponent component in doc.Components)
-        {
-            if (component.Pivot is not null)
-            {
-                srcMinX = Math.Min(srcMinX, (float)component.Pivot.X);
-                srcMinY = Math.Min(srcMinY, (float)component.Pivot.Y);
-            }
-        }
-
-        if (srcMinX == float.MaxValue)
-        {
-            // No pivots in the file — anchor the content to the target directly.
-            srcMinX = 0f;
-            srcMinY = 0f;
-        }
-
-        RectangleF bounds = Attributes.Bounds;
-        float targetX = bounds.Right + PlacementGap;
-        float targetY = bounds.Y;
-
-        return new PointF(targetX - srcMinX, targetY - srcMinY);
     }
 
     /// <summary>

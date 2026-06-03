@@ -10,14 +10,11 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Windows.Forms;
-using GhJSON.Core;
-using GhJSON.Core.SchemaModels;
-using GhJSON.Core.Serialization;
-using GhJSON.Grasshopper;
 using Grasshopper;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
+using Physalia.GH.GhJSON;
 
 namespace Physalia.GH.Components;
 
@@ -223,8 +220,7 @@ public class Serializer : PhyBase
 
         try
         {
-            GhJsonDocument ghDoc = GhJsonGrasshopper.GetByGuids(guids);
-            GhJson.ToFile(ghDoc, path, new WriteOptions { Indented = true });
+            GhJsonBridge.ExportToFile(guids, path);
             SetStatus($"Exported {selected.Count} object(s) to {path}", GH_RuntimeMessageLevel.Remark);
         }
         catch (Exception ex)

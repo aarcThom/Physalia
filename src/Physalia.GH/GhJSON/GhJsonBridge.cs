@@ -1,0 +1,106 @@
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+#nullable enable
+
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using GhJSON.Core;
+using GhJSON.Core.SchemaModels;
+using GhJSON.Core.Serialization;
+using GhJSON.Grasshopper;
+using GhJSON.Grasshopper.PutOperations;
+
+namespace Physalia.GH.GhJSON;
+
+/// <summary>
+/// Result returned by <see cref="GhJsonBridge.LoadAndPlace"/>.
+/// </summary>
+internal sealed record PlaceResult(
+    bool Success,
+    int ComponentCount,
+    int ConnectionCount,
+    int WarningCount,
+    string? ErrorMessage);
+
+/// <summary>
+/// Façade over the GhJSON library. All direct GhJSON API calls originate here;
+/// components interact with the library exclusively through this class.
+/// </summary>
+internal static class GhJsonBridge
+{
+    /// <summary>
+    /// Exports the Grasshopper objects identified by <paramref name="guids"/> to a
+    /// <c>.ghjson</c> file at <paramref name="path"/>.
+    /// </summary>
+    /// <param name="guids">The instance GUIDs of the objects to export.</param>
+    /// <param name="path">The destination file path.</param>
+    internal static void ExportToFile(IReadOnlyList<Guid> guids, string path)
+    {
+        GhJsonDocument doc = GhJsonGrasshopper.GetByGuids(guids);
+        GhJson.ToFile(doc, path, new WriteOptions { Indented = true });
+    }
+
+    /// <summary>
+    /// Returns whether <paramref name="json"/> is a valid GhJSON document.
+    /// </summary>
+    /// <param name="json">The JSON string to validate.</param>
+    /// <param name="message">Validation failure message, or null on success.</param>
+    /// <returns>true if valid; false otherwise.</returns>
+    internal static bool IsValidJson(string json, out string? message)
+    {
+        return GhJson.IsValid(json, out message);
+    }
+
+    /// <summary>
+    /// Loads a <c>.ghjson</c> file and places its components onto the active Grasshopper
+    /// canvas, with the content's top-left pivot aligned to <paramref name="targetOrigin"/>.
+    /// </summary>
+    /// <param name="path">Path to the <c>.ghjson</c> file.</param>
+    /// <param name="targetOrigin">Canvas position for the top-left corner of the placed content.</param>
+    /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
+    internal static PlaceResult LoadAndPlace(string path, PointF targetOrigin)
+    {
+        GhJsonDocument doc = GhJson.FromFile(path);
+
+        if (doc.Components is null || doc.Components.Count == 0)
+        {
+            return new PlaceResult(false, 0, 0, 0, "The GhJSON file contains no components to place.");
+        }
+
+        float minX = float.MaxValue;
+        float minY = float.MaxValue;
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.Pivot is not null)
+            {
+                minX = Math.Min(minX, (float)component.Pivot.X);
+                minY = Math.Min(minY, (float)component.Pivot.Y);
+            }
+        }
+
+        if (minX == float.MaxValue)
+        {
+            minX = 0f;
+            minY = 0f;
+        }
+
+        var options = new PutOptions
+        {
+            Offset = new PointF(targetOrigin.X - minX, targetOrigin.Y - minY),
+            AutoOffset = false,
+            CreateConnections = true,
+            CreateGroups = true,
+            RegenerateInstanceGuids = true,
+            SkipInvalidComponents = true,
+            SelectPlacedObjects = true,
+        };
+
+        PutResult result = GhJsonGrasshopper.Put(doc, options);
+
+        return result.Success
+            ? new PlaceResult(true, result.ComponentsPlaced, result.ConnectionsCreated, result.Warnings.Count, null)
+            : new PlaceResult(false, 0, 0, 0, result.ErrorMessage);
+    }
+}

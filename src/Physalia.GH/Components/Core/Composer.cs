@@ -8,7 +8,7 @@ using System.Linq;
 using System.Reflection;
 using System.Windows.Forms;
 using Grasshopper.Kernel;
-using Physalia.GH.GhJSON;
+using Physalia.GH.Generation;
 
 namespace Physalia.GH.Components;
 

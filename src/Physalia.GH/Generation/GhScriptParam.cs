@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-namespace Physalia.GH.GhPython;
+namespace Physalia.GH.Generation;
 
 /// <summary>
 /// Data access mode for a GH Python Script parameter.

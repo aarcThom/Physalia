@@ -7,7 +7,7 @@ using System;
 using System.Drawing;
 using System.IO;
 using Grasshopper.Kernel;
-using Physalia.GH.GhJSON;
+using Physalia.GH.Generation;
 
 namespace Physalia.GH.Components;
 

@@ -12,7 +12,7 @@ using Grasshopper;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
-using Physalia.GH.GhJSON;
+using Physalia.GH.Generation;
 using Physalia.GH.Widgets;
 
 namespace Physalia.GH.Components;

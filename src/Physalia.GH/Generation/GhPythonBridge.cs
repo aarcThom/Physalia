@@ -9,7 +9,7 @@ using Grasshopper.Kernel;
 using Rhino.Runtime.Code;
 using RhinoCodePlatform.GH;
 
-namespace Physalia.GH.GhPython;
+namespace Physalia.GH.Generation;
 
 /// <summary>
 /// Facade over the McNeel <c>RhinoCodePlatform.GH</c> API.

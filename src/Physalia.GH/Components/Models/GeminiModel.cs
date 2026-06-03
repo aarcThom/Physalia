@@ -9,7 +9,7 @@ using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Config;
 using Physalia.Core.Models.Named;
-using Physalia.GH.GhJSON;
+using Physalia.GH.Generation;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 

@@ -11,7 +11,7 @@ using Grasshopper.Kernel.Types;
 using Physalia.Core.Common;
 using Physalia.Core.Models.Protocol;
 using Physalia.Core.Tokens;
-using Physalia.GH.GhJSON;
+using Physalia.GH.Generation;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 

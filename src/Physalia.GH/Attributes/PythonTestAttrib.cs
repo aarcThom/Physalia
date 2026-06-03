@@ -9,7 +9,7 @@ using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Attributes.UiElements;
 using Physalia.GH.Components.GhPython;
-using Physalia.GH.GhPython;
+using Physalia.GH.Generation;
 
 namespace Physalia.GH.Attributes;
 

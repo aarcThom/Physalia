@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.GH.Attributes;
-using Physalia.GH.GhPython;
+using Physalia.GH.Generation;
 
 namespace Physalia.GH.Components.GhPython;
 

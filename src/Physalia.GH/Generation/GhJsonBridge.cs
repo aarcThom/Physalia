@@ -13,7 +13,7 @@ using GhJSON.Grasshopper;
 using GhJSON.Grasshopper.PutOperations;
 using Grasshopper.Kernel;
 
-namespace Physalia.GH.GhJSON;
+namespace Physalia.GH.Generation;
 
 /// <summary>
 /// Result returned by <see cref="GhJsonBridge.LoadAndPlace"/>.

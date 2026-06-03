@@ -6,8 +6,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Windows.Forms;
 using Grasshopper;
@@ -15,6 +13,7 @@ using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Physalia.GH.GhJSON;
+using Physalia.GH.Widgets;
 
 namespace Physalia.GH.Components;
 
@@ -77,7 +76,7 @@ public class Serializer : PhyBase
         }
 
         // Trigger on the rising edge of Run, and never while an interaction is already in flight.
-        // The selection prompt is drawn as a persistent canvas overlay (OnCanvasPostPaintWidgets)
+        // The selection prompt is drawn as a persistent canvas overlay (SerializeWidget)
         // rather than a runtime message, whose text only shows while the component is hovered.
         if (run && !_lastRun && !_interactionActive)
         {
@@ -115,7 +114,7 @@ public class Serializer : PhyBase
         canvas.Document.DeselectAll();
         canvas.Focus();
         canvas.KeyDown += OnCanvasKeyDown;
-        canvas.CanvasPostPaintWidgets += OnCanvasPostPaintWidgets;
+        SerializeWidget.Attach(canvas);
         canvas.Refresh();
         return true;
     }
@@ -144,52 +143,6 @@ public class Serializer : PhyBase
             e.SuppressKeyPress = true;
             CancelSelection();
         }
-    }
-
-    /// <summary>
-    /// Draws a persistent prompt banner across the top of the canvas for the duration of the
-    /// selection interaction. Drawn as a screen-space widget so it stays visible regardless of
-    /// cursor position (unlike a runtime message, whose text only shows on hover).
-    /// </summary>
-    /// <param name="sender">The canvas being painted.</param>
-    private void OnCanvasPostPaintWidgets(GH_Canvas sender)
-    {
-        if (!_interactionActive || sender?.Graphics is null)
-        {
-            return;
-        }
-
-        Graphics g = sender.Graphics;
-
-        // CanvasPostPaintWidgets paints under the canvas pan/zoom transform. Reset to device
-        // space so the banner is pinned to the top-left of the window regardless of pan/zoom.
-        Matrix oldTransform = g.Transform;
-        SmoothingMode oldMode = g.SmoothingMode;
-        g.ResetTransform();
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-
-        const string text = "Serializer — select the objects to export, then press Enter to confirm  (Esc to cancel)";
-        Font font = GH_FontServer.Standard;
-
-        SizeF textSize = g.MeasureString(text, font);
-        const float margin = 10f;
-        float boxWidth = textSize.Width + 24f;
-        float boxHeight = textSize.Height + 14f;
-        var box = new RectangleF(margin, margin, boxWidth, boxHeight);
-
-        using (var background = new SolidBrush(Color.FromArgb(235, 30, 30, 30)))
-        using (var border = new Pen(Color.FromArgb(255, 255, 191, 0), 1.5f))
-        using (var foreground = new SolidBrush(Color.White))
-        using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
-        {
-            g.FillRectangle(background, box);
-            g.DrawRectangle(border, box.X, box.Y, box.Width, box.Height);
-            g.DrawString(text, font, foreground, box, format);
-        }
-
-        g.SmoothingMode = oldMode;
-        g.Transform = oldTransform;
-        oldTransform.Dispose();
     }
 
     /// <summary>
@@ -265,8 +218,7 @@ public class Serializer : PhyBase
         if (_hookedCanvas is not null)
         {
             _hookedCanvas.KeyDown -= OnCanvasKeyDown;
-            _hookedCanvas.CanvasPostPaintWidgets -= OnCanvasPostPaintWidgets;
-            _hookedCanvas.Refresh();
+            SerializeWidget.Detach(_hookedCanvas);
             _hookedCanvas = null;
         }
 

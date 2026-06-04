@@ -20,7 +20,7 @@ namespace Physalia.GH.Generation;
 public static class HierarchicalLayout
 {
     // LAYOUT CONSTANTS =============================================================
-    private const float LayerSpacing = 220f;
+    private const float LayerSpacing = 300f;
     private const float NodeSpacing = 100f;
     private const float OriginX = 50f;
     private const float OriginY = 50f;

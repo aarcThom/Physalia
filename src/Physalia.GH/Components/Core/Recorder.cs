@@ -25,6 +25,7 @@ public class Recorder : PhyBase
     private Conversation _recordedHistory = Conversation.Empty;
     private Conversation? _lastOverride;
     private string _lastPrompt = string.Empty;
+    private string _lastPhysaliaPrompt = string.Empty;
     private bool _lastTrigger;
 
     /// <summary>
@@ -44,13 +45,15 @@ public class Recorder : PhyBase
         pManager.AddTextParameter("System Prompt", "S", "System prompt from Composer.", GH_ParamAccess.item, string.Empty);
         pManager.AddTextParameter("Prompt", "P", "User prompt from Prompter.", GH_ParamAccess.item, string.Empty);
         pManager.AddTextParameter("LLM Response", "L", "LLM text response from Reasoner, recorded as an assistant message.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Physalia Prompt", "PP", "Feedback from linters, GH errors, or visual inspection. Appended as a User message after an Assistant turn.", GH_ParamAccess.item, string.Empty);
         pManager.AddParameter(new Param_LlmToolCall(), "Tool Call", "TC", "Tool calls from Reasoner to record as an assistant message.", GH_ParamAccess.list);
         pManager.AddBooleanParameter("Trigger", "T", "Trigger from Prompter or Feedback. Initiates downstream solve.", GH_ParamAccess.item, false);
         pManager.AddParameter(new Param_Conversation(), "Conversation", "C", "Optional compacted conversation. Replaces the active conversation while all messages are preserved in Recorded History.", GH_ParamAccess.item);
 
         pManager[2].Optional = true;
         pManager[3].Optional = true;
-        pManager[5].Optional = true;
+        pManager[4].Optional = true;
+        pManager[6].Optional = true;
     }
 
     /// <inheritdoc/>
@@ -77,18 +80,20 @@ public class Recorder : PhyBase
         string systemPrompt = string.Empty;
         string prompt = string.Empty;
         string llmResponse = string.Empty;
+        string physaliaPrompt = string.Empty;
         var toolCallItems = new List<GH_LlmToolCall>();
         bool trigger = false;
 
         DA.GetData(0, ref systemPrompt);
         DA.GetData(1, ref prompt);
         DA.GetData(2, ref llmResponse);
-        DA.GetDataList(3, toolCallItems);
-        if (!DA.GetData(4, ref trigger)) return;
+        DA.GetData(3, ref physaliaPrompt);
+        DA.GetDataList(4, toolCallItems);
+        if (!DA.GetData(5, ref trigger)) return;
 
         // Apply compacted conversation override when a new one arrives.
         var overrideGoo = new GH_Conversation();
-        bool hasOverride = DA.GetData(5, ref overrideGoo);
+        bool hasOverride = DA.GetData(6, ref overrideGoo);
         Conversation? overrideConversation = hasOverride ? overrideGoo?.Value : null;
 
         if (overrideConversation is not null && !ReferenceEquals(overrideConversation, _lastOverride))
@@ -161,15 +166,29 @@ public class Recorder : PhyBase
             }
             else
             {
-                // User turn: prompt only — llmResponse is never a fallback here.
-                if (StringHelpers.IsNonBlank(prompt) && !StringHelpers.AreEquivalent(prompt, _lastPrompt))
+                // User turn: Physalia Prompt takes priority; Prompt is the fallback.
+                bool physaliaIsNew = StringHelpers.IsNonBlank(physaliaPrompt)
+                    && !StringHelpers.AreEquivalent(physaliaPrompt, _lastPhysaliaPrompt);
+                bool promptIsNew = StringHelpers.IsNonBlank(prompt)
+                    && !StringHelpers.AreEquivalent(prompt, _lastPrompt);
+
+                string? userText = physaliaIsNew ? physaliaPrompt
+                    : promptIsNew ? prompt
+                    : null;
+
+                if (userText is not null)
                 {
-                    var message = new ConversationMessage(Role.User, prompt);
+                    var message = new ConversationMessage(Role.User, userText);
                     try
                     {
                         _conversation = _conversation.Append(message);
                         _recordedHistory = _recordedHistory.Append(message);
-                        _lastPrompt = prompt;
+
+                        if (physaliaIsNew)
+                            _lastPhysaliaPrompt = physaliaPrompt;
+                        else
+                            _lastPrompt = prompt;
+
                         appendedUserMessage = true;
                     }
                     catch (InvalidOperationException ex)
@@ -205,6 +224,7 @@ public class Recorder : PhyBase
         _recordedHistory = Conversation.Empty;
         _lastOverride = null;
         _lastPrompt = string.Empty;
+        _lastPhysaliaPrompt = string.Empty;
         ExpireSolution(true);
     }
 }

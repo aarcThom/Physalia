@@ -18,7 +18,10 @@ public abstract class PhyBase : GH_Component
     }
 
     /// <summary>
-    /// Provides an Icon for the component. Defaults to generic icon if none provided.
+    /// Provides an Icon for the component. Resolves the embedded resource named
+    /// after the concrete component type (e.g. <c>Auditor</c> → <c>Auditor.png</c>),
+    /// honouring an explicit <see cref="IconPath"/> override if one is set, and
+    /// falling back to the generic brain icon when no matching resource exists.
     /// </summary>
     protected override Bitmap Icon
     {
@@ -29,20 +32,15 @@ public abstract class PhyBase : GH_Component
                 return _iconCache;
             }
 
-            if (IconPath == null)
-            {
-                IconPath = "Physalia.GH.Resources.brain.png";
-            }
+            // Explicit override wins; otherwise derive the resource name from the runtime type.
+            string resourceName = IconPath ?? $"Physalia.GH.Resources.{GetType().Name}.png";
 
-            using System.IO.Stream? stream = GHAssembly.GetManifestResourceStream(IconPath);
-            if (stream == null)
-            {
-                // Fallback to an empty bitmap so GH doesn't crash if the resource isn't found.
-                _iconCache = new Bitmap(24, 24);
-                return _iconCache;
-            }
+            using System.IO.Stream? stream =
+                GHAssembly.GetManifestResourceStream(resourceName)
+                ?? GHAssembly.GetManifestResourceStream("Physalia.GH.Resources.brain.png");
 
-            _iconCache = new Bitmap(stream);
+            // Fallback to an empty bitmap so GH doesn't crash if no resource is found.
+            _iconCache = stream != null ? new Bitmap(stream) : new Bitmap(24, 24);
             return _iconCache;
         }
     }

@@ -66,7 +66,7 @@ public class Auditor : RoutingComponentBase<string>
         {
             Result<string, ValidationError>.Ok ok => RoutingResult.Ok(PrettyPrint(ok.Value)),
             Result<string, ValidationError>.Err err => RoutingResult.Fail(
-                BuildFeedback(err.Error, extracted), err.Error.Message, GH_RuntimeMessageLevel.Warning),
+                BuildFeedback(err.Error), err.Error.Message, GH_RuntimeMessageLevel.Warning),
             _ => RoutingResult.Fail("Unknown validation result."),
         };
     }
@@ -144,7 +144,7 @@ public class Auditor : RoutingComponentBase<string>
         }
     }
 
-    private static string BuildFeedback(ValidationError error, string extracted)
+    private static string BuildFeedback(ValidationError error)
     {
         var sb = new StringBuilder();
         sb.AppendLine("Your previous response failed validation. Please correct and resubmit.");
@@ -157,13 +157,6 @@ public class Auditor : RoutingComponentBase<string>
             sb.AppendLine("Violations:");
             foreach (var v in error.Violations)
                 sb.AppendLine($"  - {v.Path}: {v.Message}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(extracted))
-        {
-            sb.AppendLine();
-            sb.AppendLine("Your output was:");
-            sb.AppendLine(extracted);
         }
 
         return sb.ToString().TrimEnd();

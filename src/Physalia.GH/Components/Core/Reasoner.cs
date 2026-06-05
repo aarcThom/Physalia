@@ -74,7 +74,19 @@ public class Reasoner : PhyBase
         bool trigger = false;
         bool cancel = false;
 
-        if (!DA.GetData(0, ref instructionsGoo)) return;
+        if (!DA.GetData(0, ref instructionsGoo) || instructionsGoo.Value is not Instructions)
+        {
+            // Instructions input empty — cancel any running call and clear all outputs.
+            _cts?.Cancel();
+            _isRunning = false;
+            _response = string.Empty;
+            _toolCalls = null;
+            _hasNewResult = false;
+            DA.SetData(0, string.Empty);
+            DA.SetData(2, false);
+            return;
+        }
+
         if (!DA.GetData(1, ref modelGoo)) return;
         DA.GetData(2, ref trigger);
         DA.GetData(3, ref cancel);

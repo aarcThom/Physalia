@@ -20,7 +20,7 @@ namespace Physalia.GH.Components;
 /// Converts a PhySchema JSON string to GhJSON format by injecting canvas pivot
 /// positions computed from a hierarchical layout pass.
 /// </summary>
-public class SchemaTranslator : PhyBase
+public class SchemaTranslator : RoutingComponentBase<string>
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="SchemaTranslator"/> class.
@@ -38,14 +38,18 @@ public class SchemaTranslator : PhyBase
     public override Guid ComponentGuid => new Guid("DDDFAF65-212D-45B9-B581-C0EC806C4106");
 
     /// <inheritdoc/>
-    protected override void RegisterInputParams(GH_InputParamManager pManager)
+    protected override void RegisterDataInput(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter(
             "Data In", "D",
             "PhySchema JSON string to translate.",
             GH_ParamAccess.item,
             string.Empty);
+    }
 
+    /// <inheritdoc/>
+    protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
+    {
         pManager.AddTextParameter(
             "Schema In", "S",
             "JSON schema string used to validate Data In. Pass-through (no validation) if empty.",
@@ -54,58 +58,26 @@ public class SchemaTranslator : PhyBase
     }
 
     /// <inheritdoc/>
-    protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+    protected override bool TryGetData(IGH_DataAccess da, out string data)
     {
-        pManager.AddTextParameter(
-            "Data Out", "D",
-            "GhJSON-formatted string on success. Empty on failure.",
-            GH_ParamAccess.item);
-
-        pManager.AddBooleanParameter(
-            "Success Trigger", "ST",
-            "Fires true when translation succeeds.",
-            GH_ParamAccess.item);
-
-        pManager.AddBooleanParameter(
-            "Fail Trigger", "FT",
-            "Fires true when translation fails.",
-            GH_ParamAccess.item);
-
-        pManager.AddTextParameter(
-            "Feedback", "F",
-            "Error message on failure. Empty on success.",
-            GH_ParamAccess.item);
+        data = string.Empty;
+        da.GetData(0, ref data);
+        return StringHelpers.IsNonBlank(data);
     }
 
     /// <inheritdoc/>
-    protected override void SolveInstance(IGH_DataAccess DA)
+    protected override RoutingResult Process(string data, IGH_DataAccess da)
     {
-        string data   = string.Empty;
         string schema = string.Empty;
-
-        DA.GetData(0, ref data);
-        DA.GetData(1, ref schema);
-
-        if (string.IsNullOrWhiteSpace(data))
-        {
-            DA.SetData(0, string.Empty);
-            DA.SetData(1, false);
-            DA.SetData(2, false);
-            DA.SetData(3, string.Empty);
-            return;
-        }
+        da.GetData(1, ref schema);
 
         if (!string.IsNullOrWhiteSpace(schema))
         {
             var validationResult = SchemaValidator.Validate(data, schema);
             if (validationResult is Result<string, ValidationError>.Err validationErr)
             {
-                DA.SetData(0, string.Empty);
-                DA.SetData(1, false);
-                DA.SetData(2, true);
-                DA.SetData(3, validationErr.Error.Message);
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, validationErr.Error.Message);
-                return;
+                return RoutingResult.Fail(
+                    validationErr.Error.Message, validationErr.Error.Message, GH_RuntimeMessageLevel.Warning);
             }
         }
 
@@ -113,19 +85,10 @@ public class SchemaTranslator : PhyBase
         if (doc is null)
         {
             const string msg = "Failed to deserialise the input as a PhySchema document.";
-            DA.SetData(0, string.Empty);
-            DA.SetData(1, false);
-            DA.SetData(2, true);
-            DA.SetData(3, msg);
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, msg);
-            return;
+            return RoutingResult.Fail(msg, msg, GH_RuntimeMessageLevel.Error);
         }
 
-        string ghJson = TranslateToGhJson(doc);
-        DA.SetData(0, ghJson);
-        DA.SetData(1, true);
-        DA.SetData(2, false);
-        DA.SetData(3, string.Empty);
+        return RoutingResult.Ok(TranslateToGhJson(doc));
     }
 
     private static string TranslateToGhJson(PhySchemaDocument schema)

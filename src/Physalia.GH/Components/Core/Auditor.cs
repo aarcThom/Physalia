@@ -15,7 +15,7 @@ namespace Physalia.GH.Components;
 /// Strips LLM prose, validates the extracted JSON against the provided schema,
 /// and routes output forward on success or back via Feedback on failure.
 /// </summary>
-public class Auditor : PhyBase
+public class Auditor : RoutingComponentBase<string>
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="Auditor"/> class.
@@ -29,74 +29,46 @@ public class Auditor : PhyBase
     public override Guid ComponentGuid => new Guid("F3A8C21D-7E04-4B69-A953-D60F2E8B1C47");
 
     /// <inheritdoc/>
-    protected override void RegisterInputParams(GH_InputParamManager pManager)
+    protected override void RegisterDataInput(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter("Data", "D", "Raw LLM output from Reasoner.", GH_ParamAccess.item, string.Empty);
+    }
+
+    /// <inheritdoc/>
+    protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
+    {
         pManager.AddTextParameter("Schema", "S", "JSON schema string from Composer.", GH_ParamAccess.item, string.Empty);
-        pManager.AddBooleanParameter("Trigger", "T", "Trigger from Reasoner.", GH_ParamAccess.item, false);
     }
 
     /// <inheritdoc/>
-    protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+    protected override bool TryGetData(IGH_DataAccess da, out string data)
     {
-        pManager.AddTextParameter("Data", "D", "Validated, formatted JSON string. Empty on failure.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Success Trigger", "ST", "Fires true when JSON is extracted and validates against the schema.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Fail Trigger", "FT", "Fires true when validation fails.", GH_ParamAccess.item);
-        pManager.AddTextParameter("Feedback", "F", "Error message for routing back to Reasoner on failure. Empty on success.", GH_ParamAccess.item);
+        data = string.Empty;
+        da.GetData(0, ref data);
+        return StringHelpers.IsNonBlank(data);
     }
 
     /// <inheritdoc/>
-    protected override void SolveInstance(IGH_DataAccess DA)
+    protected override RoutingResult Process(string data, IGH_DataAccess da)
     {
-        string raw = string.Empty;
         string schema = string.Empty;
-        bool trigger = false;
+        da.GetData(1, ref schema);
 
-        DA.GetData(0, ref raw);
-        DA.GetData(1, ref schema);
-        if (!DA.GetData(2, ref trigger)) return;
-
-        if (!trigger)
-        {
-            DA.SetData(0, string.Empty);
-            DA.SetData(1, false);
-            DA.SetData(2, false);
-            DA.SetData(3, string.Empty);
-            return;
-        }
-
-        string extracted = ExtractJson(raw);
+        string extracted = ExtractJson(data);
 
         if (string.IsNullOrWhiteSpace(schema))
         {
             // No schema — pass extracted JSON through without validation.
-            DA.SetData(0, extracted);
-            DA.SetData(1, true);
-            DA.SetData(2, false);
-            DA.SetData(3, string.Empty);
-            return;
+            return RoutingResult.Ok(extracted);
         }
 
-        var result = SchemaValidator.Validate(extracted, schema);
-
-        switch (result)
+        return SchemaValidator.Validate(extracted, schema) switch
         {
-            case Result<string, ValidationError>.Ok ok:
-                DA.SetData(0, PrettyPrint(ok.Value));
-                DA.SetData(1, true);
-                DA.SetData(2, false);
-                DA.SetData(3, string.Empty);
-                break;
-
-            case Result<string, ValidationError>.Err err:
-                string feedback = BuildFeedback(err.Error, extracted);
-                DA.SetData(0, string.Empty);
-                DA.SetData(1, false);
-                DA.SetData(2, true);
-                DA.SetData(3, feedback);
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, err.Error.Message);
-                break;
-        }
+            Result<string, ValidationError>.Ok ok => RoutingResult.Ok(PrettyPrint(ok.Value)),
+            Result<string, ValidationError>.Err err => RoutingResult.Fail(
+                BuildFeedback(err.Error, extracted), err.Error.Message, GH_RuntimeMessageLevel.Warning),
+            _ => RoutingResult.Fail("Unknown validation result."),
+        };
     }
 
     /// <summary>

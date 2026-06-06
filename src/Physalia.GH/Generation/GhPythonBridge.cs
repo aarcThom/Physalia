@@ -19,6 +19,33 @@ namespace Physalia.GH.Generation;
 public static class GhPythonBridge
 {
     /// <summary>
+    /// Maps Physalia type-hint names (see the SystemPrompt type-hint vocabulary) to the
+    /// CLR types used to build a typed <c>ParamType</c>. Keys are case-insensitive.
+    /// </summary>
+    private static readonly Dictionary<string, Type> TypeHintMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Number"]    = typeof(double),
+        ["Integer"]   = typeof(int),
+        ["Boolean"]   = typeof(bool),
+        ["Text"]      = typeof(string),
+        ["Point"]     = typeof(Rhino.Geometry.Point3d),
+        ["Vector"]    = typeof(Rhino.Geometry.Vector3d),
+        ["Plane"]     = typeof(Rhino.Geometry.Plane),
+        ["Line"]      = typeof(Rhino.Geometry.Line),
+        ["Circle"]    = typeof(Rhino.Geometry.Circle),
+        ["Arc"]       = typeof(Rhino.Geometry.Arc),
+        ["Curve"]     = typeof(Rhino.Geometry.Curve),
+        ["Surface"]   = typeof(Rhino.Geometry.Surface),
+        ["Brep"]      = typeof(Rhino.Geometry.Brep),
+        ["Mesh"]      = typeof(Rhino.Geometry.Mesh),
+        ["Geometry"]  = typeof(Rhino.Geometry.GeometryBase),
+        ["Box"]       = typeof(Rhino.Geometry.Box),
+        ["Transform"] = typeof(Rhino.Geometry.Transform),
+        ["Interval"]  = typeof(Rhino.Geometry.Interval),
+        ["Colour"]    = typeof(System.Drawing.Color),
+    };
+
+    /// <summary>
     /// Returns true if <paramref name="obj"/> is a GH Python Script component
     /// that this bridge can drive.
     /// </summary>
@@ -98,6 +125,26 @@ public static class GhPythonBridge
         => UpdateParams(obj, "UpdateOutputParameters", names);
 
     /// <summary>
+    /// Replaces all input parameters on the component with typed parameters built from
+    /// <paramref name="specs"/>. Each spec's type hint maps to a <c>ParamType</c>
+    /// (falling back to <c>ParamType.Any</c> when unknown) and its access to a
+    /// <c>ScriptParamAccess</c>.
+    /// </summary>
+    /// <param name="obj">The GH Python Script component.</param>
+    /// <param name="specs">Typed parameter specs for the new input parameters.</param>
+    public static void SetInputs(IGH_DocumentObject obj, IEnumerable<GhParamSpec> specs)
+        => UpdateParams(obj, "UpdateInputParameters", specs);
+
+    /// <summary>
+    /// Replaces all output parameters on the component with typed parameters built from
+    /// <paramref name="specs"/>.
+    /// </summary>
+    /// <param name="obj">The GH Python Script component.</param>
+    /// <param name="specs">Typed parameter specs for the new output parameters.</param>
+    public static void SetOutputs(IGH_DocumentObject obj, IEnumerable<GhParamSpec> specs)
+        => UpdateParams(obj, "UpdateOutputParameters", specs);
+
+    /// <summary>
     /// Returns the current volatile data of every GH input parameter on the component
     /// as <c>"name: value1, value2, ..."</c> strings.
     /// </summary>
@@ -135,12 +182,55 @@ public static class GhPythonBridge
         var specs = names.Select(n =>
             new ScriptParamSpec(n, ParamType.Any, n, string.Empty, ScriptParamAccess.Item));
 
+        InvokeUpdate(obj, methodName, sc.LanguageSpec, specs);
+    }
+
+    private static void UpdateParams(IGH_DocumentObject obj, string methodName, IEnumerable<GhParamSpec> paramSpecs)
+    {
+        var sc = Cast(obj);
+        var specs = paramSpecs.Select(p =>
+            new ScriptParamSpec(p.Name, MapParamType(p.TypeHint), p.Name, string.Empty, MapScriptAccess(p.Access)));
+
+        InvokeUpdate(obj, methodName, sc.LanguageSpec, specs);
+    }
+
+    private static void InvokeUpdate(IGH_DocumentObject obj, string methodName, object languageSpec, IEnumerable<ScriptParamSpec> specs)
+    {
         var method = FindMethod(obj.GetType(), methodName,
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new InvalidOperationException($"{methodName} not found on component type.");
 
-        method.Invoke(obj, new object[] { sc.LanguageSpec, specs });
+        method.Invoke(obj, new object[] { languageSpec, specs });
     }
+
+    /// <summary>
+    /// Maps a Physalia type-hint name to a McNeel <c>ParamType</c>. Unknown or empty
+    /// hints (and any hint whose CLR type cannot be wrapped) fall back to <c>ParamType.Any</c>,
+    /// preserving the untyped behaviour of the name-only overloads.
+    /// </summary>
+    /// <param name="typeHint">Physalia type-hint name, e.g. <c>Number</c> or <c>Curve</c>.</param>
+    /// <returns>The mapped <c>ParamType</c>, or <c>ParamType.Any</c>.</returns>
+    private static ParamType MapParamType(string typeHint)
+    {
+        if (string.IsNullOrWhiteSpace(typeHint) || !TypeHintMap.TryGetValue(typeHint, out Type clrType))
+            return ParamType.Any;
+
+        try
+        {
+            return new ParamType(clrType);
+        }
+        catch
+        {
+            return ParamType.Any;
+        }
+    }
+
+    private static ScriptParamAccess MapScriptAccess(GhScriptParamAccess access) => access switch
+    {
+        GhScriptParamAccess.List => ScriptParamAccess.List,
+        GhScriptParamAccess.Tree => ScriptParamAccess.Tree,
+        _ => ScriptParamAccess.Item,
+    };
 
     private static IReadOnlyList<string> ReadParamValues(IGH_DocumentObject obj, bool input)
     {

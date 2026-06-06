@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PythonComponent",
+  "description": "A GH Python Script component definition. Output exactly this structure — no prose, no markdown fences, no explanation. Only the raw JSON object.",
+  "type": "object",
+  "required": ["code"],
+  "additionalProperties": false,
+
+  "rules": [
+    "code is the complete Python source for the GH Python 3 Script component, as a single JSON string with escaped newlines.",
+    "Reference each input by its name as a variable inside code; assign each output by its name as a variable.",
+    "Every input/output name must be a valid Python identifier and unique within its own list.",
+    "type must be one of the allowed type hints. Use 'Geometry' or 'Text' when unsure; omit type for an untyped (any) parameter.",
+    "access is 'item' (default), 'list', or 'tree'. Use 'list' when code iterates over the whole input; 'item' when it expects a single value.",
+    "Inputs left unconnected on the canvas are not errors — write code that tolerates the parameters you declare."
+  ],
+
+  "typeHints": [
+    "Number", "Integer", "Boolean", "Text",
+    "Point", "Vector", "Plane", "Line", "Circle", "Arc",
+    "Curve", "Surface", "Brep", "Mesh", "Geometry", "Box",
+    "Transform", "Interval", "Colour"
+  ],
+
+  "properties": {
+    "code": {
+      "type": "string",
+      "description": "Full Python source for the component."
+    },
+    "inputs": {
+      "type": "array",
+      "description": "Input parameters to create on the component. One entry per script variable read.",
+      "default": [],
+      "items": { "$ref": "#/$defs/param" }
+    },
+    "outputs": {
+      "type": "array",
+      "description": "Output parameters to create on the component. One entry per script variable assigned.",
+      "default": [],
+      "items": { "$ref": "#/$defs/param" }
+    }
+  },
+
+  "$defs": {
+    "param": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Variable name used inside the script. Must be a valid Python identifier.",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "type": {
+          "type": "string",
+          "description": "Physalia type hint for the parameter.",
+          "enum": [
+            "Number", "Integer", "Boolean", "Text",
+            "Point", "Vector", "Plane", "Line", "Circle", "Arc",
+            "Curve", "Surface", "Brep", "Mesh", "Geometry", "Box",
+            "Transform", "Interval", "Colour"
+          ]
+        },
+        "access": {
+          "type": "string",
+          "description": "Data access mode.",
+          "enum": ["item", "list", "tree"],
+          "default": "item"
+        }
+      }
+    }
+  },
+
+  "examples": [
+    {
+      "description": "Takes a list of points and a numeric radius, returns one sphere per point.",
+      "code": "import Rhino.Geometry as rg\n\nspheres = [rg.Sphere(pt, radius) for pt in pts]",
+      "inputs": [
+        { "name": "pts",    "type": "Point",  "access": "list" },
+        { "name": "radius", "type": "Number", "access": "item" }
+      ],
+      "outputs": [
+        { "name": "spheres", "type": "Geometry", "access": "list" }
+      ]
+    }
+  ]
+}

@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+#nullable enable
+
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,24 +19,24 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// Core inference component. Receives Instructions from Recorder and performs a single
-/// forward pass, streaming the result. Stateless between calls — all context lives in Recorder.
+/// forward pass, streaming the result. Stateless between calls — all context lives in
+/// Recorder. Routes the response forward (Data + Success Trigger) or an API error back
+/// (Feedback + Fail Trigger) through <see cref="RoutingComponentBase{TData}"/>.
 /// </summary>
-public class Reasoner : PhyBase
+public class Reasoner : RoutingComponentBase<Instructions>
 {
-    private string _response = string.Empty;
-    private IReadOnlyList<LlmToolCall>? _toolCalls;
-    private bool _hasNewResult;
-    private bool _isRunning;
-    private bool _lastTrigger;
+    private int _cancelIndex = -1;
     private bool _lastCancel;
+    private bool _isRunning;
+    private string _response = string.Empty;
+    private string? _apiError;
     private CancellationTokenSource? _cts;
-    private string? _errorWarning;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Reasoner"/> class.
     /// </summary>
     public Reasoner()
-        : base("Reasoner", "Rea", "Performs a single LLM forward pass and streams the response.", "Core")
+        : base("Reasoner", "Rea", "Performs a single LLM forward pass and routes the response.", "Core")
     {
     }
 
@@ -44,89 +44,78 @@ public class Reasoner : PhyBase
     public override Guid ComponentGuid => new Guid("F1097B2B-564A-43F8-8F70-BA6961F00E00");
 
     /// <inheritdoc/>
-    protected override void RegisterInputParams(GH_InputParamManager pManager)
+    protected override bool AutoScheduleRead => false;
+
+    /// <inheritdoc/>
+    protected override void RegisterDataInput(GH_InputParamManager pManager)
     {
         pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Conversation history and system prompt from Recorder.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Model configuration from an Anthropic Model or Tweaker component.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Trigger", "T", "Boolean trigger from Recorder. Rising edge starts inference.", GH_ParamAccess.item, false);
-        pManager.AddBooleanParameter("Cancel", "X", "Boolean button. Rising edge cancels the active inference call.", GH_ParamAccess.item, false);
     }
 
     /// <inheritdoc/>
-    protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+    protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Response", "R", "Raw LLM response text.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_LlmToolCall(), "Tool Calls", "TC", "Tool calls requested by the model. Null when the response contains only text.", GH_ParamAccess.list);
-        pManager.AddBooleanParameter("Trigger", "T", "Fires true once when inference completes.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Model configuration from a Model or Tweaker component.", GH_ParamAccess.item);
+        _cancelIndex = pManager.AddBooleanParameter("Cancel", "X", "Rising edge cancels the active inference call.", GH_ParamAccess.item, false);
     }
 
     /// <inheritdoc/>
-    protected override void SolveInstance(IGH_DataAccess DA)
+    protected override bool TryGetData(IGH_DataAccess da, out Instructions data)
     {
-        if (_errorWarning != null)
+        data = default!;
+        var goo = new GH_Instructions();
+        if (!da.GetData(0, ref goo) || goo.Value is not Instructions instructions)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, _errorWarning);
-            _errorWarning = null;
+            return false;
         }
 
-        var instructionsGoo = new GH_Instructions();
-        var modelGoo = new GH_ModelConfig();
-        bool trigger = false;
-        bool cancel = false;
+        data = instructions;
+        return true;
+    }
 
-        if (!DA.GetData(0, ref instructionsGoo) || instructionsGoo.Value is not Instructions)
+    /// <inheritdoc/>
+    protected override void OnSolveTick(IGH_DataAccess da)
+    {
+        bool cancel = false;
+        if (_cancelIndex >= 0)
         {
-            // Instructions input empty — cancel any running call and clear all outputs.
+            da.GetData(_cancelIndex, ref cancel);
+        }
+
+        if (cancel && !_lastCancel && _isRunning)
+        {
             _cts?.Cancel();
             _isRunning = false;
-            _response = string.Empty;
-            _toolCalls = null;
-            _hasNewResult = false;
-            DA.SetData(0, string.Empty);
-            DA.SetData(2, false);
+            AbortReadPass();
+        }
+
+        _lastCancel = cancel;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Starts the async inference. The read pass fires from the completion callback, not a fixed delay.</remarks>
+    protected override void PushSolve(Instructions data, IGH_DataAccess da)
+    {
+        _apiError = null;
+        _response = string.Empty;
+
+        var modelGoo = new GH_ModelConfig();
+        if (!da.GetData(1, ref modelGoo) || modelGoo.Value is not ModelConfig config)
+        {
+            _apiError = "No valid Model configuration connected.";
+            RequestReadPass();
             return;
         }
 
-        if (!DA.GetData(1, ref modelGoo)) return;
-        DA.GetData(2, ref trigger);
-        DA.GetData(3, ref cancel);
+        StartInference(data, config);
+    }
 
-        if (cancel && !_lastCancel)
-        {
-            _cts?.Cancel();
-            _isRunning = false;
-        }
-
-        if (trigger && !_lastTrigger && !_isRunning
-            && instructionsGoo.Value is Instructions instructions
-            && modelGoo.Value is ModelConfig config)
-        {
-            _response = string.Empty;
-            _toolCalls = null;
-            _hasNewResult = false;
-            StartInference(instructions, config);
-        }
-
-        _lastTrigger = trigger;
-        _lastCancel = cancel;
-
-        if (_isRunning)
-        {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, "Inference running…");
-        }
-
-        bool triggerOut = _hasNewResult;
-        var toolCallsOut = _hasNewResult ? _toolCalls : null;
-        _hasNewResult = false;
-
-        DA.SetData(0, _response);
-
-        if (toolCallsOut != null)
-        {
-            DA.SetDataList(1, toolCallsOut.Select(tc => new GH_LlmToolCall(tc)));
-        }
-
-        DA.SetData(2, triggerOut);
+    /// <inheritdoc/>
+    protected override RoutingResult ReadSolve(Instructions data, IGH_DataAccess da)
+    {
+        return _apiError != null
+            ? RoutingResult.Fail(_apiError, _apiError, GH_RuntimeMessageLevel.Error)
+            : RoutingResult.Ok(_response);
     }
 
     private void StartInference(Instructions instructions, ModelConfig config)
@@ -143,56 +132,68 @@ public class Reasoner : PhyBase
 
             if (provider == null)
             {
-                _errorWarning = $"No provider registered for config type '{config.GetType().Name}'.";
+                _apiError = $"No provider registered for config type '{config.GetType().Name}'.";
                 _isRunning = false;
-                OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(true));
+                RequestReadPass();
                 return;
             }
 
             var sb = new StringBuilder();
-            IReadOnlyList<LlmToolCall>? toolCalls = null;
+            string? error = null;
             bool success = true;
 
-            await foreach (var chunk in provider.StreamAsync(
-                instructions.Conversation,
-                instructions.SystemPrompt,
-                config,
-                ct))
+            try
             {
-                if (chunk is Result<LlmResponseChunk, LlmError>.Ok ok)
+                await foreach (var chunk in provider.StreamAsync(
+                    instructions.Conversation,
+                    instructions.SystemPrompt,
+                    config,
+                    ct))
                 {
-                    if (ok.Value.ContentDelta != null)
+                    if (chunk is Result<LlmResponseChunk, LlmError>.Ok ok)
                     {
-                        sb.Append(ok.Value.ContentDelta);
+                        if (ok.Value.ContentDelta != null)
+                        {
+                            sb.Append(ok.Value.ContentDelta);
+                        }
                     }
-
-                    if (ok.Value.ToolCalls != null)
+                    else if (chunk is Result<LlmResponseChunk, LlmError>.Err err)
                     {
-                        toolCalls = ok.Value.ToolCalls;
+                        if (err.Error.Kind != LlmErrorKind.Cancelled)
+                        {
+                            error = err.Error.Message;
+                        }
+
+                        success = false;
+                        break;
                     }
                 }
-                else if (chunk is Result<LlmResponseChunk, LlmError>.Err err)
-                {
-                    if (err.Error.Kind != LlmErrorKind.Cancelled)
-                    {
-                        _errorWarning = err.Error.Message;
-                    }
-
-                    success = false;
-                    break;
-                }
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                success = false;
             }
 
             _isRunning = false;
 
-            if (success && !ct.IsCancellationRequested)
+            if (ct.IsCancellationRequested)
             {
-                _response = sb.ToString();
-                _toolCalls = toolCalls;
-                _hasNewResult = true;
+                // Cancelled — the OnSolveTick cancel handler already aborted the read pass.
+                return;
             }
 
-            OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(true));
+            if (success)
+            {
+                _response = sb.ToString();
+                _apiError = null;
+            }
+            else
+            {
+                _apiError = error ?? "The LLM API returned an error.";
+            }
+
+            RequestReadPass();
         }, ct);
     }
 }

@@ -31,3 +31,18 @@ public record GhScriptParam(
     string PrettyName,
     string Description,
     GhScriptParamAccess Access);
+
+/// <summary>
+/// A request to create one input or output parameter on a GH Python Script component,
+/// carrying an optional type hint. Used when pushing LLM-generated parameters.
+/// </summary>
+/// <param name="Name">Variable name used inside the script (e.g. <c>x</c>).</param>
+/// <param name="TypeHint">
+/// Physalia type-hint name (e.g. <c>Number</c>, <c>Point</c>, <c>Curve</c>). Empty or
+/// unrecognised hints fall back to an untyped (any) parameter.
+/// </param>
+/// <param name="Access">Data access mode.</param>
+public record GhParamSpec(
+    string Name,
+    string TypeHint,
+    GhScriptParamAccess Access);

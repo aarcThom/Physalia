@@ -3,13 +3,9 @@
 
 #nullable enable
 
-using System;
-using System.Security.Cryptography;
-using System.Text;
 using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Types;
 using Physalia.Core.Common;
 
 namespace Physalia.GH.Components;
@@ -20,8 +16,16 @@ namespace Physalia.GH.Components;
 /// registration, output latching, momentary trigger pulses, the Clear Outputs
 /// menu item, and save/load serialisation. Subclasses supply only the Data input
 /// type and the per-component processing logic.
+///
+/// <para>A rising edge on the base-owned <c>Trigger</c> input starts a run, split across
+/// two solves. The <see cref="PushSolve"/> pass performs side effects (e.g. pushing data
+/// into a linked component and expiring it); the base then defers a <see cref="ReadSolve"/>
+/// pass that produces the routing result once the document has settled — letting a component
+/// read state that only becomes available after a downstream re-solve. Synchronous components
+/// leave <see cref="PushSolve"/> empty; asynchronous ones set <see cref="AutoScheduleRead"/>
+/// to false and call <see cref="RequestReadPass"/> when their work completes.</para>
 /// </summary>
-/// <typeparam name="TData">Type produced from the Data input and handed to Process.</typeparam>
+/// <typeparam name="TData">Type produced from the Data input and handed to the solve passes.</typeparam>
 public abstract class RoutingComponentBase<TData> : PhyBase
 {
     /// <summary>Output index of the latched Data string.</summary>
@@ -36,11 +40,32 @@ public abstract class RoutingComponentBase<TData> : PhyBase
     /// <summary>Output index of the Fail Trigger pulse.</summary>
     protected const int OutFailTrigger = 3;
 
+    /// <summary>
+    /// ScheduleSolution delay (milliseconds) before the read pass runs. Gives the
+    /// document time to settle the push pass's side effects. Bump if a downstream
+    /// component's state is not yet updated when <see cref="ReadSolve"/> runs.
+    /// </summary>
+    private const int ReadDelayMs = 1;
+
     private string _dataOut = string.Empty;
     private string _feedbackOut = string.Empty;
-    private string? _lastSignature;
     private bool _fireSuccess;
     private bool _fireFail;
+
+    // Index of the base-owned Trigger input (appended last during registration).
+    private int _triggerIndex = -1;
+
+    // Rising-edge tracking for the Trigger input; serialised so a reload doesn't fire.
+    private bool _lastTrigger;
+
+    // Data captured on the push pass, handed to ReadSolve on the deferred read pass.
+    private TData _pushData = default!;
+
+    // Push -> read handshake. _awaitingRead means a push pass has run and a read pass
+    // is pending. _doRead is set ONLY by our own scheduled callback so that arbitrary
+    // intervening solves never trigger the read early.
+    private bool _awaitingRead;
+    private bool _doRead;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RoutingComponentBase{TData}"/> class.
@@ -70,8 +95,8 @@ public abstract class RoutingComponentBase<TData> : PhyBase
     }
 
     /// <summary>
-    /// Reads the Data input. Returns false when the input is empty, which drives
-    /// the clear-on-empty behaviour in the base.
+    /// Reads the Data input. Returns false when the input is absent or empty, in which
+    /// case a Trigger pulse is ignored (there is nothing to process).
     /// </summary>
     /// <param name="da">The data access for the current solve.</param>
     /// <param name="data">The parsed Data value when present.</param>
@@ -79,19 +104,49 @@ public abstract class RoutingComponentBase<TData> : PhyBase
     protected abstract bool TryGetData(IGH_DataAccess da, out TData data);
 
     /// <summary>
-    /// Performs the per-component work when the inputs change. Read any additional
-    /// inputs directly from <paramref name="da"/>.
+    /// First pass. Performs side effects that must settle before the result is read
+    /// (e.g. pushing code into a linked component and expiring it). Runs on the Trigger
+    /// rising edge, before the deferred <see cref="ReadSolve"/> pass. Leave empty for
+    /// components that compute their result synchronously and need no settle pass.
     /// </summary>
     /// <param name="data">The Data value read by <see cref="TryGetData"/>.</param>
     /// <param name="da">The data access for the current solve.</param>
+    protected abstract void PushSolve(TData data, IGH_DataAccess da);
+
+    /// <summary>
+    /// Second pass. Produces the routing result after the document has re-solved
+    /// following <see cref="PushSolve"/>. Read any additional inputs directly from
+    /// <paramref name="da"/>.
+    /// </summary>
+    /// <param name="data">The Data value captured on the push pass.</param>
+    /// <param name="da">The data access for the current solve.</param>
     /// <returns>A success result carrying the Data string, or a failure result carrying Feedback.</returns>
-    protected abstract RoutingResult Process(TData data, IGH_DataAccess da);
+    protected abstract RoutingResult ReadSolve(TData data, IGH_DataAccess da);
+
+    /// <summary>
+    /// Whether the base auto-schedules the read pass immediately after <see cref="PushSolve"/>.
+    /// Override to return false for asynchronous components (e.g. an LLM call) that must
+    /// instead call <see cref="RequestReadPass"/> when their work completes.
+    /// </summary>
+    protected virtual bool AutoScheduleRead => true;
+
+    /// <summary>
+    /// Hook called at the very start of every solve, before any trigger or read-pass logic.
+    /// Override to read per-solve inputs the routing lifecycle does not (e.g. a Cancel input).
+    /// Default implementation does nothing.
+    /// </summary>
+    /// <param name="da">The data access for the current solve.</param>
+    protected virtual void OnSolveTick(IGH_DataAccess da)
+    {
+    }
 
     /// <inheritdoc/>
     protected sealed override void RegisterInputParams(GH_InputParamManager pManager)
     {
         RegisterDataInput(pManager);
         RegisterAdditionalInputs(pManager);
+        _triggerIndex = pManager.AddBooleanParameter(
+            "Trigger", "T", "Rising edge runs the component.", GH_ParamAccess.item, false);
     }
 
     /// <inheritdoc/>
@@ -106,24 +161,15 @@ public abstract class RoutingComponentBase<TData> : PhyBase
     /// <inheritdoc/>
     protected sealed override void SolveInstance(IGH_DataAccess DA)
     {
-        string signature = ComputeInputSignature();
+        OnSolveTick(DA);
 
-        if (!TryGetData(DA, out TData data))
+        if (_awaitingRead && _doRead)
         {
-            // Clear-on-empty: an empty Data input wipes the latched outputs.
-            _dataOut = string.Empty;
-            _feedbackOut = string.Empty;
-            Emit(DA, success: false, fail: false);
-            _lastSignature = signature;
-            return;
-        }
+            // READ PASS — runs only from our own scheduled signal. Produce the result.
+            _awaitingRead = false;
+            _doRead = false;
 
-        bool changed = !string.Equals(signature, _lastSignature, StringComparison.Ordinal);
-        _lastSignature = signature;
-
-        if (changed)
-        {
-            RoutingResult result = Process(data, DA);
+            RoutingResult result = ReadSolve(_pushData, DA);
 
             if (result.Message != null)
             {
@@ -146,8 +192,40 @@ public abstract class RoutingComponentBase<TData> : PhyBase
             }
 
             ScheduleTriggerReset();
+            Emit(DA, _fireSuccess, _fireFail);
+            return;
         }
 
+        bool trigger = false;
+        DA.GetData(_triggerIndex, ref trigger);
+        bool rising = trigger && !_lastTrigger;
+        _lastTrigger = trigger;
+
+        if (rising && !_awaitingRead)
+        {
+            // PUSH PASS — a rising trigger edge starts a run. Side effects only; no pulse yet.
+            if (!TryGetData(DA, out TData data))
+            {
+                // Empty Data — nothing to process on this trigger.
+                Emit(DA, success: false, fail: false);
+                return;
+            }
+
+            _pushData = data;
+            PushSolve(data, DA);
+            _awaitingRead = true;
+            _doRead = false;
+
+            if (AutoScheduleRead)
+            {
+                RequestReadPass();
+            }
+
+            Emit(DA, success: false, fail: false);
+            return;
+        }
+
+        // Idle solve (no rising edge, not our read pass) — re-emit the latched outputs.
         Emit(DA, _fireSuccess, _fireFail);
     }
 
@@ -172,10 +250,7 @@ public abstract class RoutingComponentBase<TData> : PhyBase
             writer.SetString("FeedbackOut", _feedbackOut);
         }
 
-        if (_lastSignature != null)
-        {
-            writer.SetString("LastSignature", _lastSignature);
-        }
+        writer.SetBoolean("LastTrigger", _lastTrigger);
 
         return base.Write(writer);
     }
@@ -185,7 +260,7 @@ public abstract class RoutingComponentBase<TData> : PhyBase
     {
         _dataOut = reader.ItemExists("DataOut") ? reader.GetString("DataOut") : string.Empty;
         _feedbackOut = reader.ItemExists("FeedbackOut") ? reader.GetString("FeedbackOut") : string.Empty;
-        _lastSignature = reader.ItemExists("LastSignature") ? reader.GetString("LastSignature") : null;
+        _lastTrigger = reader.ItemExists("LastTrigger") && reader.GetBoolean("LastTrigger");
         return base.Read(reader);
     }
 
@@ -195,6 +270,36 @@ public abstract class RoutingComponentBase<TData> : PhyBase
         da.SetData(OutSuccessTrigger, success);
         da.SetData(OutFeedback, _feedbackOut);
         da.SetData(OutFailTrigger, fail);
+    }
+
+    /// <summary>
+    /// Schedules the deferred read pass. The base calls this automatically after
+    /// <see cref="PushSolve"/> when <see cref="AutoScheduleRead"/> is true; asynchronous
+    /// subclasses call it themselves when their work completes. Safe to call from a
+    /// background thread — the read is marshalled onto a scheduled solution.
+    /// </summary>
+    protected void RequestReadPass()
+    {
+        OnPingDocument()?.ScheduleSolution(ReadDelayMs, _ =>
+        {
+            _doRead = true;
+            ExpireSolution(true);
+        });
+    }
+
+    /// <summary>
+    /// Cancels a pending read pass without latching a result or firing a pulse. Use when
+    /// an in-flight asynchronous run is aborted so the component returns to idle and
+    /// accepts the next Trigger.
+    /// </summary>
+    protected void AbortReadPass()
+    {
+        OnPingDocument()?.ScheduleSolution(ReadDelayMs, _ =>
+        {
+            _awaitingRead = false;
+            _doRead = false;
+            ExpireSolution(true);
+        });
     }
 
     private void ScheduleTriggerReset()
@@ -207,41 +312,19 @@ public abstract class RoutingComponentBase<TData> : PhyBase
         });
     }
 
-    /// <summary>
-    /// Builds a stable hash over every input's volatile data. A change in the hash
-    /// between solves means an input changed and the component should re-run; an
-    /// unchanged hash (the pulse-reset re-solve, a canvas move, file reload) skips
-    /// re-processing so the latched outputs simply re-emit.
-    /// </summary>
-    /// <returns>A hex-encoded SHA-256 hash of the current input set.</returns>
-    private string ComputeInputSignature()
-    {
-        var sb = new StringBuilder();
-        foreach (IGH_Param param in Params.Input)
-        {
-            sb.Append(param.Name).Append('');
-            foreach (IGH_Goo goo in param.VolatileData.AllData(true))
-            {
-                sb.Append(goo?.ToString() ?? "∅").Append('');
-            }
-
-            sb.Append('');
-        }
-
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())));
-    }
-
     private void ClearOutputs()
     {
         _dataOut = string.Empty;
         _feedbackOut = string.Empty;
         _fireSuccess = false;
         _fireFail = false;
+        _awaitingRead = false;
+        _doRead = false;
         ExpireSolution(true);
     }
 
     /// <summary>
-    /// Outcome of a <see cref="Process"/> call: either a forward-routed Data string
+    /// Outcome of a <see cref="ReadSolve"/> call: either a forward-routed Data string
     /// or a back-routed Feedback string, plus an optional runtime message.
     /// </summary>
     protected readonly record struct RoutingResult

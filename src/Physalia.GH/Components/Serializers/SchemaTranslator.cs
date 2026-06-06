@@ -66,7 +66,14 @@ public class SchemaTranslator : RoutingComponentBase<string>
     }
 
     /// <inheritdoc/>
-    protected override RoutingResult Process(string data, IGH_DataAccess da)
+    /// <remarks>Synchronous component — no settle pass needed; all work is in ReadSolve.</remarks>
+    protected override void PushSolve(string data, IGH_DataAccess da)
+    {
+        // Intentionally empty: translation has no side effects to push before reading.
+    }
+
+    /// <inheritdoc/>
+    protected override RoutingResult ReadSolve(string data, IGH_DataAccess da)
     {
         string schema = string.Empty;
         da.GetData(1, ref schema);

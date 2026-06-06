@@ -93,20 +93,28 @@
 		<Exec Command="python &quot;$(SolutionDir)scripts\update_model_info.py&quot; &quot;$(TargetDir)model_info.json&quot;" ContinueOnError="WarnAndContinue" />
 	</Target>
 
-	<!-- Tell VS fast up-to-date check to watch the Files folder so any change triggers a rebuild. -->
-	<ItemGroup>
-		<UpToDateCheckInput Include="$(MSBuildProjectDirectory)\..\..\Files\**\*" Set="Files" />
-	</ItemGroup>
-
-	<!-- Copy the Files folder (skills, schemas, clusters, receivers, API keys) to the output directory. -->
+	<!-- Copy the Files folder (skills, schemas, clusters, receivers, API keys) to the output directory.
+	     UpToDateCheckBuilt (with Original=) pairs each copied output back to its source so the VS
+	     fast up-to-date check rebuilds when a Files entry changes — without this, editing a schema
+	     while the C# is unchanged leaves a stale copy in the output.
+	     RemoveDir wipes the output Files folder first so deleted/renamed source files do not linger
+	     (Copy only adds/overwrites, it never removes). -->
 	<Target Name="CopyLibraryFiles" AfterTargets="Build">
 		<ItemGroup>
 			<LibraryFiles Include="$(MSBuildProjectDirectory)\..\..\Files\**\*" />
 		</ItemGroup>
+		<RemoveDir Directories="$(TargetDir)Files" />
 		<Copy
 			SourceFiles="@(LibraryFiles)"
 			DestinationFiles="@(LibraryFiles->'$(TargetDir)Files\%(RecursiveDir)%(Filename)%(Extension)')"
-			SkipUnchangedFiles="true" />
+			SkipUnchangedFiles="true"
+			OverwriteReadOnlyFiles="true" />
+		<ItemGroup>
+			<UpToDateCheckBuilt
+				Include="@(LibraryFiles->'$(TargetDir)Files\%(RecursiveDir)%(Filename)%(Extension)')"
+				Original="%(LibraryFiles.Identity)"
+				Set="Files" />
+		</ItemGroup>
 	</Target>
 
 </Project>

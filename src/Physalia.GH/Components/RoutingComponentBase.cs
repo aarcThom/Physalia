@@ -3,7 +3,6 @@
 
 #nullable enable
 
-using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
@@ -13,20 +12,22 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Base for components that route a result either forward (Data +
 /// Success Trigger) or back as Feedback (Feedback + Fail Trigger). Owns all I/O
-/// registration, output latching, momentary trigger pulses, the Clear Outputs
-/// menu item, and save/load serialisation. Subclasses supply only the Data input
-/// type and the per-component processing logic.
+/// registration, output latching, and save/load serialisation; the lifecycle state
+/// machine, trigger pulses, and Clear menu item come from <see cref="StatefulComponentBase"/>.
+/// Subclasses supply only the Data input type and the per-component processing logic.
 ///
 /// <para>A rising edge on the base-owned <c>Trigger</c> input starts a run, split across
-/// two solves. The <see cref="PushSolve"/> pass performs side effects (e.g. pushing data
+/// solves. The <see cref="PushSolve"/> pass performs side effects (e.g. pushing data
 /// into a linked component and expiring it); the base then defers a <see cref="ReadSolve"/>
 /// pass that produces the routing result once the document has settled — letting a component
-/// read state that only becomes available after a downstream re-solve. Synchronous components
-/// leave <see cref="PushSolve"/> empty; asynchronous ones set <see cref="AutoScheduleRead"/>
-/// to false and call <see cref="RequestReadPass"/> when their work completes.</para>
+/// read state that only becomes available after a downstream re-solve. Once the work is done,
+/// the base holds <see cref="StatefulComponentBase.SolveDelayMs"/> before latching, so the
+/// data hop is visible on the canvas. Synchronous components leave <see cref="PushSolve"/>
+/// empty; asynchronous ones set <see cref="AutoScheduleRead"/> to false and call
+/// <see cref="RequestReadPass"/> when their work completes.</para>
 /// </summary>
 /// <typeparam name="TData">Type produced from the Data input and handed to the solve passes.</typeparam>
-public abstract class RoutingComponentBase<TData> : PhyBase
+public abstract class RoutingComponentBase<TData> : StatefulComponentBase
 {
     /// <summary>Output index of the latched Data string.</summary>
     protected const int OutData = 0;
@@ -56,14 +57,9 @@ public abstract class RoutingComponentBase<TData> : PhyBase
 
     private string _dataOut = string.Empty;
     private string _feedbackOut = string.Empty;
-    private bool _fireSuccess;
-    private bool _fireFail;
 
     // Index of the base-owned Trigger input (appended last during registration).
     private int _triggerIndex = -1;
-
-    // Rising-edge tracking for the Trigger input; serialised so a reload doesn't fire.
-    private bool _lastTrigger;
 
     // Data captured on the push pass, handed to ReadSolve on the deferred read pass.
     private TData _pushData = default!;
@@ -73,6 +69,12 @@ public abstract class RoutingComponentBase<TData> : PhyBase
     // intervening solves never trigger the read early.
     private bool _awaitingRead;
     private bool _doRead;
+
+    // The visible end-of-solve delay has elapsed; the next read solve performs the latch.
+    private bool _delayElapsed;
+
+    // IsReadReady retries were exhausted; the latch records a timeout failure.
+    private bool _readTimedOut;
 
     // Number of read-pass attempts deferred because IsReadReady returned false.
     private int _readRetries;
@@ -187,27 +189,43 @@ public abstract class RoutingComponentBase<TData> : PhyBase
         {
             _doRead = false;
 
-            bool ready = IsReadReady(_pushData);
-            if (!ready && _readRetries < MaxReadRetries)
+            if (!_delayElapsed)
             {
-                // Side effects have not settled yet (e.g. the linked component has not
-                // re-solved). Defer the read pass to a later solution.
-                _readRetries++;
-                RequestReadPass();
-                Emit(DA, success: false, fail: false);
+                bool ready = IsReadReady(_pushData);
+                if (!ready && _readRetries < MaxReadRetries)
+                {
+                    // Side effects have not settled yet (e.g. the linked component has not
+                    // re-solved). Defer the read pass to a later solution.
+                    _readRetries++;
+                    RequestReadPass();
+                    Emit(DA);
+                    return;
+                }
+
+                // Work is done (or retries are exhausted). Hold the visible delay once
+                // before latching so the data hop can be traced on the canvas.
+                _readTimedOut = !ready;
+                ScheduleStateSolve(SolveDelayMs, () =>
+                {
+                    _delayElapsed = true;
+                    _doRead = true;
+                });
+                Emit(DA);
                 return;
             }
 
-            // READ PASS — runs only from our own scheduled signal. Produce the result.
+            // LATCH PASS — runs only from our own scheduled signal, after the visible delay.
             _awaitingRead = false;
+            _delayElapsed = false;
             _readRetries = 0;
 
-            RoutingResult result = ready
-                ? ReadSolve(_pushData, DA)
-                : RoutingResult.Fail(
+            RoutingResult result = _readTimedOut
+                ? RoutingResult.Fail(
                     "The linked component never re-solved, so no result could be read back.",
                     "Read pass timed out waiting for push side effects to settle.",
-                    GH_RuntimeMessageLevel.Error);
+                    GH_RuntimeMessageLevel.Error)
+                : ReadSolve(_pushData, DA);
+            _readTimedOut = false;
 
             if (result.Message != null)
             {
@@ -218,61 +236,51 @@ public abstract class RoutingComponentBase<TData> : PhyBase
             {
                 _dataOut = result.Output;
                 _feedbackOut = string.Empty;
-                _fireSuccess = true;
-                _fireFail = false;
+                LatchSuccess();
             }
             else
             {
                 _dataOut = string.Empty;
                 _feedbackOut = result.Output;
-                _fireFail = true;
-                _fireSuccess = false;
+                LatchFailure();
             }
 
-            ScheduleTriggerReset();
-            Emit(DA, _fireSuccess, _fireFail);
+            Emit(DA);
             return;
         }
 
         bool trigger = false;
         DA.GetData(_triggerIndex, ref trigger);
-        bool rising = trigger && !_lastTrigger;
-        _lastTrigger = trigger;
 
-        if (rising && !_awaitingRead)
+        if (DetectRisingEdge(trigger) && !_awaitingRead)
         {
             // PUSH PASS — a rising trigger edge starts a run. Side effects only; no pulse yet.
             if (!TryGetData(DA, out TData data))
             {
-                // Empty Data — nothing to process on this trigger.
-                Emit(DA, success: false, fail: false);
+                // Empty Data — nothing to process on this trigger; latched outputs stay put.
+                Emit(DA);
                 return;
             }
 
             _pushData = data;
+            EnterActive();
             PushSolve(data, DA);
             _awaitingRead = true;
             _doRead = false;
+            _delayElapsed = false;
+            _readTimedOut = false;
 
             if (AutoScheduleRead)
             {
                 RequestReadPass();
             }
 
-            Emit(DA, success: false, fail: false);
+            Emit(DA);
             return;
         }
 
         // Idle solve (no rising edge, not our read pass) — re-emit the latched outputs.
-        Emit(DA, _fireSuccess, _fireFail);
-    }
-
-    /// <inheritdoc/>
-    public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
-    {
-        base.AppendAdditionalMenuItems(menu);
-        Menu_AppendSeparator(menu);
-        Menu_AppendItem(menu, "Clear Outputs", (_, _) => ClearOutputs());
+        Emit(DA);
     }
 
     /// <inheritdoc/>
@@ -288,8 +296,6 @@ public abstract class RoutingComponentBase<TData> : PhyBase
             writer.SetString("FeedbackOut", _feedbackOut);
         }
 
-        writer.SetBoolean("LastTrigger", _lastTrigger);
-
         return base.Write(writer);
     }
 
@@ -298,16 +304,28 @@ public abstract class RoutingComponentBase<TData> : PhyBase
     {
         _dataOut = reader.ItemExists("DataOut") ? reader.GetString("DataOut") : string.Empty;
         _feedbackOut = reader.ItemExists("FeedbackOut") ? reader.GetString("FeedbackOut") : string.Empty;
-        _lastTrigger = reader.ItemExists("LastTrigger") && reader.GetBoolean("LastTrigger");
-        return base.Read(reader);
+
+        bool ok = base.Read(reader);
+
+        if (!reader.ItemExists("State"))
+        {
+            // Legacy file written before the explicit state machine: infer the latched
+            // state from the persisted payloads.
+            RestorePersistedState(
+                StringHelpers.IsNonBlank(_dataOut) ? SolveState.SolveSuccess
+                : StringHelpers.IsNonBlank(_feedbackOut) ? SolveState.SolveFailure
+                : SolveState.Empty);
+        }
+
+        return ok;
     }
 
-    private void Emit(IGH_DataAccess da, bool success, bool fail)
+    private void Emit(IGH_DataAccess da)
     {
         da.SetData(OutData, _dataOut);
-        da.SetData(OutSuccessTrigger, success);
+        da.SetData(OutSuccessTrigger, SuccessPulse);
         da.SetData(OutFeedback, _feedbackOut);
-        da.SetData(OutFailTrigger, fail);
+        da.SetData(OutFailTrigger, FailPulse);
     }
 
     /// <summary>
@@ -318,49 +336,42 @@ public abstract class RoutingComponentBase<TData> : PhyBase
     /// </summary>
     protected void RequestReadPass()
     {
-        OnPingDocument()?.ScheduleSolution(ReadDelayMs, _ =>
-        {
-            _doRead = true;
-            ExpireSolution(true);
-        });
+        ScheduleStateSolve(ReadDelayMs, () => _doRead = true);
     }
 
     /// <summary>
     /// Cancels a pending read pass without latching a result or firing a pulse. Use when
-    /// an in-flight asynchronous run is aborted so the component returns to idle and
-    /// accepts the next Trigger.
+    /// an in-flight asynchronous run is aborted so the component returns to
+    /// <see cref="StatefulComponentBase.SolveState.Empty"/> and accepts the next Trigger.
     /// </summary>
     protected void AbortReadPass()
     {
-        OnPingDocument()?.ScheduleSolution(ReadDelayMs, _ =>
+        ScheduleStateSolve(ReadDelayMs, () =>
         {
             _awaitingRead = false;
             _doRead = false;
+            _delayElapsed = false;
+            _readTimedOut = false;
             _readRetries = 0;
-            ExpireSolution(true);
+            ResetToEmpty();
         });
     }
 
-    private void ScheduleTriggerReset()
-    {
-        OnPingDocument()?.ScheduleSolution(1, _ =>
-        {
-            _fireSuccess = false;
-            _fireFail = false;
-            ExpireSolution(true);
-        });
-    }
-
-    private void ClearOutputs()
+    /// <inheritdoc/>
+    protected override void ClearStateOutputs()
     {
         _dataOut = string.Empty;
         _feedbackOut = string.Empty;
-        _fireSuccess = false;
-        _fireFail = false;
+    }
+
+    /// <inheritdoc/>
+    protected override void OnCleared()
+    {
         _awaitingRead = false;
         _doRead = false;
+        _delayElapsed = false;
+        _readTimedOut = false;
         _readRetries = 0;
-        ExpireSolution(true);
     }
 
     /// <summary>

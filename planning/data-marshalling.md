@@ -1,86 +1,96 @@
-# Data Marshalling & the Component State Machine
+# Data Marshalling: Sequenced Signals & the Component State Machine
 
-How data and triggers move between Physalia components, and the two-layer base-class
-scheme that formalizes it. This is the reference for building any new component that
-participates in the pipeline.
+How data and events move between Physalia components: the **Signal** event model and the
+two-layer state-machine base classes. This is the reference for building any new
+component that participates in the pipeline.
 
-The design goal is **visible data flow**: a human watching the canvas should be able to
-trace where data currently is in the DAG. Every component advertises its lifecycle state
-on the canvas and holds a deliberate delay at the end of each solve so the hop from one
-component to the next can be followed by eye.
+Two design goals, in priority order:
+
+1. **Correctness by identity, not timing.** Grasshopper provides no per-component timers:
+   `GH_Document` keeps ONE schedule, a shorter delay replaces a longer one, and every
+   pending callback fires just before the *next* solution however it starts. Any design
+   that encodes event ordering in solve timing collapses as soon as two components are in
+   flight. Events therefore travel as latched, sequence-numbered signals consumed exactly
+   once — solves can coalesce, delay, or replay without reordering, duplicating, or
+   dropping anything.
+2. **Visible data flow.** A human watching the canvas can trace where data is: components
+   advertise their lifecycle state and hold a visible delay at the end of each solve.
+   Pacing is *cosmetic only* — correctness never depends on it.
+
+---
+
+## Signals
+
+A `PhySignal` (Core, `src/Physalia.Core/Signals/`) is an immutable event:
+
+| Field | Meaning |
+|---|---|
+| `Sequence` | Process-wide monotonic identity (`SignalSequencer`). Higher = happened later. **Sequence order is causal order**: a signal minted as a consequence of another always sorts after it. |
+| `Outcome` | `Success` / `Failure` |
+| `Payload` | The event's payload: data string on success, feedback string on failure |
+| `SourceId` / `SourceName` | Emitting component, for tracing |
+| `Timestamp` | UTC mint time, for tracing |
+
+`PhySignal.Mint(...)` is the only way sequences are assigned.
+
+**On the wire:** signals are **latched**, not pulsed. A component's Success/Fail Signal
+output holds the minted signal until the next run (or Clear) replaces it. There are no
+momentary pulses and no pulse-reset solves. Receivers track a per-input high-water mark
+of consumed sequences: re-emitting the same signal on idle solves or document recomputes
+can never re-fire anything.
+
+**Wires are inspectable:** `GH_Signal.ToString()` renders
+`#42 Success from Reasoner @ 14:03:21.187 — "payload preview"`, so a panel on any Signal
+wire is a live ordering trace.
+
+**Ephemeral:** signals never serialize (`GH_Signal.Write/Read` are no-ops). A reopened
+file has signal-free wires; nothing fires on load.
+
+**Native bool sources (Buttons/Toggles)** wire straight into Signal inputs. The cast does
+NOT mint a signal (casts run every solve — a stuck-true Toggle would re-fire forever);
+it captures the raw level as a sentinel, and the consuming component edge-detects with
+its own per-input state, minting exactly one signal per false→true transition. A press
+during an active run queues losslessly. The first observation of an input baselines it:
+fresh, pasted, or reloaded components never fire off pre-existing wire state.
+
+**Multiple sources** wire directly into one Signal input (list access) — no OR gates.
+Each source's events have distinct sequences; the receiver consumes each exactly once,
+in global sequence order. One caveat: a wire holds one latched signal per source, so two
+events from the same source before consumption supersede (latest wins).
 
 ---
 
 ## The Four States
 
-Every pipeline component is always in exactly one of these states:
-
-| State | Data out | Feedback out | Success trigger | Fail trigger | Canvas caption |
+| State | Data out | Feedback out | Success Signal | Fail Signal | Caption |
 |---|---|---|---|---|---|
-| **Empty** | empty | empty | false | false | *(blank)* |
-| **Active** | empty (cleared on entry) | empty | false | false | `Active…` |
-| **SolveSuccess** | latched result | empty | **pulses true for one solve** | false | `Success` |
-| **SolveFailure** | empty | latched feedback | false | **pulses true for one solve** | `Failed` |
+| **Empty** | empty | empty | none | none | *(blank)* |
+| **Active** | empty (cleared on entry) | empty | none (cleared on entry) | none | `Active…` |
+| **SolveSuccess** | latched result | empty | latched (minted once) | none | `Success` |
+| **SolveFailure** | empty | latched feedback | none | latched (minted once) | `Failed` |
 
-- **Empty** — no data has passed through: the component is fresh on the canvas, has never
-  been triggered, or was manually cleared via its right-click Clear item.
-- **Active** — entered on a trigger rising edge. Stale outputs blank *immediately on
-  entry*, so the wires go dark while the component works. The work may be instantaneous
-  (Auditor's schema validation), deterministic-but-deferred (PyTransmitter waiting for a
-  linked Python component to re-solve), or asynchronous (Reasoner's streaming API call).
-  Regardless, a visible delay (`SolveDelayMs`, currently **500 ms**) is held between
-  completion of the work and the latch, once per run.
-- **SolveSuccess** — the run completed with no error. The Data output latches the result
-  and persists until the next Active entry or a manual Clear. The success trigger goes
-  true for exactly one solve, then resets — downstream components fire off this rising
-  edge.
-- **SolveFailure** — the run completed but produced an error (Python script errors for
-  PyTransmitter, schema violations for Auditor, API failures for Reasoner). Mirror image:
-  Feedback latches, the fail trigger pulses once, Data stays empty.
+- **Empty** — fresh on canvas, never ran, or manually cleared (right-click Clear).
+- **Active** — entered when a signal is consumed. Stale outputs and outgoing signals
+  blank immediately; the work runs (instant, deferred, or async); a visible delay
+  (`SolveDelayMs = 500`, wall-clock honest) is held before the latch.
+- **SolveSuccess / SolveFailure** — result latched, one signal minted. Downstream
+  consumers fire on it exactly once.
 
-Triggers on wires are plain booleans. A "trigger" is always a **rising edge**
-(false → true); the pulse-then-reset pattern means an upstream component's momentary
-`true` is the downstream component's rising edge. Last-trigger state is serialized so
-reopening a file never spuriously fires.
-
----
-
-## Solve Rhythm
-
-A triggered run spans several Grasshopper solves, sequenced with
-`GH_Document.ScheduleSolution`:
+## Solve Rhythm (routing components)
 
 ```
-Solve A  (trigger rising edge)
-         EnterActive: clear stale outputs, caption "Active…"
-         PushSolve: side effects (push code into linked component, start API task, …)
-         → schedule read @1ms (sync) — or the async completion callback schedules it
-
-Solve B  (@1ms, may repeat)
-         IsReadReady?  no  → retry @1ms (up to 10 attempts)
-                       yes → schedule the latch @SolveDelayMs (500ms, ONCE — not per retry)
-
-Solve C  (@500ms)
-         ReadSolve → latch Data or Feedback
-         State = SolveSuccess / SolveFailure, caption updates
-         trigger pulse TRUE on this solve  ← downstream rising edge lands here
-         → schedule pulse reset @1ms
-
-Solve D  (@1ms)
-         pulse → false; latched data persists until the next run or a clear
+Solve A  (signal consumed):  EnterActive (clear outputs + outgoing signals)
+                             PushSolve (side effects) → schedule read @1ms
+                             (async components schedule it from their completion callback)
+Solve B  (@1ms, repeats):    IsReadReady? no → retry @1ms (≤10) | yes → schedule latch @500ms
+Solve C  (@500ms, honest):   ReadSolve → latch Data or Feedback → mint Success/Fail Signal
+                             if signals arrived mid-run → schedule one follow-up solve
+Solve D  (follow-up, only if needed): consume the oldest waiting signal → next run
 ```
 
-Key invariants:
-
-- The 500 ms delay sits **after the work, before the latch** — for Reasoner that means
-  after the API stream finishes; for PyTransmitter after the linked component has
-  re-solved. Readiness retries stay at 1 ms so the delay is paid exactly once.
-- The latch and the pulse happen in the **same solve**, so a downstream component that
-  fires on the pulse reads fresh latched data.
-- Read passes run only from the component's own scheduled callback (`_doRead` handshake);
-  arbitrary intervening solves can never trigger an early read.
-- Retry exhaustion (a linked target that never settles) still takes the 500 ms beat, then
-  latches a timeout failure — the visual rhythm is identical on both paths.
+There is no pulse-reset solve. The 500ms delay is enforced against the wall clock: if the
+document flushes the schedule early (it flushes *everything* at the next solution), the
+callback re-arms for the remainder instead of acting (`ScheduleStateSolve`).
 
 ---
 
@@ -88,162 +98,135 @@ Key invariants:
 
 ### Layer 1 — `StatefulComponentBase : PhyBase`
 
-`src/Physalia.GH/Components/StatefulComponentBase.cs`
-
-Owns everything lifecycle-related and **nothing** I/O-related. It registers no
-parameters and has no `SolveInstance`; subclass solves drive the transitions through a
-small API:
+`src/Physalia.GH/Components/StatefulComponentBase.cs`. Registers no parameters, has no
+`SolveInstance`. Owns:
 
 | Member | Role |
 |---|---|
-| `SolveState State` | `Empty` / `Active` / `SolveSuccess` / `SolveFailure` |
-| `SolveDelayMs = 500` | the visible end-of-solve delay (constant; may be user-exposed later) |
-| `SuccessPulse` / `FailPulse` | true only on the latch solve |
-| `DetectRisingEdge(bool)` | owns the serialized last-trigger value |
-| `EnterActive()` | state → Active, pulses false, `ClearStateOutputs()`, caption update |
-| `LatchSuccess(pulse = true)` | state → SolveSuccess; if pulsing, schedules the one-solve reset |
-| `LatchFailure(pulse = true)` | mirror image |
-| `ResetToEmpty()` | used by Clear and aborted runs; never pulses |
-| `ScheduleStateSolve(ms, action)` | the single scheduling funnel — runs the mutation on a scheduled solution then expires the component; safe from background threads |
-| `UpdateStateDisplay()` | pushes `MessageForState(State)` to the canvas caption |
-
-Hooks a subclass implements/overrides:
-
-- `ClearStateOutputs()` *(abstract)* — wipe latched output backing fields only; never
-  domain state.
-- `OnCleared()` — extra reset for the menu Clear (lifecycle flags, domain data such as a
-  conversation log).
-- `ClearMenuText` — caption for the Clear menu item (`"Clear Outputs"` default,
-  `"Clear Conversation"` on Recorder).
-- `RestoreLatchedStateOnLoad` — whether a persisted Success/Failure survives file reload
-  (false when the latched payload itself is not serialized).
-- `MessageForState(state)` — canvas captions.
-
-`pulse: false` on the latch methods is the **quiet outcome**: state and caption update,
-but no trigger fires downstream. This is what lets Recorder participate without looping
-(see below) and what a "soft failure" (nothing to do) uses.
+| `SolveState State`, `MessageForState`, `UpdateStateDisplay` | state machine + canvas caption |
+| `SolveDelayMs = 500` | visible delay constant (may be user-exposed later) |
+| `SuccessSignal` / `FailSignal` | latched outgoing signals |
+| `LatchSuccess(payload, emitSignal=true, outcome=Success)` | mint + latch; `emitSignal:false` = quiet (no downstream fire); `outcome` override for pass-through truthfulness |
+| `LatchFailure(payload, emitSignal=true)` | mirror |
+| `EnterActive()` / `ResetToEmpty()` | transitions; both clear outgoing signals |
+| `ObserveSignalInputs(da, indices…)` | call EVERY solve (even Active) for every Signal input; snapshots wire signals, edge-detects bool sentinels into a pending queue, applies the first-observation baseline |
+| `HasUnconsumedSignals(…)` | peek — used post-latch to schedule the follow-up solve |
+| `TryConsumeOldestSignal(idx, out s)` | one event, oldest first (routing components) |
+| `ConsumeAllSignals(indices…)` | drain all, **global sequence order** (Recorder) |
+| `ScheduleStateSolve(ms, action)` | wall-clock honest scheduling funnel; safe from background threads |
+| `EmitSignal(da, idx, signal)` | emit helper; skips SetData when null so wires are genuinely empty |
+| Clear menu (`ClearMenuText`), `ClearStateOutputs` / `OnCleared` hooks | Clear never resets consume-once bookkeeping (no replay) |
+| `Write/Read` of `State`; `RestoreLatchedStateOnLoad` | signals never restored |
 
 ### Layer 2 — `RoutingComponentBase<TData> : StatefulComponentBase`
 
-`src/Physalia.GH/Components/RoutingComponentBase.cs`
-
-The standard **5-port routing contract** for components that route a string result either
-forward or back:
+The standard contract for components that route a string result forward or back:
 
 ```
-Inputs                          Outputs
-  Data        (TData, index 0)    Data            (string — latched on success)
-  …extras…                        Success Trigger (bool — one-solve pulse)
-  Trigger     (bool, last)        Feedback        (string — latched on failure)
-                                  Fail Trigger    (bool — one-solve pulse)
+Inputs                                Outputs
+  Data         (TData, index 0)         Data           (string — latched on success)
+  …extras…                              Success Signal (latched, minted on success)
+  Signal       (list, optional, last)   Feedback       (string — latched on failure)
+                                        Fail Signal    (latched, minted on failure)
 ```
 
-Subclasses implement only:
+Subclasses implement `TryGetData` + `ReadSolve` (sync), plus `PushSolve`/`IsReadReady`
+(two-pass) or `AutoScheduleRead => false` + `RequestReadPass()` from a completion
+callback (async). `OnSolveTick` for per-solve inputs outside the lifecycle (Reasoner's
+Cancel — a plain bool by design: it is a human abort, not a pipeline event).
 
-- `RegisterDataInput` / `RegisterAdditionalInputs` — typed inputs.
-- `TryGetData` — parse the Data input; returning false means the trigger is ignored
-  (nothing to process, no state change).
-- `PushSolve` — side effects that must settle before the result can be read. Empty for
-  synchronous components.
-- `ReadSolve` — produce a `RoutingResult.Ok(data)` or `RoutingResult.Fail(feedback)`
-  after the document has settled.
-- `IsReadReady` *(optional)* — defer the read until e.g. a linked component has
-  re-solved; the base retries at 1 ms up to 10 times.
-- `AutoScheduleRead` *(optional)* — return false for async components and call
-  `RequestReadPass()` from the completion callback instead.
-- `OnSolveTick` *(optional)* — per-solve inputs outside the lifecycle (Reasoner's Cancel).
-
-Layer 2 also owns serialization of the latched payloads (`DataOut` / `FeedbackOut`) and
-legacy-file compatibility: files saved before the state machine existed infer their state
-from whichever payload is non-blank.
+Latched `DataOut`/`FeedbackOut` strings serialize; old pre-state-machine files infer
+their state from whichever payload is non-blank.
 
 ### Current implementations
 
 | Component | Shape | Notes |
 |---|---|---|
-| **Auditor** | sync | empty `PushSolve`; `ReadSolve` extracts + validates JSON against the schema |
-| **PyTransmitter** | two-pass | `PushSolve` injects code into the linked Python component and expires it; `IsReadReady` waits for it to compute; `ReadSolve` harvests runtime errors |
-| **Reasoner** | async | `AutoScheduleRead => false`; `PushSolve` starts the streaming task; the completion callback calls `RequestReadPass()`; Cancel aborts via `AbortReadPass()` → back to Empty |
-| **Recorder** | Layer 1 directly | see below |
+| **Auditor** | sync | `ReadSolve` extracts + validates JSON |
+| **PyTransmitter** | two-pass | pushes code into the linked Python component; `IsReadReady` waits for it |
+| **Reasoner** | async | completion callback calls `RequestReadPass()`; Cancel aborts to Empty |
+| **Recorder** | Layer 1 | dedicated signal inputs, identity-based turns (below) |
+| **Feedback / FeedbackCollector** | Layer 1 | wireless signal transport (below) |
 
 ---
 
-## Recorder: Layer 1 Without the Routing Contract
+## Recorder: identity-based turns
 
-Recorder shares the state machine but **not** the 5-port contract — its outputs are typed
-(`Instructions`, `Recorded History`) and its trigger semantics are deliberately selective.
+Recorder consumes events from **three dedicated Signal inputs** — the turn type comes
+from which input the signal arrived on, never from conversation parity:
 
-Two constraints shape its mapping:
-
-1. **Appends happen on the rising-edge solve, not after the delay.** Pulse-borne inputs —
-   a FeedbackCollector's Physalia Prompt — only exist during the triggering solution.
-   Recorder captures and appends immediately on the rising edge; only the output latch
-   and the pulse are deferred by the 500 ms delay.
-2. **Assistant turns are quiet successes.** Recorder's Trigger output pulses only when a
-   *user* message was appended. Recording the Reasoner's own response latches with
-   `LatchSuccess(pulse: false)` — caption says "Success", outputs latch, but no pulse
-   fires. Otherwise the wiring `Recorder.Trigger → Reasoner.Trigger` plus
-   `Reasoner.SuccessTrigger → Recorder.Trigger` would loop forever.
-
-Outcome mapping per triggered run:
-
-| Append outcome | Latch | Pulse |
+| Input | Records | Text source |
 |---|---|---|
-| User message appended (Prompt or Physalia Prompt) | SolveSuccess | **yes** — Reasoner fires |
-| Assistant message appended (response or tool calls) | SolveSuccess | no (quiet) |
-| Nothing new to record (dedupe, blank inputs) | SolveFailure + runtime warning | no (quiet) |
+| `Prompt Signal` | user turn | signal payload; empty payload (Button press) falls back to the `Prompt` string input |
+| `Response Signal` (from Reasoner Success Signal) | assistant turn | Tool Calls list (priority), else payload |
+| `Feedback Signal` (from Collector(s)) | user turn | payload |
 
-Other Recorder specifics:
+- `ConsumeAllSignals` processes everything waiting in **global sequence order** — a
+  feedback signal is always minted after the response that provoked it, so the assistant
+  turn is recorded first even when both land in the same solve. **This is the fix for
+  the original feedback-before-response race.**
+- User-side text arriving when the last turn is already a user message **merges into
+  that message** (`Conversation.MergeIntoLastUserMessage`) — providers require strict
+  role alternation. Covers feedback after an API-failure (no assistant turn exists) and
+  double prompts.
+- Appends happen on the consume solve; only the latch + outgoing signal wait out the
+  visible delay. Outgoing signal is minted **only for user turns** — assistant turns
+  latch quietly, so `Reasoner.Success Signal → Recorder.Response Signal` plus
+  `Recorder.Signal → Reasoner.Signal` cannot loop.
+- A consumed signal with nothing recordable latches a quiet failure with a warning.
+- Clear Conversation resets the log and outputs to Empty; consume-once bookkeeping is
+  kept (no replay). Conversation is not serialized → Recorder always reopens Empty.
 
-- The Instructions output is a **snapshot latched at trigger time** — editing the System
-  Prompt mid-state does not change the output until the next trigger.
-- The Conversation override input (compaction) is processed on every solve, outside the
-  state machine — it is a data transformation, not a run outcome.
-- `ClearMenuText => "Clear Conversation"`: the base Clear wipes both latched outputs *and*
-  the conversation/history (via `OnCleared`), returning to Empty.
-- `RestoreLatchedStateOnLoad => false`: the conversation is not serialized, so Recorder
-  always reopens Empty rather than claiming a Success it cannot back up.
+## Feedback / FeedbackCollector: wireless signal transport
 
----
+- **Feedback** consumes upstream signals (typically a Fail Signal) exactly once and
+  forwards each **as-is** — original sequence preserved — to every linked collector via
+  `collector.Inject(signal)`. No level-triggered re-injection is possible.
+- **FeedbackCollector** queues injections losslessly (lock-protected): a batch arriving
+  in one solution aggregates; injections during an active run wait. After the visible
+  delay it latches `Data` (newline-joined payloads, never wiped) and mints ONE outgoing
+  signal per batch — fresh sequence, necessarily greater than every cause. The minted
+  signal carries `Failure` if any injected signal was a failure (trace truthfulness;
+  Recorder ignores outcome on its Feedback input).
+
+## Canonical wiring (no OR gates, no bool trigger wires)
+
+```
+Panel(prompt) ──────────────► Recorder.Prompt
+Button ─────────────────────► Recorder.Prompt Signal      (bool cast: one run per press)
+Recorder.Signal ────────────► Reasoner.Signal
+Recorder.Instructions ──────► Reasoner.Instructions
+Reasoner.Data ──────────────► Auditor.Data
+Reasoner.Success Signal ────► Recorder.Response Signal    AND ► Auditor.Signal
+Auditor.Fail Signal ────────► Feedback.Signal
+Feedback (grip) ~~~~~~~~~~~~► FeedbackCollector           (wireless)
+Collector.Signal ───────────► Recorder.Feedback Signal
+```
 
 ## Serialization Rules
 
-- Layer 1 persists `State` and `LastTrigger`. **Pulses are never persisted** — a file can
-  never re-fire its downstream chain on open.
-- A file saved mid-Active reopens as Empty (in-flight work is unrecoverable).
-- Success/Failure reopen latched (caption + payload restored) only when the component
-  also serializes the payload (`RestoreLatchedStateOnLoad`, true for routing components,
-  false for Recorder).
-- Legacy files (pre-state-machine) infer: `DataOut` non-blank → SolveSuccess,
-  `FeedbackOut` non-blank → SolveFailure, else Empty.
-
----
-
-## Out of Scope (For Now)
-
-- **Feedback / FeedbackCollector** stay outside the state machine — they are a wireless
-  transport, not data-latching processors. Their one-solve pulse pattern composes with
-  the scheme: the Collector's pulse lands in Recorder's rising-edge solve, before the
-  delay, so nothing is lost. If a canvas state display is ever wanted, FeedbackCollector
-  could adopt Layer 1 trivially (`Inject` → Active, emit solve → Success).
-- **Composer** is a plain deterministic component with no trigger; it does not need the
-  lifecycle.
-- **User-facing delay control** — `SolveDelayMs` is a single named constant precisely so
-  it can later be exposed (per-document setting or per-component input) without touching
-  the transition logic.
-
----
+- Layer 1 persists `State` only. Signals and consume-once bookkeeping never persist; a
+  file saved mid-Active reopens Empty; Success/Failure reopen latched only when the
+  payload is also serialized (`RestoreLatchedStateOnLoad` — true for routing components
+  and FeedbackCollector, false for Recorder).
+- Old files: stale `LastTrigger` keys are ignored; pre-state-machine files infer state
+  from latched payloads.
+- On load, wires are signal-free and inputs re-baseline on first observation → nothing
+  ever fires on open.
 
 ## Building a New Pipeline Component
 
-1. **Routes a string result forward/back on a trigger?** Inherit
-   `RoutingComponentBase<TData>`; implement `TryGetData` + `ReadSolve` (sync), add
-   `PushSolve`/`IsReadReady` (two-pass) or `AutoScheduleRead => false` +
-   `RequestReadPass()` from your callback (async). You get the full state machine, the
-   5-port contract, captions, Clear, and serialization for free.
-2. **Trigger-driven but with bespoke outputs or pulse rules?** Inherit
-   `StatefulComponentBase` (the Recorder pattern): call `DetectRisingEdge` →
-   `EnterActive()` → do the work → `ScheduleStateSolve(SolveDelayMs, …)` →
-   `LatchSuccess/LatchFailure` with the pulse flag your semantics require; implement
-   `ClearStateOutputs` for your latched fields.
-3. **No trigger, purely deterministic?** Plain `PhyBase` (the Composer pattern).
+1. **Routes a string result forward/back on a signal?** Inherit
+   `RoutingComponentBase<TData>` — the full contract is free.
+2. **Signal-driven with bespoke outputs or quiet outcomes?** Inherit
+   `StatefulComponentBase` (the Recorder pattern): `ObserveSignalInputs` every solve →
+   consume → `EnterActive` → work → `ScheduleStateSolve(SolveDelayMs, …)` →
+   `LatchSuccess/LatchFailure` (use `emitSignal:false` for quiet outcomes) → post-latch
+   `HasUnconsumedSignals` follow-up check.
+3. **No events, purely deterministic?** Plain `PhyBase` (the Composer pattern).
+
+Rules that keep the system race-free — follow them in every new component:
+- Never gate behavior on a bool edge between Physalia components; consume signals.
+- Never wipe an output another component might still need to read; latch it.
+- Never encode ordering in `ScheduleSolution` delays; ordering is sequence numbers.
+- Observe signal inputs on **every** solve, including while Active.

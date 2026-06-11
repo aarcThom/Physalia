@@ -6,25 +6,28 @@
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
+using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Base for components that route a result either forward (Data +
-/// Success Trigger) or back as Feedback (Feedback + Fail Trigger). Owns all I/O
-/// registration, output latching, and save/load serialisation; the lifecycle state
-/// machine, trigger pulses, and Clear menu item come from <see cref="StatefulComponentBase"/>.
-/// Subclasses supply only the Data input type and the per-component processing logic.
+/// Base for components that route a result either forward (Data + Success Signal) or
+/// back as Feedback (Feedback + Fail Signal). Owns all I/O registration, output latching,
+/// and save/load serialisation; the lifecycle state machine, signal intake/emission, and
+/// Clear menu item come from <see cref="StatefulComponentBase"/>. Subclasses supply only
+/// the Data input type and the per-component processing logic.
 ///
-/// <para>A rising edge on the base-owned <c>Trigger</c> input starts a run, split across
-/// solves. The <see cref="PushSolve"/> pass performs side effects (e.g. pushing data
-/// into a linked component and expiring it); the base then defers a <see cref="ReadSolve"/>
-/// pass that produces the routing result once the document has settled — letting a component
-/// read state that only becomes available after a downstream re-solve. Once the work is done,
-/// the base holds <see cref="StatefulComponentBase.SolveDelayMs"/> before latching, so the
-/// data hop is visible on the canvas. Synchronous components leave <see cref="PushSolve"/>
-/// empty; asynchronous ones set <see cref="AutoScheduleRead"/> to false and call
-/// <see cref="RequestReadPass"/> when their work completes.</para>
+/// <para>Consuming a signal on the base-owned <c>Signal</c> input starts a run, split
+/// across solves. The <see cref="PushSolve"/> pass performs side effects (e.g. pushing
+/// data into a linked component and expiring it); the base then defers a
+/// <see cref="ReadSolve"/> pass that produces the routing result once the document has
+/// settled. Once the work is done, the base holds
+/// <see cref="StatefulComponentBase.SolveDelayMs"/> before latching, so the data hop is
+/// visible on the canvas. Signals arriving while a run is in flight wait, latched on the
+/// wire, and are serviced by a follow-up solve after the latch — no event is ever
+/// dropped. Synchronous components leave <see cref="PushSolve"/> empty; asynchronous ones
+/// set <see cref="AutoScheduleRead"/> to false and call <see cref="RequestReadPass"/>
+/// when their work completes.</para>
 /// </summary>
 /// <typeparam name="TData">Type produced from the Data input and handed to the solve passes.</typeparam>
 public abstract class RoutingComponentBase<TData> : StatefulComponentBase
@@ -32,14 +35,14 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// <summary>Output index of the latched Data string.</summary>
     protected const int OutData = 0;
 
-    /// <summary>Output index of the Success Trigger pulse.</summary>
-    protected const int OutSuccessTrigger = 1;
+    /// <summary>Output index of the latched Success Signal.</summary>
+    protected const int OutSuccessSignal = 1;
 
     /// <summary>Output index of the latched Feedback string.</summary>
     protected const int OutFeedback = 2;
 
-    /// <summary>Output index of the Fail Trigger pulse.</summary>
-    protected const int OutFailTrigger = 3;
+    /// <summary>Output index of the latched Fail Signal.</summary>
+    protected const int OutFailSignal = 3;
 
     /// <summary>
     /// ScheduleSolution delay (milliseconds) before the read pass runs. Gives the
@@ -58,8 +61,8 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     private string _dataOut = string.Empty;
     private string _feedbackOut = string.Empty;
 
-    // Index of the base-owned Trigger input (appended last during registration).
-    private int _triggerIndex = -1;
+    // Index of the base-owned Signal input (appended last during registration).
+    private int _signalIndex = -1;
 
     // Data captured on the push pass, handed to ReadSolve on the deferred read pass.
     private TData _pushData = default!;
@@ -108,7 +111,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
 
     /// <summary>
     /// Reads the Data input. Returns false when the input is absent or empty, in which
-    /// case a Trigger pulse is ignored (there is nothing to process).
+    /// case a consumed signal is dropped with a warning (there is nothing to process).
     /// </summary>
     /// <param name="da">The data access for the current solve.</param>
     /// <param name="data">The parsed Data value when present.</param>
@@ -117,8 +120,8 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
 
     /// <summary>
     /// First pass. Performs side effects that must settle before the result is read
-    /// (e.g. pushing code into a linked component and expiring it). Runs on the Trigger
-    /// rising edge, before the deferred <see cref="ReadSolve"/> pass. Leave empty for
+    /// (e.g. pushing code into a linked component and expiring it). Runs when a signal
+    /// is consumed, before the deferred <see cref="ReadSolve"/> pass. Leave empty for
     /// components that compute their result synchronously and need no settle pass.
     /// </summary>
     /// <param name="data">The Data value read by <see cref="TryGetData"/>.</param>
@@ -153,7 +156,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     protected virtual bool AutoScheduleRead => true;
 
     /// <summary>
-    /// Hook called at the very start of every solve, before any trigger or read-pass logic.
+    /// Hook called at the very start of every solve, before any signal or read-pass logic.
     /// Override to read per-solve inputs the routing lifecycle does not (e.g. a Cancel input).
     /// Default implementation does nothing.
     /// </summary>
@@ -167,23 +170,32 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     {
         RegisterDataInput(pManager);
         RegisterAdditionalInputs(pManager);
-        _triggerIndex = pManager.AddBooleanParameter(
-            "Trigger", "T", "Rising edge runs the component.", GH_ParamAccess.item, false);
+        _signalIndex = pManager.AddParameter(
+            new Param_Signal(),
+            "Signal",
+            "S",
+            "Run signal. Each incoming signal runs the component exactly once; multiple sources may be wired directly. Native Buttons/Toggles also work (one run per press).",
+            GH_ParamAccess.list);
+        pManager[_signalIndex].Optional = true;
     }
 
     /// <inheritdoc/>
     protected sealed override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
         pManager.AddTextParameter("Data", "D", "Latched result on success. Persists until the next run or a clear.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Success Trigger", "ST", "Pulses true for one solve when the run succeeds.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Success Signal", "SS", "Latched signal minted when a run succeeds. Downstream components consume it exactly once.", GH_ParamAccess.item);
         pManager.AddTextParameter("Feedback", "F", "Latched feedback on failure. Persists until the next run or a clear.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Fail Trigger", "FT", "Pulses true for one solve when the run fails.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Fail Signal", "FS", "Latched signal minted when a run fails. Downstream components consume it exactly once.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
     protected sealed override void SolveInstance(IGH_DataAccess DA)
     {
         OnSolveTick(DA);
+
+        // Observe every solve, even mid-run: signals arriving while busy stay latched on
+        // the wire (or queue from a Button press) and are serviced after the latch.
+        ObserveSignalInputs(DA, _signalIndex);
 
         if (_awaitingRead && _doRead)
         {
@@ -236,28 +248,34 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
             {
                 _dataOut = result.Output;
                 _feedbackOut = string.Empty;
-                LatchSuccess();
+                LatchSuccess(_dataOut);
             }
             else
             {
                 _dataOut = string.Empty;
                 _feedbackOut = result.Output;
-                LatchFailure();
+                LatchFailure(_feedbackOut);
+            }
+
+            if (HasUnconsumedSignals(_signalIndex))
+            {
+                // A signal arrived mid-run; nothing was dropped. One follow-up solve
+                // starts the next run (oldest signal first).
+                ScheduleStateSolve(1, () => { });
             }
 
             Emit(DA);
             return;
         }
 
-        bool trigger = false;
-        DA.GetData(_triggerIndex, ref trigger);
-
-        if (DetectRisingEdge(trigger) && !_awaitingRead)
+        if (!_awaitingRead && TryConsumeOldestSignal(_signalIndex, out _))
         {
-            // PUSH PASS — a rising trigger edge starts a run. Side effects only; no pulse yet.
+            // PUSH PASS — a consumed signal starts a run. Side effects only; no result yet.
             if (!TryGetData(DA, out TData data))
             {
-                // Empty Data — nothing to process on this trigger; latched outputs stay put.
+                AddRuntimeMessage(
+                    GH_RuntimeMessageLevel.Warning,
+                    "Signal received but the Data input is empty; nothing to process.");
                 Emit(DA);
                 return;
             }
@@ -279,7 +297,8 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
             return;
         }
 
-        // Idle solve (no rising edge, not our read pass) — re-emit the latched outputs.
+        // Idle solve — re-emit the latched outputs and signals (same sequence numbers;
+        // downstream consume-once means recomputes never re-fire a chain).
         Emit(DA);
     }
 
@@ -323,9 +342,9 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     private void Emit(IGH_DataAccess da)
     {
         da.SetData(OutData, _dataOut);
-        da.SetData(OutSuccessTrigger, SuccessPulse);
+        EmitSignal(da, OutSuccessSignal, SuccessSignal);
         da.SetData(OutFeedback, _feedbackOut);
-        da.SetData(OutFailTrigger, FailPulse);
+        EmitSignal(da, OutFailSignal, FailSignal);
     }
 
     /// <summary>
@@ -340,9 +359,10 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     }
 
     /// <summary>
-    /// Cancels a pending read pass without latching a result or firing a pulse. Use when
+    /// Cancels a pending read pass without latching a result or minting a signal. Use when
     /// an in-flight asynchronous run is aborted so the component returns to
-    /// <see cref="StatefulComponentBase.SolveState.Empty"/> and accepts the next Trigger.
+    /// <see cref="StatefulComponentBase.SolveState.Empty"/>. Any signals that arrived
+    /// mid-run are consumed naturally on the solve this schedules.
     /// </summary>
     protected void AbortReadPass()
     {

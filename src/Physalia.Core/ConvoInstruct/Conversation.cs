@@ -58,4 +58,40 @@ public sealed class Conversation
         next.Add(message);
         return new Conversation(next);
     }
+
+    /// <summary>
+    /// Returns a new <see cref="Conversation"/> whose last message — which must be a
+    /// <see cref="Role.User"/> turn — gains an appended <see cref="TextContent"/> block.
+    /// Used when a second user-side event (e.g. feedback) arrives before an assistant
+    /// turn: providers require alternating roles, so the texts merge into one turn.
+    /// </summary>
+    /// <param name="text">The text to append to the last user message.</param>
+    /// <returns>A new conversation with the merged last turn.</returns>
+    /// <exception cref="ArgumentException">Thrown when text is null or blank.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the conversation is empty or the last message is not a user turn.
+    /// </exception>
+    public Conversation MergeIntoLastUserMessage(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            throw new ArgumentException("Cannot merge blank text into the conversation.", nameof(text));
+        }
+
+        if (_messages.Count == 0 || _messages[^1].Role != Role.User)
+        {
+            throw new InvalidOperationException(
+                "Cannot merge into the last user message: the conversation is empty or the last turn is not a user turn.");
+        }
+
+        ConversationMessage last = _messages[^1];
+        var mergedContent = new List<MessageContent>(last.Content.Count + 1);
+        mergedContent.AddRange(last.Content);
+        mergedContent.Add(new TextContent(text));
+
+        var next = new List<ConversationMessage>(_messages.Count);
+        next.AddRange(_messages.Take(_messages.Count - 1));
+        next.Add(new ConversationMessage(Role.User, mergedContent));
+        return new Conversation(next);
+    }
 }

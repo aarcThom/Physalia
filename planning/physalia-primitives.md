@@ -6,20 +6,21 @@ A reference for the core components of the Physalia plugin. This is (*mostly*) n
 
 ## Component Lifecycle
 
-Pipeline components share an explicit state machine (`StatefulComponentBase`) so data can be *seen* flowing through the DAG:
+Pipeline components share an explicit state machine (`StatefulComponentBase`) so data can be *seen* flowing through the DAG. Events travel as **Signals** — latched, sequence-numbered values consumed exactly once by each receiver — never as momentary bool pulses (see `data-marshalling.md` for the full model):
 
-| State | Data out | Feedback out | Success trigger | Fail trigger | Canvas caption |
+| State | Data out | Feedback out | Success Signal | Fail Signal | Canvas caption |
 |---|---|---|---|---|---|
-| **empty** | empty | empty | false | false | *(blank)* |
-| **active** | empty (cleared on entry) | empty | false | false | `Active…` |
-| **solve success** | latched result | empty | pulses true for one solve | false | `Success` |
-| **solve failure** | empty | latched feedback | false | pulses true for one solve | `Failed` |
+| **empty** | empty | empty | none | none | *(blank)* |
+| **active** | empty (cleared on entry) | empty | none | none | `Active…` |
+| **solve success** | latched result | empty | latched (minted once) | none | `Success` |
+| **solve failure** | empty | latched feedback | none | latched (minted once) | `Failed` |
 
-- A component is **empty** when fresh on canvas, never yet triggered, or manually cleared via its right-click Clear item.
-- A rising edge on the trigger input enters **active**: stale outputs blank immediately, the component does its work (instant for Auditor, an API call for Reasoner), then holds a visible delay (`SolveDelayMs`, currently 500 ms — a constant that may be user-exposed later) before latching, so the hop is traceable by eye.
-- The outcome latches into **solve success** or **solve failure**: the matching output is set and persists until the next run or a clear, and the matching trigger pulses true for exactly one solve, then resets — downstream components fire off this rising edge.
+- A component is **empty** when fresh on canvas, never yet run, or manually cleared via its right-click Clear item.
+- Consuming an incoming signal enters **active**: stale outputs blank immediately, the component does its work (instant for Auditor, an API call for Reasoner), then holds a visible delay (`SolveDelayMs`, currently 500 ms, wall-clock honest) before latching, so the hop is traceable by eye. Signals arriving while busy wait on the wire and are serviced afterwards — nothing is ever dropped.
+- The outcome latches into **solve success** or **solve failure**: the matching output is set and one signal is minted; both persist until the next run or a clear. Downstream components consume the signal exactly once — recomputes and replays never re-fire a chain, and processing order follows the global sequence (causal order), not solve timing.
+- Native GH Buttons/Toggles wire directly into Signal inputs (one run per press); multiple signal sources wire into one input directly — no OR gates.
 
-Routing components (Reasoner, Auditor, Transmitter) layer the standard 5-port contract on top: trigger in, data out, success trigger out, feedback out, fail trigger out. Recorder participates in the same state machine but keeps its own outputs and pulses its trigger only on user-turn appends (see below).
+Routing components (Reasoner, Auditor, Transmitter) layer the standard contract on top: Signal in, data out, Success Signal out, feedback out, Fail Signal out. Recorder participates in the same state machine with dedicated Prompt/Response/Feedback Signal inputs and emits its signal only on user-turn appends (see below).
 
 ---
 
@@ -87,10 +88,10 @@ Inputs:
 
 Outputs:
 - `instructions` — system prompt + conversation bundled for inference, latched after each run
-- `trigger` — boolean, pulses true for one solve **only when a user message was appended**. Assistant turns latch quietly (no pulse) so a Reasoner wired off this output cannot re-fire itself after its own response is recorded.
+- `signal` — minted **only when a user message was appended/merged**. Assistant turns latch quietly (no signal) so a Reasoner wired off this output cannot re-fire itself after its own response is recorded.
 - `recorded history` — full conversation including all messages before and after compaction
 
-**Lifecycle:** Recorder shares the component state machine but not the 5-port routing contract. A trigger rising edge appends the next turn immediately (pulse-borne inputs like Feedback Collector data only exist during the triggering solve), then the outputs latch after the visible delay. A trigger with nothing new to record latches as a quiet failure with a warning.
+**Lifecycle:** Recorder shares the component state machine but not the routing contract. It has three dedicated Signal inputs — `Prompt Signal`, `Response Signal`, `Feedback Signal` — so the turn type comes from event identity, never from conversation parity. Waiting signals are consumed in global sequence order (causal order), guaranteeing a response is recorded before the feedback it provoked even when both arrive in the same solve. User-side text arriving when the last turn is already a user message merges into that message (providers require role alternation). Appends happen on the consume solve; outputs latch after the visible delay. A signal with nothing new to record latches as a quiet failure with a warning.
 
 Right Click
 - `Save Conversation` - saves conversation to .convo file in JSON format

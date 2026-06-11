@@ -9,6 +9,7 @@ using System.Windows.Forms;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
+using Physalia.Core.Signals;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 using System.Linq;
@@ -17,23 +18,31 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// Maintains the full conversation history as an append-only log.
-/// Arbitrates between forward data flow (prompt) and returning Feedback signals.
 /// An optional Conversation override replaces the active conversation (for compaction)
 /// while the Recorded History output preserves every message ever seen.
 ///
-/// <para>Participates in the lifecycle state machine: a trigger rising edge appends the
-/// next turn and enters Active; after the visible delay the Instructions and Recorded
-/// History outputs latch. The Trigger output pulses only when a user message was
-/// appended — assistant turns latch quietly so a Reasoner wired off the pulse cannot
-/// re-fire itself in an infinite loop.</para>
+/// <para>Events arrive on three dedicated Signal inputs — Prompt, Response, Feedback —
+/// so the turn type comes from event identity, never from conversation parity. Signals
+/// are consumed in global sequence order (causal order), which guarantees a response is
+/// recorded before the feedback it provoked even when both arrive in the same solve.
+/// User-side text arriving while the last turn is already a user message merges into
+/// that message, preserving the role alternation providers require. The outgoing Signal
+/// is minted only when a user turn was recorded — assistant turns latch quietly so a
+/// Reasoner wired off this output cannot re-fire itself in an infinite loop.</para>
 /// </summary>
 public class Recorder : StatefulComponentBase
 {
+    private const int InSystemPrompt = 0;
+    private const int InPrompt = 1;
+    private const int InPromptSignal = 2;
+    private const int InResponseSignal = 3;
+    private const int InFeedbackSignal = 4;
+    private const int InToolCalls = 5;
+    private const int InConversation = 6;
+
     private Conversation _conversation = Conversation.Empty;
     private Conversation _recordedHistory = Conversation.Empty;
     private Conversation? _lastOverride;
-    private string _lastPrompt = string.Empty;
-    private string _lastPhysaliaPrompt = string.Empty;
 
     // Latched outputs; null while Empty or Active so the wires are genuinely blank.
     private Instructions? _latchedInstructions;
@@ -42,6 +51,7 @@ public class Recorder : StatefulComponentBase
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
     private AppendOutcome _pendingOutcome;
+    private string _pendingUserText = string.Empty;
 
     private enum AppendOutcome
     {
@@ -71,24 +81,26 @@ public class Recorder : StatefulComponentBase
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter("System Prompt", "S", "System prompt from Composer.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("Prompt", "P", "User prompt from Prompter.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("LLM Response", "L", "LLM text response from Reasoner, recorded as an assistant message.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("Physalia Prompt", "PP", "Feedback from linters, GH errors, or visual inspection. Appended as a User message after an Assistant turn.", GH_ParamAccess.item, string.Empty);
-        pManager.AddParameter(new Param_LlmToolCall(), "Tool Call", "TC", "Tool calls from Reasoner to record as an assistant message.", GH_ParamAccess.list);
-        pManager.AddBooleanParameter("Trigger", "T", "Trigger from Prompter or Feedback. Initiates downstream solve.", GH_ParamAccess.item, false);
+        pManager.AddTextParameter("Prompt", "P", "User prompt text. Recorded when a Prompt Signal with an empty payload arrives (e.g. from a Button).", GH_ParamAccess.item, string.Empty);
+        pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn. Signal payload is the prompt text; an empty payload (Button press) falls back to the Prompt input.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the Reasoner's Success Signal. Tool calls take priority over the payload text.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Records feedback as a user turn. Wire one or more Feedback Collectors directly — no OR gate needed.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_LlmToolCall(), "Tool Calls", "TC", "Tool calls from Reasoner to record as an assistant message.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Conversation(), "Conversation", "C", "Optional compacted conversation. Replaces the active conversation while all messages are preserved in Recorded History.", GH_ParamAccess.item);
 
-        pManager[2].Optional = true;
-        pManager[3].Optional = true;
-        pManager[4].Optional = true;
-        pManager[6].Optional = true;
+        pManager[InPrompt].Optional = true;
+        pManager[InPromptSignal].Optional = true;
+        pManager[InResponseSignal].Optional = true;
+        pManager[InFeedbackSignal].Optional = true;
+        pManager[InToolCalls].Optional = true;
+        pManager[InConversation].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
         pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Conversation history and system prompt bundled for inference. Latched after each run.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Trigger", "T", "Pulses true for one solve when a user message was appended.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Signal", "Sig", "Latched signal minted when a user turn was recorded. Assistant turns latch quietly.", GH_ParamAccess.item);
         pManager.AddParameter(new Param_Conversation(), "Recorded History", "H", "Full conversation history including all messages before and after compaction.", GH_ParamAccess.item);
     }
 
@@ -105,22 +117,16 @@ public class Recorder : StatefulComponentBase
     {
         string systemPrompt = string.Empty;
         string prompt = string.Empty;
-        string llmResponse = string.Empty;
-        string physaliaPrompt = string.Empty;
         var toolCallItems = new List<GH_LlmToolCall>();
-        bool trigger = false;
 
-        DA.GetData(0, ref systemPrompt);
-        DA.GetData(1, ref prompt);
-        DA.GetData(2, ref llmResponse);
-        DA.GetData(3, ref physaliaPrompt);
-        DA.GetDataList(4, toolCallItems);
-        if (!DA.GetData(5, ref trigger)) return;
+        DA.GetData(InSystemPrompt, ref systemPrompt);
+        DA.GetData(InPrompt, ref prompt);
+        DA.GetDataList(InToolCalls, toolCallItems);
 
         // Apply compacted conversation override when a new one arrives. This lives outside
         // the state machine — compaction is a data transformation, not a run outcome.
         var overrideGoo = new GH_Conversation();
-        bool hasOverride = DA.GetData(6, ref overrideGoo);
+        bool hasOverride = DA.GetData(InConversation, ref overrideGoo);
         Conversation? overrideConversation = hasOverride ? overrideGoo?.Value : null;
 
         if (overrideConversation is not null && !ReferenceEquals(overrideConversation, _lastOverride))
@@ -142,9 +148,13 @@ public class Recorder : StatefulComponentBase
             }
         }
 
+        // Observe every solve, even mid-run: events arriving while busy wait, latched on
+        // their wires, and are serviced after the latch.
+        ObserveSignalInputs(DA, InPromptSignal, InResponseSignal, InFeedbackSignal);
+
         if (_doLatch)
         {
-            // LATCH PASS — runs only from our own scheduled signal, after the visible delay.
+            // LATCH PASS — runs only from our own scheduled callback, after the visible delay.
             _doLatch = false;
             _latchedInstructions = new Instructions(systemPrompt, _conversation);
             _latchedHistory = _recordedHistory;
@@ -152,33 +162,53 @@ public class Recorder : StatefulComponentBase
             switch (_pendingOutcome)
             {
                 case AppendOutcome.UserTurn:
-                    LatchSuccess(pulse: true);
+                    LatchSuccess(_pendingUserText);
                     break;
                 case AppendOutcome.AssistantTurn:
-                    // Quiet success: a Reasoner wired off the pulse must not re-fire
-                    // after its own response is recorded.
-                    LatchSuccess(pulse: false);
+                    // Quiet success: a Reasoner wired off the outgoing signal must not
+                    // re-fire after its own response is recorded.
+                    LatchSuccess(string.Empty, emitSignal: false);
                     break;
                 default:
-                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Trigger fired but there was nothing new to record.");
-                    LatchFailure(pulse: false);
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Signal received but there was nothing new to record.");
+                    LatchFailure(string.Empty, emitSignal: false);
                     break;
+            }
+
+            if (HasUnconsumedSignals(InPromptSignal, InResponseSignal, InFeedbackSignal))
+            {
+                // Events arrived mid-run; nothing was dropped. One follow-up solve
+                // services them in sequence order.
+                ScheduleStateSolve(1, () => { });
             }
 
             EmitOutputs(DA);
             return;
         }
 
-        if (DetectRisingEdge(trigger) && State != SolveState.Active)
+        if (State != SolveState.Active)
         {
-            // Appends must happen in this solve: pulse-borne inputs (e.g. a Feedback
-            // Collector's Physalia Prompt) only exist during the triggering solution.
-            // Only the latch and pulse are deferred by the visible delay.
-            EnterActive();
-            _pendingOutcome = AppendNextTurn(prompt, llmResponse, physaliaPrompt, toolCallItems);
-            ScheduleStateSolve(SolveDelayMs, () => _doLatch = true);
-            EmitOutputs(DA);
-            return;
+            // Consuming in global sequence order is the ordering guarantee: feedback is
+            // always minted after the response that provoked it, so even when both land
+            // in this one solve the assistant turn is recorded first.
+            IReadOnlyList<ConsumedSignal> consumed =
+                ConsumeAllSignals(InPromptSignal, InResponseSignal, InFeedbackSignal);
+
+            if (consumed.Count > 0)
+            {
+                EnterActive();
+                _pendingOutcome = AppendOutcome.Nothing;
+                _pendingUserText = string.Empty;
+
+                foreach (ConsumedSignal item in consumed)
+                {
+                    ApplySignal(item, prompt, toolCallItems);
+                }
+
+                ScheduleStateSolve(SolveDelayMs, () => _doLatch = true);
+                EmitOutputs(DA);
+                return;
+            }
         }
 
         // Idle solve — re-emit the latched outputs.
@@ -198,94 +228,115 @@ public class Recorder : StatefulComponentBase
         _conversation = Conversation.Empty;
         _recordedHistory = Conversation.Empty;
         _lastOverride = null;
-        _lastPrompt = string.Empty;
-        _lastPhysaliaPrompt = string.Empty;
         _doLatch = false;
         _pendingOutcome = AppendOutcome.Nothing;
+        _pendingUserText = string.Empty;
     }
 
     /// <summary>
-    /// Appends the next conversation turn from the current inputs and reports what,
-    /// if anything, was recorded.
+    /// Records one consumed signal into the conversation. Turn type comes from the input
+    /// the signal arrived on — never from conversation parity.
     /// </summary>
-    private AppendOutcome AppendNextTurn(string prompt, string llmResponse, string physaliaPrompt, List<GH_LlmToolCall> toolCallItems)
+    private void ApplySignal(ConsumedSignal item, string promptInput, List<GH_LlmToolCall> toolCallItems)
     {
-        // Determine whether the next turn should be User or Assistant.
-        Role nextRole = _conversation.Count == 0 || _conversation.Messages[_conversation.Count - 1].Role == Role.Assistant
-            ? Role.User
-            : Role.Assistant;
-
-        if (nextRole == Role.Assistant)
+        switch (item.ParamIndex)
         {
-            // Assistant turn: tool calls take priority over plain text response.
-            var validToolCalls = toolCallItems
-                .Where(g => g?.Value != null)
-                .Select(g => g.Value)
-                .ToList();
+            case InResponseSignal:
+                RecordAssistantTurn(item.Signal, toolCallItems);
+                break;
 
-            if (validToolCalls.Count > 0)
-            {
-                var blocks = validToolCalls
-                    .Select(tc => (MessageContent)new ToolCallContent(tc.Id, tc.Name, tc.InputJson))
-                    .ToList();
+            case InPromptSignal:
+                // Payload carries the text when a future Prompter sends it; an empty
+                // payload (Button press) falls back to the Prompt string input.
+                string promptText = StringHelpers.IsNonBlank(item.Signal.Payload) ? item.Signal.Payload : promptInput;
+                if (!StringHelpers.IsNonBlank(promptText))
+                {
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Prompt signal received but no prompt text is available.");
+                    break;
+                }
 
-                return TryAppend(new ConversationMessage(Role.Assistant, blocks))
-                    ? AppendOutcome.AssistantTurn
-                    : AppendOutcome.Nothing;
-            }
+                RecordUserText(promptText);
+                break;
 
-            if (StringHelpers.IsNonBlank(llmResponse))
-            {
-                return TryAppend(new ConversationMessage(Role.Assistant, llmResponse))
-                    ? AppendOutcome.AssistantTurn
-                    : AppendOutcome.Nothing;
-            }
+            case InFeedbackSignal:
+                if (!StringHelpers.IsNonBlank(item.Signal.Payload))
+                {
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Feedback signal received with an empty payload.");
+                    break;
+                }
 
-            return AppendOutcome.Nothing;
+                RecordUserText(item.Signal.Payload);
+                break;
         }
-
-        // User turn: Physalia Prompt takes priority; Prompt is the fallback.
-        bool physaliaIsNew = StringHelpers.IsNonBlank(physaliaPrompt)
-            && !StringHelpers.AreEquivalent(physaliaPrompt, _lastPhysaliaPrompt);
-        bool promptIsNew = StringHelpers.IsNonBlank(prompt)
-            && !StringHelpers.AreEquivalent(prompt, _lastPrompt);
-
-        string? userText = physaliaIsNew ? physaliaPrompt
-            : promptIsNew ? prompt
-            : null;
-
-        if (userText is null)
-        {
-            return AppendOutcome.Nothing;
-        }
-
-        if (!TryAppend(new ConversationMessage(Role.User, userText)))
-        {
-            return AppendOutcome.Nothing;
-        }
-
-        if (physaliaIsNew)
-            _lastPhysaliaPrompt = physaliaPrompt;
-        else
-            _lastPrompt = prompt;
-
-        return AppendOutcome.UserTurn;
     }
 
-    private bool TryAppend(ConversationMessage message)
+    private void RecordAssistantTurn(PhySignal signal, List<GH_LlmToolCall> toolCallItems)
     {
+        // Tool calls take priority over the payload text.
+        var validToolCalls = toolCallItems
+            .Where(g => g?.Value != null)
+            .Select(g => g.Value)
+            .ToList();
+
+        ConversationMessage? message = null;
+        if (validToolCalls.Count > 0)
+        {
+            var blocks = validToolCalls
+                .Select(tc => (MessageContent)new ToolCallContent(tc.Id, tc.Name, tc.InputJson))
+                .ToList();
+            message = new ConversationMessage(Role.Assistant, blocks);
+        }
+        else if (StringHelpers.IsNonBlank(signal.Payload))
+        {
+            message = new ConversationMessage(Role.Assistant, signal.Payload);
+        }
+
+        if (message is null)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Response signal received but it carried no text or tool calls.");
+            return;
+        }
+
         try
         {
+            // Guard only: under sequence ordering an assistant turn cannot legally follow
+            // another assistant turn, so a throw here indicates a wiring mistake.
             _conversation = _conversation.Append(message);
             _recordedHistory = _recordedHistory.Append(message);
-            return true;
+
+            if (_pendingOutcome == AppendOutcome.Nothing)
+            {
+                _pendingOutcome = AppendOutcome.AssistantTurn;
+            }
         }
         catch (InvalidOperationException ex)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, ex.Message);
-            return false;
         }
     }
+
+    private void RecordUserText(string text)
+    {
+        try
+        {
+            // Applied per conversation: each merges or appends based on its own last role
+            // (they can diverge around compaction absorbs). Merging preserves the strict
+            // role alternation providers require when two user-side events arrive in a row.
+            _conversation = RecordUserInto(_conversation, text);
+            _recordedHistory = RecordUserInto(_recordedHistory, text);
+            _pendingOutcome = AppendOutcome.UserTurn;
+            _pendingUserText = text;
+        }
+        catch (InvalidOperationException ex)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, ex.Message);
+        }
+    }
+
+    private static Conversation RecordUserInto(Conversation conversation, string text) =>
+        conversation.Count > 0 && conversation.Messages[^1].Role == Role.User
+            ? conversation.MergeIntoLastUserMessage(text)
+            : conversation.Append(new ConversationMessage(Role.User, text));
 
     private void EmitOutputs(IGH_DataAccess da)
     {
@@ -295,7 +346,7 @@ public class Recorder : StatefulComponentBase
             da.SetData(0, new GH_Instructions(_latchedInstructions));
         }
 
-        da.SetData(1, SuccessPulse);
+        EmitSignal(da, 1, SuccessSignal);
 
         if (_latchedHistory is not null)
         {

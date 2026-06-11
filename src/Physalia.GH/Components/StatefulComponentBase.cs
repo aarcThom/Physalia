@@ -4,37 +4,54 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Physalia.Core.Signals;
+using Physalia.GH.Goo;
 
 namespace Physalia.GH.Components;
 
 /// <summary>
 /// Base for components that participate in the Physalia data-flow lifecycle. Owns the
 /// explicit solve state machine (<see cref="SolveState"/>), the canvas state caption,
-/// trigger rising-edge detection, momentary success/fail pulses, the visible end-of-solve
-/// delay, the Clear menu item, and state serialisation.
+/// sequenced-signal intake with consume-once semantics, latched outgoing signals, the
+/// wall-clock-honest end-of-solve delay, the Clear menu item, and state serialisation.
 ///
 /// <para>This layer registers no parameters and has no <c>SolveInstance</c>; subclasses
-/// drive the transitions from their own solve logic. <see cref="EnterActive"/> clears the
-/// latched outputs (via <see cref="ClearStateOutputs"/>) at the start of a run;
-/// <see cref="LatchSuccess"/> / <see cref="LatchFailure"/> end it, optionally pulsing the
-/// matching trigger for exactly one solve. Schedule the latch through
-/// <see cref="ScheduleStateSolve"/> with <see cref="SolveDelayMs"/> so a human watching the
-/// canvas can trace data hopping through the DAG.</para>
+/// drive the transitions from their own solve logic. Events travel as latched
+/// <see cref="PhySignal"/> values, never as momentary pulses: a signal persists on the wire
+/// and each receiver consumes it exactly once, keyed by its sequence number. Ordering is
+/// defined by the global sequence — not by solve timing — so Grasshopper's single,
+/// collapsing schedule timer can delay or coalesce solves without reordering, duplicating,
+/// or dropping events. The visible delay is purely cosmetic; correctness never depends
+/// on pacing.</para>
 /// </summary>
 public abstract class StatefulComponentBase : PhyBase
 {
     /// <summary>
     /// Visible delay (milliseconds) between completion of a component's work and the
     /// success/failure latch, so the flow of data through the document can be traced
-    /// by eye. May be exposed to the user later.
+    /// by eye. Honoured against the wall clock even when the document schedule is
+    /// flushed early. May be exposed to the user later.
     /// </summary>
     protected const int SolveDelayMs = 500;
 
-    // Rising-edge tracking for the Trigger input; serialised so a reload doesn't fire.
-    private bool _lastTrigger;
+    // Tolerance (ms) when deciding whether a scheduled callback fired early; roughly
+    // the resolution of the underlying timer.
+    private const int ScheduleSlopMs = 15;
+
+    // Defensive cap on re-arms when the document keeps flushing the schedule early.
+    private const int MaxScheduleAttempts = 100;
+
+    // ---- consume-once intake state (per Signal input index; never serialised) ----
+    private readonly Dictionary<int, long> _marks = new();
+    private readonly Dictionary<int, List<PhySignal>> _wireSignals = new();
+    private readonly Dictionary<int, List<bool>> _boolBaselines = new();
+    private readonly Dictionary<int, List<PhySignal>> _pendingManual = new();
+    private readonly HashSet<int> _observedOnce = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StatefulComponentBase"/> class.
@@ -66,14 +83,29 @@ public abstract class StatefulComponentBase : PhyBase
         SolveFailure,
     }
 
+    /// <summary>
+    /// A signal consumed from a specific input, so callers processing several inputs at
+    /// once know where each event arrived.
+    /// </summary>
+    /// <param name="ParamIndex">The input parameter index the signal arrived on.</param>
+    /// <param name="Signal">The consumed signal.</param>
+    protected readonly record struct ConsumedSignal(int ParamIndex, PhySignal Signal);
+
     /// <summary>Gets the current lifecycle state.</summary>
     protected SolveState State { get; private set; } = SolveState.Empty;
 
-    /// <summary>Gets a value indicating whether the success trigger is pulsing on this solve.</summary>
-    protected bool SuccessPulse { get; private set; }
+    /// <summary>
+    /// Gets the latched success signal, minted by <see cref="LatchSuccess"/>. Persists on
+    /// the wire until the next <see cref="EnterActive"/> or a clear; downstream consumers
+    /// fire on it exactly once.
+    /// </summary>
+    protected PhySignal? SuccessSignal { get; private set; }
 
-    /// <summary>Gets a value indicating whether the fail trigger is pulsing on this solve.</summary>
-    protected bool FailPulse { get; private set; }
+    /// <summary>
+    /// Gets the latched failure signal, minted by <see cref="LatchFailure"/>. Persists on
+    /// the wire until the next <see cref="EnterActive"/> or a clear.
+    /// </summary>
+    protected PhySignal? FailSignal { get; private set; }
 
     /// <summary>
     /// Caption for the menu item that clears the component back to <see cref="SolveState.Empty"/>.
@@ -84,7 +116,7 @@ public abstract class StatefulComponentBase : PhyBase
     /// Whether a persisted <see cref="SolveState.SolveSuccess"/> / <see cref="SolveState.SolveFailure"/>
     /// survives a file reload. Return false when the latched payload itself is not serialised,
     /// so the component reopens as <see cref="SolveState.Empty"/> instead of claiming a result
-    /// it no longer holds.
+    /// it no longer holds. Outgoing signals are never restored — they are session events.
     /// </summary>
     protected virtual bool RestoreLatchedStateOnLoad => true;
 
@@ -97,7 +129,8 @@ public abstract class StatefulComponentBase : PhyBase
 
     /// <summary>
     /// Extra reset work performed by the menu Clear only (lifecycle flags, domain data).
-    /// Default implementation does nothing.
+    /// Consume-once bookkeeping is deliberately NOT reset — clearing outputs must never
+    /// replay already-consumed events. Default implementation does nothing.
     /// </summary>
     protected virtual void OnCleared()
     {
@@ -117,102 +150,210 @@ public abstract class StatefulComponentBase : PhyBase
     };
 
     /// <summary>
-    /// Updates the serialised last-trigger value and reports whether this solve saw a
-    /// rising edge (false → true) on the Trigger input.
+    /// Reads the given Signal inputs and updates the consume-once bookkeeping. Call once
+    /// at the top of every solve, for every Signal input, regardless of
+    /// <see cref="State"/> — observing while Active is what makes events lossless
+    /// (they wait, latched on the wire or queued from a Button press, until consumed).
+    /// Idempotent within a solve.
+    ///
+    /// <para>Genuine signals are snapshot as candidates; a wire holds one latched signal
+    /// per source, so two rapid events from the same source supersede (latest wins).
+    /// Plain-bool sources (Buttons/Toggles, via the <see cref="GH_Signal"/> cast sentinel)
+    /// are edge-detected here: each false→true transition mints exactly one signal into a
+    /// pending queue. The first ever observation of an input baselines it — pre-existing
+    /// latched signals and stuck-true Toggles never fire on a fresh, pasted, or reloaded
+    /// component.</para>
     /// </summary>
-    /// <param name="trigger">The Trigger input value for this solve.</param>
-    /// <returns>true on a rising edge; otherwise false.</returns>
-    protected bool DetectRisingEdge(bool trigger)
+    /// <param name="da">The data access for the current solve.</param>
+    /// <param name="paramIndices">The Signal input parameter indices to observe.</param>
+    protected void ObserveSignalInputs(IGH_DataAccess da, params int[] paramIndices)
     {
-        bool rising = trigger && !_lastTrigger;
-        _lastTrigger = trigger;
-        return rising;
+        foreach (int idx in paramIndices)
+        {
+            var items = new List<GH_Signal>();
+            da.GetDataList(idx, items);
+
+            var wire = new List<PhySignal>();
+            var boolLevels = new List<bool>();
+
+            foreach (GH_Signal? item in items)
+            {
+                if (item?.Value is PhySignal signal)
+                {
+                    wire.Add(signal);
+                }
+                else if (item?.BoolLevel is bool level)
+                {
+                    boolLevels.Add(level);
+                }
+            }
+
+            bool first = _observedOnce.Add(idx);
+            _wireSignals[idx] = wire;
+
+            if (first)
+            {
+                // First-observation baseline: swallow whatever is already on the wire so a
+                // fresh/pasted/reloaded component never fires off pre-existing state.
+                _marks[idx] = wire.Count > 0 ? wire.Max(s => s.Sequence) : 0;
+                _boolBaselines[idx] = boolLevels;
+                continue;
+            }
+
+            List<bool> baseline = _boolBaselines.TryGetValue(idx, out var b) ? b : new List<bool>();
+            if (baseline.Count != boolLevels.Count)
+            {
+                // Wiring changed (bool source added/removed): re-baseline silently.
+                _boolBaselines[idx] = boolLevels;
+                continue;
+            }
+
+            for (int i = 0; i < boolLevels.Count; i++)
+            {
+                if (boolLevels[i] && !baseline[i])
+                {
+                    // One minted signal per false→true transition (Button press), even mid-Active.
+                    PendingManualFor(idx).Add(PhySignal.Mint(
+                        SignalOutcome.Success, string.Empty, InstanceGuid, $"{Name} (manual)"));
+                }
+            }
+
+            _boolBaselines[idx] = boolLevels;
+        }
     }
 
     /// <summary>
-    /// Enters <see cref="SolveState.Active"/>: clears the latched outputs and both pulses
-    /// so stale data leaves the wires the moment a run starts.
+    /// Whether any observed signal on the given inputs is still unconsumed. Peeks only;
+    /// advances nothing. Use after a latch to decide whether to schedule a follow-up
+    /// solve that services events which arrived mid-run.
+    /// </summary>
+    /// <param name="paramIndices">The Signal input parameter indices to check.</param>
+    /// <returns>true when at least one unconsumed signal is waiting.</returns>
+    protected bool HasUnconsumedSignals(params int[] paramIndices) =>
+        paramIndices.Any(idx => UnconsumedFor(idx).Any());
+
+    /// <summary>
+    /// Consumes the single oldest unconsumed signal on the given input, by global
+    /// sequence order. Newer signals stay unconsumed for later runs.
+    /// </summary>
+    /// <param name="paramIndex">The Signal input parameter index.</param>
+    /// <param name="signal">The consumed signal, when one was waiting.</param>
+    /// <returns>true when a signal was consumed.</returns>
+    protected bool TryConsumeOldestSignal(int paramIndex, out PhySignal signal)
+    {
+        PhySignal? oldest = UnconsumedFor(paramIndex).OrderBy(s => s.Sequence).FirstOrDefault();
+        if (oldest is null)
+        {
+            signal = default!;
+            return false;
+        }
+
+        MarkConsumed(paramIndex, oldest);
+        signal = oldest;
+        return true;
+    }
+
+    /// <summary>
+    /// Consumes every unconsumed signal across the given inputs, returned in global
+    /// sequence order. Sequence order is causal order — an event minted as a consequence
+    /// of another always sorts after it — so processing the result in order is what
+    /// guarantees, e.g., that a response is recorded before the feedback it provoked,
+    /// even when both land in the same solve.
+    /// </summary>
+    /// <param name="paramIndices">The Signal input parameter indices to drain.</param>
+    /// <returns>All consumed signals with their input of origin, oldest first.</returns>
+    protected IReadOnlyList<ConsumedSignal> ConsumeAllSignals(params int[] paramIndices)
+    {
+        var consumed = new List<ConsumedSignal>();
+        foreach (int idx in paramIndices)
+        {
+            foreach (PhySignal s in UnconsumedFor(idx).ToList())
+            {
+                MarkConsumed(idx, s);
+                consumed.Add(new ConsumedSignal(idx, s));
+            }
+        }
+
+        consumed.Sort((a, b) => a.Signal.Sequence.CompareTo(b.Signal.Sequence));
+        return consumed;
+    }
+
+    /// <summary>
+    /// Enters <see cref="SolveState.Active"/>: clears the latched outputs and both
+    /// outgoing signals so stale data leaves the wires the moment a run starts.
     /// </summary>
     protected void EnterActive()
     {
         State = SolveState.Active;
-        SuccessPulse = false;
-        FailPulse = false;
+        SuccessSignal = null;
+        FailSignal = null;
         ClearStateOutputs();
         UpdateStateDisplay();
     }
 
     /// <summary>
-    /// Enters <see cref="SolveState.SolveSuccess"/>. The caller must have latched its data
-    /// output beforehand.
+    /// Enters <see cref="SolveState.SolveSuccess"/> and (unless quiet) mints the latched
+    /// success signal. The caller must have latched its data output beforehand.
     /// </summary>
-    /// <param name="pulse">
-    /// When true the success trigger pulses for exactly one solve, then resets.
-    /// Pass false for a quiet success that updates state without firing downstream
-    /// (e.g. Recorder recording an assistant turn).
+    /// <param name="payload">The event payload carried by the minted signal (the data string).</param>
+    /// <param name="emitSignal">
+    /// When false, state and caption update but no signal is minted — a quiet success
+    /// that must not fire downstream (e.g. Recorder recording an assistant turn).
     /// </param>
-    protected void LatchSuccess(bool pulse = true)
+    /// <param name="outcome">
+    /// Outcome stamped on the minted signal. Defaults to Success; pass-through components
+    /// (e.g. Feedback Collector) may forward a Failure outcome for trace truthfulness even
+    /// though their own run succeeded.
+    /// </param>
+    protected void LatchSuccess(string payload, bool emitSignal = true, SignalOutcome outcome = SignalOutcome.Success)
     {
         State = SolveState.SolveSuccess;
-        SuccessPulse = pulse;
-        FailPulse = false;
+        SuccessSignal = emitSignal ? PhySignal.Mint(outcome, payload, InstanceGuid, Name) : null;
+        FailSignal = null;
         UpdateStateDisplay();
-
-        if (pulse)
-        {
-            SchedulePulseReset();
-        }
     }
 
     /// <summary>
-    /// Enters <see cref="SolveState.SolveFailure"/>. The caller must have latched its
-    /// feedback output beforehand.
+    /// Enters <see cref="SolveState.SolveFailure"/> and (unless quiet) mints the latched
+    /// failure signal. The caller must have latched its feedback output beforehand.
     /// </summary>
-    /// <param name="pulse">
-    /// When true the fail trigger pulses for exactly one solve, then resets.
-    /// Pass false for a quiet failure that updates state without firing downstream.
-    /// </param>
-    protected void LatchFailure(bool pulse = true)
+    /// <param name="payload">The event payload carried by the minted signal (the feedback string).</param>
+    /// <param name="emitSignal">When false, state and caption update but no signal is minted.</param>
+    protected void LatchFailure(string payload, bool emitSignal = true)
     {
         State = SolveState.SolveFailure;
-        FailPulse = pulse;
-        SuccessPulse = false;
+        FailSignal = emitSignal ? PhySignal.Mint(SignalOutcome.Failure, payload, InstanceGuid, Name) : null;
+        SuccessSignal = null;
         UpdateStateDisplay();
-
-        if (pulse)
-        {
-            SchedulePulseReset();
-        }
     }
 
     /// <summary>
-    /// Returns to <see cref="SolveState.Empty"/> without firing a pulse. Used by the menu
-    /// Clear and by aborted runs. Does not call <see cref="ClearStateOutputs"/> — callers
-    /// decide whether outputs need wiping (an aborted run already cleared them on
+    /// Returns to <see cref="SolveState.Empty"/> and drops both outgoing signals. Used by
+    /// the menu Clear and by aborted runs. Does not call <see cref="ClearStateOutputs"/> —
+    /// callers decide whether outputs need wiping (an aborted run already cleared them on
     /// <see cref="EnterActive"/>).
     /// </summary>
     protected void ResetToEmpty()
     {
         State = SolveState.Empty;
-        SuccessPulse = false;
-        FailPulse = false;
+        SuccessSignal = null;
+        FailSignal = null;
         UpdateStateDisplay();
     }
 
     /// <summary>
     /// Single scheduling funnel for lifecycle solves (read passes, the end-of-solve delay,
-    /// pulse resets, aborts). Runs <paramref name="onScheduled"/> on the scheduled solution,
-    /// then expires this component. Safe to call from a background thread.
+    /// follow-up consumption checks, aborts). Honest against the wall clock: Grasshopper
+    /// keeps ONE document schedule and flushes every pending callback at the next solution,
+    /// so a callback that fires early re-arms itself for the remainder of its delay instead
+    /// of acting. Runs <paramref name="onScheduled"/> once the due time has genuinely
+    /// passed, then expires this component. Safe to call from a background thread.
     /// </summary>
-    /// <param name="delayMs">ScheduleSolution delay in milliseconds.</param>
+    /// <param name="delayMs">Minimum wall-clock delay in milliseconds.</param>
     /// <param name="onScheduled">State mutation to apply when the scheduled solution starts.</param>
     protected void ScheduleStateSolve(int delayMs, Action onScheduled)
     {
-        OnPingDocument()?.ScheduleSolution(delayMs, _ =>
-        {
-            onScheduled();
-            ExpireSolution(true);
-        });
+        ScheduleAt(DateTime.UtcNow.AddMilliseconds(delayMs), onScheduled, attempt: 0);
     }
 
     /// <summary>
@@ -236,6 +377,21 @@ public abstract class StatefulComponentBase : PhyBase
         UpdateStateDisplay();
     }
 
+    /// <summary>
+    /// Emits a latched signal on an output, leaving the wire genuinely empty when there
+    /// is none (skips SetData rather than emitting a null item).
+    /// </summary>
+    /// <param name="da">The data access for the current solve.</param>
+    /// <param name="outputIndex">The output parameter index.</param>
+    /// <param name="signal">The latched signal, or null for none.</param>
+    protected static void EmitSignal(IGH_DataAccess da, int outputIndex, PhySignal? signal)
+    {
+        if (signal is not null)
+        {
+            da.SetData(outputIndex, new GH_Signal(signal));
+        }
+    }
+
     /// <inheritdoc/>
     public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
     {
@@ -254,21 +410,18 @@ public abstract class StatefulComponentBase : PhyBase
     public override bool Write(GH_IWriter writer)
     {
         writer.SetInt32("State", (int)State);
-        writer.SetBoolean("LastTrigger", _lastTrigger);
         return base.Write(writer);
     }
 
     /// <inheritdoc/>
     public override bool Read(GH_IReader reader)
     {
-        _lastTrigger = reader.ItemExists("LastTrigger") && reader.GetBoolean("LastTrigger");
-
         if (reader.ItemExists("State"))
         {
             var persisted = (SolveState)reader.GetInt32("State");
 
             // In-flight work is unrecoverable, and latched results only survive when the
-            // payload itself was serialised. Pulses are never persisted.
+            // payload itself was serialised. Signals are never persisted.
             State = persisted switch
             {
                 SolveState.SolveSuccess or SolveState.SolveFailure when RestoreLatchedStateOnLoad => persisted,
@@ -280,18 +433,63 @@ public abstract class StatefulComponentBase : PhyBase
             State = SolveState.Empty;
         }
 
-        SuccessPulse = false;
-        FailPulse = false;
+        SuccessSignal = null;
+        FailSignal = null;
         UpdateStateDisplay();
         return base.Read(reader);
     }
 
-    private void SchedulePulseReset()
+    private void ScheduleAt(DateTime due, Action onScheduled, int attempt)
     {
-        ScheduleStateSolve(1, () =>
+        int delay = Math.Max(1, (int)Math.Ceiling((due - DateTime.UtcNow).TotalMilliseconds));
+        OnPingDocument()?.ScheduleSolution(delay, _ =>
         {
-            SuccessPulse = false;
-            FailPulse = false;
+            double remaining = (due - DateTime.UtcNow).TotalMilliseconds;
+            if (remaining > ScheduleSlopMs && attempt < MaxScheduleAttempts)
+            {
+                // The document schedule was flushed early by another solution; re-arm for
+                // the remainder so the wall-clock delay is honoured.
+                ScheduleAt(due, onScheduled, attempt + 1);
+                return;
+            }
+
+            onScheduled();
+            ExpireSolution(true);
         });
+    }
+
+    private IEnumerable<PhySignal> UnconsumedFor(int paramIndex)
+    {
+        long mark = _marks.TryGetValue(paramIndex, out long m) ? m : 0;
+
+        IEnumerable<PhySignal> fromWire = _wireSignals.TryGetValue(paramIndex, out var wire)
+            ? wire.Where(s => s.Sequence > mark)
+            : Enumerable.Empty<PhySignal>();
+
+        return _pendingManual.TryGetValue(paramIndex, out var pending)
+            ? fromWire.Concat(pending)
+            : fromWire;
+    }
+
+    private void MarkConsumed(int paramIndex, PhySignal signal)
+    {
+        if (_pendingManual.TryGetValue(paramIndex, out var pending) && pending.Remove(signal))
+        {
+            return;
+        }
+
+        long mark = _marks.TryGetValue(paramIndex, out long m) ? m : 0;
+        _marks[paramIndex] = Math.Max(mark, signal.Sequence);
+    }
+
+    private List<PhySignal> PendingManualFor(int paramIndex)
+    {
+        if (!_pendingManual.TryGetValue(paramIndex, out var pending))
+        {
+            pending = new List<PhySignal>();
+            _pendingManual[paramIndex] = pending;
+        }
+
+        return pending;
     }
 }

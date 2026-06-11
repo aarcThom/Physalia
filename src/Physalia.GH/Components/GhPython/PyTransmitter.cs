@@ -21,8 +21,8 @@ namespace Physalia.GH.Components.GhPython;
 /// Takes LLM-generated Python (validated against PythonComponent.json) and pushes its
 /// code, inputs, and outputs into a linked GH Python Script component, then reads back
 /// the target's runtime errors. On clean execution it routes the code forward (Data +
-/// Success Trigger); on genuine errors it routes the messages back (Feedback + Fail
-/// Trigger). Errors caused purely by unconnected inputs are ignored. Link to the target
+/// Success Signal); on genuine errors it routes the messages back (Feedback + Fail
+/// Signal). Errors caused purely by unconnected inputs are ignored. Link to the target
 /// via the bottom-centre bezier grip.
 /// </summary>
 public class PyTransmitter : RoutingComponentBase<string>

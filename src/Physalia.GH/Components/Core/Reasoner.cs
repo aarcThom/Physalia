@@ -20,8 +20,8 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Core inference component. Receives Instructions from Recorder and performs a single
 /// forward pass, streaming the result. Stateless between calls — all context lives in
-/// Recorder. Routes the response forward (Data + Success Trigger) or an API error back
-/// (Feedback + Fail Trigger) through <see cref="RoutingComponentBase{TData}"/>.
+/// Recorder. Routes the response forward (Data + Success Signal) or an API error back
+/// (Feedback + Fail Signal) through <see cref="RoutingComponentBase{TData}"/>.
 /// </summary>
 public class Reasoner : RoutingComponentBase<Instructions>
 {

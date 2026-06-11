@@ -1,29 +1,39 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+#nullable enable
+
 using System;
 using System.Collections.Generic;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
-using Physalia.Core.Common;
+using Physalia.Core.Signals;
 using Physalia.GH.Attributes;
+using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Routes data wirelessly back to one or more paired <see cref="FeedbackCollector"/> components
-/// without participating in GH's normal DAG execution model.
+/// Routes signals wirelessly back to one or more paired <see cref="FeedbackCollector"/>
+/// components without participating in GH's normal DAG execution model.
 /// Drag from the bottom grip to a FeedbackCollector to connect; Ctrl+drag to disconnect.
+///
+/// <para>Each incoming signal is consumed exactly once and forwarded as-is (original
+/// sequence preserved), so an upstream Fail Signal can never be re-injected by later
+/// solves the way the old level-triggered Data+Trigger pair could.</para>
 /// </summary>
-public class Feedback : PhyBase
+public class Feedback : StatefulComponentBase
 {
+    private const int InSignal = 0;
+
     private readonly List<Guid> _collectorGuids = new();
+    private bool _doLatch;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Feedback"/> class.
     /// </summary>
     public Feedback()
-        : base("Feedback", "FB", "Routes data wirelessly to paired Feedback Collectors.", "Regulators")
+        : base("Feedback", "FB", "Routes signals wirelessly to paired Feedback Collectors.", "Regulators")
     {
     }
 
@@ -44,14 +54,19 @@ public class Feedback : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Data", "D", "Feedback string to route wirelessly to paired Feedback Collectors.", GH_ParamAccess.item, string.Empty);
-        pManager.AddBooleanParameter("Trigger", "T", "While true, routes data to all paired Feedback Collectors.", GH_ParamAccess.item, false);
+        int idx = pManager.AddParameter(
+            new Param_Signal(),
+            "Signal",
+            "S",
+            "Signals to route wirelessly to paired Feedback Collectors. Each signal is forwarded exactly once; the payload carries the feedback text.",
+            GH_ParamAccess.list);
+        pManager[idx].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        // No physical outputs — data is routed wirelessly to paired FeedbackCollectors.
+        // No physical outputs — signals are routed wirelessly to paired FeedbackCollectors.
     }
 
     /// <summary>
@@ -109,30 +124,68 @@ public class Feedback : PhyBase
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        string data = string.Empty;
-        bool trigger = false;
+        ObserveSignalInputs(DA, InSignal);
 
-        DA.GetData(0, ref data);
-        DA.GetData(1, ref trigger);
+        if (_doLatch)
+        {
+            // Caption rhythm only — forwarding already happened on the consume solve.
+            _doLatch = false;
+            LatchSuccess(string.Empty, emitSignal: false);
 
-        if (!trigger || !StringHelpers.IsNonBlank(data))
+            if (HasUnconsumedSignals(InSignal))
+            {
+                ScheduleStateSolve(1, () => { });
+            }
+
+            return;
+        }
+
+        if (State == SolveState.Active)
         {
             return;
         }
+
+        IReadOnlyList<ConsumedSignal> consumed = ConsumeAllSignals(InSignal);
+        if (consumed.Count == 0)
+        {
+            return;
+        }
+
+        EnterActive();
 
         if (_collectorGuids.Count == 0)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No Feedback Collectors linked. Drag from the bottom grip to connect.");
-            return;
         }
-
-        var doc = OnPingDocument();
-        foreach (var guid in _collectorGuids)
+        else
         {
-            if (doc?.FindObject(guid, false) is FeedbackCollector collector)
+            var doc = OnPingDocument();
+            foreach (ConsumedSignal item in consumed)
             {
-                collector.Inject(data);
+                // Forward as-is: the original sequence is what lets downstream consumers
+                // order this event correctly against its cause.
+                foreach (Guid guid in _collectorGuids)
+                {
+                    if (doc?.FindObject(guid, false) is FeedbackCollector collector)
+                    {
+                        collector.Inject(item.Signal);
+                    }
+                }
             }
         }
+
+        ScheduleStateSolve(SolveDelayMs, () => _doLatch = true);
+    }
+
+    /// <inheritdoc/>
+    protected override void ClearStateOutputs()
+    {
+        // No latched outputs — this component is a wireless transport.
+    }
+
+    /// <inheritdoc/>
+    protected override void OnCleared()
+    {
+        _doLatch = false;
     }
 }

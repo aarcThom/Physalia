@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
@@ -26,19 +27,6 @@ namespace Physalia.GH.Components.GhPython;
 /// </summary>
 public class PyTransmitter : RoutingComponentBase<string>
 {
-    /// <summary>
-    /// Lower-case substrings that mark a runtime message as an unconnected-input
-    /// complaint (emitted by Grasshopper / RhinoCodePlatform.GH, not by us) rather than
-    /// a genuine code error. Tune as the host wording changes.
-    /// </summary>
-    private static readonly string[] InputConnectionErrorMarkers =
-    {
-        "failed to collect data",
-        "collect data",
-        "no data",
-        "input parameter",
-    };
-
     private Guid _linkedGuid = Guid.Empty;
     private string _pendingCode = string.Empty;
     private string? _pushError;
@@ -137,6 +125,22 @@ public class PyTransmitter : RoutingComponentBase<string>
 
         _pendingCode = code;
         GhPythonBridge.Expire(target);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Defers the read pass until the linked target has actually re-solved, so the
+    /// runtime messages read in <see cref="ReadSolve"/> reflect the pushed code rather
+    /// than a still-expired (empty) state. Push/link failures read immediately — there
+    /// is nothing to wait for.
+    /// </remarks>
+    protected override bool IsReadReady(string data)
+    {
+        if (_pushError != null)
+            return true;
+
+        IGH_DocumentObject? target = ResolveTarget(out _);
+        return target is null || GhPythonBridge.HasComputed(target);
     }
 
     /// <inheritdoc/>
@@ -306,8 +310,9 @@ public class PyTransmitter : RoutingComponentBase<string>
 
     /// <summary>
     /// Determines whether a runtime message is an unconnected-input complaint rather than
-    /// a genuine code error. Matches known host wording, then correlates the message text
-    /// against the names of target inputs that currently have no upstream source or data.
+    /// a genuine code error. Only the specific Python shape <c>name 'x' is not defined</c>,
+    /// where <c>x</c> is a target input that currently has no upstream source or data, is
+    /// ignored — everything else is treated as a real error and routed back as Feedback.
     /// </summary>
     /// <param name="message">The runtime message from the target.</param>
     /// <param name="target">The linked Python Script component.</param>
@@ -317,24 +322,17 @@ public class PyTransmitter : RoutingComponentBase<string>
         if (string.IsNullOrWhiteSpace(message))
             return true;
 
-        string lower = message.ToLowerInvariant();
+        if (target is not IGH_Component component)
+            return false;
 
-        foreach (string marker in InputConnectionErrorMarkers)
+        foreach (IGH_Param param in component.Params.Input)
         {
-            if (lower.Contains(marker))
+            if (param.SourceCount > 0 && !param.VolatileData.IsEmpty)
+                continue;
+
+            string escaped = Regex.Escape(param.Name);
+            if (Regex.IsMatch(message, $@"name\s+['""]{escaped}['""]\s+is\s+not\s+defined", RegexOptions.IgnoreCase))
                 return true;
-        }
-
-        if (target is IGH_Component component)
-        {
-            foreach (IGH_Param param in component.Params.Input)
-            {
-                if ((param.SourceCount == 0 || param.VolatileData.IsEmpty) &&
-                    lower.Contains(param.Name.ToLowerInvariant()))
-                {
-                    return true;
-                }
-            }
         }
 
         return false;

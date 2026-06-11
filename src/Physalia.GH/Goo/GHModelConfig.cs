@@ -1,7 +1,6 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-using Grasshopper.Kernel.Types;
 using Physalia.Core.Models;
 
 namespace Physalia.GH.Goo;
@@ -10,7 +9,7 @@ namespace Physalia.GH.Goo;
 /// Grasshopper wrapper for a <see cref="ModelConfig"/> instance.
 /// API keys are never written to the GH file — the component recomputes from its inputs.
 /// </summary>
-public class GH_ModelConfig : GH_Goo<ModelConfig>
+public class GH_ModelConfig : PhyGoo<GH_ModelConfig, ModelConfig>
 {
     /// <summary>
     /// Initializes a new empty instance of the <see cref="GH_ModelConfig"/> class.
@@ -24,12 +23,9 @@ public class GH_ModelConfig : GH_Goo<ModelConfig>
     /// </summary>
     /// <param name="config">The model configuration to wrap.</param>
     public GH_ModelConfig(ModelConfig config)
+        : base(config)
     {
-        Value = config;
     }
-
-    /// <inheritdoc/>
-    public override bool IsValid => Value != null;
 
     /// <inheritdoc/>
     public override string IsValidWhyNot => Value == null ? "No model configuration." : string.Empty;
@@ -39,9 +35,6 @@ public class GH_ModelConfig : GH_Goo<ModelConfig>
 
     /// <inheritdoc/>
     public override string TypeDescription => "An LLM model configuration (provider, model ID, API key, inference parameters).";
-
-    /// <inheritdoc/>
-    public override IGH_Goo Duplicate() => new GH_ModelConfig(Value);
 
     /// <inheritdoc/>
     public override string ToString() => Value == null ? "Null" : Value.ModelId;

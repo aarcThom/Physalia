@@ -1,49 +1,87 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+#nullable enable
+
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
+using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Attributes.UiElements;
-using Physalia.GH.Components.GhPython;
-using Physalia.GH.Generation;
 
 namespace Physalia.GH.Attributes;
 
 /// <summary>
-/// Custom attributes for the PythonTest component. Renders a bezier wire from the
-/// bottom-centre grip to the linked GH Python Script component.
-/// Drag to link; Ctrl+drag to unlink.
+/// Base attributes for components that link to other document objects via a
+/// bottom-centre drag grip and render bezier wires to each linked target.
+/// Owns the grip layout, the drag state machine (drag to link, Ctrl+drag to
+/// unlink), and wire rendering with a per-target cache. Subclasses define what
+/// counts as a valid target, how links are stored, the wire colours, and where
+/// on the target the wire lands.
 /// </summary>
-public class PythonTestAttrib : GH_ComponentAttributes
+public abstract class GripLinkAttrib : GH_ComponentAttributes
 {
-    private static readonly WireGradient _defaultGradient = new WireGradient(Color.DarkGreen, Color.LimeGreen);
+    private readonly Dictionary<Guid, BezierWire> _wireCache = new();
+    private readonly CanvasGrip _grip = new(PointF.Empty);
 
-    private readonly PythonTest _pythonTest;
-
-    private bool _isDragging;
     private bool _isConnecting;
+    private bool _isDragging;
     private PointF _dragPoint;
 
     private RectangleF _gripBounds;
     private RectangleF _visualBounds;
 
-    private BezierWire? _linkedWire;
     private BezierWire? _dragWire;
-    private readonly CanvasGrip _grip = new(PointF.Empty);
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="PythonTestAttrib"/> class.
+    /// Initializes a new instance of the <see cref="GripLinkAttrib"/> class.
     /// </summary>
-    /// <param name="pythonTest">The PythonTest component that owns these attributes.</param>
-    public PythonTestAttrib(PythonTest pythonTest)
-        : base(pythonTest)
+    /// <param name="component">The component that owns these attributes.</param>
+    protected GripLinkAttrib(IGH_Component component)
+        : base(component)
     {
-        _pythonTest = pythonTest;
     }
+
+    /// <summary>
+    /// Gets the gradient used for the link and drag wires.
+    /// </summary>
+    protected abstract WireGradient Gradient { get; }
+
+    /// <summary>
+    /// Gets the InstanceGuids of all currently linked targets.
+    /// </summary>
+    protected abstract IEnumerable<Guid> LinkedTargets { get; }
+
+    /// <summary>
+    /// Determines whether a document object is a valid drop target for this link type.
+    /// </summary>
+    /// <param name="obj">The document object under the drop point.</param>
+    /// <returns>true if a drop on this object should connect or disconnect.</returns>
+    protected abstract bool IsValidTarget(IGH_DocumentObject obj);
+
+    /// <summary>
+    /// Records a link to the target. Called on a normal drop over a valid target.
+    /// </summary>
+    /// <param name="targetGuid">The InstanceGuid of the drop target.</param>
+    protected abstract void OnConnect(Guid targetGuid);
+
+    /// <summary>
+    /// Removes a link to the target. Called on a Ctrl+drop over a valid target.
+    /// </summary>
+    /// <param name="targetGuid">The InstanceGuid of the drop target.</param>
+    protected abstract void OnDisconnect(Guid targetGuid);
+
+    /// <summary>
+    /// Returns the point on the target's bounds where the wire should land
+    /// (e.g. bottom centre for incoming-feedback targets, top centre for script targets).
+    /// </summary>
+    /// <param name="targetBounds">The target's attribute bounds.</param>
+    /// <returns>The wire end point in canvas coordinates.</returns>
+    protected abstract PointF GetTargetAnchor(RectangleF targetBounds);
 
     /// <summary>
     /// Expands the component bounds downward to include the bottom drag grip.
@@ -57,7 +95,7 @@ public class PythonTestAttrib : GH_ComponentAttributes
     }
 
     /// <summary>
-    /// Renders the component, the bottom grip, and a bezier wire to the linked Python Script component.
+    /// Renders the component, the bottom grip, and bezier wires to all linked targets.
     /// </summary>
     /// <param name="canvas">The Grasshopper canvas being rendered.</param>
     /// <param name="graphics">The GDI+ graphics context.</param>
@@ -79,33 +117,31 @@ public class PythonTestAttrib : GH_ComponentAttributes
         {
             var from = new PointF(gripCtrX, gripCtrY);
 
-            // Draw wire to the linked Python Script component.
-            var linkedGuid = _pythonTest.LinkedGuid;
-            if (linkedGuid != Guid.Empty)
+            foreach (var guid in LinkedTargets)
             {
-                var linked = canvas.Document?.FindObject(linkedGuid, false);
-                if (linked != null)
+                var target = canvas.Document?.FindObject(guid, false);
+                if (target == null) continue;
+
+                var to = GetTargetAnchor(target.Attributes.Bounds);
+
+                if (!_wireCache.TryGetValue(guid, out var wire))
                 {
-                    var cb = linked.Attributes.Bounds;
-                    var to = new PointF(cb.Left + cb.Width / 2f, cb.Y);
-
-                    if (_linkedWire is null)
-                        _linkedWire = new BezierWire(from, to, _defaultGradient);
-                    else
-                    {
-                        _linkedWire.Start = from;
-                        _linkedWire.End = to;
-                    }
-
-                    _linkedWire.Draw(graphics);
+                    wire = new BezierWire(from, to, Gradient);
+                    _wireCache[guid] = wire;
                 }
+                else
+                {
+                    wire.Start = from;
+                    wire.End = to;
+                }
+
+                wire.Draw(graphics);
             }
 
-            // Draw the live drag wire.
             if (_isDragging)
             {
                 if (_dragWire is null)
-                    _dragWire = new BezierWire(from, _dragPoint, _defaultGradient);
+                    _dragWire = new BezierWire(from, _dragPoint, Gradient);
                 else
                 {
                     _dragWire.Start = from;
@@ -167,8 +203,8 @@ public class PythonTestAttrib : GH_ComponentAttributes
     }
 
     /// <summary>
-    /// Completes the drag. Links to a Python Script component on normal drop;
-    /// unlinks on Ctrl+drop.
+    /// Completes the drag. Connects to a valid target on normal drop;
+    /// disconnects from one on Ctrl+drop.
     /// </summary>
     /// <param name="sender">The Grasshopper canvas that raised the event.</param>
     /// <param name="e">The mouse event data.</param>
@@ -182,20 +218,17 @@ public class PythonTestAttrib : GH_ComponentAttributes
 
             foreach (var obj in sender.Document.Objects)
             {
-                if (obj.Attributes.Bounds.Contains(e.CanvasLocation) && GhPythonBridge.IsScriptComponent(obj))
+                if (obj.Attributes.Bounds.Contains(e.CanvasLocation) && IsValidTarget(obj))
                 {
-                    if (_isConnecting)
-                    {
-                        _linkedWire = null; // force rebuild with new endpoints
-                        _pythonTest.LinkTo(obj.InstanceGuid);
-                    }
-                    else
-                    {
-                        _linkedWire = null;
-                        _pythonTest.Unlink();
-                    }
+                    // Endpoints may change after a link edit — rebuild wires on the next frame.
+                    _wireCache.Clear();
 
-                    _pythonTest.ExpireSolution(true);
+                    if (_isConnecting)
+                        OnConnect(obj.InstanceGuid);
+                    else
+                        OnDisconnect(obj.InstanceGuid);
+
+                    Owner.ExpireSolution(true);
                     break;
                 }
             }

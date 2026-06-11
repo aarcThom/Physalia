@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -24,23 +23,10 @@ namespace Physalia.Core.Providers.Anthropic;
 /// Handles HTTP transport, SSE parsing, and message serialisation.
 /// Subclasses override <see cref="BuildRequestBody"/> to inject provider-specific parameters.
 /// </summary>
-public abstract class AnthropicProtocolProvider : ILlmProvider
+public abstract class AnthropicProtocolProvider : ProtocolProviderBase
 {
     private const string AnthropicVersion = "2023-06-01";
     private const int FallbackMaxTokens = 4096;
-
-    /// <summary>
-    /// Shared HTTP client. Instantiated once per provider instance and never per-request.
-    /// </summary>
-    protected readonly HttpClient _httpClient;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AnthropicProtocolProvider"/> class.
-    /// </summary>
-    protected AnthropicProtocolProvider()
-    {
-        _httpClient = new HttpClient();
-    }
 
     /// <summary>
     /// Streams an inference call to the Anthropic Messages API and yields response chunks as they arrive.
@@ -50,7 +36,7 @@ public abstract class AnthropicProtocolProvider : ILlmProvider
     /// <param name="config">Provider configuration. Must be an <see cref="AnthropicProtocolConfig"/> instance.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>An async sequence of result chunks.</returns>
-    public async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
+    public override async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
         Conversation conversation,
         string systemPrompt,
         ModelConfig config,
@@ -59,11 +45,9 @@ public abstract class AnthropicProtocolProvider : ILlmProvider
         ArgumentNullException.ThrowIfNull(conversation);
         ArgumentNullException.ThrowIfNull(config);
 
-        if (config is not AnthropicProtocolConfig anthropicConfig)
+        if (!TryGetConfig(config, out AnthropicProtocolConfig anthropicConfig, out LlmError configError))
         {
-            yield return new Result<LlmResponseChunk, LlmError>.Err(
-                new LlmError(LlmErrorKind.InvalidRequest,
-                    $"Expected {nameof(AnthropicProtocolConfig)} but received {config.GetType().Name}."));
+            yield return new Result<LlmResponseChunk, LlmError>.Err(configError);
             yield break;
         }
 
@@ -144,60 +128,27 @@ public abstract class AnthropicProtocolProvider : ILlmProvider
     /// <param name="config">Provider configuration. Must be an <see cref="AnthropicProtocolConfig"/> instance.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A list of model ID strings, or an error.</returns>
-    public async Task<Result<IReadOnlyList<string>, LlmError>> GetAvailableModelsAsync(
+    public override async Task<Result<IReadOnlyList<string>, LlmError>> GetAvailableModelsAsync(
         ModelConfig config,
         CancellationToken ct)
     {
-        if (config is not AnthropicProtocolConfig anthropicConfig)
+        if (!TryGetConfig(config, out AnthropicProtocolConfig anthropicConfig, out LlmError configError))
         {
-            return new Result<IReadOnlyList<string>, LlmError>.Err(
-                new LlmError(LlmErrorKind.InvalidRequest,
-                    $"Expected {nameof(AnthropicProtocolConfig)} but received {config.GetType().Name}."));
+            return new Result<IReadOnlyList<string>, LlmError>.Err(configError);
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, $"{anthropicConfig.BaseUrl}/models");
         request.Headers.Add("x-api-key", anthropicConfig.ApiKey);
         request.Headers.Add("anthropic-version", AnthropicVersion);
 
-        try
+        var bodyResult = await SendForStringAsync(request, ct);
+        if (bodyResult is Result<string, LlmError>.Err bodyErr)
         {
-            using var response = await _httpClient.SendAsync(request, ct);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var statusCode = response.StatusCode;
-                var errorBody = await response.Content.ReadAsStringAsync(ct);
-                return new Result<IReadOnlyList<string>, LlmError>.Err(
-                    new LlmError(MapStatusCode(statusCode), errorBody));
-            }
-
-            var json = await response.Content.ReadAsStringAsync(ct);
-            using var doc = JsonDocument.Parse(json);
-
-            var ids = new List<string>();
-            if (doc.RootElement.TryGetProperty("data", out var data))
-            {
-                foreach (var model in data.EnumerateArray())
-                {
-                    if (model.TryGetProperty("id", out var id))
-                    {
-                        ids.Add(id.GetString() ?? string.Empty);
-                    }
-                }
-            }
-
-            return new Result<IReadOnlyList<string>, LlmError>.Ok(ids);
+            return new Result<IReadOnlyList<string>, LlmError>.Err(bodyErr.Error);
         }
-        catch (OperationCanceledException)
-        {
-            return new Result<IReadOnlyList<string>, LlmError>.Err(
-                new LlmError(LlmErrorKind.Cancelled, "Request was cancelled."));
-        }
-        catch (HttpRequestException ex)
-        {
-            return new Result<IReadOnlyList<string>, LlmError>.Err(
-                new LlmError(LlmErrorKind.Network, ex.Message));
-        }
+
+        var json = ((Result<string, LlmError>.Ok)bodyResult).Value;
+        return new Result<IReadOnlyList<string>, LlmError>.Ok(ParseModelIdsFromDataArray(json));
     }
 
     private async Task<Result<HttpResponseMessage, LlmError>> SendHttpRequestAsync(
@@ -214,31 +165,7 @@ public abstract class AnthropicProtocolProvider : ILlmProvider
         request.Headers.Add("anthropic-version", AnthropicVersion);
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        try
-        {
-            var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var statusCode = response.StatusCode;
-                var errorBody = await response.Content.ReadAsStringAsync(ct);
-                response.Dispose();
-                return new Result<HttpResponseMessage, LlmError>.Err(
-                    new LlmError(MapStatusCode(statusCode), errorBody));
-            }
-
-            return new Result<HttpResponseMessage, LlmError>.Ok(response);
-        }
-        catch (OperationCanceledException)
-        {
-            return new Result<HttpResponseMessage, LlmError>.Err(
-                new LlmError(LlmErrorKind.Cancelled, "Request was cancelled."));
-        }
-        catch (HttpRequestException ex)
-        {
-            return new Result<HttpResponseMessage, LlmError>.Err(
-                new LlmError(LlmErrorKind.Network, ex.Message));
-        }
+        return await SendStreamingRequestAsync(request, ct);
     }
 
     /// <summary>
@@ -265,34 +192,11 @@ public abstract class AnthropicProtocolProvider : ILlmProvider
 
         while (!ct.IsCancellationRequested && !done)
         {
-            string? line = null;
-            bool wasCancelled = false;
-            Exception? readError = null;
-
-            try
-            {
-                line = await reader.ReadLineAsync();
-            }
-            catch (OperationCanceledException)
-            {
-                wasCancelled = true;
-            }
-            catch (Exception ex)
-            {
-                readError = ex;
-            }
-
-            if (wasCancelled)
-            {
-                yield return new Result<LlmResponseChunk, LlmError>.Err(
-                    new LlmError(LlmErrorKind.Cancelled, "Stream was cancelled."));
-                yield break;
-            }
+            (string? line, LlmError? readError) = await ReadStreamLineAsync(reader);
 
             if (readError != null)
             {
-                yield return new Result<LlmResponseChunk, LlmError>.Err(
-                    new LlmError(LlmErrorKind.Network, readError.Message));
+                yield return new Result<LlmResponseChunk, LlmError>.Err(readError);
                 yield break;
             }
 
@@ -541,14 +445,4 @@ public abstract class AnthropicProtocolProvider : ILlmProvider
                     $"Unsupported content block type: {block.GetType().Name}."),
         };
     }
-
-    private static LlmErrorKind MapStatusCode(HttpStatusCode statusCode) => statusCode switch
-    {
-        HttpStatusCode.Unauthorized => LlmErrorKind.Auth,
-        HttpStatusCode.Forbidden => LlmErrorKind.Auth,
-        HttpStatusCode.TooManyRequests => LlmErrorKind.RateLimit,
-        HttpStatusCode.BadRequest => LlmErrorKind.InvalidRequest,
-        HttpStatusCode.UnprocessableEntity => LlmErrorKind.InvalidRequest,
-        _ => LlmErrorKind.Network,
-    };
 }

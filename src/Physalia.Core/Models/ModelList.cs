@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -45,7 +44,7 @@ public static class ModelList
             {
                 var body = await response.Content.ReadAsStringAsync(ct);
                 return new Result<IReadOnlyDictionary<string, ModelEntry>, LlmError>.Err(
-                    new LlmError(MapStatusCode(response.StatusCode), body));
+                    new LlmError(HttpErrorMapper.MapStatusCode(response.StatusCode), body));
             }
 
             var json = await response.Content.ReadAsStringAsync(ct);
@@ -219,13 +218,4 @@ public static class ModelList
 
         return new ReadOnlyDictionary<string, ModelEntry>(result);
     }
-
-    private static LlmErrorKind MapStatusCode(HttpStatusCode code) => code switch
-    {
-        HttpStatusCode.Unauthorized => LlmErrorKind.Auth,
-        HttpStatusCode.Forbidden => LlmErrorKind.Auth,
-        HttpStatusCode.TooManyRequests => LlmErrorKind.RateLimit,
-        HttpStatusCode.BadRequest => LlmErrorKind.InvalidRequest,
-        _ => LlmErrorKind.Network,
-    };
 }

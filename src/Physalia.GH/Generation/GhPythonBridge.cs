@@ -172,6 +172,16 @@ public static class GhPythonBridge
             active.ExpireSolution(true);
     }
 
+    /// <summary>
+    /// Returns true once the component has been computed in the current solution,
+    /// meaning its runtime messages reflect the latest solve rather than a pending
+    /// expired state.
+    /// </summary>
+    /// <param name="obj">The GH Python Script component.</param>
+    /// <returns>true if the component's solution phase is Computed.</returns>
+    public static bool HasComputed(IGH_DocumentObject obj)
+        => obj is IGH_ActiveObject active && active.Phase == GH_SolutionPhase.Computed;
+
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------

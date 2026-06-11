@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
@@ -25,21 +24,8 @@ namespace Physalia.Core.Providers.OpenAiProtocol;
 /// Implements HTTP transport, SSE parsing, and message serialisation once.
 /// Subclasses override <see cref="BuildRequestBody"/> to inject provider-specific parameters.
 /// </summary>
-public abstract class OpenAIProtocolProvider : ILlmProvider
+public abstract class OpenAIProtocolProvider : ProtocolProviderBase
 {
-    /// <summary>
-    /// Shared HTTP client. Instantiated once per provider instance and never per-request.
-    /// </summary>
-    protected readonly HttpClient _httpClient;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="OpenAIProtocolProvider"/> class.
-    /// </summary>
-    protected OpenAIProtocolProvider()
-    {
-        _httpClient = new HttpClient();
-    }
-
     /// <summary>
     /// Streams an inference call to the provider and yields response chunks as they arrive.
     /// </summary>
@@ -48,7 +34,7 @@ public abstract class OpenAIProtocolProvider : ILlmProvider
     /// <param name="config">Provider configuration. Must be an <see cref="OpenAIProtocolConfig"/> instance.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>An async sequence of result chunks.</returns>
-    public async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
+    public override async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
         Conversation conversation,
         string systemPrompt,
         ModelConfig config,
@@ -57,11 +43,9 @@ public abstract class OpenAIProtocolProvider : ILlmProvider
         ArgumentNullException.ThrowIfNull(conversation);
         ArgumentNullException.ThrowIfNull(config);
 
-        if (config is not OpenAIProtocolConfig openAIConfig)
+        if (!TryGetConfig(config, out OpenAIProtocolConfig openAIConfig, out LlmError configError))
         {
-            yield return new Result<LlmResponseChunk, LlmError>.Err(
-                new LlmError(LlmErrorKind.InvalidRequest,
-                    $"Expected {nameof(OpenAIProtocolConfig)} but received {config.GetType().Name}."));
+            yield return new Result<LlmResponseChunk, LlmError>.Err(configError);
             yield break;
         }
 
@@ -113,59 +97,26 @@ public abstract class OpenAIProtocolProvider : ILlmProvider
     /// <param name="config">Provider configuration. Must be an <see cref="OpenAIProtocolConfig"/> instance.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A list of model ID strings, or an error.</returns>
-    public async Task<Result<IReadOnlyList<string>, LlmError>> GetAvailableModelsAsync(
+    public override async Task<Result<IReadOnlyList<string>, LlmError>> GetAvailableModelsAsync(
         ModelConfig config,
         CancellationToken ct)
     {
-        if (config is not OpenAIProtocolConfig openAIConfig)
+        if (!TryGetConfig(config, out OpenAIProtocolConfig openAIConfig, out LlmError configError))
         {
-            return new Result<IReadOnlyList<string>, LlmError>.Err(
-                new LlmError(LlmErrorKind.InvalidRequest,
-                    $"Expected {nameof(OpenAIProtocolConfig)} but received {config.GetType().Name}."));
+            return new Result<IReadOnlyList<string>, LlmError>.Err(configError);
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, $"{openAIConfig.BaseUrl}/models");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", openAIConfig.ApiKey);
 
-        try
+        var bodyResult = await SendForStringAsync(request, ct);
+        if (bodyResult is Result<string, LlmError>.Err bodyErr)
         {
-            using var response = await _httpClient.SendAsync(request, ct);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var statusCode = response.StatusCode;
-                var errorBody = await response.Content.ReadAsStringAsync(ct);
-                return new Result<IReadOnlyList<string>, LlmError>.Err(
-                    new LlmError(MapStatusCode(statusCode), errorBody));
-            }
-
-            var json = await response.Content.ReadAsStringAsync(ct);
-            using var doc = JsonDocument.Parse(json);
-
-            var ids = new List<string>();
-            if (doc.RootElement.TryGetProperty("data", out var data))
-            {
-                foreach (var model in data.EnumerateArray())
-                {
-                    if (model.TryGetProperty("id", out var id))
-                    {
-                        ids.Add(id.GetString() ?? string.Empty);
-                    }
-                }
-            }
-
-            return new Result<IReadOnlyList<string>, LlmError>.Ok(ids);
+            return new Result<IReadOnlyList<string>, LlmError>.Err(bodyErr.Error);
         }
-        catch (OperationCanceledException)
-        {
-            return new Result<IReadOnlyList<string>, LlmError>.Err(
-                new LlmError(LlmErrorKind.Cancelled, "Request was cancelled."));
-        }
-        catch (HttpRequestException ex)
-        {
-            return new Result<IReadOnlyList<string>, LlmError>.Err(
-                new LlmError(LlmErrorKind.Network, ex.Message));
-        }
+
+        var json = ((Result<string, LlmError>.Ok)bodyResult).Value;
+        return new Result<IReadOnlyList<string>, LlmError>.Ok(ParseModelIdsFromDataArray(json));
     }
 
     private async Task<Result<HttpResponseMessage, LlmError>> SendHttpRequestAsync(
@@ -181,31 +132,7 @@ public abstract class OpenAIProtocolProvider : ILlmProvider
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        try
-        {
-            var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var statusCode = response.StatusCode;
-                var errorBody = await response.Content.ReadAsStringAsync(ct);
-                response.Dispose();
-                return new Result<HttpResponseMessage, LlmError>.Err(
-                    new LlmError(MapStatusCode(statusCode), errorBody));
-            }
-
-            return new Result<HttpResponseMessage, LlmError>.Ok(response);
-        }
-        catch (OperationCanceledException)
-        {
-            return new Result<HttpResponseMessage, LlmError>.Err(
-                new LlmError(LlmErrorKind.Cancelled, "Request was cancelled."));
-        }
-        catch (HttpRequestException ex)
-        {
-            return new Result<HttpResponseMessage, LlmError>.Err(
-                new LlmError(LlmErrorKind.Network, ex.Message));
-        }
+        return await SendStreamingRequestAsync(request, ct);
     }
 
     private static async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> ParseSseStreamAsync(
@@ -219,34 +146,11 @@ public abstract class OpenAIProtocolProvider : ILlmProvider
 
         while (!ct.IsCancellationRequested)
         {
-            string? line = null;
-            bool wasCancelled = false;
-            Exception? readError = null;
-
-            try
-            {
-                line = await reader.ReadLineAsync();
-            }
-            catch (OperationCanceledException)
-            {
-                wasCancelled = true;
-            }
-            catch (Exception ex)
-            {
-                readError = ex;
-            }
-
-            if (wasCancelled)
-            {
-                yield return new Result<LlmResponseChunk, LlmError>.Err(
-                    new LlmError(LlmErrorKind.Cancelled, "Stream was cancelled."));
-                yield break;
-            }
+            (string? line, LlmError? readError) = await ReadStreamLineAsync(reader);
 
             if (readError != null)
             {
-                yield return new Result<LlmResponseChunk, LlmError>.Err(
-                    new LlmError(LlmErrorKind.Network, readError.Message));
+                yield return new Result<LlmResponseChunk, LlmError>.Err(readError);
                 yield break;
             }
 
@@ -527,14 +431,4 @@ public abstract class OpenAIProtocolProvider : ILlmProvider
                     $"Unsupported content block type: {block.GetType().Name}."),
         };
     }
-
-    private static LlmErrorKind MapStatusCode(HttpStatusCode statusCode) => statusCode switch
-    {
-        HttpStatusCode.Unauthorized => LlmErrorKind.Auth,
-        HttpStatusCode.Forbidden => LlmErrorKind.Auth,
-        HttpStatusCode.TooManyRequests => LlmErrorKind.RateLimit,
-        HttpStatusCode.BadRequest => LlmErrorKind.InvalidRequest,
-        HttpStatusCode.UnprocessableEntity => LlmErrorKind.InvalidRequest,
-        _ => LlmErrorKind.Network,
-    };
 }

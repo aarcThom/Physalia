@@ -3,8 +3,6 @@
 
 using System;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Validation;
@@ -61,7 +59,7 @@ public class Auditor : RoutingComponentBase<string>
         string schema = string.Empty;
         da.GetData(1, ref schema);
 
-        string extracted = ExtractJson(data);
+        string extracted = JsonExtractor.ExtractJson(data);
 
         if (string.IsNullOrWhiteSpace(schema))
         {
@@ -71,84 +69,11 @@ public class Auditor : RoutingComponentBase<string>
 
         return SchemaValidator.Validate(extracted, schema) switch
         {
-            Result<string, ValidationError>.Ok ok => RoutingResult.Ok(PrettyPrint(ok.Value)),
+            Result<string, ValidationError>.Ok ok => RoutingResult.Ok(JsonExtractor.PrettyPrint(ok.Value)),
             Result<string, ValidationError>.Err err => RoutingResult.Fail(
                 BuildFeedback(err.Error), err.Error.Message, GH_RuntimeMessageLevel.Warning),
             _ => RoutingResult.Fail("Unknown validation result."),
         };
-    }
-
-    /// <summary>
-    /// Strips prose and markdown fences from raw LLM output, returning the embedded JSON.
-    /// Falls back to returning the trimmed input unchanged if no JSON structure is found.
-    /// </summary>
-    /// <param name="raw">Raw LLM output string.</param>
-    /// <returns>Extracted JSON string.</returns>
-    private static string ExtractJson(string raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return raw;
-
-        // Try ```json ... ``` fence.
-        int fenceStart = raw.IndexOf("```json", StringComparison.OrdinalIgnoreCase);
-        if (fenceStart >= 0)
-        {
-            int newline = raw.IndexOf('\n', fenceStart);
-            if (newline >= 0)
-            {
-                int fenceEnd = raw.IndexOf("```", newline + 1);
-                if (fenceEnd > newline)
-                    return raw.Substring(newline + 1, fenceEnd - newline - 1).Trim();
-            }
-        }
-
-        // Try generic ``` ... ``` fence.
-        fenceStart = raw.IndexOf("```");
-        if (fenceStart >= 0)
-        {
-            int newline = raw.IndexOf('\n', fenceStart);
-            if (newline >= 0)
-            {
-                int fenceEnd = raw.IndexOf("```", newline + 1);
-                if (fenceEnd > newline)
-                    return raw.Substring(newline + 1, fenceEnd - newline - 1).Trim();
-            }
-        }
-
-        // Find outermost { ... } or [ ... ].
-        int objStart = raw.IndexOf('{');
-        int arrStart = raw.IndexOf('[');
-
-        if (objStart < 0 && arrStart < 0)
-            return raw.Trim();
-
-        int start;
-        char closing;
-        if (objStart >= 0 && (arrStart < 0 || objStart < arrStart))
-        {
-            start = objStart;
-            closing = '}';
-        }
-        else
-        {
-            start = arrStart;
-            closing = ']';
-        }
-
-        int end = raw.LastIndexOf(closing);
-        return end > start ? raw.Substring(start, end - start + 1) : raw.Trim();
-    }
-
-    private static string PrettyPrint(string json)
-    {
-        try
-        {
-            var node = JsonNode.Parse(json);
-            return node?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? json;
-        }
-        catch
-        {
-            return json;
-        }
     }
 
     private static string BuildFeedback(ValidationError error)

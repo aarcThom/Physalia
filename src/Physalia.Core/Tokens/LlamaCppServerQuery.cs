@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
-using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -63,10 +62,7 @@ public static class LlamaCppServerQuery
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"{config.BaseUrl}/models");
-            if (!string.IsNullOrEmpty(config.ApiKey))
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
-
+            using var request = CreateAuthedGetRequest($"{config.BaseUrl}/models", config);
             using var response = await client.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode) return null;
 
@@ -107,17 +103,14 @@ public static class LlamaCppServerQuery
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"{serverRoot}/props");
-            if (!string.IsNullOrEmpty(config.ApiKey))
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
-
+            using var request = CreateAuthedGetRequest($"{serverRoot}/props", config);
             using var response = await client.SendAsync(request, ct);
 
             if (!response.IsSuccessStatusCode)
             {
                 var body = await response.Content.ReadAsStringAsync(ct);
                 return new Result<LlamaCppServerProps, LlmError>.Err(
-                    new LlmError(MapStatusCode(response.StatusCode), body));
+                    new LlmError(HttpErrorMapper.MapStatusCode(response.StatusCode), body));
             }
 
             var json = await response.Content.ReadAsStringAsync(ct);
@@ -159,12 +152,12 @@ public static class LlamaCppServerQuery
         }
     }
 
-    private static LlmErrorKind MapStatusCode(HttpStatusCode code) => code switch
+    private static HttpRequestMessage CreateAuthedGetRequest(string url, OpenAIProtocolConfig config)
     {
-        HttpStatusCode.Unauthorized => LlmErrorKind.Auth,
-        HttpStatusCode.Forbidden => LlmErrorKind.Auth,
-        HttpStatusCode.TooManyRequests => LlmErrorKind.RateLimit,
-        HttpStatusCode.BadRequest => LlmErrorKind.InvalidRequest,
-        _ => LlmErrorKind.Network,
-    };
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (!string.IsNullOrEmpty(config.ApiKey))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
+
+        return request;
+    }
 }

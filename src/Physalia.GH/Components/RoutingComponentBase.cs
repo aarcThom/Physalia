@@ -47,6 +47,13 @@ public abstract class RoutingComponentBase<TData> : PhyBase
     /// </summary>
     private const int ReadDelayMs = 1;
 
+    /// <summary>
+    /// Maximum number of times the read pass is re-scheduled when <see cref="IsReadReady"/>
+    /// returns false, before the run latches a failure. Guards against a target that never
+    /// settles (e.g. a linked component that is locked or was deleted mid-run).
+    /// </summary>
+    private const int MaxReadRetries = 10;
+
     private string _dataOut = string.Empty;
     private string _feedbackOut = string.Empty;
     private bool _fireSuccess;
@@ -66,6 +73,9 @@ public abstract class RoutingComponentBase<TData> : PhyBase
     // intervening solves never trigger the read early.
     private bool _awaitingRead;
     private bool _doRead;
+
+    // Number of read-pass attempts deferred because IsReadReady returned false.
+    private int _readRetries;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RoutingComponentBase{TData}"/> class.
@@ -124,6 +134,16 @@ public abstract class RoutingComponentBase<TData> : PhyBase
     protected abstract RoutingResult ReadSolve(TData data, IGH_DataAccess da);
 
     /// <summary>
+    /// Whether the push pass's side effects have settled enough for <see cref="ReadSolve"/>
+    /// to run (e.g. a linked component has re-solved). When false the base re-schedules the
+    /// read pass, up to <see cref="MaxReadRetries"/> attempts; exhausting them latches a
+    /// failure. Default implementation returns true.
+    /// </summary>
+    /// <param name="data">The Data value captured on the push pass.</param>
+    /// <returns>true when the read pass may run; false to retry on a later solution.</returns>
+    protected virtual bool IsReadReady(TData data) => true;
+
+    /// <summary>
     /// Whether the base auto-schedules the read pass immediately after <see cref="PushSolve"/>.
     /// Override to return false for asynchronous components (e.g. an LLM call) that must
     /// instead call <see cref="RequestReadPass"/> when their work completes.
@@ -165,11 +185,29 @@ public abstract class RoutingComponentBase<TData> : PhyBase
 
         if (_awaitingRead && _doRead)
         {
-            // READ PASS — runs only from our own scheduled signal. Produce the result.
-            _awaitingRead = false;
             _doRead = false;
 
-            RoutingResult result = ReadSolve(_pushData, DA);
+            bool ready = IsReadReady(_pushData);
+            if (!ready && _readRetries < MaxReadRetries)
+            {
+                // Side effects have not settled yet (e.g. the linked component has not
+                // re-solved). Defer the read pass to a later solution.
+                _readRetries++;
+                RequestReadPass();
+                Emit(DA, success: false, fail: false);
+                return;
+            }
+
+            // READ PASS — runs only from our own scheduled signal. Produce the result.
+            _awaitingRead = false;
+            _readRetries = 0;
+
+            RoutingResult result = ready
+                ? ReadSolve(_pushData, DA)
+                : RoutingResult.Fail(
+                    "The linked component never re-solved, so no result could be read back.",
+                    "Read pass timed out waiting for push side effects to settle.",
+                    GH_RuntimeMessageLevel.Error);
 
             if (result.Message != null)
             {
@@ -298,6 +336,7 @@ public abstract class RoutingComponentBase<TData> : PhyBase
         {
             _awaitingRead = false;
             _doRead = false;
+            _readRetries = 0;
             ExpireSolution(true);
         });
     }
@@ -320,6 +359,7 @@ public abstract class RoutingComponentBase<TData> : PhyBase
         _fireFail = false;
         _awaitingRead = false;
         _doRead = false;
+        _readRetries = 0;
         ExpireSolution(true);
     }
 

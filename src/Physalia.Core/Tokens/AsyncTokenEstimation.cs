@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
-using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -59,38 +58,12 @@ public static class AsyncTokenEstimation
         request.Headers.Add("anthropic-version", AnthropicVersion);
         request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
 
-        try
-        {
-            using var response = await client.SendAsync(request, ct);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorBody = await response.Content.ReadAsStringAsync(ct);
-                return new Result<int, LlmError>.Err(
-                    new LlmError(MapStatusCode(response.StatusCode), errorBody));
-            }
-
-            var json = await response.Content.ReadAsStringAsync(ct);
-            using var doc = JsonDocument.Parse(json);
-
-            if (doc.RootElement.TryGetProperty("input_tokens", out var tokens))
-            {
-                return new Result<int, LlmError>.Ok(tokens.GetInt32());
-            }
-
-            return new Result<int, LlmError>.Err(
-                new LlmError(LlmErrorKind.InvalidRequest, "Response did not contain 'input_tokens'."));
-        }
-        catch (OperationCanceledException)
-        {
-            return new Result<int, LlmError>.Err(
-                new LlmError(LlmErrorKind.Cancelled, "Request was cancelled."));
-        }
-        catch (HttpRequestException ex)
-        {
-            return new Result<int, LlmError>.Err(
-                new LlmError(LlmErrorKind.Network, ex.Message));
-        }
+        return await ExecuteCountRequestAsync(
+            request,
+            client,
+            root => root.TryGetProperty("input_tokens", out var tokens) ? tokens.GetInt32() : null,
+            "Response did not contain 'input_tokens'.",
+            ct);
     }
 
     /// <summary>
@@ -131,38 +104,12 @@ public static class AsyncTokenEstimation
 
         request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
 
-        try
-        {
-            using var response = await client.SendAsync(request, ct);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorBody = await response.Content.ReadAsStringAsync(ct);
-                return new Result<int, LlmError>.Err(
-                    new LlmError(LlmErrorKind.Network, errorBody));
-            }
-
-            var json = await response.Content.ReadAsStringAsync(ct);
-            using var doc = JsonDocument.Parse(json);
-
-            if (doc.RootElement.TryGetProperty("tokens", out var tokens))
-            {
-                return new Result<int, LlmError>.Ok(tokens.GetArrayLength());
-            }
-
-            return new Result<int, LlmError>.Err(
-                new LlmError(LlmErrorKind.InvalidRequest, "Response did not contain 'tokens' array."));
-        }
-        catch (OperationCanceledException)
-        {
-            return new Result<int, LlmError>.Err(
-                new LlmError(LlmErrorKind.Cancelled, "Request was cancelled."));
-        }
-        catch (HttpRequestException ex)
-        {
-            return new Result<int, LlmError>.Err(
-                new LlmError(LlmErrorKind.Network, ex.Message));
-        }
+        return await ExecuteCountRequestAsync(
+            request,
+            client,
+            root => root.TryGetProperty("tokens", out var tokens) ? tokens.GetArrayLength() : null,
+            "Response did not contain 'tokens' array.",
+            ct);
     }
 
     /// <summary>
@@ -201,27 +148,50 @@ public static class AsyncTokenEstimation
         using var request = new HttpRequestMessage(HttpMethod.Post, url);
         request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
 
+        return await ExecuteCountRequestAsync(
+            request,
+            client,
+            root => root.TryGetProperty("totalTokens", out var tokens) ? tokens.GetInt32() : null,
+            "Response did not contain 'totalTokens'.",
+            ct);
+    }
+
+    // HELPERS =====================================================================================
+
+    /// <summary>
+    /// Sends a token-count request and extracts the count from the JSON response.
+    /// Translates HTTP failures, cancellation, and network errors into <see cref="LlmError"/> results.
+    /// </summary>
+    /// <param name="request">The fully built request, including auth headers and content.</param>
+    /// <param name="client">Shared HTTP client.</param>
+    /// <param name="extractCount">Reads the count from the response root, or null when absent.</param>
+    /// <param name="missingFieldMessage">Error message when the expected field is missing.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The token count, or an error.</returns>
+    private static async Task<Result<int, LlmError>> ExecuteCountRequestAsync(
+        HttpRequestMessage request,
+        HttpClient client,
+        Func<JsonElement, int?> extractCount,
+        string missingFieldMessage,
+        CancellationToken ct)
+    {
         try
         {
             using var response = await client.SendAsync(request, ct);
+            var json = await response.Content.ReadAsStringAsync(ct);
 
             if (!response.IsSuccessStatusCode)
             {
-                var errorBody = await response.Content.ReadAsStringAsync(ct);
                 return new Result<int, LlmError>.Err(
-                    new LlmError(MapStatusCode(response.StatusCode), errorBody));
+                    new LlmError(HttpErrorMapper.MapStatusCode(response.StatusCode), json));
             }
 
-            var json = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
 
-            if (doc.RootElement.TryGetProperty("totalTokens", out var tokens))
-            {
-                return new Result<int, LlmError>.Ok(tokens.GetInt32());
-            }
-
-            return new Result<int, LlmError>.Err(
-                new LlmError(LlmErrorKind.InvalidRequest, "Response did not contain 'totalTokens'."));
+            return extractCount(doc.RootElement) is int count
+                ? new Result<int, LlmError>.Ok(count)
+                : new Result<int, LlmError>.Err(
+                    new LlmError(LlmErrorKind.InvalidRequest, missingFieldMessage));
         }
         catch (OperationCanceledException)
         {
@@ -235,7 +205,17 @@ public static class AsyncTokenEstimation
         }
     }
 
-    // HELPERS =====================================================================================
+    /// <summary>
+    /// Renders a content block as placeholder text for count-only payloads.
+    /// </summary>
+    private static string DescribeBlock(MessageContent block) => block switch
+    {
+        TextContent text => text.Text,
+        ToolCallContent call => $"[tool_call: {call.Name}({call.InputJson})]",
+        ToolResultContent result => $"[tool_result: {result.Content}]",
+        ImageContent => "[image]",
+        _ => string.Empty,
+    };
 
     /// <summary>
     /// Serialises an Instructions object to a plain text string for providers
@@ -257,14 +237,7 @@ public static class AsyncTokenEstimation
 
             foreach (var block in message.Content)
             {
-                sb.Append(block switch
-                {
-                    TextContent text => text.Text,
-                    ToolCallContent call => $"[tool_call: {call.Name}({call.InputJson})]",
-                    ToolResultContent result => $"[tool_result: {result.Content}]",
-                    ImageContent => "[image]",
-                    _ => string.Empty,
-                });
+                sb.Append(DescribeBlock(block));
             }
 
             sb.AppendLine();
@@ -285,15 +258,7 @@ public static class AsyncTokenEstimation
             var parts = new JsonArray();
             foreach (var block in message.Content)
             {
-                string text = block switch
-                {
-                    TextContent t => t.Text,
-                    ToolCallContent call => $"[tool_call: {call.Name}({call.InputJson})]",
-                    ToolResultContent result => $"[tool_result: {result.Content}]",
-                    ImageContent => "[image]",
-                    _ => string.Empty,
-                };
-                parts.Add(new JsonObject { ["text"] = text });
+                parts.Add(new JsonObject { ["text"] = DescribeBlock(block) });
             }
 
             contents.Add(new JsonObject { ["role"] = role, ["parts"] = parts });
@@ -348,14 +313,4 @@ public static class AsyncTokenEstimation
 
         return messages;
     }
-
-    private static LlmErrorKind MapStatusCode(HttpStatusCode code) => code switch
-    {
-        HttpStatusCode.Unauthorized => LlmErrorKind.Auth,
-        HttpStatusCode.Forbidden => LlmErrorKind.Auth,
-        HttpStatusCode.TooManyRequests => LlmErrorKind.RateLimit,
-        HttpStatusCode.BadRequest => LlmErrorKind.InvalidRequest,
-        HttpStatusCode.UnprocessableEntity => LlmErrorKind.InvalidRequest,
-        _ => LlmErrorKind.Network,
-    };
 }

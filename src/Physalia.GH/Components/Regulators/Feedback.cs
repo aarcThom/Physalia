@@ -18,7 +18,6 @@ namespace Physalia.GH.Components;
 public class Feedback : PhyBase
 {
     private readonly List<Guid> _collectorGuids = new();
-    private bool _lastTrigger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Feedback"/> class.
@@ -46,7 +45,7 @@ public class Feedback : PhyBase
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter("Data", "D", "Feedback string to route wirelessly to paired Feedback Collectors.", GH_ParamAccess.item, string.Empty);
-        pManager.AddBooleanParameter("Trigger", "T", "Rising edge routes data to all paired Feedback Collectors.", GH_ParamAccess.item, false);
+        pManager.AddBooleanParameter("Trigger", "T", "While true, routes data to all paired Feedback Collectors.", GH_ParamAccess.item, false);
     }
 
     /// <inheritdoc/>
@@ -116,25 +115,24 @@ public class Feedback : PhyBase
         DA.GetData(0, ref data);
         DA.GetData(1, ref trigger);
 
-        if (trigger && !_lastTrigger && StringHelpers.IsNonBlank(data))
+        if (!trigger || !StringHelpers.IsNonBlank(data))
         {
-            if (_collectorGuids.Count == 0)
-            {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No Feedback Collectors linked. Drag from the bottom grip to connect.");
-            }
-            else
-            {
-                var doc = OnPingDocument();
-                foreach (var guid in _collectorGuids)
-                {
-                    if (doc?.FindObject(guid, false) is FeedbackCollector collector)
-                    {
-                        collector.Inject(data, true);
-                    }
-                }
-            }
+            return;
         }
 
-        _lastTrigger = trigger;
+        if (_collectorGuids.Count == 0)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No Feedback Collectors linked. Drag from the bottom grip to connect.");
+            return;
+        }
+
+        var doc = OnPingDocument();
+        foreach (var guid in _collectorGuids)
+        {
+            if (doc?.FindObject(guid, false) is FeedbackCollector collector)
+            {
+                collector.Inject(data);
+            }
+        }
     }
 }

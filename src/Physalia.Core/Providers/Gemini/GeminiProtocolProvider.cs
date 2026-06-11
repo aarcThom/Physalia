@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -24,21 +23,8 @@ namespace Physalia.Core.Providers.Gemini;
 /// Handles HTTP transport, SSE parsing, and message serialisation.
 /// Subclasses override <see cref="BuildGenerationConfig"/> to inject provider-specific parameters.
 /// </summary>
-public abstract class GeminiProtocolProvider : ILlmProvider
+public abstract class GeminiProtocolProvider : ProtocolProviderBase
 {
-    /// <summary>
-    /// Shared HTTP client. Instantiated once per provider instance and never per-request.
-    /// </summary>
-    protected readonly HttpClient _httpClient;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="GeminiProtocolProvider"/> class.
-    /// </summary>
-    protected GeminiProtocolProvider()
-    {
-        _httpClient = new HttpClient();
-    }
-
     /// <summary>
     /// Streams an inference call to the Gemini <c>streamGenerateContent</c> endpoint and yields
     /// response chunks as they arrive.
@@ -48,7 +34,7 @@ public abstract class GeminiProtocolProvider : ILlmProvider
     /// <param name="config">Provider configuration. Must be a <see cref="GeminiProtocolConfig"/> instance.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>An async sequence of result chunks.</returns>
-    public async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
+    public override async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
         Conversation conversation,
         string systemPrompt,
         ModelConfig config,
@@ -57,11 +43,9 @@ public abstract class GeminiProtocolProvider : ILlmProvider
         ArgumentNullException.ThrowIfNull(conversation);
         ArgumentNullException.ThrowIfNull(config);
 
-        if (config is not GeminiProtocolConfig geminiConfig)
+        if (!TryGetConfig(config, out GeminiProtocolConfig geminiConfig, out LlmError configError))
         {
-            yield return new Result<LlmResponseChunk, LlmError>.Err(
-                new LlmError(LlmErrorKind.InvalidRequest,
-                    $"Expected {nameof(GeminiProtocolConfig)} but received {config.GetType().Name}."));
+            yield return new Result<LlmResponseChunk, LlmError>.Err(configError);
             yield break;
         }
 
@@ -89,67 +73,50 @@ public abstract class GeminiProtocolProvider : ILlmProvider
     /// <param name="config">Provider configuration. Must be a <see cref="GeminiProtocolConfig"/> instance.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A list of model ID strings, or an error.</returns>
-    public async Task<Result<IReadOnlyList<string>, LlmError>> GetAvailableModelsAsync(
+    public override async Task<Result<IReadOnlyList<string>, LlmError>> GetAvailableModelsAsync(
         ModelConfig config,
         CancellationToken ct)
     {
-        if (config is not GeminiProtocolConfig geminiConfig)
+        if (!TryGetConfig(config, out GeminiProtocolConfig geminiConfig, out LlmError configError))
         {
-            return new Result<IReadOnlyList<string>, LlmError>.Err(
-                new LlmError(LlmErrorKind.InvalidRequest,
-                    $"Expected {nameof(GeminiProtocolConfig)} but received {config.GetType().Name}."));
+            return new Result<IReadOnlyList<string>, LlmError>.Err(configError);
         }
 
         string url = $"{geminiConfig.BaseUrl}/models?key={geminiConfig.ApiKey}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
-        try
+        var bodyResult = await SendForStringAsync(request, ct);
+        if (bodyResult is Result<string, LlmError>.Err bodyErr)
         {
-            using var response = await _httpClient.GetAsync(url, ct);
+            return new Result<IReadOnlyList<string>, LlmError>.Err(bodyErr.Error);
+        }
 
-            if (!response.IsSuccessStatusCode)
+        var json = ((Result<string, LlmError>.Ok)bodyResult).Value;
+        using var doc = JsonDocument.Parse(json);
+
+        var ids = new List<string>();
+        if (doc.RootElement.TryGetProperty("models", out var models))
+        {
+            foreach (var model in models.EnumerateArray())
             {
-                var errorBody = await response.Content.ReadAsStringAsync(ct);
-                return new Result<IReadOnlyList<string>, LlmError>.Err(
-                    new LlmError(MapStatusCode(response.StatusCode), errorBody));
-            }
+                // Only include models that support generateContent (i.e. chat/text generation).
+                if (!SupportsGenerateContent(model)) continue;
 
-            var json = await response.Content.ReadAsStringAsync(ct);
-            using var doc = JsonDocument.Parse(json);
-
-            var ids = new List<string>();
-            if (doc.RootElement.TryGetProperty("models", out var models))
-            {
-                foreach (var model in models.EnumerateArray())
+                if (model.TryGetProperty("name", out var nameEl))
                 {
-                    // Only include models that support generateContent (i.e. chat/text generation).
-                    if (!SupportsGenerateContent(model)) continue;
+                    // Strip the "models/" prefix — the API returns e.g. "models/gemini-2.0-flash".
+                    string fullName = nameEl.GetString() ?? string.Empty;
+                    string id = fullName.StartsWith("models/", StringComparison.Ordinal)
+                        ? fullName.Substring(7)
+                        : fullName;
 
-                    if (model.TryGetProperty("name", out var nameEl))
-                    {
-                        // Strip the "models/" prefix — the API returns e.g. "models/gemini-2.0-flash".
-                        string fullName = nameEl.GetString() ?? string.Empty;
-                        string id = fullName.StartsWith("models/", StringComparison.Ordinal)
-                            ? fullName.Substring(7)
-                            : fullName;
-
-                        if (!string.IsNullOrEmpty(id))
-                            ids.Add(id);
-                    }
+                    if (!string.IsNullOrEmpty(id))
+                        ids.Add(id);
                 }
             }
+        }
 
-            return new Result<IReadOnlyList<string>, LlmError>.Ok(ids);
-        }
-        catch (OperationCanceledException)
-        {
-            return new Result<IReadOnlyList<string>, LlmError>.Err(
-                new LlmError(LlmErrorKind.Cancelled, "Request was cancelled."));
-        }
-        catch (HttpRequestException ex)
-        {
-            return new Result<IReadOnlyList<string>, LlmError>.Err(
-                new LlmError(LlmErrorKind.Network, ex.Message));
-        }
+        return new Result<IReadOnlyList<string>, LlmError>.Ok(ids);
     }
 
     /// <summary>
@@ -193,30 +160,7 @@ public abstract class GeminiProtocolProvider : ILlmProvider
         using var request = new HttpRequestMessage(HttpMethod.Post, url);
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        try
-        {
-            var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorBody = await response.Content.ReadAsStringAsync(ct);
-                response.Dispose();
-                return new Result<HttpResponseMessage, LlmError>.Err(
-                    new LlmError(MapStatusCode(response.StatusCode), errorBody));
-            }
-
-            return new Result<HttpResponseMessage, LlmError>.Ok(response);
-        }
-        catch (OperationCanceledException)
-        {
-            return new Result<HttpResponseMessage, LlmError>.Err(
-                new LlmError(LlmErrorKind.Cancelled, "Request was cancelled."));
-        }
-        catch (HttpRequestException ex)
-        {
-            return new Result<HttpResponseMessage, LlmError>.Err(
-                new LlmError(LlmErrorKind.Network, ex.Message));
-        }
+        return await SendStreamingRequestAsync(request, ct);
     }
 
     private JsonObject BuildRequestBody(
@@ -252,34 +196,11 @@ public abstract class GeminiProtocolProvider : ILlmProvider
 
         while (!ct.IsCancellationRequested)
         {
-            string? line = null;
-            bool wasCancelled = false;
-            Exception? readError = null;
-
-            try
-            {
-                line = await reader.ReadLineAsync();
-            }
-            catch (OperationCanceledException)
-            {
-                wasCancelled = true;
-            }
-            catch (Exception ex)
-            {
-                readError = ex;
-            }
-
-            if (wasCancelled)
-            {
-                yield return new Result<LlmResponseChunk, LlmError>.Err(
-                    new LlmError(LlmErrorKind.Cancelled, "Stream was cancelled."));
-                yield break;
-            }
+            (string? line, LlmError? readError) = await ReadStreamLineAsync(reader);
 
             if (readError != null)
             {
-                yield return new Result<LlmResponseChunk, LlmError>.Err(
-                    new LlmError(LlmErrorKind.Network, readError.Message));
+                yield return new Result<LlmResponseChunk, LlmError>.Err(readError);
                 yield break;
             }
 
@@ -464,14 +385,4 @@ public abstract class GeminiProtocolProvider : ILlmProvider
 
         return false;
     }
-
-    private static LlmErrorKind MapStatusCode(HttpStatusCode statusCode) => statusCode switch
-    {
-        HttpStatusCode.Unauthorized => LlmErrorKind.Auth,
-        HttpStatusCode.Forbidden => LlmErrorKind.Auth,
-        HttpStatusCode.TooManyRequests => LlmErrorKind.RateLimit,
-        HttpStatusCode.BadRequest => LlmErrorKind.InvalidRequest,
-        HttpStatusCode.UnprocessableEntity => LlmErrorKind.InvalidRequest,
-        _ => LlmErrorKind.Network,
-    };
 }

@@ -5,13 +5,15 @@ using System;
 using System.Text;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
+using Physalia.Core.Signals;
 using Physalia.Core.Validation;
 
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Strips LLM prose, validates the extracted JSON against the provided schema,
-/// and routes output forward on success or back via Feedback on failure.
+/// Strips LLM prose from the consumed signal's payload, validates the extracted JSON
+/// against the provided schema, and routes the clean JSON forward on the Success Signal
+/// or the validation feedback back on the Fail Signal.
 /// </summary>
 public class Auditor : RoutingComponentBase<string>
 {
@@ -27,22 +29,16 @@ public class Auditor : RoutingComponentBase<string>
     public override Guid ComponentGuid => new Guid("F3A8C21D-7E04-4B69-A953-D60F2E8B1C47");
 
     /// <inheritdoc/>
-    protected override void RegisterDataInput(GH_InputParamManager pManager)
-    {
-        pManager.AddTextParameter("Data", "D", "Raw LLM output from Reasoner.", GH_ParamAccess.item, string.Empty);
-    }
-
-    /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Schema", "S", "JSON schema string from Composer.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Schema", "Sc", "JSON schema string from Composer.", GH_ParamAccess.item, string.Empty);
     }
 
     /// <inheritdoc/>
-    protected override bool TryGetData(IGH_DataAccess da, out string data)
+    /// <remarks>The raw LLM output arrives as the consumed signal's payload (Reasoner's Success Signal).</remarks>
+    protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out string data)
     {
-        data = string.Empty;
-        da.GetData(0, ref data);
+        data = signal.Payload;
         return StringHelpers.IsNonBlank(data);
     }
 
@@ -57,7 +53,7 @@ public class Auditor : RoutingComponentBase<string>
     protected override RoutingResult ReadSolve(string data, IGH_DataAccess da)
     {
         string schema = string.Empty;
-        da.GetData(1, ref schema);
+        da.GetData(0, ref schema);
 
         string extracted = JsonExtractor.ExtractJson(data);
 

@@ -6,7 +6,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Signals;
@@ -21,8 +20,8 @@ namespace Physalia.GH.Components;
 /// constraint.
 ///
 /// <para>Injected signals queue losslessly (a batch arriving in one solution aggregates;
-/// injections during an active run wait their turn). The collector latches its Data
-/// output — it is never wiped by a reset solve — and mints a fresh outgoing signal whose
+/// injections during an active run wait their turn). The collector mints one fresh
+/// outgoing signal per batch — its payload is the newline-joined feedback text and its
 /// sequence is necessarily greater than every cause, preserving global causal order for
 /// downstream consumers like Recorder.</para>
 /// </summary>
@@ -33,7 +32,6 @@ public class FeedbackCollector : StatefulComponentBase
 
     private List<PhySignal> _batch = new();
     private bool _doLatch;
-    private string _dataOut = string.Empty;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FeedbackCollector"/> class.
@@ -61,8 +59,7 @@ public class FeedbackCollector : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("Data", "D", "All feedback payloads from the latest batch, newline-joined. Latched until the next batch or a clear.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_Signal(), "Signal", "S", "Latched signal minted per batch. Downstream components consume it exactly once.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Signal", "S", "Latched signal minted per batch; its payload is all feedback from the batch, newline-joined. Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
     }
 
     /// <summary>
@@ -89,13 +86,13 @@ public class FeedbackCollector : StatefulComponentBase
             // LATCH PASS — after the visible delay. Mint one outgoing signal for the batch;
             // its fresh sequence is greater than every injected cause, preserving order.
             _doLatch = false;
-            _dataOut = string.Join(Environment.NewLine, _batch.Select(s => s.Payload).Where(StringHelpers.IsNonBlank));
+            string joined = string.Join(Environment.NewLine, _batch.Select(s => s.Payload).Where(StringHelpers.IsNonBlank));
 
             SignalOutcome outcome = _batch.Any(s => s.Outcome == SignalOutcome.Failure)
                 ? SignalOutcome.Failure
                 : SignalOutcome.Success;
 
-            LatchSuccess(_dataOut, emitSignal: true, outcome: outcome);
+            LatchSuccess(joined, emitSignal: true, outcome: outcome);
             _batch = new List<PhySignal>();
 
             bool more;
@@ -142,30 +139,6 @@ public class FeedbackCollector : StatefulComponentBase
     }
 
     /// <inheritdoc/>
-    public override bool Write(GH_IWriter writer)
-    {
-        if (StringHelpers.IsNonBlank(_dataOut))
-        {
-            writer.SetString("DataOut", _dataOut);
-        }
-
-        return base.Write(writer);
-    }
-
-    /// <inheritdoc/>
-    public override bool Read(GH_IReader reader)
-    {
-        _dataOut = reader.ItemExists("DataOut") ? reader.GetString("DataOut") : string.Empty;
-        return base.Read(reader);
-    }
-
-    /// <inheritdoc/>
-    protected override void ClearStateOutputs()
-    {
-        _dataOut = string.Empty;
-    }
-
-    /// <inheritdoc/>
     protected override void OnCleared()
     {
         lock (_lock)
@@ -179,7 +152,6 @@ public class FeedbackCollector : StatefulComponentBase
 
     private void Emit(IGH_DataAccess da)
     {
-        da.SetData(0, _dataOut);
-        EmitSignal(da, 1, SuccessSignal);
+        EmitSignal(da, 0, SuccessSignal);
     }
 }

@@ -8,19 +8,20 @@ A reference for the core components of the Physalia plugin. This is (*mostly*) n
 
 Pipeline components share an explicit state machine (`StatefulComponentBase`) so data can be *seen* flowing through the DAG. Events travel as **Signals** — latched, sequence-numbered values consumed exactly once by each receiver — never as momentary bool pulses (see `data-marshalling.md` for the full model):
 
-| State | Data out | Feedback out | Success Signal | Fail Signal | Canvas caption |
-|---|---|---|---|---|---|
-| **empty** | empty | empty | none | none | *(blank)* |
-| **active** | empty (cleared on entry) | empty | none | none | `Active…` |
-| **solve success** | latched result | empty | latched (minted once) | none | `Success` |
-| **solve failure** | empty | latched feedback | none | latched (minted once) | `Failed` |
+| State | Success Signal | Fail Signal | Canvas caption |
+|---|---|---|---|
+| **empty** | none | none | *(blank)* |
+| **active** | none (cleared on entry) | none | `Active…` |
+| **solve success** | latched (minted once; payload = result) | none | `Success` |
+| **solve failure** | none | latched (minted once; payload = feedback) | `Failed` |
 
-- A component is **empty** when fresh on canvas, never yet run, or manually cleared via its right-click Clear item.
-- Consuming an incoming signal enters **active**: stale outputs blank immediately, the component does its work (instant for Auditor, an API call for Reasoner), then holds a visible delay (`SolveDelayMs`, currently 500 ms, wall-clock honest) before latching, so the hop is traceable by eye. Signals arriving while busy wait on the wire and are serviced afterwards — nothing is ever dropped.
-- The outcome latches into **solve success** or **solve failure**: the matching output is set and one signal is minted; both persist until the next run or a clear. Downstream components consume the signal exactly once — recomputes and replays never re-fire a chain, and processing order follows the global sequence (causal order), not solve timing.
-- Native GH Buttons/Toggles wire directly into Signal inputs (one run per press); multiple signal sources wire into one input directly — no OR gates.
+- The signal **is** the data carrier: its payload holds the result string on success or the feedback string on failure, so each hop between pipeline components is one wire. Signals cast to text (the payload) for native GH interop; **Deconstruct Signal** taps any wire passively and **Construct Signal** mints one by hand.
+- A component is **empty** when fresh on canvas, never yet run, manually cleared via its right-click Clear item, or freshly loaded from a file (lifecycle state never persists).
+- Consuming an incoming signal enters **active**: stale outgoing signals blank immediately, the component does its work (instant for Auditor, an API call for Reasoner), then holds a visible delay (`SolveDelayMs`, currently 500 ms, wall-clock honest) before latching, so the hop is traceable by eye. Signals arriving while busy wait on the wire and are serviced afterwards — nothing is ever dropped.
+- The outcome latches into **solve success** or **solve failure**: one signal is minted carrying the payload, and it persists until the next run or a clear. Downstream components consume the signal exactly once — recomputes and replays never re-fire a chain, and processing order follows the global sequence (causal order), not solve timing.
+- Native GH Buttons/Toggles wire directly into Signal inputs (one run per press); multiple signal sources wire into one input directly — no OR gates. A bool-minted signal carries an empty payload, so payload-fed components warn and drop it — use Construct Signal for manual runs.
 
-Routing components (Reasoner, Auditor, Transmitter) layer the standard contract on top: Signal in, data out, Success Signal out, feedback out, Fail Signal out. Recorder participates in the same state machine with dedicated Prompt/Response/Feedback Signal inputs and emits its signal only on user-turn appends (see below).
+Routing components (Reasoner, Auditor, Transmitter, Schema Translator) layer the standard contract on top: Signal in (payload = working data), Success Signal out, Fail Signal out. Recorder participates in the same state machine with dedicated Prompt/Response/Feedback Signal inputs and emits its signal only on user-turn appends (see below).
 
 ---
 
@@ -82,13 +83,16 @@ Right Click:
 
 Inputs:
 - `system prompt` — string from Composer
-- `prompt` — string from Prompter
-- `feedback` — string, N inputs via paired Feedback components
-- `trigger` — boolean passthrough from Prompter or Feedback, initiates downstream solve
+- `prompt` — string; recorded when a Prompt Signal with an empty payload arrives (e.g. a Button press)
+- `prompt signal` — records a user turn (payload = prompt text, falls back to `prompt`)
+- `response signal` — records an assistant turn (from Reasoner's Success Signal; Tool Calls take priority over the payload)
+- `feedback signal` — records feedback as a user turn (from one or more Feedback Collectors, wired directly)
+- `tool calls` — list, optional
+- `conversation` — optional compacted conversation override
 
 Outputs:
 - `instructions` — system prompt + conversation bundled for inference, latched after each run
-- `signal` — minted **only when a user message was appended/merged**. Assistant turns latch quietly (no signal) so a Reasoner wired off this output cannot re-fire itself after its own response is recorded.
+- `signal` — minted **only when a user message was appended/merged** (payload = the user text). Assistant turns latch quietly (no signal) so a Reasoner wired off this output cannot re-fire itself after its own response is recorded.
 - `recorded history` — full conversation including all messages before and after compaction
 
 **Lifecycle:** Recorder shares the component state machine but not the routing contract. It has three dedicated Signal inputs — `Prompt Signal`, `Response Signal`, `Feedback Signal` — so the turn type comes from event identity, never from conversation parity. Waiting signals are consumed in global sequence order (causal order), guaranteeing a response is recorded before the feedback it provoked even when both arrive in the same solve. User-side text arriving when the last turn is already a user message merges into that message (providers require role alternation). Appends happen on the consume solve; outputs latch after the visible delay. A signal with nothing new to record latches as a quiet failure with a warning.
@@ -108,15 +112,14 @@ Right Click
 **I/O:**
 
 Inputs:
-- `instructions` — string (most probably from recorder or library)
+- `instructions` — typed Instructions (most probably from recorder or library); this is the context — the trigger signal's payload is ignored
 - `model` — Model record, provider, model id, API key, inference parameters
-- `trigger` — boolean from Recorder
-- `cancel` - boolean from button - sends cancel token
+- `cancel` - boolean from button - sends cancel token (a human abort, deliberately not a signal)
+- `signal` — run signal from Recorder
 
 Outputs:
-- `response` — string, raw LLM output
-- `trigger` — boolean, passes through on completion
-- `feedback` -- same as response if successful API call - null if unsuccesful API call.
+- `success signal` — payload = raw LLM response; consumed by Auditor and Recorder
+- `fail signal` — payload = API error text
 
 **Alternate Use Cases**
 
@@ -140,14 +143,12 @@ These use cases are to be retrieved with the **Library** component.
 **I/O:**
 
 Inputs:
-- `data` — string, raw LLM output from Reasoner
 - `schema` — user-defined schema for runtime deserialization
-- `trigger` — boolean from Reasoner
+- `signal` — from Reasoner's Success Signal; the payload is the raw LLM output to validate
 
 Outputs:
-- `data` — properly formated JSON string
-- `trigger` — boolean, passes through on completion
-- `feedback` — The feedback object with error info with user as the role.
+- `success signal` — payload = properly formatted JSON string
+- `fail signal` — payload = validation feedback (routed back via Feedback)
 
 **Alternate Use Cases**
 
@@ -220,13 +221,12 @@ The existing `CodeChecker.cs` and `ScriptRunner.cs` cover static analysis and re
 **I/O:**
 
 Inputs:
-- `data` — string, json file
-- `trigger` — boolean from Auditor
+- `signal` — from Auditor's Success Signal; the payload is the validated JSON to push
 
 Outputs:
 - **galapagos style connector** - to receiver
-- `trigger` — boolean
-- `feedback` - errors
+- `success signal` — payload = the pushed code, on clean execution
+- `fail signal` — payload = the target's runtime errors (routed back via Feedback)
 
 Right Click:
 - `save receiver config` - saves the receiver configuration to the library.
@@ -263,11 +263,10 @@ Outputs:
 **I/O:**
 
 Inputs:
-- `data` — string, any Info type
-- `trigger` — boolean from upstream component
+- `signal` — typically a Fail Signal; each consumed signal is forwarded as-is (original sequence and payload preserved)
 
 Outputs:
-- *(wireless)* — data routed directly to paired FeedbackCollector, no physical output wire. 'Lights up' when triggered to indicate output
+- *(wireless)* — signals routed directly to paired FeedbackCollector(s), no physical output wire. 'Lights up' when triggered to indicate output
 
 ---
 
@@ -279,12 +278,48 @@ Outputs:
 **I/O:**
 
 Inputs:
-- *(wireless)* — data routed directly to paired to one or more feedback components, no physical output wire. 'Lights up' when triggered to indicate input
+- *(wireless)* — signals injected by one or more paired Feedback components, no physical input wire. 'Lights up' when triggered to indicate input
 
 Outputs:
-- `data` — string, any Info type
-- - `trigger` — boolean from upstream component
+- `signal` — one minted signal per batch; payload = all feedback from the batch, newline-joined. Carries a Failure outcome if any injected signal was a failure.
 
+---
+
+## Signals Utilities
+
+### Construct Signal
+**Role:** Mints a signal carrying an arbitrary text payload, once per consumed trigger — the manual entry point into the pipeline. A Panel of text plus a Button lets any signal-driven component (e.g. Auditor) be run standalone. Latches immediately (a source, not a processing hop — no visible delay).
+
+**Deterministic.**
+
+**I/O:**
+
+Inputs:
+- `payload` — string carried by the minted signal
+- `failure` — boolean; when true the minted signal carries a Failure outcome (for hand-testing feedback paths)
+- `signal` — trigger; Buttons/Toggles work (one mint per press)
+
+Outputs:
+- `signal` — the minted signal, latched until the next trigger or a clear
+
+---
+
+### Deconstruct Signal
+**Role:** Breaks a signal into its fields for inspection or native-GH interop. Passive — it never consumes, so it can tap any signal wire without disturbing the consume-once bookkeeping of real receivers. (For just the payload, a signal wire also casts directly into any native text input.)
+
+**Deterministic.**
+
+**I/O:**
+
+Inputs:
+- `signal` — the signal to inspect
+
+Outputs:
+- `sequence` — integer, global causal order
+- `success` — boolean outcome
+- `payload` — string
+- `source` — minting component's name
+- `time` — local mint time
 
 ---
 

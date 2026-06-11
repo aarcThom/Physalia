@@ -7,7 +7,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
-using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Signals;
 using Physalia.GH.Goo;
@@ -18,7 +17,8 @@ namespace Physalia.GH.Components;
 /// Base for components that participate in the Physalia data-flow lifecycle. Owns the
 /// explicit solve state machine (<see cref="SolveState"/>), the canvas state caption,
 /// sequenced-signal intake with consume-once semantics, latched outgoing signals, the
-/// wall-clock-honest end-of-solve delay, the Clear menu item, and state serialisation.
+/// wall-clock-honest end-of-solve delay, and the Clear menu item. Nothing in the
+/// lifecycle persists: signals are session events, so every component reopens Empty.
 ///
 /// <para>This layer registers no parameters and has no <c>SolveInstance</c>; subclasses
 /// drive the transitions from their own solve logic. Events travel as latched
@@ -76,10 +76,10 @@ public abstract class StatefulComponentBase : PhyBase
         /// <summary>Actively solving (including the visible end-of-solve delay). Outputs are blank.</summary>
         Active,
 
-        /// <summary>The last run succeeded; the Data output is latched until the next run or a clear.</summary>
+        /// <summary>The last run succeeded; the success signal (carrying the result payload) is latched until the next run or a clear.</summary>
         SolveSuccess,
 
-        /// <summary>The last run failed; the Feedback output is latched until the next run or a clear.</summary>
+        /// <summary>The last run failed; the failure signal (carrying the feedback payload) is latched until the next run or a clear.</summary>
         SolveFailure,
     }
 
@@ -113,19 +113,14 @@ public abstract class StatefulComponentBase : PhyBase
     protected virtual string ClearMenuText => "Clear Outputs";
 
     /// <summary>
-    /// Whether a persisted <see cref="SolveState.SolveSuccess"/> / <see cref="SolveState.SolveFailure"/>
-    /// survives a file reload. Return false when the latched payload itself is not serialised,
-    /// so the component reopens as <see cref="SolveState.Empty"/> instead of claiming a result
-    /// it no longer holds. Outgoing signals are never restored — they are session events.
+    /// Wipes any latched output backing fields beyond the signals themselves (which the
+    /// base clears). Called when a run starts (<see cref="EnterActive"/>) and by the menu
+    /// Clear. Must not touch domain state (e.g. a conversation log) — use
+    /// <see cref="OnCleared"/> for that. Default implementation does nothing.
     /// </summary>
-    protected virtual bool RestoreLatchedStateOnLoad => true;
-
-    /// <summary>
-    /// Wipes the latched output backing fields only. Called when a run starts
-    /// (<see cref="EnterActive"/>) and by the menu Clear. Must not touch domain state
-    /// (e.g. a conversation log) — use <see cref="OnCleared"/> for that.
-    /// </summary>
-    protected abstract void ClearStateOutputs();
+    protected virtual void ClearStateOutputs()
+    {
+    }
 
     /// <summary>
     /// Extra reset work performed by the menu Clear only (lifecycle flags, domain data).
@@ -367,17 +362,6 @@ public abstract class StatefulComponentBase : PhyBase
     }
 
     /// <summary>
-    /// Restores a persisted state without running transition side effects. For use from
-    /// <see cref="Read"/> paths only (e.g. legacy-file state inference).
-    /// </summary>
-    /// <param name="state">The state to restore.</param>
-    protected void RestorePersistedState(SolveState state)
-    {
-        State = state;
-        UpdateStateDisplay();
-    }
-
-    /// <summary>
     /// Emits a latched signal on an output, leaving the wire genuinely empty when there
     /// is none (skips SetData rather than emitting a null item).
     /// </summary>
@@ -404,39 +388,6 @@ public abstract class StatefulComponentBase : PhyBase
             ResetToEmpty();
             ExpireSolution(true);
         });
-    }
-
-    /// <inheritdoc/>
-    public override bool Write(GH_IWriter writer)
-    {
-        writer.SetInt32("State", (int)State);
-        return base.Write(writer);
-    }
-
-    /// <inheritdoc/>
-    public override bool Read(GH_IReader reader)
-    {
-        if (reader.ItemExists("State"))
-        {
-            var persisted = (SolveState)reader.GetInt32("State");
-
-            // In-flight work is unrecoverable, and latched results only survive when the
-            // payload itself was serialised. Signals are never persisted.
-            State = persisted switch
-            {
-                SolveState.SolveSuccess or SolveState.SolveFailure when RestoreLatchedStateOnLoad => persisted,
-                _ => SolveState.Empty,
-            };
-        }
-        else
-        {
-            State = SolveState.Empty;
-        }
-
-        SuccessSignal = null;
-        FailSignal = null;
-        UpdateStateDisplay();
-        return base.Read(reader);
     }
 
     private void ScheduleAt(DateTime due, Action onScheduled, int attempt)

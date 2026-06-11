@@ -178,12 +178,6 @@ public class Feedback : StatefulComponentBase
     }
 
     /// <inheritdoc/>
-    protected override void ClearStateOutputs()
-    {
-        // No latched outputs — this component is a wireless transport.
-    }
-
-    /// <inheritdoc/>
     protected override void OnCleared()
     {
         _doLatch = false;

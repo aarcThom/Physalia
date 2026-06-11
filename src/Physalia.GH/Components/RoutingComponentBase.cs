@@ -3,19 +3,19 @@
 
 #nullable enable
 
-using GH_IO.Serialization;
 using Grasshopper.Kernel;
-using Physalia.Core.Common;
+using Physalia.Core.Signals;
 using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Base for components that route a result either forward (Data + Success Signal) or
-/// back as Feedback (Feedback + Fail Signal). Owns all I/O registration, output latching,
-/// and save/load serialisation; the lifecycle state machine, signal intake/emission, and
-/// Clear menu item come from <see cref="StatefulComponentBase"/>. Subclasses supply only
-/// the Data input type and the per-component processing logic.
+/// Base for components that route a result either forward (Success Signal) or back
+/// (Fail Signal). The signal is the only carrier between pipeline components: its
+/// payload holds the result string on success or the feedback string on failure, so the
+/// contract is one wire per hop. The lifecycle state machine, signal intake/emission,
+/// and Clear menu item come from <see cref="StatefulComponentBase"/>. Subclasses supply
+/// only their extra inputs and the per-component processing logic.
 ///
 /// <para>Consuming a signal on the base-owned <c>Signal</c> input starts a run, split
 /// across solves. The <see cref="PushSolve"/> pass performs side effects (e.g. pushing
@@ -32,17 +32,11 @@ namespace Physalia.GH.Components;
 /// <typeparam name="TData">Type produced from the Data input and handed to the solve passes.</typeparam>
 public abstract class RoutingComponentBase<TData> : StatefulComponentBase
 {
-    /// <summary>Output index of the latched Data string.</summary>
-    protected const int OutData = 0;
-
     /// <summary>Output index of the latched Success Signal.</summary>
-    protected const int OutSuccessSignal = 1;
-
-    /// <summary>Output index of the latched Feedback string.</summary>
-    protected const int OutFeedback = 2;
+    protected const int OutSuccessSignal = 0;
 
     /// <summary>Output index of the latched Fail Signal.</summary>
-    protected const int OutFailSignal = 3;
+    protected const int OutFailSignal = 1;
 
     /// <summary>
     /// ScheduleSolution delay (milliseconds) before the read pass runs. Gives the
@@ -57,9 +51,6 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// settles (e.g. a linked component that is locked or was deleted mid-run).
     /// </summary>
     private const int MaxReadRetries = 10;
-
-    private string _dataOut = string.Empty;
-    private string _feedbackOut = string.Empty;
 
     // Index of the base-owned Signal input (appended last during registration).
     private int _signalIndex = -1;
@@ -95,14 +86,8 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     }
 
     /// <summary>
-    /// Registers the subclass-typed Data input (index 0).
-    /// </summary>
-    /// <param name="pManager">The input parameter manager.</param>
-    protected abstract void RegisterDataInput(GH_InputParamManager pManager);
-
-    /// <summary>
-    /// Registers any inputs after Data (e.g. a Schema input).
-    /// Default implementation adds nothing.
+    /// Registers the subclass's inputs (e.g. a Schema input), starting at index 0.
+    /// The base appends the Signal input last. Default implementation adds nothing.
     /// </summary>
     /// <param name="pManager">The input parameter manager.</param>
     protected virtual void RegisterAdditionalInputs(GH_InputParamManager pManager)
@@ -110,13 +95,17 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     }
 
     /// <summary>
-    /// Reads the Data input. Returns false when the input is absent or empty, in which
-    /// case a consumed signal is dropped with a warning (there is nothing to process).
+    /// Produces the working data for a run from the consumed signal and/or the
+    /// component's own inputs. Most components take the signal's payload; components
+    /// whose context arrives on a typed input (e.g. Reasoner's Instructions) read that
+    /// instead. Returns false when nothing usable is available, in which case the
+    /// consumed signal is dropped with a warning (there is nothing to process).
     /// </summary>
+    /// <param name="signal">The consumed signal that starts this run.</param>
     /// <param name="da">The data access for the current solve.</param>
-    /// <param name="data">The parsed Data value when present.</param>
-    /// <returns>true if Data is present and non-empty; otherwise false.</returns>
-    protected abstract bool TryGetData(IGH_DataAccess da, out TData data);
+    /// <param name="data">The working data when available.</param>
+    /// <returns>true if there is data to process; otherwise false.</returns>
+    protected abstract bool TryGetData(PhySignal signal, IGH_DataAccess da, out TData data);
 
     /// <summary>
     /// First pass. Performs side effects that must settle before the result is read
@@ -124,7 +113,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// is consumed, before the deferred <see cref="ReadSolve"/> pass. Leave empty for
     /// components that compute their result synchronously and need no settle pass.
     /// </summary>
-    /// <param name="data">The Data value read by <see cref="TryGetData"/>.</param>
+    /// <param name="data">The working data produced by <see cref="TryGetData"/>.</param>
     /// <param name="da">The data access for the current solve.</param>
     protected abstract void PushSolve(TData data, IGH_DataAccess da);
 
@@ -133,9 +122,9 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// following <see cref="PushSolve"/>. Read any additional inputs directly from
     /// <paramref name="da"/>.
     /// </summary>
-    /// <param name="data">The Data value captured on the push pass.</param>
+    /// <param name="data">The working data captured on the push pass.</param>
     /// <param name="da">The data access for the current solve.</param>
-    /// <returns>A success result carrying the Data string, or a failure result carrying Feedback.</returns>
+    /// <returns>A success result carrying the result string, or a failure result carrying feedback.</returns>
     protected abstract RoutingResult ReadSolve(TData data, IGH_DataAccess da);
 
     /// <summary>
@@ -144,7 +133,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// read pass, up to <see cref="MaxReadRetries"/> attempts; exhausting them latches a
     /// failure. Default implementation returns true.
     /// </summary>
-    /// <param name="data">The Data value captured on the push pass.</param>
+    /// <param name="data">The working data captured on the push pass.</param>
     /// <returns>true when the read pass may run; false to retry on a later solution.</returns>
     protected virtual bool IsReadReady(TData data) => true;
 
@@ -168,7 +157,6 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// <inheritdoc/>
     protected sealed override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        RegisterDataInput(pManager);
         RegisterAdditionalInputs(pManager);
         _signalIndex = pManager.AddParameter(
             new Param_Signal(),
@@ -182,10 +170,8 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// <inheritdoc/>
     protected sealed override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("Data", "D", "Latched result on success. Persists until the next run or a clear.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_Signal(), "Success Signal", "SS", "Latched signal minted when a run succeeds. Downstream components consume it exactly once.", GH_ParamAccess.item);
-        pManager.AddTextParameter("Feedback", "F", "Latched feedback on failure. Persists until the next run or a clear.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_Signal(), "Fail Signal", "FS", "Latched signal minted when a run fails. Downstream components consume it exactly once.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Success Signal", "SS", "Latched signal minted when a run succeeds; its payload carries the result. Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Fail Signal", "FS", "Latched signal minted when a run fails; its payload carries the feedback. Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -246,15 +232,11 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
 
             if (result.Success)
             {
-                _dataOut = result.Output;
-                _feedbackOut = string.Empty;
-                LatchSuccess(_dataOut);
+                LatchSuccess(result.Output);
             }
             else
             {
-                _dataOut = string.Empty;
-                _feedbackOut = result.Output;
-                LatchFailure(_feedbackOut);
+                LatchFailure(result.Output);
             }
 
             if (HasUnconsumedSignals(_signalIndex))
@@ -268,14 +250,14 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
             return;
         }
 
-        if (!_awaitingRead && TryConsumeOldestSignal(_signalIndex, out _))
+        if (!_awaitingRead && TryConsumeOldestSignal(_signalIndex, out PhySignal trigger))
         {
             // PUSH PASS — a consumed signal starts a run. Side effects only; no result yet.
-            if (!TryGetData(DA, out TData data))
+            if (!TryGetData(trigger, DA, out TData data))
             {
                 AddRuntimeMessage(
                     GH_RuntimeMessageLevel.Warning,
-                    "Signal received but the Data input is empty; nothing to process.");
+                    "Signal carried no payload and no data is available; nothing to process.");
                 Emit(DA);
                 return;
             }
@@ -297,53 +279,14 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
             return;
         }
 
-        // Idle solve — re-emit the latched outputs and signals (same sequence numbers;
-        // downstream consume-once means recomputes never re-fire a chain).
+        // Idle solve — re-emit the latched signals (same sequence numbers; downstream
+        // consume-once means recomputes never re-fire a chain).
         Emit(DA);
-    }
-
-    /// <inheritdoc/>
-    public override bool Write(GH_IWriter writer)
-    {
-        if (StringHelpers.IsNonBlank(_dataOut))
-        {
-            writer.SetString("DataOut", _dataOut);
-        }
-
-        if (StringHelpers.IsNonBlank(_feedbackOut))
-        {
-            writer.SetString("FeedbackOut", _feedbackOut);
-        }
-
-        return base.Write(writer);
-    }
-
-    /// <inheritdoc/>
-    public override bool Read(GH_IReader reader)
-    {
-        _dataOut = reader.ItemExists("DataOut") ? reader.GetString("DataOut") : string.Empty;
-        _feedbackOut = reader.ItemExists("FeedbackOut") ? reader.GetString("FeedbackOut") : string.Empty;
-
-        bool ok = base.Read(reader);
-
-        if (!reader.ItemExists("State"))
-        {
-            // Legacy file written before the explicit state machine: infer the latched
-            // state from the persisted payloads.
-            RestorePersistedState(
-                StringHelpers.IsNonBlank(_dataOut) ? SolveState.SolveSuccess
-                : StringHelpers.IsNonBlank(_feedbackOut) ? SolveState.SolveFailure
-                : SolveState.Empty);
-        }
-
-        return ok;
     }
 
     private void Emit(IGH_DataAccess da)
     {
-        da.SetData(OutData, _dataOut);
         EmitSignal(da, OutSuccessSignal, SuccessSignal);
-        da.SetData(OutFeedback, _feedbackOut);
         EmitSignal(da, OutFailSignal, FailSignal);
     }
 
@@ -378,13 +321,6 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     }
 
     /// <inheritdoc/>
-    protected override void ClearStateOutputs()
-    {
-        _dataOut = string.Empty;
-        _feedbackOut = string.Empty;
-    }
-
-    /// <inheritdoc/>
     protected override void OnCleared()
     {
         _awaitingRead = false;
@@ -395,8 +331,9 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     }
 
     /// <summary>
-    /// Outcome of a <see cref="ReadSolve"/> call: either a forward-routed Data string
-    /// or a back-routed Feedback string, plus an optional runtime message.
+    /// Outcome of a <see cref="ReadSolve"/> call: either a forward-routed result string
+    /// or a back-routed feedback string (each becomes the minted signal's payload), plus
+    /// an optional runtime message.
     /// </summary>
     protected readonly record struct RoutingResult
     {
@@ -411,7 +348,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         /// <summary>Gets a value indicating whether the run succeeded.</summary>
         public bool Success { get; }
 
-        /// <summary>Gets the Data string on success, or the Feedback string on failure.</summary>
+        /// <summary>Gets the result string on success, or the feedback string on failure.</summary>
         public string Output { get; }
 
         /// <summary>Gets an optional runtime message to surface on the component.</summary>
@@ -421,17 +358,17 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         public GH_RuntimeMessageLevel MessageLevel { get; }
 
         /// <summary>
-        /// Creates a success result carrying the forward-routed Data string.
+        /// Creates a success result carrying the forward-routed result string.
         /// </summary>
-        /// <param name="data">The Data string to latch and emit.</param>
+        /// <param name="data">The result string carried by the minted success signal.</param>
         /// <returns>A success <see cref="RoutingResult"/>.</returns>
         public static RoutingResult Ok(string data) =>
             new(true, data, null, GH_RuntimeMessageLevel.Blank);
 
         /// <summary>
-        /// Creates a failure result carrying the back-routed Feedback string.
+        /// Creates a failure result carrying the back-routed feedback string.
         /// </summary>
-        /// <param name="feedback">The Feedback string to latch and emit.</param>
+        /// <param name="feedback">The feedback string carried by the minted fail signal.</param>
         /// <param name="message">An optional runtime message to surface.</param>
         /// <param name="level">The level for the runtime message.</param>
         /// <returns>A failure <see cref="RoutingResult"/>.</returns>

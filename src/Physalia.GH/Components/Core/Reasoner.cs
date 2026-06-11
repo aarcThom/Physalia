@@ -12,6 +12,7 @@ using Physalia.Core.Common;
 using Physalia.Core.Config;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Models;
+using Physalia.Core.Signals;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -20,8 +21,8 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Core inference component. Receives Instructions from Recorder and performs a single
 /// forward pass, streaming the result. Stateless between calls — all context lives in
-/// Recorder. Routes the response forward (Data + Success Signal) or an API error back
-/// (Feedback + Fail Signal) through <see cref="RoutingComponentBase{TData}"/>.
+/// Recorder. Routes the response forward on the Success Signal or an API error back on
+/// the Fail Signal through <see cref="RoutingComponentBase{TData}"/>.
 /// </summary>
 public class Reasoner : RoutingComponentBase<Instructions>
 {
@@ -47,20 +48,19 @@ public class Reasoner : RoutingComponentBase<Instructions>
     protected override bool AutoScheduleRead => false;
 
     /// <inheritdoc/>
-    protected override void RegisterDataInput(GH_InputParamManager pManager)
-    {
-        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Conversation history and system prompt from Recorder.", GH_ParamAccess.item);
-    }
-
-    /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
+        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Conversation history and system prompt from Recorder.", GH_ParamAccess.item);
         pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Model configuration from a Model or Tweaker component.", GH_ParamAccess.item);
         _cancelIndex = pManager.AddBooleanParameter("Cancel", "X", "Rising edge cancels the active inference call.", GH_ParamAccess.item, false);
     }
 
     /// <inheritdoc/>
-    protected override bool TryGetData(IGH_DataAccess da, out Instructions data)
+    /// <remarks>
+    /// The signal payload (Recorder's user text) is deliberately ignored — the full
+    /// context arrives on the typed Instructions input; the signal just says "go".
+    /// </remarks>
+    protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out Instructions data)
     {
         data = default!;
         var goo = new GH_Instructions();

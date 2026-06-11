@@ -12,18 +12,19 @@ using System.Text.RegularExpressions;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
+using Physalia.Core.Signals;
 using Physalia.GH.Attributes;
 using Physalia.GH.Generation;
 
 namespace Physalia.GH.Components.GhPython;
 
 /// <summary>
-/// Takes LLM-generated Python (validated against PythonComponent.json) and pushes its
-/// code, inputs, and outputs into a linked GH Python Script component, then reads back
-/// the target's runtime errors. On clean execution it routes the code forward (Data +
-/// Success Signal); on genuine errors it routes the messages back (Feedback + Fail
-/// Signal). Errors caused purely by unconnected inputs are ignored. Link to the target
-/// via the bottom-centre bezier grip.
+/// Takes LLM-generated Python (validated against PythonComponent.json, arriving as the
+/// consumed signal's payload) and pushes its code, inputs, and outputs into a linked GH
+/// Python Script component, then reads back the target's runtime errors. On clean
+/// execution it routes the code forward on the Success Signal; on genuine errors it
+/// routes the messages back on the Fail Signal. Errors caused purely by unconnected
+/// inputs are ignored. Link to the target via the bottom-centre bezier grip.
 /// </summary>
 public class PyTransmitter : RoutingComponentBase<string>
 {
@@ -77,20 +78,13 @@ public class PyTransmitter : RoutingComponentBase<string>
     }
 
     /// <inheritdoc/>
-    protected override void RegisterDataInput(GH_InputParamManager pManager)
+    /// <remarks>
+    /// The validated PythonComponent JSON ({ code, inputs[], outputs[] }) arrives as the
+    /// consumed signal's payload (Auditor's Success Signal).
+    /// </remarks>
+    protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out string data)
     {
-        pManager.AddTextParameter(
-            "Data", "D",
-            "Validated LLM output (PythonComponent.json): { code, inputs[], outputs[] }.",
-            GH_ParamAccess.item,
-            string.Empty);
-    }
-
-    /// <inheritdoc/>
-    protected override bool TryGetData(IGH_DataAccess da, out string data)
-    {
-        data = string.Empty;
-        da.GetData(0, ref data);
+        data = signal.Payload;
         return StringHelpers.IsNonBlank(data);
     }
 

@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
+using Physalia.Core.Signals;
 using Physalia.Core.Validation;
 using Physalia.GH.Generation;
 
@@ -38,30 +39,20 @@ public class SchemaTranslator : RoutingComponentBase<string>
     public override Guid ComponentGuid => new Guid("DDDFAF65-212D-45B9-B581-C0EC806C4106");
 
     /// <inheritdoc/>
-    protected override void RegisterDataInput(GH_InputParamManager pManager)
-    {
-        pManager.AddTextParameter(
-            "Data In", "D",
-            "PhySchema JSON string to translate.",
-            GH_ParamAccess.item,
-            string.Empty);
-    }
-
-    /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter(
-            "Schema In", "S",
-            "JSON schema string used to validate Data In. Pass-through (no validation) if empty.",
+            "Schema In", "Sc",
+            "JSON schema string used to validate the incoming PhySchema. Pass-through (no validation) if empty.",
             GH_ParamAccess.item,
             string.Empty);
     }
 
     /// <inheritdoc/>
-    protected override bool TryGetData(IGH_DataAccess da, out string data)
+    /// <remarks>The PhySchema JSON to translate arrives as the consumed signal's payload.</remarks>
+    protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out string data)
     {
-        data = string.Empty;
-        da.GetData(0, ref data);
+        data = signal.Payload;
         return StringHelpers.IsNonBlank(data);
     }
 
@@ -76,7 +67,7 @@ public class SchemaTranslator : RoutingComponentBase<string>
     protected override RoutingResult ReadSolve(string data, IGH_DataAccess da)
     {
         string schema = string.Empty;
-        da.GetData(1, ref schema);
+        da.GetData(0, ref schema);
 
         if (!string.IsNullOrWhiteSpace(schema))
         {

@@ -75,9 +75,6 @@ public class Recorder : StatefulComponentBase
     protected override string ClearMenuText => "Clear Conversation";
 
     /// <inheritdoc/>
-    protected override bool RestoreLatchedStateOnLoad => false;
-
-    /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter("System Prompt", "S", "System prompt from Composer.", GH_ParamAccess.item, string.Empty);

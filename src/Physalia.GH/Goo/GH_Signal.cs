@@ -115,6 +115,21 @@ public class GH_Signal : PhyGoo<GH_Signal, PhySignal>
             return true;
         }
 
+        // The payload escape hatch: a Signal wire plugs straight into any native text
+        // input and yields the carried payload. Genuine signals only — a bool sentinel
+        // has no payload to give.
+        if (Value is not null && typeof(Q).IsAssignableFrom(typeof(GH_String)))
+        {
+            target = (Q)(object)new GH_String(Value.Payload);
+            return true;
+        }
+
+        if (Value is not null && typeof(Q).IsAssignableFrom(typeof(string)))
+        {
+            target = (Q)(object)Value.Payload;
+            return true;
+        }
+
         return base.CastTo(ref target);
     }
 

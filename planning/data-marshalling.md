@@ -21,13 +21,15 @@ Two design goals, in priority order:
 
 ## Signals
 
-A `PhySignal` (Core, `src/Physalia.Core/Signals/`) is an immutable event:
+A `PhySignal` (Core, `src/Physalia.Core/Signals/`) is an immutable event **and the only
+data carrier between pipeline components** — the payload rides the signal, so each hop
+is one wire and the data can never get separated from the event announcing it:
 
 | Field | Meaning |
 |---|---|
 | `Sequence` | Process-wide monotonic identity (`SignalSequencer`). Higher = happened later. **Sequence order is causal order**: a signal minted as a consequence of another always sorts after it. |
 | `Outcome` | `Success` / `Failure` |
-| `Payload` | The event's payload: data string on success, feedback string on failure |
+| `Payload` | The event's payload: result string on success, feedback string on failure |
 | `SourceId` / `SourceName` | Emitting component, for tracing |
 | `Timestamp` | UTC mint time, for tracing |
 
@@ -43,15 +45,26 @@ can never re-fire anything.
 `#42 Success from Reasoner @ 14:03:21.187 — "payload preview"`, so a panel on any Signal
 wire is a live ordering trace.
 
+**Interop / escape hatches:**
+- A Signal **casts to text** (the payload), so a signal wire plugs straight into any
+  native GH text input.
+- **Deconstruct Signal** (passive, never consumes) breaks a signal into
+  Sequence / Success / Payload / Source / Time.
+- **Construct Signal** mints a signal from a text payload + trigger — the manual entry
+  point for running any pipeline component standalone (e.g. Panel of JSON → Auditor).
+- A latched signal casts to bool **true** (a level, not a pulse) for native bool inputs.
+
 **Ephemeral:** signals never serialize (`GH_Signal.Write/Read` are no-ops). A reopened
-file has signal-free wires; nothing fires on load.
+file has signal-free wires; nothing fires on load and every component reopens Empty.
 
 **Native bool sources (Buttons/Toggles)** wire straight into Signal inputs. The cast does
 NOT mint a signal (casts run every solve — a stuck-true Toggle would re-fire forever);
 it captures the raw level as a sentinel, and the consuming component edge-detects with
 its own per-input state, minting exactly one signal per false→true transition. A press
 during an active run queues losslessly. The first observation of an input baselines it:
-fresh, pasted, or reloaded components never fire off pre-existing wire state.
+fresh, pasted, or reloaded components never fire off pre-existing wire state. Note a
+bool-minted signal has an **empty payload** — payload-fed components (Auditor,
+PyTransmitter, Schema Translator) will warn and drop it; use Construct Signal instead.
 
 **Multiple sources** wire directly into one Signal input (list access) — no OR gates.
 Each source's events have distinct sequences; the receiver consumes each exactly once,
@@ -62,28 +75,30 @@ events from the same source before consumption supersede (latest wins).
 
 ## The Four States
 
-| State | Data out | Feedback out | Success Signal | Fail Signal | Caption |
-|---|---|---|---|---|---|
-| **Empty** | empty | empty | none | none | *(blank)* |
-| **Active** | empty (cleared on entry) | empty | none (cleared on entry) | none | `Active…` |
-| **SolveSuccess** | latched result | empty | latched (minted once) | none | `Success` |
-| **SolveFailure** | empty | latched feedback | none | latched (minted once) | `Failed` |
+| State | Success Signal | Fail Signal | Caption |
+|---|---|---|---|
+| **Empty** | none | none | *(blank)* |
+| **Active** | none (cleared on entry) | none | `Active…` |
+| **SolveSuccess** | latched (minted once; payload = result) | none | `Success` |
+| **SolveFailure** | none | latched (minted once; payload = feedback) | `Failed` |
 
-- **Empty** — fresh on canvas, never ran, or manually cleared (right-click Clear).
-- **Active** — entered when a signal is consumed. Stale outputs and outgoing signals
-  blank immediately; the work runs (instant, deferred, or async); a visible delay
-  (`SolveDelayMs = 500`, wall-clock honest) is held before the latch.
-- **SolveSuccess / SolveFailure** — result latched, one signal minted. Downstream
-  consumers fire on it exactly once.
+- **Empty** — fresh on canvas, never ran, manually cleared (right-click Clear), or
+  freshly loaded from a file (nothing persists).
+- **Active** — entered when a signal is consumed. Outgoing signals blank immediately;
+  the work runs (instant, deferred, or async); a visible delay (`SolveDelayMs = 500`,
+  wall-clock honest) is held before the latch.
+- **SolveSuccess / SolveFailure** — result latched inside one minted signal. Downstream
+  consumers fire on it exactly once; humans read it via a panel, the text cast, or
+  Deconstruct Signal.
 
 ## Solve Rhythm (routing components)
 
 ```
-Solve A  (signal consumed):  EnterActive (clear outputs + outgoing signals)
+Solve A  (signal consumed):  EnterActive (clear outgoing signals)
                              PushSolve (side effects) → schedule read @1ms
                              (async components schedule it from their completion callback)
 Solve B  (@1ms, repeats):    IsReadReady? no → retry @1ms (≤10) | yes → schedule latch @500ms
-Solve C  (@500ms, honest):   ReadSolve → latch Data or Feedback → mint Success/Fail Signal
+Solve C  (@500ms, honest):   ReadSolve → mint + latch Success Signal or Fail Signal
                              if signals arrived mid-run → schedule one follow-up solve
 Solve D  (follow-up, only if needed): consume the oldest waiting signal → next run
 ```
@@ -105,7 +120,7 @@ callback re-arms for the remainder instead of acting (`ScheduleStateSolve`).
 |---|---|
 | `SolveState State`, `MessageForState`, `UpdateStateDisplay` | state machine + canvas caption |
 | `SolveDelayMs = 500` | visible delay constant (may be user-exposed later) |
-| `SuccessSignal` / `FailSignal` | latched outgoing signals |
+| `SuccessSignal` / `FailSignal` | latched outgoing signals (the payload lives inside) |
 | `LatchSuccess(payload, emitSignal=true, outcome=Success)` | mint + latch; `emitSignal:false` = quiet (no downstream fire); `outcome` override for pass-through truthfulness |
 | `LatchFailure(payload, emitSignal=true)` | mirror |
 | `EnterActive()` / `ResetToEmpty()` | transitions; both clear outgoing signals |
@@ -115,38 +130,43 @@ callback re-arms for the remainder instead of acting (`ScheduleStateSolve`).
 | `ConsumeAllSignals(indices…)` | drain all, **global sequence order** (Recorder) |
 | `ScheduleStateSolve(ms, action)` | wall-clock honest scheduling funnel; safe from background threads |
 | `EmitSignal(da, idx, signal)` | emit helper; skips SetData when null so wires are genuinely empty |
-| Clear menu (`ClearMenuText`), `ClearStateOutputs` / `OnCleared` hooks | Clear never resets consume-once bookkeeping (no replay) |
-| `Write/Read` of `State`; `RestoreLatchedStateOnLoad` | signals never restored |
+| Clear menu (`ClearMenuText`), `ClearStateOutputs` (virtual) / `OnCleared` hooks | Clear never resets consume-once bookkeeping (no replay) |
+
+**Nothing persists.** The base has no `Write`/`Read`: state, signals, and consume-once
+bookkeeping are all session-only, so every component reopens Empty and re-baselines its
+inputs on first observation — nothing ever fires on file open.
 
 ### Layer 2 — `RoutingComponentBase<TData> : StatefulComponentBase`
 
-The standard contract for components that route a string result forward or back:
+The standard contract for components that route a result forward or back. **One wire per
+hop**: the consumed signal carries the working data in; the minted signal carries the
+result (or feedback) out.
 
 ```
-Inputs                                Outputs
-  Data         (TData, index 0)         Data           (string — latched on success)
-  …extras…                              Success Signal (latched, minted on success)
-  Signal       (list, optional, last)   Feedback       (string — latched on failure)
-                                        Fail Signal    (latched, minted on failure)
+Inputs                                 Outputs
+  …subclass extras…                      Success Signal (latched; payload = result)
+  Signal  (list, optional, last)         Fail Signal    (latched; payload = feedback)
 ```
 
-Subclasses implement `TryGetData` + `ReadSolve` (sync), plus `PushSolve`/`IsReadReady`
-(two-pass) or `AutoScheduleRead => false` + `RequestReadPass()` from a completion
-callback (async). `OnSolveTick` for per-solve inputs outside the lifecycle (Reasoner's
-Cancel — a plain bool by design: it is a human abort, not a pipeline event).
-
-Latched `DataOut`/`FeedbackOut` strings serialize; old pre-state-machine files infer
-their state from whichever payload is non-blank.
+Subclasses implement `TryGetData(PhySignal signal, da, out TData)` — most take
+`signal.Payload`; components whose context arrives on a typed input read that instead
+(Reasoner reads Instructions and ignores the payload) — plus `ReadSolve` (sync), plus
+`PushSolve`/`IsReadReady` (two-pass) or `AutoScheduleRead => false` + `RequestReadPass()`
+from a completion callback (async). `OnSolveTick` for per-solve inputs outside the
+lifecycle (Reasoner's Cancel — a plain bool by design: it is a human abort, not a
+pipeline event).
 
 ### Current implementations
 
-| Component | Shape | Notes |
+| Component | Shape | Data in |
 |---|---|---|
-| **Auditor** | sync | `ReadSolve` extracts + validates JSON |
-| **PyTransmitter** | two-pass | pushes code into the linked Python component; `IsReadReady` waits for it |
-| **Reasoner** | async | completion callback calls `RequestReadPass()`; Cancel aborts to Empty |
+| **Auditor** | sync | signal payload (raw LLM text); Schema input for validation |
+| **Schema Translator** | sync | signal payload (PhySchema JSON); Schema In input for validation |
+| **PyTransmitter** | two-pass | signal payload (PythonComponent JSON); pushes into the linked Python component |
+| **Reasoner** | async | Instructions input (typed); signal payload ignored |
 | **Recorder** | Layer 1 | dedicated signal inputs, identity-based turns (below) |
 | **Feedback / FeedbackCollector** | Layer 1 | wireless signal transport (below) |
+| **Construct / Deconstruct Signal** | Layer 1 / plain | manual mint / passive inspect |
 
 ---
 
@@ -184,49 +204,65 @@ from which input the signal arrived on, never from conversation parity:
   `collector.Inject(signal)`. No level-triggered re-injection is possible.
 - **FeedbackCollector** queues injections losslessly (lock-protected): a batch arriving
   in one solution aggregates; injections during an active run wait. After the visible
-  delay it latches `Data` (newline-joined payloads, never wiped) and mints ONE outgoing
-  signal per batch — fresh sequence, necessarily greater than every cause. The minted
-  signal carries `Failure` if any injected signal was a failure (trace truthfulness;
-  Recorder ignores outcome on its Feedback input).
+  delay it mints ONE outgoing signal per batch — payload = newline-joined feedback,
+  fresh sequence necessarily greater than every cause. The minted signal carries
+  `Failure` if any injected signal was a failure (trace truthfulness; Recorder ignores
+  outcome on its Feedback input).
 
-## Canonical wiring (no OR gates, no bool trigger wires)
+## Signals utilities
+
+- **Construct Signal** (`Physalia > Signals`): Payload text + Failure flag + trigger →
+  one minted signal per consumed trigger, latched immediately (a source, not a hop —
+  no visible delay). The trigger's own payload is ignored.
+- **Deconstruct Signal**: Signal → Sequence / Success / Payload / Source / Time.
+  Passive: it never consumes, so it can tap any wire without disturbing the
+  consume-once bookkeeping of real receivers.
+
+## Canonical wiring (one wire per hop; no OR gates, no bool trigger wires)
 
 ```
-Panel(prompt) ──────────────► Recorder.Prompt
-Button ─────────────────────► Recorder.Prompt Signal      (bool cast: one run per press)
-Recorder.Signal ────────────► Reasoner.Signal
-Recorder.Instructions ──────► Reasoner.Instructions
-Reasoner.Data ──────────────► Auditor.Data
-Reasoner.Success Signal ────► Recorder.Response Signal    AND ► Auditor.Signal
-Auditor.Fail Signal ────────► Feedback.Signal
-Feedback (grip) ~~~~~~~~~~~~► FeedbackCollector           (wireless)
-Collector.Signal ───────────► Recorder.Feedback Signal
+Panel(prompt) ─────────────► Recorder.Prompt
+Button ────────────────────► Recorder.Prompt Signal       (bool cast: one run per press)
+Recorder.Signal ───────────► Reasoner.Signal
+Recorder.Instructions ─────► Reasoner.Instructions
+Reasoner.Success Signal ───► Auditor.Signal    AND ► Recorder.Response Signal
+Auditor.Success Signal ────► PyTransmitter.Signal         (payload = validated JSON)
+Auditor.Fail Signal ───────► Feedback.Signal
+PyTransmitter.Fail Signal ─► Feedback.Signal
+Feedback (grip) ~~~~~~~~~~~► FeedbackCollector            (wireless)
+Collector.Signal ──────────► Recorder.Feedback Signal
 ```
+
+There is no separate data wire between pipeline components — the response text, the
+validated JSON, and the feedback all travel as signal payloads.
 
 ## Serialization Rules
 
-- Layer 1 persists `State` only. Signals and consume-once bookkeeping never persist; a
-  file saved mid-Active reopens Empty; Success/Failure reopen latched only when the
-  payload is also serialized (`RestoreLatchedStateOnLoad` — true for routing components
-  and FeedbackCollector, false for Recorder).
-- Old files: stale `LastTrigger` keys are ignored; pre-state-machine files infer state
-  from latched payloads.
+- **Nothing in the lifecycle persists.** No state, no signals, no payloads, no
+  consume-once bookkeeping. Every component reopens Empty with a blank caption.
+- Component-specific domain settings still persist where they always did (PyTransmitter
+  link GUID, Feedback collector links). API keys never serialize.
 - On load, wires are signal-free and inputs re-baseline on first observation → nothing
-  ever fires on open.
+  ever fires on open. Stale keys from older files (`State`, `DataOut`, `FeedbackOut`,
+  `LastTrigger`) are ignored harmlessly.
 
 ## Building a New Pipeline Component
 
-1. **Routes a string result forward/back on a signal?** Inherit
-   `RoutingComponentBase<TData>` — the full contract is free.
+1. **Routes a result forward/back on a signal?** Inherit `RoutingComponentBase<TData>`
+   — the full contract is free. Take the working data from `signal.Payload` unless it
+   genuinely needs a typed input (the Reasoner pattern).
 2. **Signal-driven with bespoke outputs or quiet outcomes?** Inherit
    `StatefulComponentBase` (the Recorder pattern): `ObserveSignalInputs` every solve →
    consume → `EnterActive` → work → `ScheduleStateSolve(SolveDelayMs, …)` →
    `LatchSuccess/LatchFailure` (use `emitSignal:false` for quiet outcomes) → post-latch
    `HasUnconsumedSignals` follow-up check.
-3. **No events, purely deterministic?** Plain `PhyBase` (the Composer pattern).
+3. **No events, purely deterministic?** Plain `PhyBase` (the Composer / Deconstruct
+   Signal pattern).
 
 Rules that keep the system race-free — follow them in every new component:
 - Never gate behavior on a bool edge between Physalia components; consume signals.
-- Never wipe an output another component might still need to read; latch it.
+- The signal payload IS the data — never add a parallel string wire that can disagree
+  with the event that announced it.
 - Never encode ordering in `ScheduleSolution` delays; ordering is sequence numbers.
 - Observe signal inputs on **every** solve, including while Active.
+- Never serialize lifecycle state; components must reopen Empty.

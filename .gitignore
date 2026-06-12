@@ -419,4 +419,7 @@ FodyWeavers.xsd
 
 # Claude code stuff
 CLAUDE.md
-/.claude
+.claude/
+
+# Physalia — API keys (never commit)
+**/API_KEY_CONFIG.YAML

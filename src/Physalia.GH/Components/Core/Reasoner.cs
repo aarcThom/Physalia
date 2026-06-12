@@ -126,24 +126,27 @@ public class Reasoner : RoutingComponentBase<Instructions>
         var ct = _cts.Token;
         _isRunning = true;
 
+        // The try/catch must cover the ENTIRE body: an uncaught throw here is an
+        // unobserved task exception — the read pass never fires and the component
+        // hangs Active with no message.
         Task.Run(async () =>
         {
-            var provider = LlmProviderFactory.GetProvider(config);
-
-            if (provider == null)
-            {
-                _apiError = $"No provider registered for config type '{config.GetType().Name}'.";
-                _isRunning = false;
-                RequestReadPass();
-                return;
-            }
-
-            var sb = new StringBuilder();
-            string? error = null;
-            bool success = true;
-
             try
             {
+                var provider = LlmProviderFactory.GetProvider(config);
+
+                if (provider == null)
+                {
+                    _apiError = $"No provider registered for config type '{config.GetType().Name}'.";
+                    _isRunning = false;
+                    RequestReadPass();
+                    return;
+                }
+
+                var sb = new StringBuilder();
+                string? error = null;
+                bool success = true;
+
                 await foreach (var chunk in provider.StreamAsync(
                     instructions.Conversation,
                     instructions.SystemPrompt,
@@ -168,32 +171,40 @@ public class Reasoner : RoutingComponentBase<Instructions>
                         break;
                     }
                 }
+
+                _isRunning = false;
+
+                if (ct.IsCancellationRequested)
+                {
+                    // Cancelled — the OnSolveTick cancel handler already aborted the read pass.
+                    return;
+                }
+
+                if (success)
+                {
+                    _response = sb.ToString();
+                    _apiError = null;
+                }
+                else
+                {
+                    _apiError = error ?? "The LLM API returned an error.";
+                }
+
+                RequestReadPass();
             }
             catch (Exception ex)
             {
-                error = ex.Message;
-                success = false;
-            }
+                _isRunning = false;
 
-            _isRunning = false;
+                if (ct.IsCancellationRequested)
+                {
+                    // Cancelled — the OnSolveTick cancel handler already aborted the read pass.
+                    return;
+                }
 
-            if (ct.IsCancellationRequested)
-            {
-                // Cancelled — the OnSolveTick cancel handler already aborted the read pass.
-                return;
+                _apiError = ex.Message;
+                RequestReadPass();
             }
-
-            if (success)
-            {
-                _response = sb.ToString();
-                _apiError = null;
-            }
-            else
-            {
-                _apiError = error ?? "The LLM API returned an error.";
-            }
-
-            RequestReadPass();
         }, ct);
     }
 }

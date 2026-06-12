@@ -157,7 +157,8 @@ public abstract class StatefulComponentBase : PhyBase
     /// are edge-detected here: each false→true transition mints exactly one signal into a
     /// pending queue. The first ever observation of an input baselines it — pre-existing
     /// latched signals and stuck-true Toggles never fire on a fresh, pasted, or reloaded
-    /// component.</para>
+    /// component. Anything else wired in (text, numbers, …) raises an error rather than
+    /// being silently ignored.</para>
     /// </summary>
     /// <param name="da">The data access for the current solve.</param>
     /// <param name="paramIndices">The Signal input parameter indices to observe.</param>
@@ -180,6 +181,15 @@ public abstract class StatefulComponentBase : PhyBase
                 else if (item?.BoolLevel is bool level)
                 {
                     boolLevels.Add(level);
+                }
+                else
+                {
+                    // A null/empty item means a non-signal source was wired in (the
+                    // Signal cast accepts only signals and bool levels). Fail loudly:
+                    // silently ignoring it would look like a dropped event.
+                    AddRuntimeMessage(
+                        GH_RuntimeMessageLevel.Error,
+                        $"\"{Params.Input[idx].Name}\" accepts only Signals (native Buttons/Toggles also work). Use Construct Signal to turn text into a signal.");
                 }
             }
 

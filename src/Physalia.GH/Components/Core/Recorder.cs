@@ -33,12 +33,11 @@ namespace Physalia.GH.Components;
 public class Recorder : StatefulComponentBase
 {
     private const int InSystemPrompt = 0;
-    private const int InPrompt = 1;
-    private const int InPromptSignal = 2;
-    private const int InResponseSignal = 3;
-    private const int InFeedbackSignal = 4;
-    private const int InToolCalls = 5;
-    private const int InConversation = 6;
+    private const int InPromptSignal = 1;
+    private const int InResponseSignal = 2;
+    private const int InFeedbackSignal = 3;
+    private const int InToolCalls = 4;
+    private const int InConversation = 5;
 
     private Conversation _conversation = Conversation.Empty;
     private Conversation _recordedHistory = Conversation.Empty;
@@ -78,14 +77,12 @@ public class Recorder : StatefulComponentBase
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter("System Prompt", "S", "System prompt from Composer.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("Prompt", "P", "User prompt text. Recorded when a Prompt Signal with an empty payload arrives (e.g. from a Button).", GH_ParamAccess.item, string.Empty);
-        pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn. Signal payload is the prompt text; an empty payload (Button press) falls back to the Prompt input.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn; the signal payload is the prompt text. Use Construct Signal to combine a text payload with a manual trigger.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the Reasoner's Success Signal. Tool calls take priority over the payload text.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Records feedback as a user turn. Wire one or more Feedback Collectors directly — no OR gate needed.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_LlmToolCall(), "Tool Calls", "TC", "Tool calls from Reasoner to record as an assistant message.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Conversation(), "Conversation", "C", "Optional compacted conversation. Replaces the active conversation while all messages are preserved in Recorded History.", GH_ParamAccess.item);
 
-        pManager[InPrompt].Optional = true;
         pManager[InPromptSignal].Optional = true;
         pManager[InResponseSignal].Optional = true;
         pManager[InFeedbackSignal].Optional = true;
@@ -113,11 +110,9 @@ public class Recorder : StatefulComponentBase
     protected override void SolveInstance(IGH_DataAccess DA)
     {
         string systemPrompt = string.Empty;
-        string prompt = string.Empty;
         var toolCallItems = new List<GH_LlmToolCall>();
 
         DA.GetData(InSystemPrompt, ref systemPrompt);
-        DA.GetData(InPrompt, ref prompt);
         DA.GetDataList(InToolCalls, toolCallItems);
 
         // Apply compacted conversation override when a new one arrives. This lives outside
@@ -199,7 +194,7 @@ public class Recorder : StatefulComponentBase
 
                 foreach (ConsumedSignal item in consumed)
                 {
-                    ApplySignal(item, prompt, toolCallItems);
+                    ApplySignal(item, toolCallItems);
                 }
 
                 ScheduleStateSolve(SolveDelayMs, () => _doLatch = true);
@@ -234,7 +229,7 @@ public class Recorder : StatefulComponentBase
     /// Records one consumed signal into the conversation. Turn type comes from the input
     /// the signal arrived on — never from conversation parity.
     /// </summary>
-    private void ApplySignal(ConsumedSignal item, string promptInput, List<GH_LlmToolCall> toolCallItems)
+    private void ApplySignal(ConsumedSignal item, List<GH_LlmToolCall> toolCallItems)
     {
         switch (item.ParamIndex)
         {
@@ -243,16 +238,15 @@ public class Recorder : StatefulComponentBase
                 break;
 
             case InPromptSignal:
-                // Payload carries the text when a future Prompter sends it; an empty
-                // payload (Button press) falls back to the Prompt string input.
-                string promptText = StringHelpers.IsNonBlank(item.Signal.Payload) ? item.Signal.Payload : promptInput;
-                if (!StringHelpers.IsNonBlank(promptText))
+                // The payload IS the prompt. A bare Button press mints an empty payload —
+                // Construct Signal is the manual path for attaching text to a trigger.
+                if (!StringHelpers.IsNonBlank(item.Signal.Payload))
                 {
-                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Prompt signal received but no prompt text is available.");
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Prompt signal carried no text — use Construct Signal to attach a payload to a manual trigger.");
                     break;
                 }
 
-                RecordUserText(promptText);
+                RecordUserText(item.Signal.Payload);
                 break;
 
             case InFeedbackSignal:

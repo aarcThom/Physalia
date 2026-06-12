@@ -64,7 +64,9 @@ its own per-input state, minting exactly one signal per false→true transition.
 during an active run queues losslessly. The first observation of an input baselines it:
 fresh, pasted, or reloaded components never fire off pre-existing wire state. Note a
 bool-minted signal has an **empty payload** — payload-fed components (Auditor,
-PyTransmitter, Schema Translator) will warn and drop it; use Construct Signal instead.
+PyTransmitter, Schema Translator, Recorder's Prompt Signal) will warn and drop it; use
+Construct Signal instead. Anything else wired into a Signal input (text, numbers, …) is
+a **hard error** — `ObserveSignalInputs` fails loudly rather than silently ignoring it.
 
 **Multiple sources** wire directly into one Signal input (list access) — no OR gates.
 Each source's events have distinct sequences; the receiver consumes each exactly once,
@@ -177,7 +179,7 @@ from which input the signal arrived on, never from conversation parity:
 
 | Input | Records | Text source |
 |---|---|---|
-| `Prompt Signal` | user turn | signal payload; empty payload (Button press) falls back to the `Prompt` string input |
+| `Prompt Signal` | user turn | signal payload (the prompt text); an empty payload (bare Button press) warns — use Construct Signal to attach text to a manual trigger |
 | `Response Signal` (from Reasoner Success Signal) | assistant turn | Tool Calls list (priority), else payload |
 | `Feedback Signal` (from Collector(s)) | user turn | payload |
 
@@ -221,8 +223,9 @@ from which input the signal arrived on, never from conversation parity:
 ## Canonical wiring (one wire per hop; no OR gates, no bool trigger wires)
 
 ```
-Panel(prompt) ─────────────► Recorder.Prompt
-Button ────────────────────► Recorder.Prompt Signal       (bool cast: one run per press)
+Panel(prompt) ─────────────► Construct Signal.Payload
+Button ────────────────────► Construct Signal.Trigger
+Construct Signal.Signal ───► Recorder.Prompt Signal       (payload = prompt text)
 Recorder.Signal ───────────► Reasoner.Signal
 Recorder.Instructions ─────► Reasoner.Instructions
 Reasoner.Success Signal ───► Auditor.Signal    AND ► Recorder.Response Signal

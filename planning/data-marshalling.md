@@ -167,6 +167,7 @@ pipeline event).
 | **PyTransmitter** | two-pass | signal payload (PythonComponent JSON); pushes into the linked Python component |
 | **Reasoner** | async | Instructions input (typed); signal payload ignored |
 | **Recorder** | Layer 1 | dedicated signal inputs, identity-based turns (below) |
+| **Prompter** | Layer 1 (source) | chat UI; each Shift+Enter submit mints one Prompt Signal (payload = prompt text); upper panel displays the wired Recorder's active conversation |
 | **Feedback / FeedbackCollector** | Layer 1 | wireless signal transport (below) |
 | **Construct / Deconstruct Signal** | Layer 1 / plain | manual mint / passive inspect |
 
@@ -179,7 +180,7 @@ from which input the signal arrived on, never from conversation parity:
 
 | Input | Records | Text source |
 |---|---|---|
-| `Prompt Signal` | user turn | signal payload (the prompt text); an empty payload (bare Button press) warns — use Construct Signal to attach text to a manual trigger |
+| `Prompt Signal` | user turn | signal payload (the prompt text), from Prompter or Construct Signal; an empty payload (bare Button press) warns |
 | `Response Signal` (from Reasoner Success Signal) | assistant turn | Tool Calls list (priority), else payload |
 | `Feedback Signal` (from Collector(s)) | user turn | payload |
 
@@ -223,9 +224,9 @@ from which input the signal arrived on, never from conversation parity:
 ## Canonical wiring (one wire per hop; no OR gates, no bool trigger wires)
 
 ```
-Panel(prompt) ─────────────► Construct Signal.Payload
-Button ────────────────────► Construct Signal.Trigger
-Construct Signal.Signal ───► Recorder.Prompt Signal       (payload = prompt text)
+Prompter.Prompt Signal ────► Recorder.Prompt Signal       (payload = prompt text; Shift+Enter mints)
+  (manual alternative: Panel ► Construct Signal.Payload, Button ► Construct Signal.Trigger,
+   Construct Signal.Signal ► Recorder.Prompt Signal)
 Recorder.Signal ───────────► Reasoner.Signal
 Recorder.Instructions ─────► Reasoner.Instructions
 Reasoner.Success Signal ───► Auditor.Signal    AND ► Recorder.Response Signal

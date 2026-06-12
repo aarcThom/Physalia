@@ -70,6 +70,13 @@ public class Recorder : StatefulComponentBase
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("43A02F6D-D97D-4241-B4DD-067D7AE0D75E");
 
+    /// <summary>
+    /// Gets the active (post-compaction) conversation, for display only — e.g. Prompter's
+    /// chat panel. Conversation is immutable, so callers cannot corrupt the log, but they
+    /// must never hold the reference across solves (it is replaced on every append).
+    /// </summary>
+    public Conversation ActiveConversation => _conversation;
+
     /// <inheritdoc/>
     protected override string ClearMenuText => "Clear Conversation";
 

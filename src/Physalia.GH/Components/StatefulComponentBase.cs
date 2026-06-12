@@ -95,6 +95,13 @@ public abstract class StatefulComponentBase : PhyBase
     protected SolveState State { get; private set; } = SolveState.Empty;
 
     /// <summary>
+    /// Gets a value indicating whether the component is currently Active (a run is in
+    /// flight, including the visible end-of-solve delay). Public so other components'
+    /// attributes can reflect pipeline activity (e.g. Prompter's busy animation).
+    /// </summary>
+    public bool IsBusy => State == SolveState.Active;
+
+    /// <summary>
     /// Gets the latched success signal, minted by <see cref="LatchSuccess"/>. Persists on
     /// the wire until the next <see cref="EnterActive"/> or a clear; downstream consumers
     /// fire on it exactly once.

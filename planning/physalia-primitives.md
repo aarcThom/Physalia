@@ -19,7 +19,7 @@ Pipeline components share an explicit state machine (`StatefulComponentBase`) so
 - A component is **empty** when fresh on canvas, never yet run, manually cleared via its right-click Clear item, or freshly loaded from a file (lifecycle state never persists).
 - Consuming an incoming signal enters **active**: stale outgoing signals blank immediately, the component does its work (instant for Auditor, an API call for Reasoner), then holds a visible delay (`SolveDelayMs`, currently 500 ms, wall-clock honest) before latching, so the hop is traceable by eye. Signals arriving while busy wait on the wire and are serviced afterwards — nothing is ever dropped.
 - The outcome latches into **solve success** or **solve failure**: one signal is minted carrying the payload, and it persists until the next run or a clear. Downstream components consume the signal exactly once — recomputes and replays never re-fire a chain, and processing order follows the global sequence (causal order), not solve timing.
-- Native GH Buttons/Toggles wire directly into Signal inputs (one run per press); multiple signal sources wire into one input directly — no OR gates. A bool-minted signal carries an empty payload, so payload-fed components warn and drop it — use Construct Signal for manual runs.
+- Signal inputs accept only signals; a bare Button/Toggle has no payload and is a hard error there. Multiple signal sources wire into one input directly — no OR gates. For a manual run, use Construct Signal, whose dedicated native Boolean Trigger input mints a payload-carrying signal on each Button press.
 
 Routing components (Reasoner, Auditor, Transmitter, Schema Translator) layer the standard contract on top: Signal in (payload = working data), Success Signal out, Fail Signal out. Recorder participates in the same state machine with dedicated Prompt/Response/Feedback Signal inputs and emits its signal only on user-turn appends (see below).
 
@@ -288,7 +288,7 @@ Outputs:
 ## Signals Utilities
 
 ### Construct Signal
-**Role:** Mints a signal carrying an arbitrary text payload, once per consumed trigger — the manual entry point into the pipeline. A Panel of text plus a Button lets any signal-driven component (e.g. Auditor) be run standalone. Latches immediately (a source, not a processing hop — no visible delay).
+**Role:** Mints a signal carrying an arbitrary text payload, once per Button press — the manual entry point into the pipeline. A Panel of text plus a Button lets any signal-driven component (e.g. Auditor) be run standalone. The Trigger is a native Boolean input (not a Signal): it is the one sanctioned place a Button drives the pipeline, since Signal inputs themselves accept only signals. Latches immediately (a source, not a processing hop — no visible delay).
 
 **Deterministic.**
 
@@ -297,7 +297,7 @@ Outputs:
 Inputs:
 - `payload` — string carried by the minted signal
 - `failure` — boolean; when true the minted signal carries a Failure outcome (for hand-testing feedback paths)
-- `signal` — trigger; Buttons/Toggles work (one mint per press)
+- `trigger` — native boolean; one mint per Button press (false→true), nothing on load/paste
 
 Outputs:
 - `signal` — the minted signal, latched until the next trigger or a clear

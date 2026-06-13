@@ -245,8 +245,8 @@ public class Recorder : StatefulComponentBase
                 break;
 
             case InPromptSignal:
-                // The payload IS the prompt. A bare Button press mints an empty payload —
-                // Construct Signal is the manual path for attaching text to a trigger.
+                // The payload IS the prompt. A signal with an empty payload (e.g. a Construct
+                // Signal left blank) has nothing to record — warn and drop it.
                 if (!StringHelpers.IsNonBlank(item.Signal.Payload))
                 {
                     AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Prompt signal carried no text — use Construct Signal to attach a payload to a manual trigger.");

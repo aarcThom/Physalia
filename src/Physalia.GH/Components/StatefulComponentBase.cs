@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
 using Grasshopper.Kernel;
+using Grasshopper.Kernel.Types;
 using Physalia.Core.Signals;
 using Physalia.GH.Goo;
 
@@ -49,9 +50,11 @@ public abstract class StatefulComponentBase : PhyBase
     // ---- consume-once intake state (per Signal input index; never serialised) ----
     private readonly Dictionary<int, long> _marks = new();
     private readonly Dictionary<int, List<PhySignal>> _wireSignals = new();
-    private readonly Dictionary<int, List<bool>> _boolBaselines = new();
-    private readonly Dictionary<int, List<PhySignal>> _pendingManual = new();
     private readonly HashSet<int> _observedOnce = new();
+
+    // ---- native bool-trigger edge-detection state (per Boolean input index; never serialised) ----
+    private readonly Dictionary<int, bool> _buttonLevels = new();
+    private readonly HashSet<int> _buttonObserved = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StatefulComponentBase"/> class.
@@ -155,17 +158,17 @@ public abstract class StatefulComponentBase : PhyBase
     /// Reads the given Signal inputs and updates the consume-once bookkeeping. Call once
     /// at the top of every solve, for every Signal input, regardless of
     /// <see cref="State"/> — observing while Active is what makes events lossless
-    /// (they wait, latched on the wire or queued from a Button press, until consumed).
-    /// Idempotent within a solve.
+    /// (they wait, latched on the wire, until consumed). Idempotent within a solve.
     ///
-    /// <para>Genuine signals are snapshot as candidates; a wire holds one latched signal
-    /// per source, so two rapid events from the same source supersede (latest wins).
-    /// Plain-bool sources (Buttons/Toggles, via the <see cref="GH_Signal"/> cast sentinel)
-    /// are edge-detected here: each false→true transition mints exactly one signal into a
-    /// pending queue. The first ever observation of an input baselines it — pre-existing
-    /// latched signals and stuck-true Toggles never fire on a fresh, pasted, or reloaded
-    /// component. Anything else wired in (text, numbers, …) raises an error rather than
-    /// being silently ignored.</para>
+    /// <para>A Signal input carries only genuine signals. Each wire holds one latched signal
+    /// per source, so two rapid events from the same source supersede (latest wins). The
+    /// first ever observation of an input baselines it — pre-existing latched signals never
+    /// fire on a fresh, pasted, or reloaded component. A null or empty item on the wire is
+    /// tolerated silently (an unset or passthrough-empty Signal input is normal); only a
+    /// genuinely foreign source — a bool (Button/Toggle), text, numbers, geometry, anything
+    /// that is not a Signal — raises an error, caught by inspecting the source goo types so
+    /// an empty wire is never mistaken for one. Manual runs come from Construct Signal, whose
+    /// dedicated Boolean trigger mints a payload-carrying signal.</para>
     /// </summary>
     /// <param name="da">The data access for the current solve.</param>
     /// <param name="paramIndices">The Signal input parameter indices to observe.</param>
@@ -177,7 +180,6 @@ public abstract class StatefulComponentBase : PhyBase
             da.GetDataList(idx, items);
 
             var wire = new List<PhySignal>();
-            var boolLevels = new List<bool>();
 
             foreach (GH_Signal? item in items)
             {
@@ -185,19 +187,19 @@ public abstract class StatefulComponentBase : PhyBase
                 {
                     wire.Add(signal);
                 }
-                else if (item?.BoolLevel is bool level)
-                {
-                    boolLevels.Add(level);
-                }
-                else
-                {
-                    // A null/empty item means a non-signal source was wired in (the
-                    // Signal cast accepts only signals and bool levels). Fail loudly:
-                    // silently ignoring it would look like a dropped event.
-                    AddRuntimeMessage(
-                        GH_RuntimeMessageLevel.Error,
-                        $"\"{Params.Input[idx].Name}\" accepts only Signals (native Buttons/Toggles also work). Use Construct Signal to turn text into a signal.");
-                }
+
+                // A null or empty item is tolerated: an unset or passthrough-empty Signal
+                // wire is normal. A failed cast from foreign data also lands here as a
+                // null, so it is NOT flagged from the item — HasForeignSignalSource below
+                // inspects the source goo (which keeps its original type) to tell the two
+                // apart and error only on the genuinely foreign one.
+            }
+
+            if (HasForeignSignalSource(idx))
+            {
+                AddRuntimeMessage(
+                    GH_RuntimeMessageLevel.Error,
+                    $"\"{Params.Input[idx].Name}\" accepts only Signals. Use Construct Signal to turn text (and a Button trigger) into a signal.");
             }
 
             bool first = _observedOnce.Add(idx);
@@ -208,30 +210,30 @@ public abstract class StatefulComponentBase : PhyBase
                 // First-observation baseline: swallow whatever is already on the wire so a
                 // fresh/pasted/reloaded component never fires off pre-existing state.
                 _marks[idx] = wire.Count > 0 ? wire.Max(s => s.Sequence) : 0;
-                _boolBaselines[idx] = boolLevels;
-                continue;
             }
-
-            List<bool> baseline = _boolBaselines.TryGetValue(idx, out var b) ? b : new List<bool>();
-            if (baseline.Count != boolLevels.Count)
-            {
-                // Wiring changed (bool source added/removed): re-baseline silently.
-                _boolBaselines[idx] = boolLevels;
-                continue;
-            }
-
-            for (int i = 0; i < boolLevels.Count; i++)
-            {
-                if (boolLevels[i] && !baseline[i])
-                {
-                    // One minted signal per false→true transition (Button press), even mid-Active.
-                    PendingManualFor(idx).Add(PhySignal.Mint(
-                        SignalOutcome.Success, string.Empty, InstanceGuid, $"{Name} (manual)"));
-                }
-            }
-
-            _boolBaselines[idx] = boolLevels;
         }
+    }
+
+    /// <summary>
+    /// Reads a native Boolean trigger input and reports a press — a false→true transition
+    /// since the last observation. The manual-run path for source components (e.g. Construct
+    /// Signal): a Button/Toggle plugs into a plain Boolean parameter, never a Signal input.
+    /// The first ever observation baselines the input, so a stuck-true Toggle on a fresh,
+    /// pasted, or reloaded component never fires. Session-only state, never serialised.
+    /// </summary>
+    /// <param name="da">The data access for the current solve.</param>
+    /// <param name="boolParamIndex">The Boolean input parameter index to observe.</param>
+    /// <returns>true exactly once per false→true press; otherwise false.</returns>
+    protected bool ObserveButtonPress(IGH_DataAccess da, int boolParamIndex)
+    {
+        bool level = false;
+        da.GetData(boolParamIndex, ref level);
+
+        bool firstObservation = _buttonObserved.Add(boolParamIndex);
+        bool previous = _buttonLevels.TryGetValue(boolParamIndex, out bool p) && p;
+        _buttonLevels[boolParamIndex] = level;
+
+        return !firstObservation && level && !previous;
     }
 
     /// <summary>
@@ -426,38 +428,53 @@ public abstract class StatefulComponentBase : PhyBase
         });
     }
 
+    /// <summary>
+    /// Whether a non-signal source is wired into the given input. Inspects the source
+    /// goo directly (it keeps its original type even after a failed cast to Signal), so a
+    /// genuinely foreign type — a bool (Button/Toggle), text, numbers, geometry — is told
+    /// apart from a benign null/empty item, which the failed cast would otherwise also leave
+    /// on the wire. Only a genuine signal is accepted; a bare bool has no payload and is
+    /// rejected (Construct Signal's Boolean trigger is the manual path).
+    /// </summary>
+    /// <param name="paramIndex">The Signal input parameter index.</param>
+    /// <returns>true when at least one wired source produces non-signal data.</returns>
+    private bool HasForeignSignalSource(int paramIndex)
+    {
+        foreach (IGH_Param source in Params.Input[paramIndex].Sources)
+        {
+            foreach (IGH_Goo? goo in source.VolatileData.AllData(true))
+            {
+                if (goo is null || !goo.IsValid)
+                {
+                    // Empty/null source data — tolerated, never an error.
+                    continue;
+                }
+
+                if (goo is GH_Signal)
+                {
+                    // A genuine signal — accepted.
+                    continue;
+                }
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private IEnumerable<PhySignal> UnconsumedFor(int paramIndex)
     {
         long mark = _marks.TryGetValue(paramIndex, out long m) ? m : 0;
 
-        IEnumerable<PhySignal> fromWire = _wireSignals.TryGetValue(paramIndex, out var wire)
+        return _wireSignals.TryGetValue(paramIndex, out var wire)
             ? wire.Where(s => s.Sequence > mark)
             : Enumerable.Empty<PhySignal>();
-
-        return _pendingManual.TryGetValue(paramIndex, out var pending)
-            ? fromWire.Concat(pending)
-            : fromWire;
     }
 
     private void MarkConsumed(int paramIndex, PhySignal signal)
     {
-        if (_pendingManual.TryGetValue(paramIndex, out var pending) && pending.Remove(signal))
-        {
-            return;
-        }
-
         long mark = _marks.TryGetValue(paramIndex, out long m) ? m : 0;
         _marks[paramIndex] = Math.Max(mark, signal.Sequence);
-    }
-
-    private List<PhySignal> PendingManualFor(int paramIndex)
-    {
-        if (!_pendingManual.TryGetValue(paramIndex, out var pending))
-        {
-            pending = new List<PhySignal>();
-            _pendingManual[paramIndex] = pending;
-        }
-
-        return pending;
     }
 }

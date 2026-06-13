@@ -57,16 +57,18 @@ wire is a live ordering trace.
 **Ephemeral:** signals never serialize (`GH_Signal.Write/Read` are no-ops). A reopened
 file has signal-free wires; nothing fires on load and every component reopens Empty.
 
-**Native bool sources (Buttons/Toggles)** wire straight into Signal inputs. The cast does
-NOT mint a signal (casts run every solve — a stuck-true Toggle would re-fire forever);
-it captures the raw level as a sentinel, and the consuming component edge-detects with
-its own per-input state, minting exactly one signal per false→true transition. A press
-during an active run queues losslessly. The first observation of an input baselines it:
-fresh, pasted, or reloaded components never fire off pre-existing wire state. Note a
-bool-minted signal has an **empty payload** — payload-fed components (Auditor,
-PyTransmitter, Schema Translator, Recorder's Prompt Signal) will warn and drop it; use
-Construct Signal instead. Anything else wired into a Signal input (text, numbers, …) is
-a **hard error** — `ObserveSignalInputs` fails loudly rather than silently ignoring it.
+**Signal inputs accept only signals.** A bare bool source (Button/Toggle) carries no
+payload, so it does **not** cast to a signal — wiring one into a Signal input is a **hard
+error**, the same as wiring text, numbers, or geometry. `ObserveSignalInputs` catches this
+by inspecting the source goo directly (it keeps its original type even after a failed cast),
+so a genuinely foreign source is told apart from a benign null/empty wire and only the
+foreign one fails loudly. The first observation of an input baselines it: fresh, pasted, or
+reloaded components never fire off pre-existing wire state.
+
+**Manual runs** go through **Construct Signal**, whose dedicated native **Boolean Trigger**
+input (edge-detected by `ObserveButtonPress` — one mint per false→true press, nothing on
+load/paste) mints a payload-carrying signal. That is the one sanctioned place a Button drives
+the pipeline; everywhere else the wire is signal-to-signal.
 
 **Multiple sources** wire directly into one Signal input (list access) — no OR gates.
 Each source's events have distinct sequences; the receiver consumes each exactly once,
@@ -126,7 +128,8 @@ callback re-arms for the remainder instead of acting (`ScheduleStateSolve`).
 | `LatchSuccess(payload, emitSignal=true, outcome=Success)` | mint + latch; `emitSignal:false` = quiet (no downstream fire); `outcome` override for pass-through truthfulness |
 | `LatchFailure(payload, emitSignal=true)` | mirror |
 | `EnterActive()` / `ResetToEmpty()` | transitions; both clear outgoing signals |
-| `ObserveSignalInputs(da, indices…)` | call EVERY solve (even Active) for every Signal input; snapshots wire signals, edge-detects bool sentinels into a pending queue, applies the first-observation baseline |
+| `ObserveSignalInputs(da, indices…)` | call EVERY solve (even Active) for every Signal input; snapshots wire signals, applies the first-observation baseline, errors on a non-signal source |
+| `ObserveButtonPress(da, boolIndex)` | edge-detect a native Boolean trigger input; true once per false→true press (first observation baselines). The sanctioned Button path — Construct Signal |
 | `HasUnconsumedSignals(…)` | peek — used post-latch to schedule the follow-up solve |
 | `TryConsumeOldestSignal(idx, out s)` | one event, oldest first (routing components) |
 | `ConsumeAllSignals(indices…)` | drain all, **global sequence order** (Recorder) |
@@ -180,7 +183,7 @@ from which input the signal arrived on, never from conversation parity:
 
 | Input | Records | Text source |
 |---|---|---|
-| `Prompt Signal` | user turn | signal payload (the prompt text), from Prompter or Construct Signal; an empty payload (bare Button press) warns |
+| `Prompt Signal` | user turn | signal payload (the prompt text), from Prompter or Construct Signal; an empty payload warns and is dropped |
 | `Response Signal` (from Reasoner Success Signal) | assistant turn | Tool Calls list (priority), else payload |
 | `Feedback Signal` (from Collector(s)) | user turn | payload |
 

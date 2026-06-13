@@ -52,7 +52,7 @@ public class DeconstructSignal : PhyBase
         GH_Signal? goo = null;
         if (!DA.GetData(0, ref goo) || goo?.Value is not PhySignal signal)
         {
-            // Empty wire or a bool sentinel (Button/Toggle level) — nothing to show.
+            // Empty or invalid wire — nothing to show.
             return;
         }
 

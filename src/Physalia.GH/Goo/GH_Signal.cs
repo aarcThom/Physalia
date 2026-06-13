@@ -15,11 +15,10 @@ namespace Physalia.GH.Goo;
 /// <para>Signals are ephemeral session events: they are never serialised, so a reopened
 /// file has signal-free wires and nothing re-fires on load.</para>
 ///
-/// <para>Casting from a plain bool (native Button / Toggle) does NOT mint a signal — casts
-/// run during every data collection, so minting here would re-fire downstream every solve
-/// while a Toggle is stuck true. Instead the cast captures the raw level in
-/// <see cref="BoolLevel"/>; the consuming component edge-detects against its own per-input
-/// state and mints exactly one signal per false→true transition.</para>
+/// <para>A Signal wire carries only genuine signals: casting accepts a <see cref="PhySignal"/>
+/// (or another <see cref="GH_Signal"/>) and nothing else. A native bool source (Button /
+/// Toggle) does NOT cast — it has no payload, so it is rejected at the input. Manual runs go
+/// through Construct Signal's dedicated Boolean trigger instead.</para>
 /// </summary>
 public class GH_Signal : PhyGoo<GH_Signal, PhySignal>
 {
@@ -39,13 +38,6 @@ public class GH_Signal : PhyGoo<GH_Signal, PhySignal>
     {
     }
 
-    /// <summary>
-    /// Gets the raw boolean level captured from a foreign bool source (Button/Toggle).
-    /// Set only by <see cref="CastFrom"/>; null for genuine signals. Consuming components
-    /// edge-detect on this to mint one signal per press.
-    /// </summary>
-    public bool? BoolLevel { get; private set; }
-
     /// <inheritdoc/>
     public override string TypeName => "Signal";
 
@@ -54,17 +46,17 @@ public class GH_Signal : PhyGoo<GH_Signal, PhySignal>
         "A sequence-numbered event. Latches on the wire; downstream components consume each signal exactly once.";
 
     /// <inheritdoc/>
-    public override bool IsValid => Value is not null || BoolLevel.HasValue;
+    public override bool IsValid => Value is not null;
 
     /// <inheritdoc/>
-    public override IGH_Goo Duplicate() => new GH_Signal { Value = Value, BoolLevel = BoolLevel };
+    public override IGH_Goo Duplicate() => new GH_Signal { Value = Value };
 
     /// <inheritdoc/>
     public override string ToString()
     {
         if (Value is null)
         {
-            return BoolLevel.HasValue ? $"(bool {(BoolLevel.Value ? "true" : "false")})" : "(empty signal)";
+            return "(empty signal)";
         }
 
         string preview = Value.Payload.Length > 40 ? Value.Payload[..40] + "…" : Value.Payload;
@@ -83,15 +75,6 @@ public class GH_Signal : PhyGoo<GH_Signal, PhySignal>
                 return true;
             case GH_Signal goo:
                 Value = goo.Value;
-                BoolLevel = goo.BoolLevel;
-                return true;
-            case bool level:
-                Value = null;
-                BoolLevel = level;
-                return true;
-            case GH_Boolean ghBool:
-                Value = null;
-                BoolLevel = ghBool.Value;
                 return true;
             default:
                 return false;
@@ -105,13 +88,13 @@ public class GH_Signal : PhyGoo<GH_Signal, PhySignal>
         // (not a pulse — it stays true while latched).
         if (typeof(Q).IsAssignableFrom(typeof(GH_Boolean)))
         {
-            target = (Q)(object)new GH_Boolean(Value is not null || BoolLevel == true);
+            target = (Q)(object)new GH_Boolean(Value is not null);
             return true;
         }
 
         if (typeof(Q).IsAssignableFrom(typeof(bool)))
         {
-            target = (Q)(object)(Value is not null || BoolLevel == true);
+            target = (Q)(object)(Value is not null);
             return true;
         }
 

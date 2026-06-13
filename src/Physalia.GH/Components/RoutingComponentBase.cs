@@ -162,7 +162,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
             new Param_Signal(),
             "Signal",
             "S",
-            "Run signal. Each incoming signal runs the component exactly once; multiple sources may be wired directly. Native Buttons/Toggles also work (one run per press).",
+            "Run signal. Each incoming signal runs the component exactly once; multiple signal sources may be wired directly. For a manual run, wire a Construct Signal (Button + payload).",
             GH_ParamAccess.list);
         pManager[_signalIndex].Optional = true;
     }
@@ -180,7 +180,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         OnSolveTick(DA);
 
         // Observe every solve, even mid-run: signals arriving while busy stay latched on
-        // the wire (or queue from a Button press) and are serviced after the latch.
+        // the wire and are serviced after the latch.
         ObserveSignalInputs(DA, _signalIndex);
 
         if (_awaitingRead && _doRead)

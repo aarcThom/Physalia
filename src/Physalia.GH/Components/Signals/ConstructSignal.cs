@@ -11,16 +11,17 @@ using Physalia.GH.Parameters;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Mints a signal carrying an arbitrary text payload, one per consumed trigger. The
-/// manual entry point into the signal pipeline: a Panel of text plus a Button lets any
+/// Mints a signal carrying an arbitrary text payload, one per Button press. The manual
+/// entry point into the signal pipeline: a Panel of text plus a Button lets any
 /// signal-driven component (e.g. Auditor) be run standalone, without the upstream chain.
-/// The incoming trigger's own payload is ignored — the Payload input is authoritative.
+/// The Trigger is a native Boolean input (not a Signal) — it is the one sanctioned place a
+/// Button drives the pipeline, since Signal inputs themselves accept only signals.
 /// </summary>
 public class ConstructSignal : StatefulComponentBase
 {
     private const int InPayload = 0;
     private const int InFailure = 1;
-    private const int InSignal = 2;
+    private const int InTrigger = 2;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ConstructSignal"/> class.
@@ -38,14 +39,13 @@ public class ConstructSignal : StatefulComponentBase
     {
         pManager.AddTextParameter("Payload", "P", "Text payload carried by the minted signal.", GH_ParamAccess.item, string.Empty);
         pManager.AddBooleanParameter("Failure", "F", "When true the minted signal carries a Failure outcome (for hand-testing feedback paths).", GH_ParamAccess.item, false);
-        pManager.AddParameter(
-            new Param_Signal(),
-            "Signal",
-            "S",
-            "Trigger. Each incoming signal mints the output once; native Buttons/Toggles also work (one mint per press).",
-            GH_ParamAccess.list);
+        pManager.AddBooleanParameter(
+            "Trigger",
+            "T",
+            "Native Boolean trigger: each Button press (false→true) mints the output once. Nothing fires on load or paste until a real press.",
+            GH_ParamAccess.item,
+            false);
         pManager[InPayload].Optional = true;
-        pManager[InSignal].Optional = true;
     }
 
     /// <inheritdoc/>
@@ -57,12 +57,9 @@ public class ConstructSignal : StatefulComponentBase
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        ObserveSignalInputs(DA, InSignal);
-
         // A source, not a processing hop: no visible Active delay — the latch happens on
-        // the consume solve. Several queued triggers collapse into one mint (the output
-        // holds a single latched signal anyway).
-        if (ConsumeAllSignals(InSignal).Count > 0)
+        // the press solve. The output holds a single latched signal until the next press.
+        if (ObserveButtonPress(DA, InTrigger))
         {
             string payload = string.Empty;
             bool failure = false;

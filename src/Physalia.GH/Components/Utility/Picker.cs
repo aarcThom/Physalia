@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Physalia.GH.Attributes;
 
 namespace Physalia.GH.Components.Utility;
 
@@ -27,6 +29,29 @@ public class Picker : PhyBase
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("2D14368F-0302-4D08-BDEC-61DD6A28732C");
+
+    /// <summary>Gets the currently selected value.</summary>
+    internal string SelectedValue => _selectedValue;
+
+    /// <summary>Gets available values from the connected pickable component, or an empty list.</summary>
+    internal IReadOnlyList<string> AvailableValues
+    {
+        get
+        {
+            var pickable = FindPickableInput();
+            return pickable?.Values ?? Array.Empty<string>();
+        }
+    }
+
+    /// <summary>Sets the selected value (called from <see cref="PickerAttrib"/> on menu selection).</summary>
+    /// <param name="value">The newly selected value.</param>
+    internal void SetSelectedValue(string value) => _selectedValue = value;
+
+    /// <inheritdoc/>
+    public override void CreateAttributes()
+    {
+        m_attributes = new PickerAttrib(this);
+    }
 
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)

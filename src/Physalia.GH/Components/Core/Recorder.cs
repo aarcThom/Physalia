@@ -239,8 +239,15 @@ public class Recorder : StatefulComponentBase
                 break;
 
             case InPromptSignal:
-                // The payload IS the prompt. A signal with an empty payload (e.g. a Construct
-                // Signal left blank) has nothing to record — warn and drop it.
+                // A Prompter turn may carry resolved content blocks (text + inline images);
+                // a Construct Signal carries only the text payload. An images-only prompt has
+                // blocks but a blank payload, so check blocks first.
+                if (item.Signal.ContentBlocks.Count > 0)
+                {
+                    RecordUserBlocks(item.Signal.ContentBlocks, item.Signal.Payload);
+                    break;
+                }
+
                 if (!StringHelpers.IsNonBlank(item.Signal.Payload))
                 {
                     AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Prompt signal carried no text — use Construct Signal to attach a payload to a manual trigger.");
@@ -290,17 +297,20 @@ public class Recorder : StatefulComponentBase
         }
     }
 
-    private void RecordUserText(string text)
+    private void RecordUserText(string text) =>
+        RecordUserBlocks(new MessageContent[] { new TextContent(text) }, text);
+
+    private void RecordUserBlocks(IReadOnlyList<MessageContent> blocks, string traceText)
     {
         try
         {
             // Applied per conversation: each merges or appends based on its own last role
             // (they can diverge around compaction absorbs). Merging preserves the strict
             // role alternation providers require when two user-side events arrive in a row.
-            _conversation = RecordUserInto(_conversation, text);
-            _recordedHistory = RecordUserInto(_recordedHistory, text);
+            _conversation = RecordUserInto(_conversation, blocks);
+            _recordedHistory = RecordUserInto(_recordedHistory, blocks);
             _pendingOutcome = AppendOutcome.UserTurn;
-            _pendingUserText = text;
+            _pendingUserText = traceText;
         }
         catch (InvalidOperationException ex)
         {
@@ -308,10 +318,10 @@ public class Recorder : StatefulComponentBase
         }
     }
 
-    private static Conversation RecordUserInto(Conversation conversation, string text) =>
+    private static Conversation RecordUserInto(Conversation conversation, IReadOnlyList<MessageContent> blocks) =>
         conversation.Count > 0 && conversation.Messages[^1].Role == Role.User
-            ? conversation.MergeIntoLastUserMessage(text)
-            : conversation.Append(new ConversationMessage(Role.User, text));
+            ? conversation.MergeIntoLastUserMessage(blocks)
+            : conversation.Append(new ConversationMessage(Role.User, blocks));
 
     private void EmitOutputs(IGH_DataAccess da)
     {

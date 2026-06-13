@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using Physalia.Core.ConvoInstruct;
+
 namespace Physalia.Core.Signals;
 
 /// <summary>
@@ -25,6 +27,15 @@ public sealed record PhySignal(
     DateTime Timestamp)
 {
     /// <summary>
+    /// Gets the resolved content blocks for the event, when it carries richer-than-text data
+    /// (e.g. a Prompter user turn with inline images). Empty for the common text-only case, in
+    /// which <see cref="Payload"/> is the sole carrier. A deliberate multimodal extension to the
+    /// payload-only contract: the only wire between pipeline components is the signal, so an
+    /// assembled multimodal turn must ride on it.
+    /// </summary>
+    public IReadOnlyList<MessageContent> ContentBlocks { get; init; } = Array.Empty<MessageContent>();
+
+    /// <summary>
     /// Mints a new signal with the next global sequence number. This is the only way a
     /// sequence is assigned — callers can never reuse or fabricate sequence numbers.
     /// </summary>
@@ -32,7 +43,11 @@ public sealed record PhySignal(
     /// <param name="payload">The event payload; null is normalised to empty.</param>
     /// <param name="sourceId">Instance GUID of the emitting component.</param>
     /// <param name="sourceName">Display name of the emitting component.</param>
+    /// <param name="contentBlocks">Optional resolved content blocks; null is normalised to empty.</param>
     /// <returns>A freshly sequenced signal.</returns>
-    public static PhySignal Mint(SignalOutcome outcome, string? payload, Guid sourceId, string sourceName) =>
-        new(SignalSequencer.Next(), outcome, payload ?? string.Empty, sourceId, sourceName, DateTime.UtcNow);
+    public static PhySignal Mint(SignalOutcome outcome, string? payload, Guid sourceId, string sourceName, IReadOnlyList<MessageContent>? contentBlocks = null) =>
+        new(SignalSequencer.Next(), outcome, payload ?? string.Empty, sourceId, sourceName, DateTime.UtcNow)
+        {
+            ContentBlocks = contentBlocks ?? Array.Empty<MessageContent>(),
+        };
 }

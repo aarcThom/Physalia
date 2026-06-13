@@ -9,6 +9,7 @@ using System.Linq;
 using System.Windows.Forms;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Types;
+using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Signals;
 using Physalia.GH.Goo;
 
@@ -319,10 +320,14 @@ public abstract class StatefulComponentBase : PhyBase
     /// (e.g. Feedback Collector) may forward a Failure outcome for trace truthfulness even
     /// though their own run succeeded.
     /// </param>
-    protected void LatchSuccess(string payload, bool emitSignal = true, SignalOutcome outcome = SignalOutcome.Success)
+    /// <param name="contentBlocks">
+    /// Optional resolved content blocks carried alongside the payload — e.g. a Prompter user
+    /// turn with inline images. Null/empty for the common text-only case.
+    /// </param>
+    protected void LatchSuccess(string payload, bool emitSignal = true, SignalOutcome outcome = SignalOutcome.Success, IReadOnlyList<MessageContent>? contentBlocks = null)
     {
         State = SolveState.SolveSuccess;
-        SuccessSignal = emitSignal ? PhySignal.Mint(outcome, payload, InstanceGuid, Name) : null;
+        SuccessSignal = emitSignal ? PhySignal.Mint(outcome, payload, InstanceGuid, Name, contentBlocks) : null;
         FailSignal = null;
         UpdateStateDisplay();
     }

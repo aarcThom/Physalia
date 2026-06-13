@@ -4,9 +4,12 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Physalia.Core.ConvoInstruct;
 using Physalia.GH.Attributes;
+using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
@@ -25,6 +28,11 @@ public class Prompter : StatefulComponentBase
     /// typing. Persisted across save/reload; cleared on submit.
     /// </summary>
     public string UserPromptText = string.Empty;
+
+    // Alias → image source, refreshed every solve from the Image Sources input so submit
+    // (which fires from the UI, outside a solve) can resolve "/<alias>" references.
+    private IReadOnlyDictionary<string, ImageSource> _imagesByAlias =
+        new Dictionary<string, ImageSource>();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Prompter"/> class.
@@ -49,7 +57,8 @@ public class Prompter : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        // No inputs — prompt text arrives through the chat UI.
+        pManager.AddParameter(new Param_ImageSource(), "Image Sources", "Img", "Optional images (from Image Gatherer) referenceable in the prompt with \"/<alias>\".", GH_ParamAccess.list);
+        pManager[0].Optional = true;
     }
 
     /// <inheritdoc/>
@@ -61,6 +70,29 @@ public class Prompter : StatefulComponentBase
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
+        // Refresh the alias map every solve so submit (which fires from the UI) sees the
+        // current Image Gatherer contents. Upstream edits re-solve this component.
+        var images = new List<GH_ImageSource>();
+        DA.GetDataList(0, images);
+
+        var map = new Dictionary<string, ImageSource>(StringComparer.Ordinal);
+        foreach (GH_ImageSource? goo in images)
+        {
+            if (goo?.Value is not { } resource || string.IsNullOrEmpty(resource.Alias))
+            {
+                continue;
+            }
+
+            if (map.ContainsKey(resource.Alias))
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"Duplicate image alias \"{resource.Alias}\" — the last one wins.");
+            }
+
+            map[resource.Alias] = resource.Source;
+        }
+
+        _imagesByAlias = map;
+
         EmitSignal(DA, 0, SuccessSignal);
     }
 
@@ -82,7 +114,11 @@ public class Prompter : StatefulComponentBase
             return;
         }
 
-        LatchSuccess(UserPromptText);
+        // Resolve "/<alias>" references into interleaved text/image content blocks. The plain
+        // text becomes the signal payload (trace/display); the blocks carry the images.
+        ResolvedPrompt resolved = PromptImageResolver.Resolve(UserPromptText, _imagesByAlias);
+
+        LatchSuccess(resolved.Text, contentBlocks: resolved.Blocks);
         UserPromptText = string.Empty;
         ExpireSolution(true);
     }

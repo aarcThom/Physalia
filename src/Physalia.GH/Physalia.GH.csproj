@@ -46,6 +46,12 @@
   </ItemGroup>
 
 	<ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
+		<!-- Eto UI toolkit (Manage Images panel). Compile against Rhino's exact shipped Eto
+		     (2.11) and let the runtime provide it — Private=False, never copied to output. -->
+		<Reference Include="Eto">
+			<HintPath>C:\Program Files\Rhino 8\System\Eto.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
 		<!-- The Python script execution engine -->
 		<Reference Include="Rhino.Runtime.Code">
 			<HintPath>C:\Program Files\Rhino 8\System\Rhino.Runtime.Code.dll</HintPath>
@@ -64,6 +70,11 @@
 	</ItemGroup>
 
 	<ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
+		<!-- Eto UI toolkit (Manage Images panel) — Mac path (best guess, verify against your Rhino 8 install) -->
+		<Reference Include="Eto">
+			<HintPath>/Applications/Rhino 8.app/Contents/Frameworks/RhCore.framework/Versions/Current/Resources/ManagedPlugIns/RhinoCommon.framework/Versions/Current/Eto.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
 		<!-- The Python script execution engine — Mac path (best guess, verify against your Rhino 8 install) -->
 		<Reference Include="Rhino.Runtime.Code">
 			<HintPath>/Applications/Rhino 8.app/Contents/Frameworks/RhCore.framework/Versions/Current/Resources/ManagedPlugIns/RhinoCommon.framework/Versions/Current/Rhino.Runtime.Code.dll</HintPath>

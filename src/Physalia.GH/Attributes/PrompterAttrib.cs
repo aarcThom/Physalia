@@ -82,6 +82,7 @@ public class PrompterAttrib : GH_ComponentAttributes
     private RectangleF _gripConvo;
     private RectangleF _gripInput;
     private RectangleF _wireOutputGrip;
+    private RectangleF _wireInputGrip;
 
     private RectangleF _layoutBounds; // the actual bounds, expanded for the output wire grip
     private RectangleF _renderBounds; // the bounds that are rendered
@@ -201,9 +202,9 @@ public class PrompterAttrib : GH_ComponentAttributes
         _boundsInput = new RectangleF(x, y + TitleHeight + _convoHeight, _width, _inputHeight);
 
         // render bounds is the smaller rectangle (the visible panel); layout bounds is
-        // slightly bigger to the right so the output grip stays clickable
+        // slightly bigger on both sides so the input (left) and output (right) grips stay clickable
         _renderBounds = new RectangleF(x, y, _width, TitleHeight + _convoHeight + _inputHeight);
-        _layoutBounds = new RectangleF(x, y, _width + 4f, TitleHeight + _convoHeight + _inputHeight);
+        _layoutBounds = new RectangleF(x - 4f, y, _width + 8f, TitleHeight + _convoHeight + _inputHeight);
 
         Bounds = _renderBounds;
 
@@ -214,7 +215,11 @@ public class PrompterAttrib : GH_ComponentAttributes
 
         _wireOutputGrip = new RectangleF(_boundsConvoPanel.Right - 3f, _boundsConvoPanel.Bottom - (_boundsConvoPanel.Height / 2) - 4f, 8f, 8f);
 
+        // input grip mirrors the output grip on the left edge, vertically aligned
+        _wireInputGrip = new RectangleF(_boundsConvoPanel.Left - 5f, _boundsConvoPanel.Bottom - (_boundsConvoPanel.Height / 2) - 4f, 8f, 8f);
+
         LayoutOutputParam();
+        LayoutInputParam();
     }
 
     /// <summary>
@@ -235,6 +240,7 @@ public class PrompterAttrib : GH_ComponentAttributes
         if (channel == GH_CanvasChannel.Objects)
         {
             DrawWireGrip(graphics, _wireOutputGrip);
+            DrawWireGrip(graphics, _wireInputGrip);
             DrawTitle(graphics, _boundsTitle);
             DrawConvoPanel(graphics, _boundsConvoPanel);
             DrawConvoText(graphics);
@@ -439,6 +445,16 @@ public class PrompterAttrib : GH_ComponentAttributes
         float midY = _boundsConvoPanel.Y + (_boundsConvoPanel.Height / 2f);
         param.Attributes.Pivot = new PointF(Bounds.Right, midY);
         param.Attributes.Bounds = new RectangleF(Bounds.Right - 5f, midY - 5f, 10f, 10f);
+    }
+
+    // positions the Image Sources input at the left edge of the conversation section,
+    // vertically aligned with the output grip
+    private void LayoutInputParam()
+    {
+        var param = Owner.Params.Input[0];
+        float midY = _boundsConvoPanel.Y + (_boundsConvoPanel.Height / 2f);
+        param.Attributes.Pivot = new PointF(Bounds.Left, midY);
+        param.Attributes.Bounds = new RectangleF(Bounds.Left - 5f, midY - 5f, 10f, 10f);
     }
 
     private void DrawWireGrip(Graphics graphics, RectangleF bounds)

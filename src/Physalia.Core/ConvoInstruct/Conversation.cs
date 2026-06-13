@@ -78,6 +78,28 @@ public sealed class Conversation
             throw new ArgumentException("Cannot merge blank text into the conversation.", nameof(text));
         }
 
+        return MergeIntoLastUserMessage(new MessageContent[] { new TextContent(text) });
+    }
+
+    /// <summary>
+    /// Returns a new <see cref="Conversation"/> whose last message — which must be a
+    /// <see cref="Role.User"/> turn — gains the given content blocks appended. Used when a
+    /// second user-side event arrives before an assistant turn (e.g. an image-bearing prompt
+    /// after feedback): providers require alternating roles, so the blocks merge into one turn.
+    /// </summary>
+    /// <param name="blocks">The content blocks to append to the last user message.</param>
+    /// <returns>A new conversation with the merged last turn.</returns>
+    /// <exception cref="ArgumentException">Thrown when blocks is null or empty.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the conversation is empty or the last message is not a user turn.
+    /// </exception>
+    public Conversation MergeIntoLastUserMessage(IReadOnlyList<MessageContent> blocks)
+    {
+        if (blocks is null || blocks.Count == 0)
+        {
+            throw new ArgumentException("Cannot merge an empty content list into the conversation.", nameof(blocks));
+        }
+
         if (_messages.Count == 0 || _messages[^1].Role != Role.User)
         {
             throw new InvalidOperationException(
@@ -85,9 +107,9 @@ public sealed class Conversation
         }
 
         ConversationMessage last = _messages[^1];
-        var mergedContent = new List<MessageContent>(last.Content.Count + 1);
+        var mergedContent = new List<MessageContent>(last.Content.Count + blocks.Count);
         mergedContent.AddRange(last.Content);
-        mergedContent.Add(new TextContent(text));
+        mergedContent.AddRange(blocks);
 
         var next = new List<ConversationMessage>(_messages.Count);
         next.AddRange(_messages.Take(_messages.Count - 1));

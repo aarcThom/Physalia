@@ -52,7 +52,6 @@ public class ModelInformation : PhyBase
         pManager.AddIntegerParameter("Max Input", "I", "Maximum input tokens (context window size).", GH_ParamAccess.item);
         pManager.AddIntegerParameter("Max Output", "O", "Maximum output tokens the model can generate.", GH_ParamAccess.item);
         pManager.AddBooleanParameter("Image Capable", "V", "Whether the model accepts image inputs.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Tool Calls", "T", "Whether the model supports function/tool calling.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -93,14 +92,12 @@ public class ModelInformation : PhyBase
             DA.SetData(0, 0);
             DA.SetData(1, 0);
             DA.SetData(2, false);
-            DA.SetData(3, false);
             return;
         }
 
         DA.SetData(0, entry.MaxInputTokens);
         DA.SetData(1, entry.MaxOutputTokens);
         DA.SetData(2, entry.SupportsVision);
-        DA.SetData(3, entry.SupportsToolCalls);
     }
 
     private void StartFetch()

@@ -12,7 +12,6 @@ using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Signals;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
-using System.Linq;
 
 namespace Physalia.GH.Components;
 
@@ -36,8 +35,7 @@ public class Recorder : StatefulComponentBase
     private const int InPromptSignal = 1;
     private const int InResponseSignal = 2;
     private const int InFeedbackSignal = 3;
-    private const int InToolCalls = 4;
-    private const int InConversation = 5;
+    private const int InConversation = 4;
 
     private Conversation _conversation = Conversation.Empty;
     private Conversation _recordedHistory = Conversation.Empty;
@@ -85,15 +83,13 @@ public class Recorder : StatefulComponentBase
     {
         pManager.AddTextParameter("System Prompt", "S", "System prompt from Composer.", GH_ParamAccess.item, string.Empty);
         pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn; the signal payload is the prompt text. Use Construct Signal to combine a text payload with a manual trigger.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the Reasoner's Success Signal. Tool calls take priority over the payload text.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the Reasoner's Success Signal.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Records feedback as a user turn. Wire one or more Feedback Collectors directly — no OR gate needed.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_LlmToolCall(), "Tool Calls", "TC", "Tool calls from Reasoner to record as an assistant message.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Conversation(), "Conversation", "C", "Optional compacted conversation. Replaces the active conversation while all messages are preserved in Recorded History.", GH_ParamAccess.item);
 
         pManager[InPromptSignal].Optional = true;
         pManager[InResponseSignal].Optional = true;
         pManager[InFeedbackSignal].Optional = true;
-        pManager[InToolCalls].Optional = true;
         pManager[InConversation].Optional = true;
     }
 
@@ -117,10 +113,8 @@ public class Recorder : StatefulComponentBase
     protected override void SolveInstance(IGH_DataAccess DA)
     {
         string systemPrompt = string.Empty;
-        var toolCallItems = new List<GH_LlmToolCall>();
 
         DA.GetData(InSystemPrompt, ref systemPrompt);
-        DA.GetDataList(InToolCalls, toolCallItems);
 
         // Apply compacted conversation override when a new one arrives. This lives outside
         // the state machine — compaction is a data transformation, not a run outcome.
@@ -201,7 +195,7 @@ public class Recorder : StatefulComponentBase
 
                 foreach (ConsumedSignal item in consumed)
                 {
-                    ApplySignal(item, toolCallItems);
+                    ApplySignal(item);
                 }
 
                 ScheduleStateSolve(SolveDelayMs, () => _doLatch = true);
@@ -236,12 +230,12 @@ public class Recorder : StatefulComponentBase
     /// Records one consumed signal into the conversation. Turn type comes from the input
     /// the signal arrived on — never from conversation parity.
     /// </summary>
-    private void ApplySignal(ConsumedSignal item, List<GH_LlmToolCall> toolCallItems)
+    private void ApplySignal(ConsumedSignal item)
     {
         switch (item.ParamIndex)
         {
             case InResponseSignal:
-                RecordAssistantTurn(item.Signal, toolCallItems);
+                RecordAssistantTurn(item.Signal);
                 break;
 
             case InPromptSignal:
@@ -268,32 +262,15 @@ public class Recorder : StatefulComponentBase
         }
     }
 
-    private void RecordAssistantTurn(PhySignal signal, List<GH_LlmToolCall> toolCallItems)
+    private void RecordAssistantTurn(PhySignal signal)
     {
-        // Tool calls take priority over the payload text.
-        var validToolCalls = toolCallItems
-            .Where(g => g?.Value != null)
-            .Select(g => g.Value)
-            .ToList();
-
-        ConversationMessage? message = null;
-        if (validToolCalls.Count > 0)
+        if (!StringHelpers.IsNonBlank(signal.Payload))
         {
-            var blocks = validToolCalls
-                .Select(tc => (MessageContent)new ToolCallContent(tc.Id, tc.Name, tc.InputJson))
-                .ToList();
-            message = new ConversationMessage(Role.Assistant, blocks);
-        }
-        else if (StringHelpers.IsNonBlank(signal.Payload))
-        {
-            message = new ConversationMessage(Role.Assistant, signal.Payload);
-        }
-
-        if (message is null)
-        {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Response signal received but it carried no text or tool calls.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Response signal received but it carried no text.");
             return;
         }
+
+        var message = new ConversationMessage(Role.Assistant, signal.Payload);
 
         try
         {

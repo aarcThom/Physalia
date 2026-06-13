@@ -20,7 +20,7 @@ namespace Physalia.GH.Components;
 /// Queries a running llama-server for context window size, and looks up capability flags
 /// in the LiteLLM model database using the GGUF-normalised model ID.
 /// Context window is sourced from the server (<c>GET /v1/models</c> then <c>GET /props</c>).
-/// Image Capable and Tool Calls are sourced from the LiteLLM database.
+/// Image Capable is sourced from the LiteLLM database.
 /// </summary>
 public class LlamaCppModelInfo : PhyBase
 {
@@ -62,7 +62,6 @@ public class LlamaCppModelInfo : PhyBase
         pManager.AddIntegerParameter("Max Input", "I", "Training context length (n_ctx_train) from the server — the architectural maximum from the GGUF header.", GH_ParamAccess.item);
         pManager.AddIntegerParameter("Max Output", "O", "Server context window (n_ctx). May be less than Max Input if --ctx-size was set at launch.", GH_ParamAccess.item);
         pManager.AddBooleanParameter("Image Capable", "V", "Whether the model accepts image inputs. Inferred from the LiteLLM database using the GGUF-normalised model ID. False if the model is not found.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Tool Calls", "T", "Whether the model supports function/tool calling. Inferred from the LiteLLM database using the GGUF-normalised model ID. False if the model is not found.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -99,7 +98,6 @@ public class LlamaCppModelInfo : PhyBase
         }
 
         bool vision = false;
-        bool toolCalls = false;
 
         if (_models != null)
         {
@@ -107,7 +105,6 @@ public class LlamaCppModelInfo : PhyBase
             if (entry != null)
             {
                 vision = entry.SupportsVision;
-                toolCalls = entry.SupportsToolCalls;
             }
         }
         else
@@ -128,7 +125,6 @@ public class LlamaCppModelInfo : PhyBase
         }
 
         DA.SetData(2, vision);
-        DA.SetData(3, toolCalls);
     }
 
     private void StartQuery(OpenAIProtocolConfig config)

@@ -50,8 +50,8 @@ public class Reasoner : RoutingComponentBase<Instructions>
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Conversation history and system prompt from Recorder.", GH_ParamAccess.item);
         pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Model configuration from a Model or Tweaker component.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Conversation history and system prompt from Recorder.", GH_ParamAccess.item);
         _cancelIndex = pManager.AddBooleanParameter("Cancel", "X", "Rising edge cancels the active inference call.", GH_ParamAccess.item, false);
     }
 
@@ -64,7 +64,7 @@ public class Reasoner : RoutingComponentBase<Instructions>
     {
         data = default!;
         var goo = new GH_Instructions();
-        if (!da.GetData(0, ref goo) || goo.Value is not Instructions instructions)
+        if (!da.GetData(1, ref goo) || goo.Value is not Instructions instructions)
         {
             return false;
         }
@@ -100,7 +100,7 @@ public class Reasoner : RoutingComponentBase<Instructions>
         _response = string.Empty;
 
         var modelGoo = new GH_ModelConfig();
-        if (!da.GetData(1, ref modelGoo) || modelGoo.Value is not ModelConfig config)
+        if (!da.GetData(0, ref modelGoo) || modelGoo.Value is not ModelConfig config)
         {
             _apiError = "No valid Model configuration connected.";
             RequestReadPass();

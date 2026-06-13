@@ -18,7 +18,7 @@ namespace Physalia.GH.Attributes;
 /// </summary>
 public class PyTransmitterAttrib : GripLinkAttrib
 {
-    private static readonly WireGradient _defaultGradient = new WireGradient(Color.DarkGreen, Color.LimeGreen);
+    private static readonly WireGradient _defaultGradient = new WireGradient(Color.Aquamarine, Color.DeepPink);
 
     private readonly PyTransmitter _pyTransmitter;
 
@@ -57,5 +57,5 @@ public class PyTransmitterAttrib : GripLinkAttrib
     /// <inheritdoc/>
     /// <remarks>Wires land on the top-centre of the target script component.</remarks>
     protected override PointF GetTargetAnchor(RectangleF targetBounds)
-        => new PointF(targetBounds.Left + targetBounds.Width / 2f, targetBounds.Y);
+        => new PointF(targetBounds.Left + targetBounds.Width / 2f, targetBounds.Bottom + 6f);
 }

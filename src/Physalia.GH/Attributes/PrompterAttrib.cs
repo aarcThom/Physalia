@@ -617,12 +617,6 @@ public class PrompterAttrib : GH_ComponentAttributes
                 case TextContent text:
                     parts.Add(text.Text);
                     break;
-                case ToolCallContent call:
-                    parts.Add($"[tool call: {call.Name}]");
-                    break;
-                case ToolResultContent:
-                    parts.Add("[tool result]");
-                    break;
                 case ImageContent:
                     parts.Add("[image]");
                     break;

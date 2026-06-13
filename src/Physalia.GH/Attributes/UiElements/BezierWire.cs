@@ -93,7 +93,9 @@ public class BezierWire
         for (int i = 0; i < _pens.Length; i++)
             graphics.DrawLine(_pens[i], _segments[i], _segments[i + 1]);
 
-        DrawArrow(graphics, _end);
+        Color arrowColor = _gradient.To;
+
+        DrawArrow(graphics, _end, arrowColor);
     }
 
     // -------------------------------------------------------------------------
@@ -111,12 +113,12 @@ public class BezierWire
         _dirty = false;
     }
 
-    private static void DrawArrow(Graphics graphics, PointF wireEnd)
+    private static void DrawArrow(Graphics graphics, PointF wireEnd, Color arrowColor)
     {
         var tip = new PointF(wireEnd.X, wireEnd.Y - _arrowHeight);
         var baseLeft = new PointF(tip.X - _arrowWidth, tip.Y + _arrowHeight);
         var baseRight = new PointF(tip.X + _arrowWidth, tip.Y + _arrowHeight);
-        using var fill = new SolidBrush(Color.Purple);
+        using var fill = new SolidBrush(arrowColor);
         graphics.FillPolygon(fill, new[] { tip, baseLeft, baseRight });
     }
 

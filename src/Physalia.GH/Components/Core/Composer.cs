@@ -13,7 +13,7 @@ using Physalia.GH.Generation;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Assembles a system prompt from a preamble, a JSON schema, and optional tool descriptions.
+/// Assembles a system prompt from a preamble and a JSON schema.
 /// Each section can be supplied as a filename resolved from the Files/SYSTEM_PROMPTS folder,
 /// or as inline text wired directly.
 /// </summary>
@@ -21,21 +21,18 @@ public class Composer : PhyBase, IPickableValuesSource
 {
     private const string SubfolderPreamble = "PREAMBLE";
     private const string SubfolderSchema = "SCHEMA";
-    private const string SubfolderTools = "TOOLS";
 
     private string _lastPreambleFiles = string.Empty;
     private string _lastSchemaFiles = string.Empty;
-    private string _lastToolsFiles = string.Empty;
 
     private List<string> _preambleFiles = new();
     private List<string> _schemaFiles = new();
-    private List<string> _toolsFiles = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Composer"/> class.
     /// </summary>
     public Composer()
-        : base("Composer", "Cmp", "Assembles a system prompt from preamble, schema, and tool descriptions.", "Core")
+        : base("Composer", "Cmp", "Assembles a system prompt from a preamble and a JSON schema.", "Core")
     {
     }
 
@@ -47,7 +44,6 @@ public class Composer : PhyBase, IPickableValuesSource
     {
         new PickableInput("Preamble", _preambleFiles),
         new PickableInput("Schema", _schemaFiles),
-        new PickableInput("Tools", _toolsFiles),
     };
 
     /// <inheritdoc/>
@@ -57,7 +53,6 @@ public class Composer : PhyBase, IPickableValuesSource
         {
             case "Preamble": _preambleFiles = new List<string>(values); break;
             case "Schema": _schemaFiles = new List<string>(values); break;
-            case "Tools": _toolsFiles = new List<string>(values); break;
         }
     }
 
@@ -66,7 +61,6 @@ public class Composer : PhyBase, IPickableValuesSource
     {
         _preambleFiles.Clear();
         _schemaFiles.Clear();
-        _toolsFiles.Clear();
     }
 
     /// <inheritdoc/>
@@ -74,16 +68,13 @@ public class Composer : PhyBase, IPickableValuesSource
     {
         pManager.AddTextParameter("Preamble", "P", "Instruction preamble. Filename from PREAMBLE folder or inline text.", GH_ParamAccess.item, string.Empty);
         pManager.AddTextParameter("Schema", "S", "JSON schema. Filename from SCHEMA folder or inline text.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("Tools", "T", "Tool descriptions. Filename from TOOLS folder or inline text.", GH_ParamAccess.item, string.Empty);
-
-        pManager[2].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("System Prompt", "SP", "Assembled system prompt for Recorder.", GH_ParamAccess.item);
         pManager.AddTextParameter("Schema", "S", "Resolved schema string for Auditor.", GH_ParamAccess.item);
+        pManager.AddTextParameter("System Prompt", "SP", "Assembled system prompt for Recorder.", GH_ParamAccess.item);
     }
 
     /// <summary>
@@ -96,13 +87,10 @@ public class Composer : PhyBase, IPickableValuesSource
         if (GhJsonBridge.IsImporting) return;
 
         if (Params.Input[0].SourceCount == 0)
-            ComponentHelpers.PickerAdd(this, document, 0, xOffset: -300f, yOffset: -30f);
+            ComponentHelpers.PickerAdd(this, document, 0, xOffset: -300f, yOffset: -15f);
 
         if (Params.Input[1].SourceCount == 0)
-            ComponentHelpers.PickerAdd(this, document, 1, xOffset: -300f, yOffset: 0f);
-
-        if (Params.Input[2].SourceCount == 0)
-            ComponentHelpers.PickerAdd(this, document, 2, xOffset: -300f, yOffset: 30f);
+            ComponentHelpers.PickerAdd(this, document, 1, xOffset: -300f, yOffset: 15f);
     }
 
     /// <inheritdoc/>
@@ -119,22 +107,18 @@ public class Composer : PhyBase, IPickableValuesSource
     {
         RefreshListIfChanged(0, SubfolderPreamble, "Preamble", ref _lastPreambleFiles);
         RefreshListIfChanged(1, SubfolderSchema, "Schema", ref _lastSchemaFiles);
-        RefreshListIfChanged(2, SubfolderTools, "Tools", ref _lastToolsFiles);
 
         string preamble = string.Empty;
         string schema = string.Empty;
-        string tools = string.Empty;
 
         DA.GetData(0, ref preamble);
         DA.GetData(1, ref schema);
-        DA.GetData(2, ref tools);
 
         string resolvedPreamble = Resolve(preamble, SubfolderPreamble);
         string resolvedSchema = Resolve(schema, SubfolderSchema);
-        string resolvedTools = Resolve(tools, SubfolderTools);
 
-        DA.SetData(0, Assemble(resolvedPreamble, resolvedSchema, resolvedTools));
-        DA.SetData(1, resolvedSchema);
+        DA.SetData(0, resolvedSchema);
+        DA.SetData(1, Assemble(resolvedPreamble, resolvedSchema));
     }
 
     /// <summary>
@@ -216,7 +200,7 @@ public class Composer : PhyBase, IPickableValuesSource
         });
     }
 
-    private static string Assemble(string preamble, string schema, string tools)
+    private static string Assemble(string preamble, string schema)
     {
         var parts = new List<string>();
 
@@ -227,12 +211,6 @@ public class Composer : PhyBase, IPickableValuesSource
         {
             parts.Add("Your response must be valid JSON that conforms exactly to the following schema:");
             parts.Add(schema.Trim());
-        }
-
-        if (!string.IsNullOrWhiteSpace(tools))
-        {
-            parts.Add("The following tools are available:");
-            parts.Add(tools.Trim());
         }
 
         return string.Join("\n\n", parts);

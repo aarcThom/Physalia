@@ -1,18 +1,20 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "PythonComponent",
-  "description": "A GH Python Script component definition. Output exactly this structure — no prose, no markdown fences, no explanation. Only the raw JSON object.",
+  "description": "A Grasshopper Python 3 Script component definition. Output exactly this structure — no prose, no markdown fences, no explanation. Only the raw JSON object.",
   "type": "object",
   "required": ["code"],
   "additionalProperties": false,
 
   "rules": [
     "code is the complete Python source for the GH Python 3 Script component, as a single JSON string with escaped newlines.",
-    "Reference each input by its name as a variable inside code; assign each output by its name as a variable.",
+    "Use RhinoCommon for geometry: 'import Rhino.Geometry as rg'. This is the Rhino 8 Python 3 (CPython) component, not IronPython 2 — avoid 'clr' and IronPython-only constructs. rhinoscriptsyntax/scriptcontext are available but secondary, and RhinoCommon needs no document reference.",
+    "Reference each input by its name as a variable inside code; assign each output by its name as a variable. An output you never assign is null on the canvas.",
+    "Do not use print to return results — print output goes only to the component's separate 'out' channel. Every result must be assigned to a declared output variable.",
     "Every input/output name must be a valid Python identifier and unique within its own list.",
-    "type must be one of the allowed type hints. Use 'Geometry' or 'Text' when unsure; omit type for an untyped (any) parameter.",
-    "access is 'item' (default), 'list', or 'tree'. Use 'list' when code iterates over the whole input; 'item' when it expects a single value.",
-    "Inputs left unconnected on the canvas are not errors — write code that tolerates the parameters you declare."
+    "A typed input arrives already converted to that Rhino type (e.g. type 'Point' gives a Rhino.Geometry.Point3d). Omit type for an untyped (any) parameter; use 'Geometry' or 'Text' when unsure.",
+    "access is 'item' (single value), 'list' (the whole input as a Python list), or 'tree' (the full data tree). For an output declared 'list', assign a Python list.",
+    "Inputs left unconnected on the canvas are not errors — write code that tolerates missing or empty values for the parameters you declare."
   ],
 
   "typeHints": [
@@ -25,7 +27,7 @@
   "properties": {
     "code": {
       "type": "string",
-      "description": "Full Python source for the component."
+      "description": "Full Python source for the component, targeting Rhino 8 CPython 3 with RhinoCommon."
     },
     "inputs": {
       "type": "array",

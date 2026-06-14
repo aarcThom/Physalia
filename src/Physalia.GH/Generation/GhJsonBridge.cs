@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using GhJSON.Core;
 using GhJSON.Core.SchemaModels;
 using GhJSON.Core.Serialization;
@@ -23,7 +24,9 @@ internal sealed record PlaceResult(
     int ComponentCount,
     int ConnectionCount,
     int WarningCount,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    IReadOnlyList<Guid> PlacedGuids,
+    IReadOnlyList<string> Warnings);
 
 /// <summary>
 /// Façade over the GhJSON library. All direct GhJSON API calls originate here;
@@ -70,11 +73,33 @@ internal static class GhJsonBridge
     /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
     internal static PlaceResult LoadAndPlace(string path, PointF targetOrigin)
     {
-        GhJsonDocument doc = GhJson.FromFile(path);
+        return PlaceDocument(GhJson.FromFile(path), targetOrigin);
+    }
 
+    /// <summary>
+    /// Parses a GhJSON string and places its components onto the active Grasshopper canvas,
+    /// with the content's top-left pivot aligned to <paramref name="targetOrigin"/>.
+    /// </summary>
+    /// <param name="json">The GhJSON document as a string.</param>
+    /// <param name="targetOrigin">Canvas position for the top-left corner of the placed content.</param>
+    /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
+    internal static PlaceResult LoadAndPlaceJson(string json, PointF targetOrigin)
+    {
+        return PlaceDocument(GhJson.FromJson(json), targetOrigin);
+    }
+
+    /// <summary>
+    /// Places the components of an already-parsed GhJSON document onto the active Grasshopper
+    /// canvas, with the content's top-left pivot aligned to <paramref name="targetOrigin"/>.
+    /// </summary>
+    /// <param name="doc">The parsed GhJSON document.</param>
+    /// <param name="targetOrigin">Canvas position for the top-left corner of the placed content.</param>
+    /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
+    private static PlaceResult PlaceDocument(GhJsonDocument doc, PointF targetOrigin)
+    {
         if (doc.Components is null || doc.Components.Count == 0)
         {
-            return new PlaceResult(false, 0, 0, 0, "The GhJSON file contains no components to place.");
+            return new PlaceResult(false, 0, 0, 0, "The GhJSON file contains no components to place.", Array.Empty<Guid>(), Array.Empty<string>());
         }
 
         float minX = float.MaxValue;
@@ -122,8 +147,8 @@ internal static class GhJsonBridge
         }
 
         return result.Success
-            ? new PlaceResult(true, result.ComponentsPlaced, result.ConnectionsCreated, result.Warnings.Count, null)
-            : new PlaceResult(false, 0, 0, 0, result.ErrorMessage);
+            ? new PlaceResult(true, result.ComponentsPlaced, result.ConnectionsCreated, result.Warnings.Count, null, result.PlacedObjects.Select(o => o.InstanceGuid).ToList(), result.Warnings.ToList())
+            : new PlaceResult(false, 0, 0, 0, result.ErrorMessage, Array.Empty<Guid>(), Array.Empty<string>());
     }
 
     /// <summary>

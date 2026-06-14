@@ -45,7 +45,8 @@ public class OpenAICompatibleModel : PhyBase
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter("Base URL", "U", "Base URL of the API endpoint. Default: https://api.openai.com/v1", GH_ParamAccess.item, "https://api.openai.com/v1");
-        pManager.AddTextParameter("API Key", "K", "API key for authentication. Leave empty for local servers that do not require a key.", GH_ParamAccess.item, string.Empty);
+        pManager.AddParameter(new Param_ApiKey(), "API Key", "K", "API key for authentication. Leave empty for local servers that do not require a key.", GH_ParamAccess.item);
+        pManager[1].Optional = true;
         pManager.AddTextParameter("Model", "M", "Model identifier, e.g. gpt-4o or anthropic/claude-sonnet-4-6. Leave empty to auto-detect from the endpoint.", GH_ParamAccess.item, string.Empty);
         pManager.AddIntegerParameter("Max Tokens", "T", "Maximum number of tokens to generate.", GH_ParamAccess.item, 4096);
     }
@@ -66,14 +67,16 @@ public class OpenAICompatibleModel : PhyBase
         }
 
         string baseUrl = "https://api.openai.com/v1";
-        string apiKey = string.Empty;
         string model = string.Empty;
         int maxTokens = 4096;
 
+        GH_ApiKey keyGoo = null;
         DA.GetData(0, ref baseUrl);
-        DA.GetData(1, ref apiKey);
+        DA.GetData(1, ref keyGoo);
         DA.GetData(2, ref model);
         DA.GetData(3, ref maxTokens);
+
+        string apiKey = keyGoo?.Value?.Key ?? string.Empty;
 
         bool useAutoModel = string.IsNullOrWhiteSpace(model);
         string fetchKey = baseUrl + "||" + apiKey;

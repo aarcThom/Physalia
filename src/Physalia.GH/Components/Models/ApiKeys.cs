@@ -9,6 +9,8 @@ using System.Reflection;
 using Grasshopper.Kernel;
 using Physalia.Core.Config;
 using Physalia.GH.Generation;
+using Physalia.GH.Goo;
+using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
 
@@ -56,7 +58,7 @@ public class ApiKeys : PhyBase, IPickableValuesSource
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("API Key", "K", "Resolved API key for the selected provider.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ApiKey(), "API Key", "K", "Resolved API key for the selected provider.", GH_ParamAccess.item);
     }
 
     /// <summary>
@@ -98,7 +100,6 @@ public class ApiKeys : PhyBase, IPickableValuesSource
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning,
                 "No API keys found. Check that API_KEY_CONFIG.YAML exists in the plugin Files folder.");
-            DA.SetData(0, string.Empty);
             return;
         }
 
@@ -112,11 +113,10 @@ public class ApiKeys : PhyBase, IPickableValuesSource
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning,
                 $"No key found for provider \"{provider}\".");
-            DA.SetData(0, string.Empty);
             return;
         }
 
-        DA.SetData(0, match.Key);
+        DA.SetData(0, new GH_ApiKey(match));
     }
 
     private static string GetConfigFilePath()

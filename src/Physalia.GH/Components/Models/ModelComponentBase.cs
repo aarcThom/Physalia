@@ -90,7 +90,8 @@ public abstract class ModelComponentBase : PhyBase, IPickableValuesSource
     /// <inheritdoc/>
     protected sealed override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("API Key", "K", ApiKeyDescription, GH_ParamAccess.item, string.Empty);
+        pManager.AddParameter(new Param_ApiKey(), "API Key", "K", ApiKeyDescription, GH_ParamAccess.item);
+        pManager[0].Optional = true;
         pManager.AddTextParameter("Model", "M", "Model ID. Wire a Picker component to select from available models.", GH_ParamAccess.item, string.Empty);
     }
 
@@ -109,8 +110,9 @@ public abstract class ModelComponentBase : PhyBase, IPickableValuesSource
             _fetchWarning = null;
         }
 
-        string apiKey = string.Empty;
-        if (!DA.GetData(0, ref apiKey)) return;
+        GH_ApiKey? keyGoo = null;
+        DA.GetData(0, ref keyGoo);
+        string apiKey = keyGoo?.Value?.Key ?? string.Empty;
 
         if (!string.IsNullOrWhiteSpace(apiKey) && apiKey != _lastApiKey)
         {

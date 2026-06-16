@@ -35,6 +35,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>
     private string _pendingJson = string.Empty;
     private string? _pushError;
     private IReadOnlyList<string> _placeWarnings = Array.Empty<string>();
+    private IReadOnlyList<string> _unfixedIssues = Array.Empty<string>();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ComponentTransmitter"/> class.
@@ -140,10 +141,11 @@ public class ComponentTransmitter : RoutingComponentBase<string>
         List<string> errors = CollectRuntimeErrors();
         List<string> orphans = CollectOrphanComponents();
         var connectionFailures = _placeWarnings.ToList();
+        var unfixed = _unfixedIssues.ToList();
 
-        return errors.Count == 0 && orphans.Count == 0 && connectionFailures.Count == 0
+        return errors.Count == 0 && orphans.Count == 0 && connectionFailures.Count == 0 && unfixed.Count == 0
             ? RoutingResult.Ok(_pendingJson)
-            : RoutingResult.Fail(BuildFeedback(errors, orphans, connectionFailures), "Placed graph reported problems.", GH_RuntimeMessageLevel.Warning);
+            : RoutingResult.Fail(BuildFeedback(errors, orphans, connectionFailures, unfixed), "Placed graph reported problems.", GH_RuntimeMessageLevel.Warning);
     }
 
     /// <inheritdoc/>
@@ -160,6 +162,8 @@ public class ComponentTransmitter : RoutingComponentBase<string>
         _placedGuids.Clear();
         _pushError = null;
         _pendingJson = string.Empty;
+        _placeWarnings = Array.Empty<string>();
+        _unfixedIssues = Array.Empty<string>();
     }
 
     /// <summary>
@@ -176,10 +180,12 @@ public class ComponentTransmitter : RoutingComponentBase<string>
         {
             RemovePreviouslyPlaced();
             _placeWarnings = Array.Empty<string>();
+            _unfixedIssues = Array.Empty<string>();
 
             RectangleF bounds = Attributes.Bounds;
             var targetOrigin = new PointF(bounds.Right + PlacementGap, bounds.Y);
             PlaceResult result = GhJsonBridge.LoadAndPlaceJson(_pendingJson, targetOrigin);
+            _unfixedIssues = result.UnfixedIssues;
 
             if (!result.Success)
             {
@@ -305,11 +311,22 @@ public class ComponentTransmitter : RoutingComponentBase<string>
     /// <param name="errors">The collected runtime error messages.</param>
     /// <param name="orphans">The collected disconnected-component descriptions.</param>
     /// <param name="connectionFailures">Wires the library could not create (id/paramIndex mismatch).</param>
+    /// <param name="unfixedIssues">Issues the GhJSON fixer could not repair before placement.</param>
     /// <returns>A human-readable feedback string.</returns>
-    private static string BuildFeedback(IReadOnlyList<string> errors, IReadOnlyList<string> orphans, IReadOnlyList<string> connectionFailures)
+    private static string BuildFeedback(IReadOnlyList<string> errors, IReadOnlyList<string> orphans, IReadOnlyList<string> connectionFailures, IReadOnlyList<string> unfixedIssues)
     {
         var sb = new StringBuilder();
         sb.AppendLine("The GhJSON graph you generated has problems. Please fix and resubmit.");
+
+        if (unfixedIssues.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Structural issues that could not be auto-repaired (check component names and ids):");
+            foreach (string issue in unfixedIssues)
+            {
+                sb.AppendLine($"  - {issue}");
+            }
+        }
 
         if (errors.Count > 0)
         {

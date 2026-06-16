@@ -100,6 +100,11 @@
           "description": "Optional UUID v4. Regenerated on placement, so it may be omitted.",
           "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
         },
+        "componentGuid": {
+          "type": "string",
+          "description": "Optional component-type GUID. Leave this out — it is filled in by Physalia's component resolver from the live library. Do not invent a value; an incorrect GUID prevents the component from being created.",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        },
         "nickName": {
           "type": "string",
           "description": "Optional custom on-canvas nickname for the component."

@@ -13,6 +13,7 @@ using GhJSON.Core.Serialization;
 using GhJSON.Grasshopper;
 using GhJSON.Grasshopper.PutOperations;
 using Grasshopper.Kernel;
+using Physalia.Core.Catalog;
 
 namespace Physalia.GH.Generation;
 
@@ -26,7 +27,8 @@ internal sealed record PlaceResult(
     int WarningCount,
     string? ErrorMessage,
     IReadOnlyList<Guid> PlacedGuids,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<string> UnfixedIssues);
 
 /// <summary>
 /// Façade over the GhJSON library. All direct GhJSON API calls originate here;
@@ -65,6 +67,48 @@ internal static class GhJsonBridge
     }
 
     /// <summary>
+    /// Rewrites each component's name in a GhJSON string to a real installed component, matched
+    /// against <paramref name="catalog"/>, and stamps the resolved component-type GUID so the
+    /// library can create it exactly. Components that already carry a non-empty
+    /// <c>componentGuid</c> are left untouched. Names that cannot be matched confidently are
+    /// returned for feedback rather than guessed.
+    /// </summary>
+    /// <param name="json">The GhJSON document as a string.</param>
+    /// <param name="catalog">The installed-component catalog to resolve against.</param>
+    /// <returns>The resolved GhJSON and the list of names that could not be resolved.</returns>
+    internal static (string Json, IReadOnlyList<string> Unresolved) ResolveComponentNames(string json, ComponentCatalog catalog)
+    {
+        GhJsonDocument doc = GhJson.FromJson(json);
+        var unresolved = new List<string>();
+
+        if (doc.Components is not null)
+        {
+            foreach (GhJsonComponent component in doc.Components)
+            {
+                if (component.ComponentGuid is not null && component.ComponentGuid.Value != Guid.Empty)
+                {
+                    continue;
+                }
+
+                string proposed = component.Name ?? string.Empty;
+                ComponentMatcher.MatchResult match = ComponentMatcher.Match(proposed, catalog);
+
+                if (match.IsConfident && match.Entry is not null)
+                {
+                    component.Name = match.Entry.Name;
+                    component.ComponentGuid = match.Entry.ComponentGuid;
+                }
+                else
+                {
+                    unresolved.Add(string.IsNullOrWhiteSpace(proposed) ? "(unnamed component)" : proposed);
+                }
+            }
+        }
+
+        return (GhJson.ToJson(doc), unresolved);
+    }
+
+    /// <summary>
     /// Loads a <c>.ghjson</c> file and places its components onto the active Grasshopper
     /// canvas, with the content's top-left pivot aligned to <paramref name="targetOrigin"/>.
     /// </summary>
@@ -99,8 +143,15 @@ internal static class GhJsonBridge
     {
         if (doc.Components is null || doc.Components.Count == 0)
         {
-            return new PlaceResult(false, 0, 0, 0, "The GhJSON file contains no components to place.", Array.Empty<Guid>(), Array.Empty<string>());
+            return new PlaceResult(false, 0, 0, 0, "The GhJSON file contains no components to place.", Array.Empty<Guid>(), Array.Empty<string>(), Array.Empty<string>());
         }
+
+        // Normalise AI-authored JSON (missing ids, stray fields, near-miss structure) before placing.
+        // The GhJSON library's fixer is the single source of repair; anything it cannot fix is surfaced
+        // to the caller so it can be routed back to the model as feedback.
+        var fixResult = GhJson.Fix(doc);
+        doc = fixResult.Document;
+        IReadOnlyList<string> unfixedIssues = fixResult.UnfixedIssues ?? (IReadOnlyList<string>)Array.Empty<string>();
 
         float minX = float.MaxValue;
         float minY = float.MaxValue;
@@ -147,8 +198,8 @@ internal static class GhJsonBridge
         }
 
         return result.Success
-            ? new PlaceResult(true, result.ComponentsPlaced, result.ConnectionsCreated, result.Warnings.Count, null, result.PlacedObjects.Select(o => o.InstanceGuid).ToList(), result.Warnings.ToList())
-            : new PlaceResult(false, 0, 0, 0, result.ErrorMessage, Array.Empty<Guid>(), Array.Empty<string>());
+            ? new PlaceResult(true, result.ComponentsPlaced, result.ConnectionsCreated, result.Warnings.Count, null, result.PlacedObjects.Select(o => o.InstanceGuid).ToList(), result.Warnings.ToList(), unfixedIssues)
+            : new PlaceResult(false, 0, 0, 0, result.ErrorMessage, Array.Empty<Guid>(), Array.Empty<string>(), unfixedIssues);
     }
 
     /// <summary>

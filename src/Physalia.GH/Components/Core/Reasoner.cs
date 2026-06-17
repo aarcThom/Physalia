@@ -151,6 +151,7 @@ public class Reasoner : RoutingComponentBase<Instructions>
                     instructions.Conversation,
                     instructions.SystemPrompt,
                     config,
+                    tools: null,
                     ct))
                 {
                     if (chunk is Result<LlmResponseChunk, LlmError>.Ok ok)

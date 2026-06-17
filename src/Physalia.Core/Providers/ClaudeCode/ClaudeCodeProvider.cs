@@ -29,10 +29,15 @@ public sealed class ClaudeCodeProvider : ILlmProvider
         "Continue from the conversation above. Respond as the assistant.";
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <paramref name="tools"/> is ignored: the single-shot CLI invocation does not advertise
+    /// tool definitions to the model.
+    /// </remarks>
     public async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
         Conversation conversation,
         string systemPrompt,
         ModelConfig config,
+        IReadOnlyList<ToolDefinition>? tools,
         [EnumeratorCancellation] CancellationToken ct)
     {
         if (config is not ClaudeCodeConfig claudeConfig)

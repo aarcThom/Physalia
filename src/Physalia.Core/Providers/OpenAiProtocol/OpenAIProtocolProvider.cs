@@ -32,12 +32,14 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase
     /// <param name="conversation">The conversation history to send.</param>
     /// <param name="systemPrompt">The system prompt, passed at call time and not stored in the conversation.</param>
     /// <param name="config">Provider configuration. Must be an <see cref="OpenAIProtocolConfig"/> instance.</param>
+    /// <param name="tools">Tool definitions to advertise to the model, or null/empty to send none.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>An async sequence of result chunks.</returns>
     public override async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
         Conversation conversation,
         string systemPrompt,
         ModelConfig config,
+        IReadOnlyList<ToolDefinition>? tools,
         [EnumeratorCancellation] CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(conversation);
@@ -49,7 +51,7 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase
             yield break;
         }
 
-        var httpResult = await SendHttpRequestAsync(conversation, systemPrompt, openAIConfig, ct);
+        var httpResult = await SendHttpRequestAsync(conversation, systemPrompt, openAIConfig, tools, ct);
 
         if (httpResult is Result<HttpResponseMessage, LlmError>.Err httpErr)
         {
@@ -73,13 +75,15 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase
     /// <param name="conversation">The conversation history.</param>
     /// <param name="systemPrompt">The system prompt.</param>
     /// <param name="config">The provider configuration.</param>
+    /// <param name="tools">Tool definitions to advertise to the model, or null/empty to send none.</param>
     /// <returns>A <see cref="JsonObject"/> ready for serialisation.</returns>
     protected virtual JsonObject BuildRequestBody(
         Conversation conversation,
         string systemPrompt,
-        OpenAIProtocolConfig config)
+        OpenAIProtocolConfig config,
+        IReadOnlyList<ToolDefinition>? tools)
     {
-        return new JsonObject
+        var body = new JsonObject
         {
             ["model"] = config.ModelId,
             ["stream"] = true,
@@ -88,6 +92,39 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase
             ["top_p"] = config.TopP,
             ["messages"] = BuildMessagesArray(conversation, systemPrompt),
         };
+
+        if (tools is { Count: > 0 })
+        {
+            body["tools"] = BuildToolsArray(tools);
+        }
+
+        return body;
+    }
+
+    /// <summary>
+    /// Serialises tool definitions into the OpenAI <c>tools</c> array
+    /// (<c>{ type: "function", function: { name, description, parameters } }</c> per tool).
+    /// </summary>
+    /// <param name="tools">The tool definitions to serialise.</param>
+    /// <returns>A JSON array for the request body's <c>tools</c> field.</returns>
+    private static JsonArray BuildToolsArray(IReadOnlyList<ToolDefinition> tools)
+    {
+        var array = new JsonArray();
+        foreach (ToolDefinition tool in tools)
+        {
+            array.Add(new JsonObject
+            {
+                ["type"] = "function",
+                ["function"] = new JsonObject
+                {
+                    ["name"] = tool.Name,
+                    ["description"] = tool.Description,
+                    ["parameters"] = ParseToolSchema(tool.InputSchemaJson),
+                },
+            });
+        }
+
+        return array;
     }
 
     /// <summary>
@@ -123,9 +160,10 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase
         Conversation conversation,
         string systemPrompt,
         OpenAIProtocolConfig config,
+        IReadOnlyList<ToolDefinition>? tools,
         CancellationToken ct)
     {
-        var body = BuildRequestBody(conversation, systemPrompt, config);
+        var body = BuildRequestBody(conversation, systemPrompt, config, tools);
         var json = body.ToJsonString();
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{config.BaseUrl}/chat/completions");

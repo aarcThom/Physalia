@@ -34,12 +34,14 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase
     /// <param name="conversation">The conversation history to send.</param>
     /// <param name="systemPrompt">The system prompt, passed at call time and not stored in the conversation.</param>
     /// <param name="config">Provider configuration. Must be an <see cref="AnthropicProtocolConfig"/> instance.</param>
+    /// <param name="tools">Tool definitions to advertise to the model, or null/empty to send none.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>An async sequence of result chunks.</returns>
     public override async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
         Conversation conversation,
         string systemPrompt,
         ModelConfig config,
+        IReadOnlyList<ToolDefinition>? tools,
         [EnumeratorCancellation] CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(conversation);
@@ -51,7 +53,7 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase
             yield break;
         }
 
-        var httpResult = await SendHttpRequestAsync(conversation, systemPrompt, anthropicConfig, ct);
+        var httpResult = await SendHttpRequestAsync(conversation, systemPrompt, anthropicConfig, tools, ct);
 
         if (httpResult is Result<HttpResponseMessage, LlmError>.Err httpErr)
         {
@@ -74,11 +76,13 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase
     /// <param name="conversation">The conversation history.</param>
     /// <param name="systemPrompt">The system prompt.</param>
     /// <param name="config">The provider configuration.</param>
+    /// <param name="tools">Tool definitions to advertise to the model, or null/empty to send none.</param>
     /// <returns>A <see cref="JsonObject"/> ready for serialisation.</returns>
     protected virtual JsonObject BuildRequestBody(
         Conversation conversation,
         string systemPrompt,
-        AnthropicProtocolConfig config)
+        AnthropicProtocolConfig config,
+        IReadOnlyList<ToolDefinition>? tools)
     {
         // Anthropic temperature is 0.0–1.0. Clamp values that come from a wider range.
         float temperature = Math.Min(Math.Max(config.Temperature, 0.0f), 1.0f);
@@ -119,7 +123,34 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase
             body["top_k"] = config.TopK;
         }
 
+        if (tools is { Count: > 0 })
+        {
+            body["tools"] = BuildToolsArray(tools);
+        }
+
         return body;
+    }
+
+    /// <summary>
+    /// Serialises tool definitions into the Anthropic <c>tools</c> array
+    /// (<c>{ name, description, input_schema }</c> per tool).
+    /// </summary>
+    /// <param name="tools">The tool definitions to serialise.</param>
+    /// <returns>A JSON array for the request body's <c>tools</c> field.</returns>
+    private static JsonArray BuildToolsArray(IReadOnlyList<ToolDefinition> tools)
+    {
+        var array = new JsonArray();
+        foreach (ToolDefinition tool in tools)
+        {
+            array.Add(new JsonObject
+            {
+                ["name"] = tool.Name,
+                ["description"] = tool.Description,
+                ["input_schema"] = ParseToolSchema(tool.InputSchemaJson),
+            });
+        }
+
+        return array;
     }
 
     /// <summary>
@@ -155,9 +186,10 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase
         Conversation conversation,
         string systemPrompt,
         AnthropicProtocolConfig config,
+        IReadOnlyList<ToolDefinition>? tools,
         CancellationToken ct)
     {
-        var body = BuildRequestBody(conversation, systemPrompt, config);
+        var body = BuildRequestBody(conversation, systemPrompt, config, tools);
         var json = body.ToJsonString();
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{config.BaseUrl}/messages");

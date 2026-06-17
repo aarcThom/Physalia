@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Physalia.Core.Common;
@@ -40,6 +41,7 @@ public abstract class ProtocolProviderBase : ILlmProvider
         Conversation conversation,
         string systemPrompt,
         ModelConfig config,
+        IReadOnlyList<ToolDefinition>? tools,
         CancellationToken ct);
 
     /// <inheritdoc/>
@@ -193,5 +195,32 @@ public abstract class ProtocolProviderBase : ILlmProvider
         }
 
         return ids;
+    }
+
+    /// <summary>
+    /// Parses a tool's JSON Schema string into a node for embedding in a request body. A blank or
+    /// unparseable schema falls back to a minimal empty-object schema so the request stays valid.
+    /// </summary>
+    /// <param name="schemaJson">The tool's input JSON Schema, as a string.</param>
+    /// <returns>A JSON node ready to embed as the tool's parameter schema.</returns>
+    protected static JsonNode ParseToolSchema(string? schemaJson)
+    {
+        if (!string.IsNullOrWhiteSpace(schemaJson))
+        {
+            try
+            {
+                JsonNode? parsed = JsonNode.Parse(schemaJson);
+                if (parsed is not null)
+                {
+                    return parsed;
+                }
+            }
+            catch (JsonException)
+            {
+                // Fall through to the minimal object schema below.
+            }
+        }
+
+        return new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() };
     }
 }

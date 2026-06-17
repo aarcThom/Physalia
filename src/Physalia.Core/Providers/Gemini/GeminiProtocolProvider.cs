@@ -32,12 +32,14 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase
     /// <param name="conversation">The conversation history to send.</param>
     /// <param name="systemPrompt">The system prompt, passed at call time and not stored in the conversation.</param>
     /// <param name="config">Provider configuration. Must be a <see cref="GeminiProtocolConfig"/> instance.</param>
+    /// <param name="tools">Tool definitions to advertise to the model, or null/empty to send none.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>An async sequence of result chunks.</returns>
     public override async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
         Conversation conversation,
         string systemPrompt,
         ModelConfig config,
+        IReadOnlyList<ToolDefinition>? tools,
         [EnumeratorCancellation] CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(conversation);
@@ -49,7 +51,7 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase
             yield break;
         }
 
-        var httpResult = await SendHttpRequestAsync(conversation, systemPrompt, geminiConfig, ct);
+        var httpResult = await SendHttpRequestAsync(conversation, systemPrompt, geminiConfig, tools, ct);
 
         if (httpResult is Result<HttpResponseMessage, LlmError>.Err httpErr)
         {
@@ -149,9 +151,10 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase
         Conversation conversation,
         string systemPrompt,
         GeminiProtocolConfig config,
+        IReadOnlyList<ToolDefinition>? tools,
         CancellationToken ct)
     {
-        var body = BuildRequestBody(conversation, systemPrompt, config);
+        var body = BuildRequestBody(conversation, systemPrompt, config, tools);
         var json = body.ToJsonString();
 
         // API key is passed as a query parameter; alt=sse requests SSE-formatted streaming.
@@ -166,7 +169,8 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase
     private JsonObject BuildRequestBody(
         Conversation conversation,
         string systemPrompt,
-        GeminiProtocolConfig config)
+        GeminiProtocolConfig config,
+        IReadOnlyList<ToolDefinition>? tools)
     {
         var body = new JsonObject
         {
@@ -185,7 +189,37 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase
             };
         }
 
+        if (tools is { Count: > 0 })
+        {
+            body["tools"] = BuildToolsArray(tools);
+        }
+
         return body;
+    }
+
+    /// <summary>
+    /// Serialises tool definitions into the Gemini <c>tools</c> array — a single entry whose
+    /// <c>functionDeclarations</c> lists each tool's <c>{ name, description, parameters }</c>.
+    /// </summary>
+    /// <param name="tools">The tool definitions to serialise.</param>
+    /// <returns>A JSON array for the request body's <c>tools</c> field.</returns>
+    private static JsonArray BuildToolsArray(IReadOnlyList<ToolDefinition> tools)
+    {
+        var declarations = new JsonArray();
+        foreach (ToolDefinition tool in tools)
+        {
+            declarations.Add(new JsonObject
+            {
+                ["name"] = tool.Name,
+                ["description"] = tool.Description,
+                ["parameters"] = ParseToolSchema(tool.InputSchemaJson),
+            });
+        }
+
+        return new JsonArray
+        {
+            new JsonObject { ["functionDeclarations"] = declarations },
+        };
     }
 
     private static async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> ParseSseStreamAsync(

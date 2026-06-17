@@ -23,12 +23,17 @@ public interface ILlmProvider
     /// <param name="conversation">The conversation history to send.</param>
     /// <param name="systemPrompt">The system prompt, passed at call time.</param>
     /// <param name="config">Provider configuration.</param>
+    /// <param name="tools">
+    /// Tool definitions to advertise to the model, or null/empty to send none. Providers that
+    /// cannot send tool definitions ignore this argument.
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>An async sequence of result chunks.</returns>
     IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
         Conversation conversation,
         string systemPrompt,
         ModelConfig config,
+        IReadOnlyList<ToolDefinition>? tools,
         CancellationToken ct);
 
     /// <summary>

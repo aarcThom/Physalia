@@ -4,6 +4,7 @@
 using Physalia.Core.Models;
 using Physalia.Core.Models.Named;
 using Physalia.Core.Providers;
+using Physalia.Core.Providers.ClaudeCode;
 using Physalia.Core.Providers.Named;
 using Physalia.Core.Models.Protocol;
 
@@ -18,6 +19,7 @@ public static class LlmProviderFactory
     private static readonly AnthropicProvider _anthropic = new();
     private static readonly OpenAICompatibleProvider _openAICompatible = new();
     private static readonly GeminiProvider _gemini = new();
+    private static readonly ClaudeCodeProvider _claudeCode = new();
 
     /// <summary>
     /// Returns the provider for the given config, or null if the config type is not recognised.
@@ -30,6 +32,7 @@ public static class LlmProviderFactory
         GeminiProtocolConfig        => _gemini,
         OpenAICompatibleConfig      => _openAICompatible,
         LlamaCppConfig              => _openAICompatible,
+        ClaudeCodeConfig            => _claudeCode,
         _                           => null,
     };
 }

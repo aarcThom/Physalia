@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-using System.Text.Json.Nodes;
+using System.Text.Json;
 using Json.Schema;
 using Physalia.Core.Common;
 
@@ -34,10 +34,10 @@ public static class SchemaValidator
                 new ValidationError($"Invalid schema: {ex.Message}", Array.Empty<SchemaViolation>()));
         }
 
-        JsonNode? instance;
+        JsonDocument instance;
         try
         {
-            instance = JsonNode.Parse(json);
+            instance = JsonDocument.Parse(json);
         }
         catch (Exception ex)
         {
@@ -45,14 +45,12 @@ public static class SchemaValidator
                 new ValidationError($"Invalid JSON: {ex.Message}", Array.Empty<SchemaViolation>()));
         }
 
-        if (instance is null)
+        EvaluationResults results;
+        using (instance)
         {
-            return new Result<string, ValidationError>.Err(
-                new ValidationError("JSON parsed to null.", Array.Empty<SchemaViolation>()));
+            var options = new EvaluationOptions { OutputFormat = OutputFormat.List };
+            results = jsonSchema.Evaluate(instance.RootElement, options);
         }
-
-        var options = new EvaluationOptions { OutputFormat = OutputFormat.List };
-        EvaluationResults results = jsonSchema.Evaluate(instance, options);
 
         if (results.IsValid)
             return new Result<string, ValidationError>.Ok(json);

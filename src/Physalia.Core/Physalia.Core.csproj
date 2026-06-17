@@ -9,8 +9,8 @@
   <ItemGroup>
     <PackageReference Include="GhJSON.Core" Version="1.0.0" />
     <PackageReference Include="GhJSON.Grasshopper" Version="1.0.0" />
-    <PackageReference Include="JsonSchema.Net" Version="7.*" />
-    <PackageReference Include="SharpToken" Version="2.0.2" />
+    <PackageReference Include="JsonSchema.Net" Version="9.2.2" />
+    <PackageReference Include="SharpToken" Version="2.0.6" />
   </ItemGroup>
 
 </Project>

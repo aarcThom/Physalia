@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows.Forms;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
@@ -35,7 +36,8 @@ public class Recorder : StatefulComponentBase
     private const int InPromptSignal = 1;
     private const int InResponseSignal = 2;
     private const int InFeedbackSignal = 3;
-    private const int InConversation = 4;
+    private const int InToolSignal = 4;
+    private const int InConversation = 5;
 
     private Conversation _conversation = Conversation.Empty;
     private Conversation _recordedHistory = Conversation.Empty;
@@ -85,11 +87,13 @@ public class Recorder : StatefulComponentBase
         pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn; the signal payload is the prompt text. Use Construct Signal to combine a text payload with a manual trigger.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the Reasoner's Success Signal.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Records feedback as a user turn. Wire one or more Feedback Collectors directly — no OR gate needed.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "Tool Signal", "TS", "Records tool turns from a Router (via Feedback Collector): a signal whose content blocks carry tool_use is logged as an assistant turn; one whose blocks carry tool_result is logged as a user turn.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Conversation(), "Conversation", "C", "Optional compacted conversation. Replaces the active conversation while all messages are preserved in Recorded History.", GH_ParamAccess.item);
 
         pManager[InPromptSignal].Optional = true;
         pManager[InResponseSignal].Optional = true;
         pManager[InFeedbackSignal].Optional = true;
+        pManager[InToolSignal].Optional = true;
         pManager[InConversation].Optional = true;
     }
 
@@ -143,7 +147,7 @@ public class Recorder : StatefulComponentBase
 
         // Observe every solve, even mid-run: events arriving while busy wait, latched on
         // their wires, and are serviced after the latch.
-        ObserveSignalInputs(DA, InPromptSignal, InResponseSignal, InFeedbackSignal);
+        ObserveSignalInputs(DA, InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal);
 
         if (_doLatch)
         {
@@ -168,7 +172,7 @@ public class Recorder : StatefulComponentBase
                     break;
             }
 
-            if (HasUnconsumedSignals(InPromptSignal, InResponseSignal, InFeedbackSignal))
+            if (HasUnconsumedSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal))
             {
                 // Events arrived mid-run; nothing was dropped. One follow-up solve
                 // services them in sequence order.
@@ -185,7 +189,7 @@ public class Recorder : StatefulComponentBase
             // always minted after the response that provoked it, so even when both land
             // in this one solve the assistant turn is recorded first.
             IReadOnlyList<ConsumedSignal> consumed =
-                ConsumeAllSignals(InPromptSignal, InResponseSignal, InFeedbackSignal);
+                ConsumeAllSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal);
 
             if (consumed.Count > 0)
             {
@@ -266,6 +270,52 @@ public class Recorder : StatefulComponentBase
 
                 RecordUserText(item.Signal.Payload);
                 break;
+
+            case InToolSignal:
+                RecordToolSignal(item.Signal);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Records a tool turn from a Router. A signal whose content blocks carry tool_use is the
+    /// model's request, logged as an assistant turn (quiet — it must not re-fire the Reasoner);
+    /// one whose blocks carry tool_result is logged as a user turn (which fires the Reasoner so
+    /// it continues with the results in context).
+    /// </summary>
+    /// <param name="signal">The consumed tool signal.</param>
+    private void RecordToolSignal(PhySignal signal)
+    {
+        IReadOnlyList<MessageContent> blocks = signal.ContentBlocks;
+        if (blocks.Count == 0)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Tool signal carried no content blocks.");
+            return;
+        }
+
+        // Split into the assistant request (text + tool_use) and the tool results, so a single
+        // signal that happens to carry both — e.g. if a Feedback Collector batched them — records
+        // the assistant turn first and the tool_result turn second, never dropping either.
+        var requestBlocks = blocks.Where(b => b is not ToolResultContent).ToList();
+        var resultBlocks = blocks.OfType<ToolResultContent>().Cast<MessageContent>().ToList();
+
+        bool recorded = false;
+
+        if (requestBlocks.Any(b => b is ToolCallContent))
+        {
+            RecordAssistantBlocks(requestBlocks);
+            recorded = true;
+        }
+
+        if (resultBlocks.Count > 0)
+        {
+            RecordUserBlocks(resultBlocks, signal.Payload);
+            recorded = true;
+        }
+
+        if (!recorded)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Tool signal had no tool_use or tool_result blocks.");
         }
     }
 
@@ -286,6 +336,30 @@ public class Recorder : StatefulComponentBase
             _conversation = _conversation.Append(message);
             _recordedHistory = _recordedHistory.Append(message);
 
+            if (_pendingOutcome == AppendOutcome.Nothing)
+            {
+                _pendingOutcome = AppendOutcome.AssistantTurn;
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, ex.Message);
+        }
+    }
+
+    private void RecordAssistantBlocks(IReadOnlyList<MessageContent> blocks)
+    {
+        try
+        {
+            var message = new ConversationMessage(Role.Assistant, blocks);
+
+            // Guard only: under sequence ordering an assistant turn cannot legally follow
+            // another assistant turn, so a throw here indicates a wiring mistake.
+            _conversation = _conversation.Append(message);
+            _recordedHistory = _recordedHistory.Append(message);
+
+            // Quiet: recording the model's tool-call request must not fire the outgoing Signal
+            // (the Reasoner re-runs only once the tool results are recorded as a user turn).
             if (_pendingOutcome == AppendOutcome.Nothing)
             {
                 _pendingOutcome = AppendOutcome.AssistantTurn;

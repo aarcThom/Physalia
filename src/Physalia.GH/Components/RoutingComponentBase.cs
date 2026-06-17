@@ -39,6 +39,21 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     protected const int OutFailSignal = 1;
 
     /// <summary>
+    /// Gets the latched aux signal, set when <see cref="ReadSolve"/> returns
+    /// <see cref="RoutingResult.Aux"/>. Re-emitted on <see cref="AuxOutputIndex"/> every solve
+    /// (like Success/Fail) so downstream consume-once stays reliable. Null unless a subclass
+    /// opts into a third output.
+    /// </summary>
+    protected PhySignal? AuxSignal { get; private set; }
+
+    /// <summary>
+    /// Output index of the optional third "aux" route a subclass adds via
+    /// <see cref="RegisterAdditionalOutputs"/>. Default −1 means no aux output, so the base
+    /// emits only Success/Fail and behaves exactly as before for every existing component.
+    /// </summary>
+    protected virtual int AuxOutputIndex => -1;
+
+    /// <summary>
     /// ScheduleSolution delay (milliseconds) before the read pass runs. Gives the
     /// document time to settle the push pass's side effects. Bump if a downstream
     /// component's state is not yet updated when <see cref="ReadSolve"/> runs.
@@ -91,6 +106,16 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// </summary>
     /// <param name="pManager">The input parameter manager.</param>
     protected virtual void RegisterAdditionalInputs(GH_InputParamManager pManager)
+    {
+    }
+
+    /// <summary>
+    /// Registers extra outputs after the fixed Success(0)/Fail(1) signals. A subclass that
+    /// adds one here must also override <see cref="AuxOutputIndex"/> to its index so the base
+    /// re-emits the latched aux signal there. Default implementation adds nothing.
+    /// </summary>
+    /// <param name="pManager">The output parameter manager.</param>
+    protected virtual void RegisterAdditionalOutputs(GH_OutputParamManager pManager)
     {
     }
 
@@ -172,6 +197,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     {
         pManager.AddParameter(new Param_Signal(), "Success Signal", "SS", "Latched signal minted when a run succeeds; its payload carries the result. Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
         pManager.AddParameter(new Param_Signal(), "Fail Signal", "FS", "Latched signal minted when a run fails; its payload carries the feedback. Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
+        RegisterAdditionalOutputs(pManager);
     }
 
     /// <inheritdoc/>
@@ -230,7 +256,14 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
                 AddRuntimeMessage(result.MessageLevel, result.Message);
             }
 
-            if (result.Success)
+            if (result.IsAux)
+            {
+                // A third-route result: latch quietly (no Success/Fail signal) and stash the
+                // pre-minted aux signal; Emit re-emits it on AuxOutputIndex.
+                LatchSuccess(string.Empty, emitSignal: false);
+                AuxSignal = result.AuxSignal;
+            }
+            else if (result.Success)
             {
                 LatchSuccess(result.Output);
             }
@@ -264,6 +297,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
 
             _pushData = data;
             EnterActive();
+            AuxSignal = null;
             PushSolve(data, DA);
             _awaitingRead = true;
             _doRead = false;
@@ -288,6 +322,11 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     {
         EmitSignal(da, OutSuccessSignal, SuccessSignal);
         EmitSignal(da, OutFailSignal, FailSignal);
+
+        if (AuxOutputIndex >= 0)
+        {
+            EmitSignal(da, AuxOutputIndex, AuxSignal);
+        }
     }
 
     /// <summary>
@@ -316,6 +355,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
             _delayElapsed = false;
             _readTimedOut = false;
             _readRetries = 0;
+            AuxSignal = null;
             ResetToEmpty();
         });
     }
@@ -328,6 +368,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         _delayElapsed = false;
         _readTimedOut = false;
         _readRetries = 0;
+        AuxSignal = null;
     }
 
     /// <summary>
@@ -337,12 +378,13 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// </summary>
     protected readonly record struct RoutingResult
     {
-        private RoutingResult(bool success, string output, string? message, GH_RuntimeMessageLevel messageLevel)
+        private RoutingResult(bool success, string output, string? message, GH_RuntimeMessageLevel messageLevel, PhySignal? auxSignal)
         {
             Success = success;
             Output = output;
             Message = message;
             MessageLevel = messageLevel;
+            AuxSignal = auxSignal;
         }
 
         /// <summary>Gets a value indicating whether the run succeeded.</summary>
@@ -358,12 +400,20 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         public GH_RuntimeMessageLevel MessageLevel { get; }
 
         /// <summary>
+        /// Gets the pre-minted signal to emit on the aux output, or null for a Success/Fail result.
+        /// </summary>
+        public PhySignal? AuxSignal { get; }
+
+        /// <summary>Gets a value indicating whether this result routes to the aux output.</summary>
+        public bool IsAux => AuxSignal is not null;
+
+        /// <summary>
         /// Creates a success result carrying the forward-routed result string.
         /// </summary>
         /// <param name="data">The result string carried by the minted success signal.</param>
         /// <returns>A success <see cref="RoutingResult"/>.</returns>
         public static RoutingResult Ok(string data) =>
-            new(true, data, null, GH_RuntimeMessageLevel.Blank);
+            new(true, data, null, GH_RuntimeMessageLevel.Blank, null);
 
         /// <summary>
         /// Creates a failure result carrying the back-routed feedback string.
@@ -373,6 +423,19 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         /// <param name="level">The level for the runtime message.</param>
         /// <returns>A failure <see cref="RoutingResult"/>.</returns>
         public static RoutingResult Fail(string feedback, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Warning) =>
-            new(false, feedback, message, level);
+            new(false, feedback, message, level, null);
+
+        /// <summary>
+        /// Creates a result that emits a caller-minted signal on the subclass's aux output
+        /// (<see cref="AuxOutputIndex"/>) instead of Success/Fail. Used for a third outcome
+        /// such as the Reasoner's tool-call route. The caller mints the signal so it can carry
+        /// structured content (e.g. tool-call blocks).
+        /// </summary>
+        /// <param name="signal">The pre-minted signal to latch and re-emit on the aux output.</param>
+        /// <param name="message">An optional runtime message to surface.</param>
+        /// <param name="level">The level for the runtime message.</param>
+        /// <returns>An aux <see cref="RoutingResult"/>.</returns>
+        public static RoutingResult Aux(PhySignal signal, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Blank) =>
+            new(true, string.Empty, message, level, signal);
     }
 }

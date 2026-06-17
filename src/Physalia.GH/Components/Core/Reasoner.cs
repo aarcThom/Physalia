@@ -4,6 +4,8 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,10 +29,12 @@ namespace Physalia.GH.Components;
 public class Reasoner : RoutingComponentBase<Instructions>
 {
     private int _cancelIndex = -1;
+    private int _toolsIndex = -1;
     private bool _lastCancel;
     private bool _isRunning;
     private string _response = string.Empty;
     private string? _apiError;
+    private IReadOnlyList<LlmToolCall>? _toolCalls;
     private CancellationTokenSource? _cts;
 
     /// <summary>
@@ -52,8 +56,20 @@ public class Reasoner : RoutingComponentBase<Instructions>
     {
         pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Model configuration from a Model or Tweaker component.", GH_ParamAccess.item);
         pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Conversation history and system prompt from Recorder.", GH_ParamAccess.item);
+        _toolsIndex = pManager.AddParameter(new Param_ToolDefinition(), "Tools", "T", "Tool definitions from tool nodes, advertised to the model. Optional; leave unwired for plain inference.", GH_ParamAccess.list);
+        pManager[_toolsIndex].Optional = true;
         _cancelIndex = pManager.AddBooleanParameter("Cancel", "X", "Rising edge cancels the active inference call.", GH_ParamAccess.item, false);
     }
+
+    /// <inheritdoc/>
+    protected override void RegisterAdditionalOutputs(GH_OutputParamManager pManager)
+    {
+        pManager.AddParameter(new Param_Signal(), "Tool Calls", "TC", "Latched signal minted when the model requests tool calls; its content blocks carry the assistant turn (text + tool_use). Wire to a Router. Empty when the model returns a final answer (which routes on Success instead).", GH_ParamAccess.item);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>The Tool Calls output registered by <see cref="RegisterAdditionalOutputs"/> sits at index 2.</remarks>
+    protected override int AuxOutputIndex => 2;
 
     /// <inheritdoc/>
     /// <remarks>
@@ -98,6 +114,7 @@ public class Reasoner : RoutingComponentBase<Instructions>
     {
         _apiError = null;
         _response = string.Empty;
+        _toolCalls = null;
 
         var modelGoo = new GH_ModelConfig();
         if (!da.GetData(0, ref modelGoo) || modelGoo.Value is not ModelConfig config)
@@ -107,18 +124,48 @@ public class Reasoner : RoutingComponentBase<Instructions>
             return;
         }
 
-        StartInference(data, config);
+        // Read the wired tool definitions on the solve thread; the async call only uses the snapshot.
+        var toolGoos = new List<GH_ToolDefinition>();
+        da.GetDataList(_toolsIndex, toolGoos);
+        var tools = toolGoos
+            .Where(g => g?.Value is not null)
+            .Select(g => g!.Value!)
+            .ToList();
+
+        StartInference(data, config, tools);
     }
 
     /// <inheritdoc/>
     protected override RoutingResult ReadSolve(Instructions data, IGH_DataAccess da)
     {
-        return _apiError != null
-            ? RoutingResult.Fail(_apiError, _apiError, GH_RuntimeMessageLevel.Error)
-            : RoutingResult.Ok(_response);
+        if (_apiError != null)
+        {
+            return RoutingResult.Fail(_apiError, _apiError, GH_RuntimeMessageLevel.Error);
+        }
+
+        if (_toolCalls is { Count: > 0 } calls)
+        {
+            // The model asked for tools. Build the assistant turn (optional text + one tool_use
+            // block per call) and route it on the aux (Tool Calls) output for a Router to dispatch.
+            var blocks = new List<MessageContent>();
+            if (!string.IsNullOrEmpty(_response))
+            {
+                blocks.Add(new TextContent(_response));
+            }
+
+            foreach (LlmToolCall call in calls)
+            {
+                blocks.Add(new ToolCallContent(call.Id, call.Name, call.InputJson));
+            }
+
+            PhySignal signal = PhySignal.Mint(SignalOutcome.Success, _response, InstanceGuid, Name, blocks);
+            return RoutingResult.Aux(signal);
+        }
+
+        return RoutingResult.Ok(_response);
     }
 
-    private void StartInference(Instructions instructions, ModelConfig config)
+    private void StartInference(Instructions instructions, ModelConfig config, IReadOnlyList<ToolDefinition> tools)
     {
         _cts?.Cancel();
         _cts?.Dispose();
@@ -146,12 +193,13 @@ public class Reasoner : RoutingComponentBase<Instructions>
                 var sb = new StringBuilder();
                 string? error = null;
                 bool success = true;
+                IReadOnlyList<LlmToolCall>? toolCalls = null;
 
                 await foreach (var chunk in provider.StreamAsync(
                     instructions.Conversation,
                     instructions.SystemPrompt,
                     config,
-                    tools: null,
+                    tools.Count > 0 ? tools : null,
                     ct))
                 {
                     if (chunk is Result<LlmResponseChunk, LlmError>.Ok ok)
@@ -159,6 +207,12 @@ public class Reasoner : RoutingComponentBase<Instructions>
                         if (ok.Value.ContentDelta != null)
                         {
                             sb.Append(ok.Value.ContentDelta);
+                        }
+
+                        // Tool calls arrive on the final chunk; keep the last non-empty set.
+                        if (ok.Value.ToolCalls is { Count: > 0 } chunkCalls)
+                        {
+                            toolCalls = chunkCalls;
                         }
                     }
                     else if (chunk is Result<LlmResponseChunk, LlmError>.Err err)
@@ -184,6 +238,7 @@ public class Reasoner : RoutingComponentBase<Instructions>
                 if (success)
                 {
                     _response = sb.ToString();
+                    _toolCalls = toolCalls;
                     _apiError = null;
                 }
                 else

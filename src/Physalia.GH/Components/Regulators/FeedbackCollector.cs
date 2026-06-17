@@ -92,7 +92,12 @@ public class FeedbackCollector : StatefulComponentBase
                 ? SignalOutcome.Failure
                 : SignalOutcome.Success;
 
-            LatchSuccess(joined, emitSignal: true, outcome: outcome);
+            // Preserve structured content across the batch: tool results ride ContentBlocks as
+            // ToolResultContent, and each block's tool_use_id must survive aggregation — joining
+            // payload strings alone would lose it. Concatenate every injected signal's blocks.
+            var blocks = _batch.SelectMany(s => s.ContentBlocks).ToList();
+
+            LatchSuccess(joined, emitSignal: true, outcome: outcome, contentBlocks: blocks.Count > 0 ? blocks : null);
             _batch = new List<PhySignal>();
 
             bool more;

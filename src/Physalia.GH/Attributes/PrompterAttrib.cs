@@ -115,9 +115,11 @@ public class PrompterAttrib : GH_ComponentAttributes
     private Recorder? _recorder;
     private string _inputMsg = string.Empty;
     private bool _canInput;
+    private bool _busy; // pipeline mid-run — gates the live streaming preview
 
     // current animation frame
     private int _animFrame;
+    private int _animTick; // raw timer ticks, used to slow the wave relative to the repaint rate
 
     // CONSTRUCTOR =======================================================================================
 
@@ -130,11 +132,16 @@ public class PrompterAttrib : GH_ComponentAttributes
     {
         _prompter = prompter;
 
-        // used for the animation while the pipeline is busy
-        _animTimer = new System.Windows.Forms.Timer { Interval = 400 };
+        // Repaints while the pipeline is busy: often enough that a streaming response updates
+        // smoothly, while the "Working" wave advances only every few ticks so it stays calm.
+        _animTimer = new System.Windows.Forms.Timer { Interval = 120 };
         _animTimer.Tick += (s, e) =>
         {
-            _animFrame++;
+            if (++_animTick % 3 == 0)
+            {
+                _animFrame++;
+            }
+
             Grasshopper.Instances.ActiveCanvas?.Refresh();
         };
     }
@@ -533,7 +540,33 @@ public class PrompterAttrib : GH_ComponentAttributes
 
         RebuildMessageCache(graphics, _recorder?.ActiveConversation, fmt);
 
-        if (_cachedMsgTexts.Length == 0)
+        // While a response streams, show the partial text as a provisional assistant message
+        // pinned to the bottom. It is measured fresh each paint (it grows every tick) and is
+        // never committed to the conversation or a wire — pure render. The committed message
+        // arrives later through the normal signal flow, by which point streaming has stopped.
+        string[] texts = _cachedMsgTexts;
+        bool[] isUser = _cachedMsgIsUser;
+        float[] heights = _cachedMsgHeights;
+        float totalHeight = _totalContentHeight;
+
+        string? streaming = _busy ? GetStreamingText() : null;
+        if (!string.IsNullOrEmpty(streaming))
+        {
+            float streamHeight = graphics.MeasureString(streaming, _convoFont, (int)_boundsConvo.Width, fmt).Height;
+            int n = _cachedMsgTexts.Length;
+            texts = new string[n + 1];
+            isUser = new bool[n + 1];
+            heights = new float[n + 1];
+            Array.Copy(_cachedMsgTexts, texts, n);
+            Array.Copy(_cachedMsgIsUser, isUser, n);
+            Array.Copy(_cachedMsgHeights, heights, n);
+            texts[n] = streaming!;
+            isUser[n] = false;
+            heights[n] = streamHeight;
+            totalHeight = _totalContentHeight + streamHeight;
+        }
+
+        if (texts.Length == 0)
         {
             return;
         }
@@ -541,19 +574,19 @@ public class PrompterAttrib : GH_ComponentAttributes
         using var userBrush = new SolidBrush(_userMsgColor); // user text colour
         using var assistantBrush = new SolidBrush(_llmMsgColor); // llm text colour
 
-        float maxScroll = Math.Max(0f, _totalContentHeight - _boundsConvo.Height);
+        float maxScroll = Math.Max(0f, totalHeight - _boundsConvo.Height);
         _scrollOffset = Math.Clamp(_scrollOffset, 0f, maxScroll);
 
-        DrawScrollbar(graphics, _scrollbarTrack, maxScroll);
+        DrawScrollbar(graphics, _scrollbarTrack, maxScroll, totalHeight);
 
         // clip drawing to the text area so partially-visible messages are trimmed at the edges
         var state = graphics.Save();
         graphics.SetClip(_boundsConvo);
 
         float msgYPos = _boundsConvo.Bottom + _scrollOffset;
-        for (int i = _cachedMsgTexts.Length - 1; i >= 0; i--)
+        for (int i = texts.Length - 1; i >= 0; i--)
         {
-            float msgHeight = _cachedMsgHeights[i];
+            float msgHeight = heights[i];
             msgYPos -= msgHeight;
 
             // completely above the viewport — nothing older will be visible either
@@ -570,14 +603,39 @@ public class PrompterAttrib : GH_ComponentAttributes
 
             // clip region handles any partial visibility at top or bottom
             graphics.DrawString(
-                _cachedMsgTexts[i],
+                texts[i],
                 _convoFont,
-                _cachedMsgIsUser[i] ? userBrush : assistantBrush,
+                isUser[i] ? userBrush : assistantBrush,
                 new RectangleF(_boundsConvo.X, msgYPos, _boundsConvo.Width, msgHeight),
                 fmt);
         }
 
         graphics.Restore(state);
+    }
+
+    // the partial response of the busy component (Reasoner) wired to the Recorder, or null
+    // when nothing is streaming. Read every paint while busy — a pure UI-side peek.
+    private string? GetStreamingText()
+    {
+        if (_recorder is null)
+        {
+            return null;
+        }
+
+        foreach (var recipient in _recorder.Params.Output[1].Recipients)
+        {
+            if (recipient.Attributes?.GetTopLevel?.DocObject is IStreamingTextSource source
+                && source is StatefulComponentBase { IsBusy: true })
+            {
+                string? text = source.StreamingText;
+                if (!string.IsNullOrEmpty(text))
+                {
+                    return text;
+                }
+            }
+        }
+
+        return null;
     }
 
     // rebuilds the display strings + measured heights when the conversation reference or
@@ -712,7 +770,7 @@ public class PrompterAttrib : GH_ComponentAttributes
         graphics.FillEllipse(shadow, grip);
     }
 
-    private void DrawScrollbar(Graphics graphics, RectangleF track, float maxScroll)
+    private void DrawScrollbar(Graphics graphics, RectangleF track, float maxScroll, float totalHeight)
     {
         // track background
         using var trackBrush = new SolidBrush(Color.FromArgb(40, 47, 8, 87));
@@ -724,7 +782,7 @@ public class PrompterAttrib : GH_ComponentAttributes
         }
 
         // thumb — height proportional to visible fraction, position reflects scroll offset
-        float thumbH = Math.Max(20f, track.Height * (track.Height / _totalContentHeight));
+        float thumbH = Math.Max(20f, track.Height * (track.Height / totalHeight));
         float thumbFrac = 1f - (_scrollOffset / maxScroll); // 0 = top, 1 = bottom
         float thumbY = track.Y + (thumbFrac * (track.Height - thumbH));
         _scrollbarThumb = new RectangleF(track.X, thumbY, track.Width, thumbH);
@@ -797,6 +855,7 @@ public class PrompterAttrib : GH_ComponentAttributes
     {
         _recorder = FindRecorder();
         bool busy = _recorder is not null && IsPipelineBusy(_recorder);
+        _busy = busy;
 
         // start or stop the busy animation as needed
         SetAnimationFrame(busy);

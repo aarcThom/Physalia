@@ -27,7 +27,7 @@ namespace Physalia.GH.Components;
 /// Recorder. Routes the response forward on the Success Signal or an API error back on
 /// the Fail Signal through <see cref="RoutingComponentBase{TData}"/>.
 /// </summary>
-public class Reasoner : RoutingComponentBase<Instructions>
+public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
 {
     private int _cancelIndex = -1;
     private int _toolsIndex = -1;
@@ -37,6 +37,12 @@ public class Reasoner : RoutingComponentBase<Instructions>
     private string? _apiError;
     private IReadOnlyList<LlmToolCall>? _toolCalls;
     private CancellationTokenSource? _cts;
+
+    // Live streaming buffer: the response text accumulated so far this run. Appended on the
+    // background inference thread and read by the Prompter on the UI thread, so every access is
+    // guarded by the lock. Null between runs; the Prompter shows it only while this is IsBusy.
+    private readonly object _streamLock = new();
+    private StringBuilder? _streamBuffer;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Reasoner"/> class.
@@ -50,7 +56,34 @@ public class Reasoner : RoutingComponentBase<Instructions>
     public override Guid ComponentGuid => new Guid("F1097B2B-564A-43F8-8F70-BA6961F00E00");
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The Prompter reads this while the component IsBusy to render the response as it streams.
+    /// Null until the first token arrives; dropped at the start of each run by
+    /// <see cref="ClearStateOutputs"/>.
+    /// </remarks>
+    public string? StreamingText
+    {
+        get
+        {
+            lock (_streamLock)
+            {
+                return _streamBuffer is { Length: > 0 } buffer ? buffer.ToString() : null;
+            }
+        }
+    }
+
+    /// <inheritdoc/>
     protected override bool AutoScheduleRead => false;
+
+    /// <inheritdoc/>
+    /// <remarks>Drops the previous run's streaming text the moment a new run goes Active.</remarks>
+    protected override void ClearStateOutputs()
+    {
+        lock (_streamLock)
+        {
+            _streamBuffer = null;
+        }
+    }
 
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
@@ -196,6 +229,11 @@ public class Reasoner : RoutingComponentBase<Instructions>
                 }
 
                 var sb = new StringBuilder();
+                lock (_streamLock)
+                {
+                    _streamBuffer = sb;
+                }
+
                 string? error = null;
                 bool success = true;
                 IReadOnlyList<LlmToolCall>? toolCalls = null;
@@ -211,7 +249,11 @@ public class Reasoner : RoutingComponentBase<Instructions>
                     {
                         if (ok.Value.ContentDelta != null)
                         {
-                            sb.Append(ok.Value.ContentDelta);
+                            // Guarded: the Prompter reads this buffer from the UI thread mid-stream.
+                            lock (_streamLock)
+                            {
+                                sb.Append(ok.Value.ContentDelta);
+                            }
                         }
 
                         // Tool calls arrive on the final chunk; keep the last non-empty set.

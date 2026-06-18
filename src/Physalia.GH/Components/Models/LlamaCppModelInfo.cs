@@ -62,6 +62,7 @@ public class LlamaCppModelInfo : PhyBase
         pManager.AddIntegerParameter("Max Input", "I", "Training context length (n_ctx_train) from the server — the architectural maximum from the GGUF header.", GH_ParamAccess.item);
         pManager.AddIntegerParameter("Max Output", "O", "Server context window (n_ctx). May be less than Max Input if --ctx-size was set at launch.", GH_ParamAccess.item);
         pManager.AddBooleanParameter("Image Capable", "V", "Whether the model accepts image inputs. Inferred from the LiteLLM database using the GGUF-normalised model ID. False if the model is not found.", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("Tool Capable", "T", "Whether the model supports function/tool calling. Inferred from the LiteLLM database using the GGUF-normalised model ID. False if the model is not found.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -98,6 +99,7 @@ public class LlamaCppModelInfo : PhyBase
         }
 
         bool vision = false;
+        bool toolCapable = false;
 
         if (_models != null)
         {
@@ -105,6 +107,7 @@ public class LlamaCppModelInfo : PhyBase
             if (entry != null)
             {
                 vision = entry.SupportsVision;
+                toolCapable = entry.SupportsToolCalls;
             }
         }
         else
@@ -125,6 +128,7 @@ public class LlamaCppModelInfo : PhyBase
         }
 
         DA.SetData(2, vision);
+        DA.SetData(3, toolCapable);
     }
 
     private void StartQuery(OpenAIProtocolConfig config)

@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
@@ -26,6 +27,14 @@ namespace Physalia.Core.Providers.ClaudeCode;
 /// </remarks>
 internal sealed class ClaudeCodeSession : IDisposable
 {
+    // A dedicated empty directory the CLI runs in, so its workspace / CLAUDE.md auto-discovery finds
+    // nothing to load. Created once and reused across every session's process.
+    private static readonly Lazy<string> _isolatedWorkingDir = new(CreateIsolatedWorkingDirectory);
+
+    // The CLI emits UTF-8 NDJSON and reads UTF-8 on stdin; pin both pipes so multibyte characters in
+    // the prompt or the generated JSON survive. No BOM — a BOM would corrupt the first stdin line.
+    private static readonly Encoding _pipeEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
     private readonly SemaphoreSlim _turnLock = new(1, 1);
     private Process? _process;
     private string? _systemPromptFile;
@@ -259,12 +268,30 @@ internal sealed class ClaudeCodeSession : IDisposable
         var startInfo = new ProcessStartInfo
         {
             FileName = ResolveExecutable(),
+            WorkingDirectory = _isolatedWorkingDir.Value,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardInputEncoding = _pipeEncoding,
+            StandardOutputEncoding = _pipeEncoding,
+            StandardErrorEncoding = _pipeEncoding,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+
+        // Strip the CLI's non-essential startup network traffic (auto-updater, telemetry, error
+        // reporting) so a cold start never blocks on background round-trips. The umbrella switch
+        // covers all of them; the individual flags are harmless reinforcement.
+        startInfo.Environment["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1";
+        startInfo.Environment["DISABLE_AUTOUPDATER"] = "1";
+        startInfo.Environment["DISABLE_TELEMETRY"] = "1";
+        startInfo.Environment["DISABLE_ERROR_REPORTING"] = "1";
+
+        // Match the Anthropic API provider, which sends no thinking config at all: disable extended
+        // thinking. Left on, a real generation prompt makes the CLI spend 50–90s emitting only
+        // thinking deltas — which this provider filters out — before the first token of the answer,
+        // so the Reasoner sits dead with no output. That invisible stall is the apparent "freeze".
+        startInfo.Environment["MAX_THINKING_TOKENS"] = "0";
 
         // Streaming both ways keeps the process alive between turns; --include-partial-messages
         // gives token-level deltas; --verbose is required for -p stream-json output.
@@ -276,9 +303,7 @@ internal sealed class ClaudeCodeSession : IDisposable
         startInfo.ArgumentList.Add("--verbose");
 
         // --system-prompt-file replaces the CLI's default agent system prompt with the file's
-        // contents. --strict-mcp-config (with no --mcp-config) loads zero MCP servers, the single
-        // biggest startup/context win. The default agentic tools are denied so the process never
-        // runs tools of its own — Physalia owns its tool loop.
+        // contents, so the process behaves as a plain text generator driven by Physalia's prompt.
         if (systemPromptFile is not null)
         {
             startInfo.ArgumentList.Add("--system-prompt-file");
@@ -287,6 +312,16 @@ internal sealed class ClaudeCodeSession : IDisposable
 
         startInfo.ArgumentList.Add("--model");
         startInfo.ArgumentList.Add(modelId);
+
+        // --safe-mode skips the agent harness's heavyweight startup (CLAUDE.md, skills, plugins,
+        // hooks, MCP servers, output styles, workflows) while keeping auth and model selection
+        // working — so the user's `claude auth login` OAuth session still authenticates with no API
+        // key. (--bare is leaner but reads auth only from ANTHROPIC_API_KEY, breaking that promise.)
+        // --no-session-persistence drops the per-turn session disk write; Physalia owns the history.
+        // --strict-mcp-config is redundant under --safe-mode but kept explicit. The default agentic
+        // tools are denied so the process never runs tools of its own — Physalia owns its tool loop.
+        startInfo.ArgumentList.Add("--safe-mode");
+        startInfo.ArgumentList.Add("--no-session-persistence");
         startInfo.ArgumentList.Add("--strict-mcp-config");
         startInfo.ArgumentList.Add("--disallowed-tools");
         startInfo.ArgumentList.Add(
@@ -294,6 +329,15 @@ internal sealed class ClaudeCodeSession : IDisposable
         startInfo.ArgumentList.Add("-p");
 
         return startInfo;
+    }
+
+    private static string CreateIsolatedWorkingDirectory()
+    {
+        // A stable, empty temp folder. CreateDirectory is idempotent, so reusing it across runs is
+        // fine; an empty workspace gives the CLI nothing to auto-discover.
+        string dir = Path.Combine(Path.GetTempPath(), "physalia-claudecode");
+        Directory.CreateDirectory(dir);
+        return dir;
     }
 
     private static string ResolveExecutable()

@@ -17,19 +17,17 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// Takes an LLM-generated GhJSON graph (arriving as the consumed signal's payload), places
-/// the whole graph on the canvas to the right of this component, waits for the placed
-/// components to solve, then routes the outcome. A clean placement routes the GhJSON forward
-/// on the Success Signal; runtime errors or improperly-wired (orphaned) components route a
-/// description back on the Fail Signal so the model can fix and resubmit. Each run removes the
-/// previous placement before placing the new graph.
+/// the whole graph on the canvas to the right of this component, then routes the outcome.
+/// This component reports only <b>mechanical</b> placement problems — invalid GhJSON, a failed
+/// placement, wires the library could not create, and structural issues the fixer could not
+/// repair — back on the Fail Signal so the model can fix and resubmit. A clean placement routes
+/// the placed components' GUIDs forward on the Success Signal; an Observer wired downstream
+/// scopes its runtime-health scan (errors, warnings, dead components) to exactly those GUIDs.
+/// Each run removes the previous placement before placing the new graph.
 /// </summary>
 public class ComponentTransmitter : RoutingComponentBase<string>
 {
     private const float PlacementGap = 50f;
-
-    // How close (in canvas units) a component's pivot X must be to the leftmost placed pivot
-    // to count as a legitimate "source" column and be exempt from the orphan wiring check.
-    private const float LeftColumnTolerance = 30f;
 
     private readonly List<Guid> _placedGuids = new();
     private string _pendingJson = string.Empty;
@@ -44,7 +42,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>
         : base(
             "Component Transmitter",
             "CompTx",
-            "Places an LLM-generated GhJSON graph on the canvas and routes the placed components' errors. Clean placement routes the GhJSON forward; problems route a description back.",
+            "Places an LLM-generated GhJSON graph on the canvas. Clean placement routes the placed components' GUIDs forward (for an Observer to scan); mechanical placement problems route a description back.",
             "Serializers")
     {
     }
@@ -96,40 +94,9 @@ public class ComponentTransmitter : RoutingComponentBase<string>
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Defers the read pass until every placed component has finished solving, so the runtime
-    /// messages read in <see cref="ReadSolve"/> reflect the placed graph rather than a still
-    /// expired (Blank) state.
-    /// </remarks>
-    protected override bool IsReadReady(string data)
-    {
-        if (_pushError != null)
-        {
-            return true;
-        }
-
-        GH_Document? doc = OnPingDocument();
-        if (doc is null)
-        {
-            return true;
-        }
-
-        foreach (Guid g in _placedGuids)
-        {
-            if (doc.FindObject(g, false) is IGH_ActiveObject ao &&
-                (ao.Phase == GH_SolutionPhase.Blank || ao.Phase == GH_SolutionPhase.Computing))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /// <inheritdoc/>
-    /// <remarks>
-    /// Reads the placed components' runtime errors and checks for downstream components left
-    /// fully unwired, routing Success (the GhJSON) or Fail (a description of the problems)
-    /// accordingly.
+    /// Reports only mechanical placement outcomes (known as soon as placement finishes), so it
+    /// need not wait for the placed components to solve — an Observer wired downstream owns the
+    /// runtime-health gate and scan.
     /// </remarks>
     protected override RoutingResult ReadSolve(string data, IGH_DataAccess da)
     {
@@ -138,14 +105,12 @@ public class ComponentTransmitter : RoutingComponentBase<string>
             return RoutingResult.Fail(_pushError, _pushError, GH_RuntimeMessageLevel.Error);
         }
 
-        List<string> errors = CollectRuntimeErrors();
-        List<string> orphans = CollectOrphanComponents();
         var connectionFailures = _placeWarnings.ToList();
         var unfixed = _unfixedIssues.ToList();
 
-        return errors.Count == 0 && orphans.Count == 0 && connectionFailures.Count == 0 && unfixed.Count == 0
-            ? RoutingResult.Ok(_pendingJson)
-            : RoutingResult.Fail(BuildFeedback(errors, orphans, connectionFailures, unfixed), "Placed graph reported problems.", GH_RuntimeMessageLevel.Warning);
+        return connectionFailures.Count == 0 && unfixed.Count == 0
+            ? RoutingResult.Ok(SerializePlacedGuids())
+            : RoutingResult.Fail(BuildFeedback(connectionFailures, unfixed), "Placement reported problems.", GH_RuntimeMessageLevel.Warning);
     }
 
     /// <inheritdoc/>
@@ -228,95 +193,25 @@ public class ComponentTransmitter : RoutingComponentBase<string>
     }
 
     /// <summary>
-    /// Collects the error-level runtime messages reported by the placed components.
+    /// Serialises the placed components' GUIDs as newline-separated values for the Success
+    /// payload, so a downstream Observer can scope its runtime-health scan to exactly this
+    /// placement.
     /// </summary>
-    /// <returns>One entry per error, prefixed with the reporting object's name.</returns>
-    private List<string> CollectRuntimeErrors()
-    {
-        var errors = new List<string>();
-        GH_Document? doc = OnPingDocument();
-        if (doc is null)
-        {
-            return errors;
-        }
-
-        foreach (Guid g in _placedGuids)
-        {
-            if (doc.FindObject(g, false) is IGH_ActiveObject ao)
-            {
-                foreach (string message in ao.RuntimeMessages(GH_RuntimeMessageLevel.Error))
-                {
-                    errors.Add($"{ao.Name}: {message}");
-                }
-            }
-        }
-
-        return errors;
-    }
+    /// <returns>The placed GUIDs, one per line.</returns>
+    private string SerializePlacedGuids() =>
+        string.Join(Environment.NewLine, _placedGuids.Select(g => g.ToString()));
 
     /// <summary>
-    /// Finds placed non-parameter components that sit downstream of the leftmost (source)
-    /// column yet have no wired inputs — i.e. components the graph left disconnected. Floating
-    /// parameter objects (sliders, panels, params) are exempt, as are components in the
-    /// leftmost column, which are legitimate sources.
+    /// Builds the feedback payload routed back on the Fail Signal, listing the mechanical
+    /// placement problems the model must fix in its GhJSON.
     /// </summary>
-    /// <returns>One entry per orphaned component, naming it and its pivot location.</returns>
-    private List<string> CollectOrphanComponents()
-    {
-        var orphans = new List<string>();
-        GH_Document? doc = OnPingDocument();
-        if (doc is null)
-        {
-            return orphans;
-        }
-
-        var placed = _placedGuids
-            .Select(g => doc.FindObject(g, false))
-            .Where(o => o is not null && o.Attributes is not null)
-            .ToList();
-
-        if (placed.Count == 0)
-        {
-            return orphans;
-        }
-
-        float minX = placed.Min(o => o!.Attributes.Pivot.X);
-
-        foreach (IGH_DocumentObject? obj in placed)
-        {
-            if (obj is not IGH_Component comp)
-            {
-                continue;
-            }
-
-            if (comp.Attributes.Pivot.X <= minX + LeftColumnTolerance)
-            {
-                continue;
-            }
-
-            if (comp.Params.Input.Count > 0 && comp.Params.Input.All(p => p.SourceCount == 0))
-            {
-                PointF pivot = comp.Attributes.Pivot;
-                orphans.Add($"{comp.Name} (at {pivot.X:0}, {pivot.Y:0})");
-            }
-        }
-
-        return orphans;
-    }
-
-    /// <summary>
-    /// Builds the feedback payload routed back on the Fail Signal, listing runtime errors and
-    /// disconnected components.
-    /// </summary>
-    /// <param name="errors">The collected runtime error messages.</param>
-    /// <param name="orphans">The collected disconnected-component descriptions.</param>
     /// <param name="connectionFailures">Wires the library could not create (id/paramIndex mismatch).</param>
     /// <param name="unfixedIssues">Issues the GhJSON fixer could not repair before placement.</param>
     /// <returns>A human-readable feedback string.</returns>
-    private static string BuildFeedback(IReadOnlyList<string> errors, IReadOnlyList<string> orphans, IReadOnlyList<string> connectionFailures, IReadOnlyList<string> unfixedIssues)
+    private static string BuildFeedback(IReadOnlyList<string> connectionFailures, IReadOnlyList<string> unfixedIssues)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("The GhJSON graph you generated has problems. Please fix and resubmit.");
+        sb.AppendLine("The GhJSON graph you generated could not be placed cleanly. Please fix and resubmit.");
 
         if (unfixedIssues.Count > 0)
         {
@@ -328,16 +223,6 @@ public class ComponentTransmitter : RoutingComponentBase<string>
             }
         }
 
-        if (errors.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("Errors:");
-            foreach (string error in errors)
-            {
-                sb.AppendLine($"  - {error}");
-            }
-        }
-
         if (connectionFailures.Count > 0)
         {
             sb.AppendLine();
@@ -345,16 +230,6 @@ public class ComponentTransmitter : RoutingComponentBase<string>
             foreach (string failure in connectionFailures)
             {
                 sb.AppendLine($"  - {failure}");
-            }
-        }
-
-        if (orphans.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("Disconnected components (have no wired inputs):");
-            foreach (string orphan in orphans)
-            {
-                sb.AppendLine($"  - {orphan}");
             }
         }
 

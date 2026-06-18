@@ -39,7 +39,7 @@ public abstract class StatefulComponentBase : PhyBase
     /// by eye. Honoured against the wall clock even when the document schedule is
     /// flushed early. May be exposed to the user later.
     /// </summary>
-    protected const int SolveDelayMs = 500;
+    protected const int SolveDelayMs = 20;
 
     // Tolerance (ms) when deciding whether a scheduled callback fired early; roughly
     // the resolution of the underlying timer.

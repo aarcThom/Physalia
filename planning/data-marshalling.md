@@ -243,6 +243,53 @@ Collector.Signal ──────────► Recorder.Feedback Signal
 There is no separate data wire between pipeline components — the response text, the
 validated JSON, and the feedback all travel as signal payloads.
 
+## Tool calling: Reasoner → Router → tool nodes → Recorder
+
+The provider contract (Anthropic/OpenAI/Gemini) is strict: an assistant turn that
+contains N `tool_use` blocks **must** be followed by exactly **one** user turn carrying a
+`tool_result` for **every** one of those ids, before any further assistant turn. The
+pipeline preserves this by identity, not timing.
+
+```
+Reasoner.Tool Calls (aux) ──► Router.Tool Calls          (assistant turn: text + tool_use blocks)
+Router.<tool> output ────────► ToolNode.Signal           (dispatched call(s) as tool_use blocks)
+Router.Feedback ─► Feedback ~► FeedbackCollector ─► Recorder.Tool Signal
+ToolNode.Result ─► Feedback ~► FeedbackCollector ─► Router.Results
+```
+
+- **Reasoner** routes a tool-call response on its **aux** `Tool Calls` output (not Success):
+  one assistant turn = optional `TextContent` + one `ToolCallContent` per call. A plain
+  answer routes on Success as usual.
+- **Router** has one variable output per tool (auto-named from the wired tool node's
+  `Tool Definition`; see the component). It:
+  1. forwards the whole assistant turn on its fixed **Feedback** output so the Recorder
+     logs the request (recorded as a *quiet* assistant turn — must not re-fire the Reasoner);
+  2. **groups calls by target output** and dispatches all calls for one tool as a **single**
+     signal carrying multiple `ToolCallContent` blocks — a single output holds only one
+     latched signal, so parallel calls to the *same* tool cannot ride separate signals;
+  3. **aggregates results**: holds every dispatched `tool_use` id in `_pendingToolUseIds`,
+     accumulates returning `ToolResultContent` blocks (matched by `tool_use_id`), and
+     forwards **one** combined Feedback signal only once the whole set is satisfied
+     (`ResultsReady()`). That becomes the single user turn the provider requires, firing the
+     Reasoner exactly once. A call with no matching output is answered with a synthetic
+     `is_error` result so the round can still complete.
+
+- **Tool nodes inherit `ToolComponentBase`** (`Components/Tools/ToolComponentBase.cs`), which
+  owns the whole contract: it advertises `Definition` on the Tool output, observes/consumes the
+  Signal input, and — crucially — handles the multi-call case. The dispatched signal may carry
+  **more than one** `ToolCallContent` (the model called the tool several times in one turn), so
+  the base runs `ExecuteCall` **once per call** and emits **one** result signal whose
+  `ContentBlocks` hold a `ToolResultContent` per call, each echoing that call's `Id`. Answering
+  only the first call would strand the others' ids as permanently pending and the round would
+  never complete. A subclass supplies only: `Definition`, optional `RegisterAdditionalInputs` +
+  `OnSolveTick` (cache per-solve context like a wired catalog), and `ExecuteCall(call) →
+  ToolCallResult` (`Ok`/`Error`). `ComponentSearch` is the reference implementation.
+
+- The body of a tool result rides as `ToolResultContent.Content` inside `ContentBlocks` — the
+  Router collects from blocks, not the payload, so a result returned as payload-only text
+  (no `ToolResultContent`) is **not** seen. `ToolComponentBase` always wraps output correctly;
+  don't bypass it.
+
 ## Serialization Rules
 
 - **Nothing in the lifecycle persists.** No state, no signals, no payloads, no

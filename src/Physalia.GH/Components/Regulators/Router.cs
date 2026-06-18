@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Types;
+using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Signals;
 using Physalia.GH.Goo;
@@ -27,6 +28,12 @@ namespace Physalia.GH.Components;
 /// <para>Tool results return wirelessly: each tool node's result goes through a Feedback component
 /// into a Feedback Collector whose Signal output is wired into this Router's Results input. Because
 /// every return hop is the wireless Feedback transport, the loop closes without a GH cycle.</para>
+///
+/// <para>When the model calls several tools at once, each result returns independently. The Router
+/// holds them until every dispatched <c>tool_use</c> id has a matching result, then forwards one
+/// combined signal so the Recorder logs a single user turn carrying all <c>tool_result</c> blocks —
+/// which is what the provider requires after a multi-tool assistant turn. A call with no matching
+/// output is answered with an error result so that round can still complete.</para>
 /// </summary>
 public class Router : StatefulComponentBase, IGH_VariableParameterComponent
 {
@@ -37,6 +44,14 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     // current feedback signal. Keyed by nickname (not index) so they survive output add/remove.
     private readonly Dictionary<string, PhySignal> _dispatched = new(StringComparer.OrdinalIgnoreCase);
     private PhySignal? _feedbackSignal;
+
+    // Per-round tool-result aggregation. The provider requires every tool_use block in the
+    // assistant turn to have a matching tool_result in the SINGLE user turn that follows, so the
+    // Router holds results until the whole dispatched set is in, then forwards one combined signal.
+    // Correctness is by the dispatched id set, not by the timing of independent tool nodes.
+    private readonly HashSet<string> _pendingToolUseIds = new(StringComparer.Ordinal);
+    private readonly List<ToolResultContent> _collectedResults = new();
+    private bool _awaitingResults;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Router"/> class.
@@ -150,16 +165,33 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
 
         // Consume in global sequence order: a tool-call request is always minted before the
         // results it provokes, so the request reaches the Recorder before the results.
+        bool dispatched = false;
         foreach (ConsumedSignal item in ConsumeAllSignals(InToolCalls, InResults))
         {
             if (item.ParamIndex == InToolCalls)
             {
                 DispatchToolCalls(item.Signal);
+                dispatched = true;
             }
             else
             {
-                ForwardResults(item.Signal);
+                CollectResults(item.Signal);
             }
+        }
+
+        if (dispatched)
+        {
+            // Emit the assistant request alone this solve. If the whole set is already satisfied
+            // (e.g. every call was dropped and answered with a synthetic error), forward the
+            // combined results on a follow-up solve so the request is consumed downstream first.
+            if (ResultsReady())
+            {
+                ScheduleStateSolve(1, () => { });
+            }
+        }
+        else if (ResultsReady())
+        {
+            ForwardCollectedResults();
         }
 
         Emit(DA);
@@ -170,6 +202,9 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     {
         _dispatched.Clear();
         _feedbackSignal = null;
+        _pendingToolUseIds.Clear();
+        _collectedResults.Clear();
+        _awaitingResults = false;
     }
 
     private void DispatchToolCalls(PhySignal signal)
@@ -181,10 +216,20 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
             return;
         }
 
+        // Start a fresh round: the dispatched ids are the set whose results must all be gathered
+        // before the combined tool_result turn is forwarded.
+        _pendingToolUseIds.Clear();
+        _collectedResults.Clear();
+        _awaitingResults = true;
+
         // Forward the whole assistant turn (text + tool_use blocks) to the Recorder so the model's
         // request is logged before any result.
         _feedbackSignal = PhySignal.Mint(SignalOutcome.Success, signal.Payload, InstanceGuid, Name, signal.ContentBlocks);
 
+        // Group calls by their target output. The model may call the SAME tool several times in one
+        // turn (parallel tool use); a single output carries only one latched signal, so all calls to
+        // one tool ride together as one dispatched signal and the tool node returns a result per call.
+        var grouped = new Dictionary<int, List<ToolCallContent>>();
         foreach (ToolCallContent call in calls)
         {
             int outputIndex = FindToolOutput(call.Name);
@@ -192,24 +237,63 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
             {
                 AddRuntimeMessage(
                     GH_RuntimeMessageLevel.Warning,
-                    $"No output is named \"{call.Name}\" — add an output and rename it to that tool, or the call is dropped.");
+                    $"No output is named \"{call.Name}\" — wire an output into that tool node, or the call is answered with an error.");
+
+                // The provider requires a tool_result for EVERY tool_use; answer the undispatchable
+                // call with an error result so the round can still complete with a valid pairing.
+                _collectedResults.Add(new ToolResultContent(
+                    call.Id,
+                    $"No tool node is wired for \"{call.Name}\".",
+                    IsError: true));
                 continue;
             }
 
-            string nick = Params.Output[outputIndex].NickName;
-            _dispatched[nick] = PhySignal.Mint(
-                SignalOutcome.Success,
-                call.InputJson,
-                InstanceGuid,
-                Name,
-                new MessageContent[] { call });
+            _pendingToolUseIds.Add(call.Id);
+            if (!grouped.TryGetValue(outputIndex, out List<ToolCallContent>? group))
+            {
+                group = new List<ToolCallContent>();
+                grouped[outputIndex] = group;
+            }
+
+            group.Add(call);
+        }
+
+        foreach (KeyValuePair<int, List<ToolCallContent>> entry in grouped)
+        {
+            string nick = Params.Output[entry.Key].NickName;
+            var blocks = entry.Value.Cast<MessageContent>().ToList();
+            string payload = string.Join(Environment.NewLine, entry.Value.Select(c => c.InputJson));
+            _dispatched[nick] = PhySignal.Mint(SignalOutcome.Success, payload, InstanceGuid, Name, blocks);
         }
     }
 
-    private void ForwardResults(PhySignal signal)
+    private void CollectResults(PhySignal signal)
     {
-        // Pass the collected results (ToolResultContent blocks) on to the Recorder via Feedback.
-        _feedbackSignal = PhySignal.Mint(SignalOutcome.Success, signal.Payload, InstanceGuid, Name, signal.ContentBlocks);
+        // Accumulate (never forward per-result): each independent tool node returns its own
+        // tool_result, but they must arrive at the Recorder as ONE user turn. Match by tool_use_id
+        // so the dispatched set drains regardless of arrival order.
+        foreach (ToolResultContent result in signal.ContentBlocks.OfType<ToolResultContent>())
+        {
+            _collectedResults.Add(result);
+            _pendingToolUseIds.Remove(result.ToolCallId);
+        }
+    }
+
+    private bool ResultsReady() =>
+        _awaitingResults && _pendingToolUseIds.Count == 0 && _collectedResults.Count > 0;
+
+    private void ForwardCollectedResults()
+    {
+        // One combined signal carrying every tool_result — recorded as the single user turn the
+        // provider requires after the assistant tool_use turn, firing the Reasoner exactly once.
+        _awaitingResults = false;
+        var blocks = _collectedResults.Cast<MessageContent>().ToList();
+        string payload = string.Join(
+            Environment.NewLine,
+            _collectedResults.Select(r => r.Content).Where(StringHelpers.IsNonBlank));
+
+        _feedbackSignal = PhySignal.Mint(SignalOutcome.Success, payload, InstanceGuid, Name, blocks);
+        _collectedResults.Clear();
     }
 
     private int FindToolOutput(string toolName)

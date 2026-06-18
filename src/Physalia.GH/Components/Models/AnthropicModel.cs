@@ -4,7 +4,6 @@
 using System;
 using Physalia.Core.Models;
 using Physalia.Core.Models.Named;
-
 namespace Physalia.GH.Components;
 
 /// <summary>

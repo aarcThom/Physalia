@@ -11,7 +11,6 @@ using Grasshopper.Kernel;
 using Physalia.Core.Catalog;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
-using Physalia.Core.Signals;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -24,27 +23,24 @@ namespace Physalia.GH.Components;
 /// wired Component Catalog, and it emits the matches as a tool result (wire its Result output through
 /// a Feedback component into a Feedback Collector and back to the Router's Results input).
 /// </summary>
-public class ComponentSearch : StatefulComponentBase
+public class ComponentSearch : ToolComponentBase
 {
-    private const int InSignal = 0;
     private const int InCatalog = 1;
-    private const int OutTool = 0;
-    private const int OutResult = 1;
 
     private const int MaxResults = 15;
 
-    private static readonly ToolDefinition Definition = new(
+    private static readonly ToolDefinition ToolDef = new(
         "search_components",
         "Search the user's installed Grasshopper components by keyword. Call this when you need the exact name of a component to place (for example \"loft\", \"construct point\", or \"voronoi\"). Returns matching component names with their categories.",
         "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Keywords describing the component you are looking for.\"}},\"required\":[\"query\"]}");
 
-    private PhySignal? _resultSignal;
+    private ComponentCatalog? _catalog;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ComponentSearch"/> class.
     /// </summary>
     public ComponentSearch()
-        : base("Component Search", "Search", "A tool the model calls to search the installed component library by keyword.", "Tools")
+        : base("Component Search", "Search", "A tool the model calls to search the installed component library by keyword.")
     {
     }
 
@@ -52,62 +48,32 @@ public class ComponentSearch : StatefulComponentBase
     public override Guid ComponentGuid => new Guid("C5F2A9D4-6B81-4E37-A0C2-9D4F1B6E8350");
 
     /// <inheritdoc/>
-    protected override void RegisterInputParams(GH_InputParamManager pManager)
+    protected override ToolDefinition Definition => ToolDef;
+
+    /// <inheritdoc/>
+    protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Signal", "S", "Dispatched tool-call signal from a Router.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_ComponentCatalog(), "Component Catalog", "Cat", "Installed-component catalog from a Library component, searched on each call.", GH_ParamAccess.item);
-        pManager[InSignal].Optional = true;
         pManager[InCatalog].Optional = true;
     }
 
     /// <inheritdoc/>
-    protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+    protected override void OnSolveTick(IGH_DataAccess da)
     {
-        pManager.AddParameter(new Param_ToolDefinition(), "Tool", "T", "The search_components tool definition. Wire into the Reasoner's Tools input.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_Signal(), "Result", "R", "Tool result signal. Wire through a Feedback component into a Feedback Collector, then into the Router's Results input.", GH_ParamAccess.item);
-    }
-
-    /// <inheritdoc/>
-    protected override void SolveInstance(IGH_DataAccess DA)
-    {
-        // Always advertise the tool so the Reasoner sees it regardless of run state.
-        DA.SetData(OutTool, new GH_ToolDefinition(Definition));
-
         var catalogGoo = new GH_ComponentCatalog();
-        ComponentCatalog? catalog = DA.GetData(InCatalog, ref catalogGoo) ? catalogGoo?.Value : null;
-
-        ObserveSignalInputs(DA, InSignal);
-
-        foreach (ConsumedSignal item in ConsumeAllSignals(InSignal))
-        {
-            Execute(item.Signal, catalog);
-        }
-
-        EmitSignal(DA, OutResult, _resultSignal);
+        _catalog = da.GetData(InCatalog, ref catalogGoo) ? catalogGoo?.Value : null;
     }
 
     /// <inheritdoc/>
-    protected override void OnCleared()
+    protected override ToolCallResult ExecuteCall(ToolCallContent call)
     {
-        _resultSignal = null;
-    }
-
-    private void Execute(PhySignal signal, ComponentCatalog? catalog)
-    {
-        ToolCallContent? call = signal.ContentBlocks.OfType<ToolCallContent>().FirstOrDefault();
-        if (call is null)
+        if (_catalog is null)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Dispatched signal carried no tool call.");
-            return;
+            return ToolCallResult.Error("No component catalog is wired into the search tool — connect a Library component.");
         }
 
         string query = ExtractQuery(call.InputJson);
-        string result = catalog is null
-            ? "No component catalog is wired into the search tool — connect a Library component."
-            : SearchCatalog(catalog, query);
-
-        var block = new ToolResultContent(call.Id, result);
-        _resultSignal = PhySignal.Mint(SignalOutcome.Success, result, InstanceGuid, Name, new MessageContent[] { block });
+        return ToolCallResult.Ok(SearchCatalog(_catalog, query));
     }
 
     private static string ExtractQuery(string inputJson)

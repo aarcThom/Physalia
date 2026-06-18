@@ -10,4 +10,13 @@ namespace Physalia.Core.Models;
 /// <param name="ModelId">The provider's model identifier string, e.g. "claude-sonnet-4-6".</param>
 /// <param name="ApiKey">The resolved API key for authentication.</param>
 /// <param name="MaxTokens">Maximum number of tokens to generate.</param>
-public abstract record ModelConfig(string ModelId, string ApiKey, int MaxTokens);
+public abstract record ModelConfig(string ModelId, string ApiKey, int MaxTokens)
+{
+    /// <summary>
+    /// Gets an optional caller-supplied identity used by stateful providers to pool a
+    /// long-lived session across calls. The Claude Code warm-process provider keys its
+    /// persistent CLI process on this (the Reasoner stamps its <c>InstanceGuid</c>).
+    /// Null for stateless providers, which ignore it.
+    /// </summary>
+    public Guid? SessionKey { get; init; }
+}

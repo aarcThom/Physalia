@@ -1,10 +1,8 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Models;
@@ -13,25 +11,43 @@ using Physalia.Core.Models.Named;
 namespace Physalia.Core.Providers.ClaudeCode;
 
 /// <summary>
-/// Provider that runs inference through the locally-installed Claude Code CLI (<c>claude</c>)
-/// as a subprocess rather than calling an HTTP API. Authentication is handled by the user's
-/// existing <c>claude auth login</c> session, so no API key is required or used. Use with
-/// <see cref="ClaudeCodeConfig"/>.
+/// Provider that runs inference through the locally-installed Claude Code CLI (<c>claude</c>).
+/// Authentication is handled by the user's existing <c>claude auth login</c> session, so no API
+/// key is required or used. Use with <see cref="ClaudeCodeConfig"/>.
 /// </summary>
 /// <remarks>
-/// Requires the Claude Code CLI to be installed and authenticated on the host machine. The prompt
-/// is delivered on standard input (sidestepping command-line length limits and quoting) and the
-/// reply is read in a single shot via <c>--output-format json</c>, then yielded as one final chunk.
+/// Rather than cold-starting a fresh <c>claude</c> subprocess per call, this provider keeps one
+/// <see cref="ClaudeCodeSession"/> warm per conversation (keyed on <see cref="ModelConfig.SessionKey"/>,
+/// which the Reasoner stamps with its instance GUID). The harness cold start is paid once on the
+/// seed turn; subsequent turns send only the new user message and reuse the live process, which
+/// also lets the CLI's prompt cache cut latency. A session is dropped when its conversation resets,
+/// its model or system prompt changes, it errors, or the Reasoner is removed
+/// (<see cref="EndSession"/>); an idle reaper kills abandoned sessions.
 /// </remarks>
 public sealed class ClaudeCodeProvider : ILlmProvider
 {
     private const string ContinuationInstruction =
         "Continue from the conversation above. Respond as the assistant.";
 
+    private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(15);
+
+    private static readonly ConcurrentDictionary<Guid, ClaudeCodeSession> _sessions = new();
+    private static readonly object _poolLock = new();
+
+#pragma warning disable IDE0052 // Held to keep the reaper alive for the process lifetime.
+    private static readonly Timer _reaper = new(_ => ReapIdleSessions(), null, IdleTimeout, IdleTimeout);
+#pragma warning restore IDE0052
+
+    static ClaudeCodeProvider()
+    {
+        // Make sure no warm CLI process outlives the host (Rhino) process.
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => DisposeAll();
+    }
+
     /// <inheritdoc/>
     /// <remarks>
-    /// <paramref name="tools"/> is ignored: the single-shot CLI invocation does not advertise
-    /// tool definitions to the model.
+    /// <paramref name="tools"/> is ignored: the CLI invocation does not advertise Physalia tool
+    /// definitions to the model.
     /// </remarks>
     public async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
         Conversation conversation,
@@ -42,13 +58,78 @@ public sealed class ClaudeCodeProvider : ILlmProvider
     {
         if (config is not ClaudeCodeConfig claudeConfig)
         {
-            yield return new Result<LlmResponseChunk, LlmError>.Err(
-                new LlmError(LlmErrorKind.InvalidRequest, "ClaudeCodeProvider requires a ClaudeCodeConfig."));
+            yield return Fail(LlmErrorKind.InvalidRequest, "ClaudeCodeProvider requires a ClaudeCodeConfig.");
             yield break;
         }
 
-        string prompt = BuildPrompt(conversation);
-        yield return await RunCliAsync(prompt, systemPrompt, claudeConfig, ct);
+        // The session also accounts for the assistant turn the model is about to generate (the CLI
+        // appends it internally; Recorder appends it to the Physalia conversation after this call),
+        // so a completed turn brings the session up to conversation.Count + 1 messages.
+        int consumedAfter = conversation.Count + 1;
+
+        // No session key (a caller that did not opt into warm sessions): run a one-shot ephemeral
+        // process that seeds the full history, then dispose it — same behaviour as a cold call.
+        if (claudeConfig.SessionKey is not Guid sessionKey)
+        {
+            var ephemeral = new ClaudeCodeSession(claudeConfig.ModelId, systemPrompt);
+            try
+            {
+                await foreach (var chunk in StreamTurnAsync(ephemeral, BuildSeedContent(conversation), consumedAfter, ct))
+                {
+                    yield return chunk;
+                }
+            }
+            finally
+            {
+                ephemeral.Dispose();
+            }
+
+            yield break;
+        }
+
+        ClaudeCodeSession session = ResolveSession(sessionKey, claudeConfig.ModelId, systemPrompt);
+
+        // Decide seed vs. delta. A conversation is append-only, so anything that is not a clean
+        // one-user-message extension of what the session already absorbed forces a fresh seed.
+        bool isDelta = session.ConsumedMessageCount > 0
+            && conversation.Count == session.ConsumedMessageCount + 1
+            && conversation.Messages[^1].Role == Role.User;
+
+        IReadOnlyList<MessageContent> content;
+        if (isDelta)
+        {
+            content = conversation.Messages[^1].Content;
+        }
+        else
+        {
+            // Reseed: a started session already holds context that cannot be rewound, so replace
+            // it before seeding the full history. A never-started session (ConsumedMessageCount 0,
+            // including one ResolveSession just recreated after a dead process) is seeded as-is.
+            if (session.ConsumedMessageCount > 0)
+            {
+                session = ReplaceSession(sessionKey, claudeConfig.ModelId, systemPrompt);
+            }
+
+            content = BuildSeedContent(conversation);
+        }
+
+        bool keepWarm = true;
+        await foreach (var chunk in StreamTurnAsync(session, content, consumedAfter, ct))
+        {
+            if (chunk is Result<LlmResponseChunk, LlmError>.Err)
+            {
+                keepWarm = false;
+            }
+
+            yield return chunk;
+        }
+
+        // A turn that errored or was cancelled leaves the session desynced — drop it so the next
+        // call cold-starts and reseeds cleanly.
+        if (!keepWarm)
+        {
+            EndSession(sessionKey);
+        }
     }
 
     /// <inheritdoc/>
@@ -61,270 +142,153 @@ public sealed class ClaudeCodeProvider : ILlmProvider
             new Result<IReadOnlyList<string>, LlmError>.Ok(ClaudeCodeConfig.KnownModels));
     }
 
-    private static string BuildPrompt(Conversation conversation)
+    /// <summary>
+    /// Kills and removes the warm session for the given key, if any. Called by the Reasoner when
+    /// it is removed from the document so its CLI process does not leak.
+    /// </summary>
+    /// <param name="sessionKey">The session key (the Reasoner's instance GUID).</param>
+    public static void EndSession(Guid sessionKey)
     {
-        if (conversation.Count == 1)
+        if (_sessions.TryRemove(sessionKey, out ClaudeCodeSession? session))
         {
-            return ConversationHelpers.ToContentString(conversation.Messages[0]);
+            session.Dispose();
         }
-
-        // The CLI takes a single prompt, so multi-turn history is serialised inline.
-        string history = ConversationHelpers.ToDisplayString(conversation);
-        return string.IsNullOrEmpty(history)
-            ? ContinuationInstruction
-            : $"{history}\n\n{ContinuationInstruction}";
     }
 
-    private static async Task<Result<LlmResponseChunk, LlmError>> RunCliAsync(
-        string prompt,
-        string systemPrompt,
-        ClaudeCodeConfig config,
-        CancellationToken ct)
+    /// <summary>
+    /// Streams one turn through a session, translating an exception thrown mid-turn (such as a
+    /// cancellation) into a terminal error chunk so the iterator never throws into the caller.
+    /// </summary>
+    private static async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamTurnAsync(
+        ClaudeCodeSession session,
+        IReadOnlyList<MessageContent> content,
+        int newConsumedCount,
+        [EnumeratorCancellation] CancellationToken ct)
     {
-        // The system prompt (often large — e.g. an embedded JSON schema) is written to a temp file
-        // and passed by path. Passing it as an argument blows past the Windows command-line length
-        // limit (a "filename or extension is too long" Win32 failure). The user prompt rides stdin
-        // for the same reason.
-        string? systemPromptFile = null;
+        IAsyncEnumerator<Result<LlmResponseChunk, LlmError>> enumerator =
+            session.SendTurnAsync(content, newConsumedCount, ct).GetAsyncEnumerator(ct);
 
         try
         {
-            if (!string.IsNullOrEmpty(systemPrompt))
+            while (true)
             {
-                systemPromptFile = Path.GetTempFileName();
-                await File.WriteAllTextAsync(systemPromptFile, systemPrompt, ct);
-            }
+                Result<LlmResponseChunk, LlmError>? next;
+                LlmError? fatal = null;
 
-            ProcessStartInfo startInfo;
-            try
-            {
-                startInfo = BuildStartInfo(systemPromptFile, config.ModelId);
-            }
-            catch (FileNotFoundException ex)
-            {
-                return Fail(LlmErrorKind.Network, ex.Message);
-            }
-
-            using var process = new Process { StartInfo = startInfo };
-
-            try
-            {
-                if (!process.Start())
+                try
                 {
-                    return Fail(LlmErrorKind.Network, "Failed to start the Claude Code CLI process.");
+                    next = await enumerator.MoveNextAsync() ? enumerator.Current : null;
                 }
-            }
-            catch (Exception ex)
-            {
-                return Fail(
-                    LlmErrorKind.Network,
-                    $"Could not launch the Claude Code CLI: {ex.Message}. " +
-                    "Install Claude Code and run `claude auth login`.");
-            }
-
-            try
-            {
-                await process.StandardInput.WriteAsync(prompt);
-                process.StandardInput.Close();
-
-                Task<string> outputTask = process.StandardOutput.ReadToEndAsync(ct);
-                Task<string> errorTask = process.StandardError.ReadToEndAsync(ct);
-
-                await process.WaitForExitAsync(ct);
-
-                string output = await outputTask;
-                string error = await errorTask;
-
-                if (process.ExitCode != 0)
+                catch (OperationCanceledException)
                 {
-                    return Fail(
-                        LlmErrorKind.Network,
-                        $"Claude Code CLI exited with code {process.ExitCode}: {Summarise(error)}");
+                    fatal = new LlmError(LlmErrorKind.Cancelled, "The Claude Code CLI call was cancelled.");
+                    next = null;
+                }
+                catch (Exception ex)
+                {
+                    fatal = new LlmError(LlmErrorKind.Network, $"Claude Code CLI call failed: {ex.Message}");
+                    next = null;
                 }
 
-                return ParseResponse(output);
-            }
-            catch (OperationCanceledException)
-            {
-                TryKill(process);
-                return Fail(LlmErrorKind.Cancelled, "The Claude Code CLI call was cancelled.");
-            }
-            catch (Exception ex)
-            {
-                return Fail(LlmErrorKind.Network, $"Claude Code CLI call failed: {ex.Message}");
+                if (fatal is not null)
+                {
+                    yield return new Result<LlmResponseChunk, LlmError>.Err(fatal);
+                    yield break;
+                }
+
+                if (next is null)
+                {
+                    yield break;
+                }
+
+                yield return next;
             }
         }
         finally
         {
-            if (systemPromptFile is not null)
+            await enumerator.DisposeAsync();
+        }
+    }
+
+    private static ClaudeCodeSession ResolveSession(Guid sessionKey, string modelId, string systemPrompt)
+    {
+        lock (_poolLock)
+        {
+            if (_sessions.TryGetValue(sessionKey, out ClaudeCodeSession? existing))
             {
-                try
+                // A changed model or system prompt cannot be applied to a running process.
+                if (existing.ModelId == modelId
+                    && existing.SystemPrompt == systemPrompt
+                    && (existing.IsAlive || existing.ConsumedMessageCount == 0))
                 {
-                    File.Delete(systemPromptFile);
+                    return existing;
                 }
-                catch
-                {
-                    // Best effort — temp file cleanup.
-                }
+
+                existing.Dispose();
+            }
+
+            var session = new ClaudeCodeSession(modelId, systemPrompt);
+            _sessions[sessionKey] = session;
+            return session;
+        }
+    }
+
+    private static ClaudeCodeSession ReplaceSession(Guid sessionKey, string modelId, string systemPrompt)
+    {
+        lock (_poolLock)
+        {
+            if (_sessions.TryRemove(sessionKey, out ClaudeCodeSession? old))
+            {
+                old.Dispose();
+            }
+
+            var session = new ClaudeCodeSession(modelId, systemPrompt);
+            _sessions[sessionKey] = session;
+            return session;
+        }
+    }
+
+    private static void ReapIdleSessions()
+    {
+        DateTime cutoff = DateTime.UtcNow - IdleTimeout;
+        foreach (KeyValuePair<Guid, ClaudeCodeSession> entry in _sessions)
+        {
+            if (entry.Value.LastUsedUtc < cutoff && _sessions.TryRemove(entry.Key, out ClaudeCodeSession? session))
+            {
+                session.Dispose();
             }
         }
     }
 
-    private static Result<LlmResponseChunk, LlmError> ParseResponse(string output)
+    private static void DisposeAll()
     {
-        CliResult? parsed;
-        try
+        foreach (Guid key in _sessions.Keys)
         {
-            parsed = JsonSerializer.Deserialize<CliResult>(output);
-        }
-        catch (JsonException ex)
-        {
-            return Fail(LlmErrorKind.InvalidRequest, $"Could not parse the Claude Code CLI response: {ex.Message}");
-        }
-
-        if (parsed is null)
-        {
-            return Fail(LlmErrorKind.InvalidRequest, "The Claude Code CLI returned an empty response.");
-        }
-
-        if (!string.Equals(parsed.Subtype, "success", StringComparison.Ordinal))
-        {
-            return Fail(LlmErrorKind.InvalidRequest, $"The Claude Code CLI returned a non-success result: {parsed.Subtype}");
-        }
-
-        LlmUsage usage = parsed.Usage is null
-            ? new LlmUsage(0, 0)
-            : new LlmUsage(parsed.Usage.InputTokens, parsed.Usage.OutputTokens);
-
-        var chunk = new LlmResponseChunk(parsed.Result, IsLast: true, usage);
-        return new Result<LlmResponseChunk, LlmError>.Ok(chunk);
-    }
-
-    private static ProcessStartInfo BuildStartInfo(string? systemPromptFile, string modelId)
-    {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = ResolveExecutable(),
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-
-        // The prompt is sent on stdin; only the flags are passed as arguments. `--system-prompt-file`
-        // replaces the CLI's default system prompt with the contents of the given file. `-p` (print
-        // mode) is last and value-less so the piped stdin is taken as the prompt.
-        if (systemPromptFile is not null)
-        {
-            startInfo.ArgumentList.Add("--system-prompt-file");
-            startInfo.ArgumentList.Add(systemPromptFile);
-        }
-
-        startInfo.ArgumentList.Add("--model");
-        startInfo.ArgumentList.Add(modelId);
-        startInfo.ArgumentList.Add("--output-format");
-        startInfo.ArgumentList.Add("json");
-        startInfo.ArgumentList.Add("-p");
-
-        return startInfo;
-    }
-
-    private static string ResolveExecutable()
-    {
-        // On Unix/macOS the OS resolves `claude` from PATH directly.
-        if (!OperatingSystem.IsWindows())
-        {
-            return "claude";
-        }
-
-        // On Windows the executable must be a concrete file: the native installer drops
-        // `claude.exe`, the npm global install drops a `claude.cmd` shim. Prefer the former.
-        string[] candidates = { "claude.exe", "claude.cmd", "claude.bat", "claude" };
-        string pathVariable = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-
-        foreach (string directory in pathVariable.Split(Path.PathSeparator))
-        {
-            if (string.IsNullOrWhiteSpace(directory))
+            if (_sessions.TryRemove(key, out ClaudeCodeSession? session))
             {
-                continue;
-            }
-
-            foreach (string candidate in candidates)
-            {
-                string full;
-                try
-                {
-                    full = Path.Combine(directory.Trim(), candidate);
-                }
-                catch (ArgumentException)
-                {
-                    continue;
-                }
-
-                if (File.Exists(full))
-                {
-                    return full;
-                }
+                session.Dispose();
             }
         }
-
-        throw new FileNotFoundException(
-            "Claude Code CLI not found on PATH. Install Claude Code and run `claude auth login`.");
     }
 
-    private static void TryKill(Process process)
+    private static IReadOnlyList<MessageContent> BuildSeedContent(Conversation conversation)
     {
-        try
+        // A single-turn conversation seeds with its real content blocks (so images survive). A
+        // multi-turn history is serialised inline into one user message, since a fresh process has
+        // no prior context to continue from.
+        if (conversation.Count == 1)
         {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-            }
+            return conversation.Messages[0].Content;
         }
-        catch
-        {
-            // Best effort — the process may already have exited.
-        }
-    }
 
-    private static string Summarise(string error)
-    {
-        const int max = 500;
-        string trimmed = error.Trim();
-        return trimmed.Length <= max ? trimmed : trimmed.Substring(0, max) + "…";
+        string history = ConversationHelpers.ToDisplayString(conversation);
+        string seed = string.IsNullOrEmpty(history)
+            ? ContinuationInstruction
+            : $"{history}\n\n{ContinuationInstruction}";
+
+        return new MessageContent[] { new TextContent(seed) };
     }
 
     private static Result<LlmResponseChunk, LlmError> Fail(LlmErrorKind kind, string message)
         => new Result<LlmResponseChunk, LlmError>.Err(new LlmError(kind, message));
-
-    /// <summary>
-    /// Response envelope returned by <c>claude --output-format json</c>.
-    /// </summary>
-    private sealed class CliResult
-    {
-        [JsonPropertyName("type")]
-        public string Type { get; set; } = string.Empty;
-
-        [JsonPropertyName("subtype")]
-        public string Subtype { get; set; } = string.Empty;
-
-        [JsonPropertyName("result")]
-        public string Result { get; set; } = string.Empty;
-
-        [JsonPropertyName("usage")]
-        public CliUsage? Usage { get; set; }
-    }
-
-    /// <summary>
-    /// Token usage block within the CLI JSON response, when present.
-    /// </summary>
-    private sealed class CliUsage
-    {
-        [JsonPropertyName("input_tokens")]
-        public int InputTokens { get; set; }
-
-        [JsonPropertyName("output_tokens")]
-        public int OutputTokens { get; set; }
-    }
 }

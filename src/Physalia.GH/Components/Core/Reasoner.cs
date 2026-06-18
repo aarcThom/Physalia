@@ -14,6 +14,7 @@ using Physalia.Core.Common;
 using Physalia.Core.Config;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Models;
+using Physalia.Core.Providers.ClaudeCode;
 using Physalia.Core.Signals;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
@@ -123,6 +124,10 @@ public class Reasoner : RoutingComponentBase<Instructions>
             RequestReadPass();
             return;
         }
+
+        // Stamp this component's identity so stateful providers (Claude Code's warm-process
+        // pool) can keep one long-lived session per Reasoner across forward passes.
+        config = config with { SessionKey = InstanceGuid };
 
         // Read the wired tool definitions on the solve thread; the async call only uses the snapshot.
         var toolGoos = new List<GH_ToolDefinition>();
@@ -262,5 +267,17 @@ public class Reasoner : RoutingComponentBase<Instructions>
                 RequestReadPass();
             }
         }, ct);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Tears down any warm Claude Code CLI session this component owns so its subprocess does not
+    /// outlive the component on the canvas.
+    /// </remarks>
+    public override void RemovedFromDocument(GH_Document document)
+    {
+        _cts?.Cancel();
+        ClaudeCodeProvider.EndSession(InstanceGuid);
+        base.RemovedFromDocument(document);
     }
 }

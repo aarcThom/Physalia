@@ -9,6 +9,7 @@ using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Config;
 using Physalia.Core.Models.Named;
+using Physalia.GH.Generation;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -19,10 +20,10 @@ namespace Physalia.GH.Components;
 /// including OpenAI, OpenRouter, DeepSeek, Groq, Ollama, and llama.cpp.
 /// When Model is empty the first model reported by the endpoint is used automatically.
 /// </summary>
-public class OpenAICompatibleModel : PhyBase
+public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
 {
     private string _lastFetchKey = string.Empty;
-    private string? _fetchedModel;
+    private List<string> _availableModels = new();
     private string? _fetchWarning;
     private CancellationTokenSource? _cts;
 
@@ -42,12 +43,39 @@ public class OpenAICompatibleModel : PhyBase
     public override Guid ComponentGuid => new Guid("C4D5E6F7-A8B9-4C0D-E1F2-A3B4C5D6E7F8");
 
     /// <inheritdoc/>
+    public IReadOnlyList<PickableInput> Inputs =>
+        new[] { new PickableInput("Model", _availableModels) };
+
+    /// <inheritdoc/>
+    public void SetValues(string inputName, IEnumerable<string> values)
+    {
+        if (inputName == "Model")
+            _availableModels = new List<string>(values);
+    }
+
+    /// <inheritdoc/>
+    public void ResetValues() => _availableModels.Clear();
+
+    /// <summary>
+    /// When dropped onto the canvas, auto-place a Picker wired to the Model input.
+    /// </summary>
+    /// <param name="document">The active Grasshopper document.</param>
+    public override void AddedToDocument(GH_Document document)
+    {
+        base.AddedToDocument(document);
+        if (GhJsonBridge.IsImporting) return;
+        if (Params.Input[2].SourceCount > 0) return;
+
+        ComponentHelpers.PickerAdd(this, document, 2);
+    }
+
+    /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter("Base URL", "U", "Base URL of the API endpoint. Default: https://api.openai.com/v1", GH_ParamAccess.item, "https://api.openai.com/v1");
         pManager.AddParameter(new Param_ApiKey(), "API Key", "K", "API key for authentication. Leave empty for local servers that do not require a key.", GH_ParamAccess.item);
         pManager[1].Optional = true;
-        pManager.AddTextParameter("Model", "M", "Model identifier, e.g. gpt-4o or anthropic/claude-sonnet-4-6. Leave empty to auto-detect from the endpoint.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Model", "M", "Model ID, e.g. gpt-4o or anthropic/claude-sonnet-4-6. Wire a Picker component to select from the endpoint's available models.", GH_ParamAccess.item, string.Empty);
         pManager.AddIntegerParameter("Max Tokens", "T", "Maximum number of tokens to generate.", GH_ParamAccess.item, 4096);
     }
 
@@ -78,25 +106,23 @@ public class OpenAICompatibleModel : PhyBase
 
         string apiKey = keyGoo?.Value?.Key ?? string.Empty;
 
-        bool useAutoModel = string.IsNullOrWhiteSpace(model);
         string fetchKey = baseUrl + "||" + apiKey;
 
-        if (useAutoModel && fetchKey != _lastFetchKey)
+        if (!string.IsNullOrWhiteSpace(baseUrl) && fetchKey != _lastFetchKey)
         {
             _lastFetchKey = fetchKey;
-            _fetchedModel = null;
+            ResetValues();
             StartModelFetch(baseUrl, apiKey);
         }
 
-        string modelId = useAutoModel ? (_fetchedModel ?? string.Empty) : model;
-
-        if (useAutoModel && _fetchedModel != null)
+        if (string.IsNullOrWhiteSpace(model))
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, $"Loaded: {_fetchedModel}");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No model selected. Wire a Picker to choose from the endpoint's available models.");
+            return;
         }
 
         var config = new OpenAICompatibleConfig(
-            ModelId: modelId,
+            ModelId: model,
             ApiKey: apiKey,
             MaxTokens: maxTokens,
             BaseUrl: baseUrl);
@@ -119,16 +145,24 @@ public class OpenAICompatibleModel : PhyBase
 
             if (ct.IsCancellationRequested) return;
 
-            if (result is Result<IReadOnlyList<string>, LlmError>.Ok ok && ok.Value.Count > 0)
+            if (result is Result<IReadOnlyList<string>, LlmError>.Ok ok)
             {
-                _fetchedModel = ok.Value[0];
+                SetValues("Model", ok.Value);
             }
             else if (result is Result<IReadOnlyList<string>, LlmError>.Err err)
             {
                 _fetchWarning = $"Could not reach endpoint: {err.Error.Message}";
             }
 
-            OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(true));
+            OnPingDocument()?.ScheduleSolution(1, _ =>
+            {
+                foreach (var source in Params.Input[2].Sources)
+                {
+                    (source.Attributes?.GetTopLevel?.DocObject as IGH_ActiveObject)?.ExpireSolution(false);
+                }
+
+                ExpireSolution(true);
+            });
         }, ct);
     }
 }

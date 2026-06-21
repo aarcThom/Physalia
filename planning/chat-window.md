@@ -1,5 +1,50 @@
 # Chat Window — standalone Svelte chat driving the GH pipeline
 
+## Status: IMPLEMENTED (2026-06-20)
+
+The full Svelte UI is built and wired. What shipped (differs from the spike-era notes below
+in a few specifics — those are kept for rationale):
+
+- **New project `src/Physalia.UI`** (in `Physalia.slnx`): Vite + Svelte 5 + TypeScript +
+  Tailwind v4 + **shadcn-svelte** with the **svelte-ai-elements** registry components
+  (`conversation`, `message`, `response`, `chain-of-thought`, `tool`, `prompt-input`, `image`,
+  plus their shadcn bases). It's an MSBuild wrapper (compiles no C#); the npm/Vite build runs
+  only with `-p:BuildUI=true` (or `npm run build`), so a plain `dotnet build` needs no Node.
+- **Single-file output.** `vite-plugin-singlefile` inlines all JS/CSS into one `index.html` →
+  copied to **`Files/UI/chat.html`** (committed; the existing `CopyLibraryFiles` target ships it
+  next to the `.gha`). Loaded via `file://` — singlefile means no cross-origin module fetches, so
+  `file://` works and dodges the WebView2 `NavigateToString` size limit.
+- **Bundle trimming (16 MB → 3.4 MB).** streamdown pulls Shiki (all langs), mermaid (+cytoscape)
+  and katex by default; singlefile inlines them all. `vite.config.ts` aliases unused Shiki
+  grammars (keep `json`), all but github light/dark themes, and `mermaid`/`katex` to empty stubs
+  (`src/lib/shiki-empty-lang.ts`, `src/lib/empty-module.ts`) — none are reachable since the chat
+  enables no math/diagram plugins.
+- **Light mode** is forced: no `ModeWatcher` is mounted and `.dark` is never applied; `app.css`
+  sets `color-scheme: light`.
+- **Thinking → ChainOfThought**, **tool calls → Tool.** The Core conversation has no reasoning
+  channel, so `<think>…</think>` is parsed out of assistant text in the UI (`splitThinking`).
+  Tool calls are surfaced from `ToolCallContent` (+ the matching `ToolResultContent`) into the
+  Tool component (state input-available / output-available / output-error).
+- **Images:** paste into the textarea or drag-drop onto the window (prompt-input handles both) →
+  `FileUIPart` data URLs → C# decodes to `InlineImage` content blocks via `SubmitFromWindow`.
+
+### Final bridge contract (`src/Physalia.UI/src/lib/bridge.ts` ↔ `ChatWindow.cs`)
+- **C# → JS** (ExecuteScript on a 0.1 s UITimer, change-detected): `window.physalia.setHistory(UiMessage[])`,
+  `setStream(text|null)`, `setState({connected,busy,status})`.
+- **JS → C#**: page stashes `JSON.stringify({text,images})` on `window.__physaliaPending`, navigates
+  `phbridge://submit`; `ChatWindow` cancels the navigation (synchronously) and, deferred via
+  `Application.Instance.AsyncInvoke`, pulls it back with `__physaliaTake()` and calls
+  `Chatbox.SubmitFromWindow(text, contentBlocks)`. Payload rides on `window`, not the URL, because
+  base64 images exceed URL limits.
+
+### Still open / Mac
+- Live in-Rhino test (history/stream/tool/image render; classic Prompter regression) — pending.
+- Reasoning only appears for models that inline `<think>` in their text; a dedicated Core reasoning
+  channel would make it universal.
+- Mac: verify Eto picks WKWebView and the bridge + `file://` load behave (see Mac TODO below).
+
+---
+
 ## Context
 
 The classic **Prompter** is a canvas-panel chat: it paints the conversation on the GH

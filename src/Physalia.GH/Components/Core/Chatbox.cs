@@ -4,7 +4,9 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using Grasshopper.Kernel;
+using Physalia.Core.ConvoInstruct;
 using Physalia.GH.Attributes;
 using Physalia.GH.Panels;
 using Physalia.GH.Parameters;
@@ -20,8 +22,11 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class Chatbox : StatefulComponentBase
 {
-    // The chat window owned by this component instance; null when closed. Session-only.
-    private ChatWindow? _window;
+    // Only one chat window may exist per Rhino session, across every Chatbox instance.
+    // Static so a second Chatbox takes over the single window rather than spawning another.
+    // Session-only — nothing here serializes.
+    private static ChatWindow? _activeWindow;
+    private static Chatbox? _activeOwner;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Chatbox"/> class.
@@ -44,41 +49,79 @@ public class Chatbox : StatefulComponentBase
     }
 
     /// <summary>
-    /// Opens the chat window, or brings the existing one to the front. Idempotent.
+    /// Opens the chat window, or brings the existing one to the front. Only one chat window
+    /// exists session-wide: if another Chatbox already owns it, that window is closed and
+    /// this component takes over. Idempotent for the owning component.
     /// </summary>
     public void OpenWindow()
     {
-        if (_window is { } existing)
+        if (_activeWindow is { } existing)
         {
-            existing.BringToFront();
-            existing.Focus();
-            return;
+            if (ReferenceEquals(_activeOwner, this))
+            {
+                existing.BringToFront();
+                existing.Focus();
+                return;
+            }
+
+            // A different Chatbox owns the single window — close it and take over.
+            existing.Close();
         }
 
-        _window = new ChatWindow(this);
-        _window.Closed += (_, _) => _window = null;
-        _window.Show();
+        var window = new ChatWindow(this);
+        _activeWindow = window;
+        _activeOwner = this;
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_activeWindow, window))
+            {
+                _activeWindow = null;
+                _activeOwner = null;
+            }
+        };
+        window.Show();
     }
 
     /// <summary>
-    /// Submits text from the window as a Prompt Signal: mints and latches a signal whose
-    /// payload is the text, then expires so the signal reaches the wire. Marshalled onto
-    /// the UI thread because the bridge may invoke it off the GH solve thread. Blank text
-    /// is ignored.
+    /// Submits a message from the window as a Prompt Signal: mints and latches a signal
+    /// whose payload is the text (and whose content blocks carry any pasted/dropped
+    /// images), then expires so the signal reaches the wire. Marshalled onto the UI
+    /// thread because the bridge invokes it off the GH solve thread. An empty message
+    /// (no text and no images) is ignored.
     /// </summary>
-    /// <param name="text">The prompt text entered in the window.</param>
-    public void SubmitFromWindow(string text)
+    /// <param name="text">The prompt text entered in the window; used as the signal payload.</param>
+    /// <param name="contentBlocks">
+    /// Interleaved text/image content blocks when the turn carries images, else null to
+    /// use the plain text path (matches the classic Prompter contract).
+    /// </param>
+    public void SubmitFromWindow(string text, IReadOnlyList<MessageContent>? contentBlocks = null)
     {
-        if (string.IsNullOrWhiteSpace(text))
+        bool hasBlocks = contentBlocks is { Count: > 0 };
+        if (string.IsNullOrWhiteSpace(text) && !hasBlocks)
         {
             return;
         }
 
         Rhino.RhinoApp.InvokeOnUiThread(new Action(() =>
         {
-            LatchSuccess(text);
+            LatchSuccess(text ?? string.Empty, contentBlocks: hasBlocks ? contentBlocks : null);
             ExpireSolution(true);
         }));
+    }
+
+    /// <summary>
+    /// Closes the chat window when this component is removed from the document, so the
+    /// window never outlives the component that drives it.
+    /// </summary>
+    /// <param name="document">The document the component was removed from.</param>
+    public override void RemovedFromDocument(GH_Document document)
+    {
+        if (ReferenceEquals(_activeOwner, this))
+        {
+            _activeWindow?.Close();
+        }
+
+        base.RemovedFromDocument(document);
     }
 
     /// <inheritdoc/>

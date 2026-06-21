@@ -423,6 +423,11 @@ CLAUDE.md
 research.md
 terminology.md
 
+# Physalia — generated single-file chat UI bundle (~3 MB minified; built from
+# src/Physalia.UI via `npm run build` or `dotnet build -p:BuildUI=true`). Not
+# committed — it bloats the repo/diffs and is reproducible from source.
+**/Files/UI/chat.html
+
 # Physalia — API keys (never commit)
 **/API_KEY_CONFIG.YAML
 /.serena/project.yml

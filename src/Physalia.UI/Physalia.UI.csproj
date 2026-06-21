@@ -6,9 +6,10 @@
     WebView host (Physalia.GH/Panels/ChatWindow.cs) loads from Files/UI/chat.html.
 
     This is an MSBuild wrapper around the npm toolchain — it compiles no C#. The built
-    artifact (Files/UI/chat.html) is committed so Physalia.GH builds and runs without a
-    Node toolchain. To regenerate it, build with -p:BuildUI=true (or run `npm run build`
-    in this folder), which runs Vite and copies the output into Files/UI.
+    artifact (Files/UI/chat.html) is GITIGNORED (it is ~3 MB minified and reproducible),
+    so it must be generated before Physalia.GH can show the chat window: build with
+    -p:BuildUI=true (or run `npm run build` in this folder), which runs Vite and copies
+    the output into Files/UI. A fresh clone built without it shows a "UI not found" page.
   -->
 
   <PropertyGroup>

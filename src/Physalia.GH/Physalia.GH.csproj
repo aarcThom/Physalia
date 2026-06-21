@@ -43,6 +43,15 @@
   
   <ItemGroup>
     <ProjectReference Include="..\Physalia.Core\Physalia.Core.csproj" />
+    <!-- Build-ordering only (no assembly): forces the chat UI to build first so the fresh
+         Files/UI/chat.html exists before CopyLibraryFiles stages Files/** into bin. The UI
+         project runs Vite by default (BuildUI=true); pass -p:BuildUI=false to skip it.
+         SkipGetTargetFrameworkProperties avoids TFM negotiation with the net7.0 UI wrapper. -->
+    <ProjectReference Include="..\Physalia.UI\Physalia.UI.csproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true"
+                      UndefineProperties="TargetFramework"
+                      Private="false" />
   </ItemGroup>
 
 	<ItemGroup Condition="$(TargetFramework.Contains('-windows'))">

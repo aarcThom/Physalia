@@ -6,10 +6,12 @@
     WebView host (Physalia.GH/Panels/ChatWindow.cs) loads from Files/UI/chat.html.
 
     This is an MSBuild wrapper around the npm toolchain — it compiles no C#. The built
-    artifact (Files/UI/chat.html) is GITIGNORED (it is ~3 MB minified and reproducible),
-    so it must be generated before Physalia.GH can show the chat window: build with
-    -p:BuildUI=true (or run `npm run build` in this folder), which runs Vite and copies
-    the output into Files/UI. A fresh clone built without it shows a "UI not found" page.
+    artifact (Files/UI/chat.html) is GITIGNORED (it is ~3 MB minified and reproducible).
+    Physalia.GH takes a build-ordering ProjectReference on this project, so a normal build
+    (VS or `dotnet build`) runs Vite here first and Physalia.GH then stages the fresh
+    chat.html into its bin/<Config>/Files/UI. The Vite step is incremental (skipped when no
+    UI source changed) and can be disabled with -p:BuildUI=false for a Node-free build (the
+    chat window then shows a "UI not found" page).
   -->
 
   <PropertyGroup>
@@ -19,12 +21,25 @@
     <NoWarn>$(NoWarn);NETSDK1086</NoWarn>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <IncludeBuildOutput>false</IncludeBuildOutput>
-    <!-- Set to true to run the Vite build during the .NET build. Off by default so a
-         plain `dotnet build` does not require Node; the committed chat.html is used. -->
-    <BuildUI Condition="'$(BuildUI)' == ''">false</BuildUI>
+    <!-- On by default: the .NET build runs the Vite build and refreshes Files/UI/chat.html
+         (gitignored, so there is no committed fallback). Pass -p:BuildUI=false to skip it
+         for a Node-free build. -->
+    <BuildUI Condition="'$(BuildUI)' == ''">true</BuildUI>
   </PropertyGroup>
 
-  <Target Name="BuildPhysaliaUI" AfterTargets="Build" Condition="'$(BuildUI)' == 'true'">
+  <!-- Inputs that should trigger a UI rebuild: the source tree plus root-level config files.
+       Scoped this way so the incremental check can skip npm when nothing changed AND so the
+       glob never walks the huge node_modules / dist folders. -->
+  <ItemGroup>
+    <PhysaliaUiInput Include="$(MSBuildProjectDirectory)\src\**\*" />
+    <PhysaliaUiInput Include="$(MSBuildProjectDirectory)\*.json;$(MSBuildProjectDirectory)\*.ts;$(MSBuildProjectDirectory)\*.js;$(MSBuildProjectDirectory)\*.cjs;$(MSBuildProjectDirectory)\*.mjs;$(MSBuildProjectDirectory)\*.html;$(MSBuildProjectDirectory)\*.css" />
+  </ItemGroup>
+
+  <!-- Inputs/Outputs make this incremental: npm runs only when a UI source is newer than the
+       generated chat.html (so plain C# rebuilds don't pay the Vite cost). -->
+  <Target Name="BuildPhysaliaUI" AfterTargets="Build" Condition="'$(BuildUI)' == 'true'"
+          Inputs="@(PhysaliaUiInput)"
+          Outputs="$(MSBuildProjectDirectory)\..\..\Files\UI\chat.html">
     <Message Importance="high" Text="Physalia.UI: building chat window front-end with Vite…" />
     <Exec Command="npm install" WorkingDirectory="$(MSBuildProjectDirectory)"
           Condition="!Exists('$(MSBuildProjectDirectory)\node_modules')" />

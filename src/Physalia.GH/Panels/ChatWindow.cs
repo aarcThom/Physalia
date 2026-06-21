@@ -6,8 +6,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Eto.Forms;
 using Physalia.Core.ConvoInstruct;
@@ -39,6 +41,14 @@ public class ChatWindow : Form
     private static readonly JsonSerializerOptions ReadOpts =
         new() { PropertyNameCaseInsensitive = true };
 
+    // Shared client for the llama-server setup probe. A short timeout bounds the rare case where
+    // packets to the default endpoint are dropped (a refused connection fails fast on its own).
+    private static readonly HttpClient ProbeClient = new() { Timeout = TimeSpan.FromSeconds(2) };
+
+    // How often the setup probe re-runs once a result is known, so the setup state clears within a
+    // few seconds of the user adding a key / starting a local server (and reappears if removed).
+    private static readonly TimeSpan ProviderProbeInterval = TimeSpan.FromSeconds(4);
+
     private const string MissingHtml =
         "<!doctype html><html><body style='font:13px sans-serif;padding:24px;color:#333'>"
         + "<h3>Physalia chat UI not found</h3>"
@@ -57,7 +67,15 @@ public class ChatWindow : Form
     private bool? _lastConnected;
     private bool? _lastBusy;
     private bool? _lastReady;
+    private bool? _lastNeedsSetup;
     private string? _lastStatus;
+
+    // Cached result of the async provider-availability probe: null until the first probe lands,
+    // then true when some provider is configured. Mutated only on the UI thread (Tick / the
+    // probe's AsyncInvoke continuation), so no locking is needed.
+    private bool? _providersConfigured;
+    private DateTime _lastProviderProbeUtc = DateTime.MinValue;
+    private bool _providerProbeInFlight;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ChatWindow"/> class.
@@ -402,10 +420,17 @@ public class ChatWindow : Form
         bool busy = recorder is not null && PromptPipelineView.IsPipelineBusy(recorder);
         bool connected = recorder is not null;
 
-        // Setup state: the pipeline must run Recorder -> Reasoner -> Model for chat to work.
-        // When it isn't fully wired the window shows a setup state instead of the chat surface.
+        // First-run setup state: no LLM provider is configured at all (no API key, no Claude Code
+        // CLI, no local llama-server). It takes precedence over the wiring hints below — there is
+        // nothing to chat with until a provider exists. Detection is async; see MaybeProbeProviders.
+        MaybeProbeProviders();
+        bool needsSetup = _providersConfigured == false;
+
+        // Pipeline-wiring readiness: chat needs Recorder -> Reasoner -> Model. Shown as a hint once
+        // a provider exists but the graph isn't fully wired.
         bool ready = PromptPipelineView.IsPipelineReady(_component, 0);
-        string status = busy ? "Working…"
+        string status = needsSetup ? "Setup mode"
+            : busy ? "Working…"
             : recorder is null ? "Connect a Recorder to begin."
             : !ready ? "Add a Reasoner with a Model to begin."
             : string.Empty;
@@ -424,15 +449,69 @@ public class ChatWindow : Form
             Exec($"window.physalia&&window.physalia.setStream({JsonSerializer.Serialize(stream)});");
         }
 
-        if (connected != _lastConnected || busy != _lastBusy || ready != _lastReady || status != _lastStatus)
+        if (connected != _lastConnected || busy != _lastBusy || ready != _lastReady
+            || needsSetup != _lastNeedsSetup || status != _lastStatus)
         {
             _lastConnected = connected;
             _lastBusy = busy;
             _lastReady = ready;
+            _lastNeedsSetup = needsSetup;
             _lastStatus = status;
-            string state = JsonSerializer.Serialize(new { connected, busy, ready, status }, WriteOpts);
+            string state = JsonSerializer.Serialize(new { connected, busy, ready, needsSetup, status }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
+    }
+
+    // Kicks off the async provider-availability probe when none is in flight and either no result
+    // is cached yet or the refresh interval has elapsed. The probe runs off the UI thread (it pings
+    // a local server); its result is published back onto the UI thread, where Tick reads it.
+    private void MaybeProbeProviders()
+    {
+        if (_providerProbeInFlight)
+        {
+            return;
+        }
+
+        if (_providersConfigured is not null && DateTime.UtcNow - _lastProviderProbeUtc < ProviderProbeInterval)
+        {
+            return;
+        }
+
+        _providerProbeInFlight = true;
+        string configPath = GetApiKeyConfigPath();
+
+        Task.Run(async () =>
+        {
+            bool configured;
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                configured = await ProviderAvailability.AnyConfiguredAsync(configPath, ProbeClient, cts.Token)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                // Keep the last known answer on failure; before any result, assume configured so the
+                // setup screen never flashes during the very first probe.
+                configured = _providersConfigured ?? true;
+            }
+
+            Application.Instance.AsyncInvoke(() =>
+            {
+                _providersConfigured = configured;
+                _lastProviderProbeUtc = DateTime.UtcNow;
+                _providerProbeInFlight = false;
+            });
+        });
+    }
+
+    // Path to API_KEY_CONFIG.YAML beside the plug-in (matches the ApiKeys component's resolution).
+    private static string GetApiKeyConfigPath()
+    {
+        string? assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        return assemblyDir is null
+            ? "API_KEY_CONFIG.YAML"
+            : Path.Combine(assemblyDir, "Files", "API_KEY_CONFIG.YAML");
     }
 
     // Maps the committed conversation to the UI message shape (text / images / tool calls).

@@ -19,10 +19,12 @@
 		disconnected: boolean;
 		/** Pipeline is mid-run — block input until it settles, to avoid re-submitting. */
 		busy: boolean;
+		/** Setup not finished (no provider configured) — block input; there's nothing to send to. */
+		disabled?: boolean;
 		onsend: (message: SubmitMessage) => void;
 	}
 
-	let { disconnected, busy, onsend }: Props = $props();
+	let { disconnected, busy, disabled = false, onsend }: Props = $props();
 
 	interface PendingImage {
 		id: number;
@@ -31,9 +33,9 @@
 		filename: string;
 	}
 
-	// Only block while the pipeline is busy. Do NOT block on disconnection — the user can
-	// compose and send before/while wiring a Recorder.
-	let inert = $derived(busy);
+	// Block while the pipeline is busy, or during setup (no provider yet). Do NOT block on mere
+	// disconnection — the user can compose and send before/while wiring a Recorder.
+	let inert = $derived(busy || disabled);
 
 	let text = $state('');
 	let pending = $state<PendingImage[]>([]);
@@ -42,9 +44,11 @@
 	let nextId = 0;
 
 	let placeholder = $derived(
-		disconnected
-			? 'Send a message…  (connect a Recorder to see replies)'
-			: 'Send a message…  (Enter to send, Shift+Enter for a new line)'
+		disabled
+			? 'Finish setup to start chatting…'
+			: disconnected
+				? 'Send a message…  (connect a Recorder to see replies)'
+				: 'Send a message…  (Enter to send, Shift+Enter for a new line)'
 	);
 
 	// All [image#N] tokens. Order in the text mirrors insertion order, which mirrors `pending`.

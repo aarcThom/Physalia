@@ -143,6 +143,15 @@ public sealed class ClaudeCodeProvider : ILlmProvider
     }
 
     /// <summary>
+    /// Gets a value indicating whether the Claude Code CLI (<c>claude</c>) is installed and
+    /// resolvable on the system PATH. Used by the chat-window setup detection to decide whether
+    /// Claude Code is an available provider. A presence check only — it does not verify that the
+    /// user has authenticated with <c>claude auth login</c>.
+    /// </summary>
+    /// <returns>True when the CLI executable is found on PATH.</returns>
+    public static bool IsCliAvailable() => ClaudeCodeSession.IsCliAvailable();
+
+    /// <summary>
     /// Kills and removes the warm session for the given key, if any. Called by the Reasoner when
     /// it is removed from the document so its CLI process does not leak.
     /// </summary>

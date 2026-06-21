@@ -46,6 +46,8 @@ export interface UiMessage {
 export interface UiState {
 	connected: boolean;
 	busy: boolean;
+	/** No LLM provider is configured yet — show the first-run setup screen. */
+	needsSetup: boolean;
 	status: string;
 }
 

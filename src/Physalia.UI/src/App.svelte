@@ -9,6 +9,7 @@
 	import Image from '$lib/components/ai-elements/image/image.svelte';
 	import AssistantTurnGroup from '$lib/chat/AssistantTurnGroup.svelte';
 	import Composer from '$lib/chat/Composer.svelte';
+	import Setup from '$lib/chat/Setup.svelte';
 	import type { SubmitMessage, UiMessage, UiState } from '$lib/bridge';
 
 	const BRIDGE_SCHEME = 'phbridge';
@@ -17,6 +18,7 @@
 	let stream = $state<string | null>(null);
 	let connected = $state(false);
 	let busy = $state(false);
+	let needsSetup = $state(false);
 	let status = $state('');
 
 	onMount(() => {
@@ -31,6 +33,7 @@
 			setState: (next: UiState) => {
 				connected = next.connected;
 				busy = next.busy;
+				needsSetup = next.needsSetup ?? false;
 				status = next.status ?? '';
 			}
 		};
@@ -122,6 +125,9 @@
 	<div class="relative min-h-0 flex-1">
 		<Conversation class="h-full">
 			<ConversationContent class="min-h-0 flex-1 overflow-y-auto">
+			{#if needsSetup}
+				<Setup />
+			{:else}
 			{#if isEmpty}
 				<div class="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 text-center">
 					<p class="text-sm font-medium">Physalia chat</p>
@@ -160,6 +166,7 @@
 					</Message>
 				{/if}
 			{/each}
+			{/if}
 		</ConversationContent>
 			<ConversationScrollButton />
 		</Conversation>
@@ -170,6 +177,6 @@
 	{/if}
 
 	<div class="shrink-0 border-t p-3">
-		<Composer disconnected={!connected} {busy} onsend={send} />
+		<Composer disconnected={!connected} {busy} disabled={needsSetup} onsend={send} />
 	</div>
 </main>

@@ -340,17 +340,39 @@ internal sealed class ClaudeCodeSession : IDisposable
         return dir;
     }
 
+    /// <summary>
+    /// Gets a value indicating whether the <c>claude</c> CLI executable can be found on the
+    /// system PATH. A presence check only — it does not verify the user is authenticated.
+    /// </summary>
+    /// <returns>True when the CLI executable is resolvable on PATH.</returns>
+    internal static bool IsCliAvailable() => TryResolveExecutable(out _);
+
     private static string ResolveExecutable()
     {
-        // On Unix/macOS the OS resolves `claude` from PATH directly.
+        if (TryResolveExecutable(out string resolved))
+        {
+            return resolved;
+        }
+
+        // On Unix/macOS fall back to the bare name so the OS resolves `claude` from PATH at
+        // exec time (the PATH scan can miss shells with a richer login PATH); the process start
+        // surfaces a clear error if it is genuinely absent.
         if (!OperatingSystem.IsWindows())
         {
             return "claude";
         }
 
-        // On Windows the executable must be a concrete file: the native installer drops
-        // `claude.exe`, the npm global install drops a `claude.cmd` shim. Prefer the former.
-        string[] candidates = { "claude.exe", "claude.cmd", "claude.bat", "claude" };
+        throw new InvalidOperationException(
+            "Claude Code CLI not found on PATH. Install Claude Code and run `claude auth login`.");
+    }
+
+    // Scans PATH for the claude executable. On Windows the executable must be a concrete file:
+    // the native installer drops `claude.exe`, the npm global install drops a `claude.cmd` shim.
+    private static bool TryResolveExecutable(out string path)
+    {
+        string[] candidates = OperatingSystem.IsWindows()
+            ? new[] { "claude.exe", "claude.cmd", "claude.bat", "claude" }
+            : new[] { "claude" };
         string pathVariable = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
 
         foreach (string directory in pathVariable.Split(Path.PathSeparator))
@@ -374,13 +396,14 @@ internal sealed class ClaudeCodeSession : IDisposable
 
                 if (File.Exists(full))
                 {
-                    return full;
+                    path = full;
+                    return true;
                 }
             }
         }
 
-        throw new InvalidOperationException(
-            "Claude Code CLI not found on PATH. Install Claude Code and run `claude auth login`.");
+        path = string.Empty;
+        return false;
     }
 
     private static string BuildUserLine(IReadOnlyList<MessageContent> content)

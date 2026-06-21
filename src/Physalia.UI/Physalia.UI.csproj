@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Physalia.UI — the standalone chat window front-end (Vite + Svelte 5 + Tailwind +
+    svelte-ai-elements). It builds to a single self-contained HTML file that the Eto
+    WebView host (Physalia.GH/Panels/ChatWindow.cs) loads from Files/UI/chat.html.
+
+    This is an MSBuild wrapper around the npm toolchain — it compiles no C#. The built
+    artifact (Files/UI/chat.html) is committed so Physalia.GH builds and runs without a
+    Node toolchain. To regenerate it, build with -p:BuildUI=true (or run `npm run build`
+    in this folder), which runs Vite and copies the output into Files/UI.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <!-- This project produces no managed output of its own. -->
+    <NoWarn>$(NoWarn);NETSDK1086</NoWarn>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <!-- Set to true to run the Vite build during the .NET build. Off by default so a
+         plain `dotnet build` does not require Node; the committed chat.html is used. -->
+    <BuildUI Condition="'$(BuildUI)' == ''">false</BuildUI>
+  </PropertyGroup>
+
+  <Target Name="BuildPhysaliaUI" AfterTargets="Build" Condition="'$(BuildUI)' == 'true'">
+    <Message Importance="high" Text="Physalia.UI: building chat window front-end with Vite…" />
+    <Exec Command="npm install" WorkingDirectory="$(MSBuildProjectDirectory)"
+          Condition="!Exists('$(MSBuildProjectDirectory)\node_modules')" />
+    <Exec Command="npm run build" WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <MakeDir Directories="$(MSBuildProjectDirectory)\..\..\Files\UI" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\dist\index.html"
+          DestinationFiles="$(MSBuildProjectDirectory)\..\..\Files\UI\chat.html"
+          OverwriteReadOnlyFiles="true" />
+    <Message Importance="high" Text="Physalia.UI: chat.html refreshed in Files/UI." />
+  </Target>
+
+</Project>

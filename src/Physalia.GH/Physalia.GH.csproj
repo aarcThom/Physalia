@@ -52,6 +52,12 @@
 			<HintPath>C:\Program Files\Rhino 8\System\Eto.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
+		<!-- WebView2 core (ChatWindow's reliable JS->C# postMessage/WebMessageReceived channel).
+		     Compile against Rhino's shipped copy; runtime provides it — Private=False. -->
+		<Reference Include="Microsoft.Web.WebView2.Core">
+			<HintPath>C:\Program Files\Rhino 8\System\Microsoft.Web.WebView2.Core.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
 		<!-- The Python script execution engine -->
 		<Reference Include="Rhino.Runtime.Code">
 			<HintPath>C:\Program Files\Rhino 8\System\Rhino.Runtime.Code.dll</HintPath>

@@ -615,28 +615,8 @@ public class PrompterAttrib : GH_ComponentAttributes
 
     // the partial response of the busy component (Reasoner) wired to the Recorder, or null
     // when nothing is streaming. Read every paint while busy — a pure UI-side peek.
-    private string? GetStreamingText()
-    {
-        if (_recorder is null)
-        {
-            return null;
-        }
-
-        foreach (var recipient in _recorder.Params.Output[1].Recipients)
-        {
-            if (recipient.Attributes?.GetTopLevel?.DocObject is IStreamingTextSource source
-                && source is StatefulComponentBase { IsBusy: true })
-            {
-                string? text = source.StreamingText;
-                if (!string.IsNullOrEmpty(text))
-                {
-                    return text;
-                }
-            }
-        }
-
-        return null;
-    }
+    private string? GetStreamingText() =>
+        _recorder is null ? null : PromptPipelineView.GetStreamingText(_recorder);
 
     // rebuilds the display strings + measured heights when the conversation reference or
     // the panel width changes; Conversation is immutable, so the reference IS the signature
@@ -876,38 +856,11 @@ public class PrompterAttrib : GH_ComponentAttributes
     }
 
     // walks the Prompt Signal output's recipients looking for a Recorder
-    private Recorder? FindRecorder()
-    {
-        foreach (var recipient in _prompter.Params.Output[0].Recipients)
-        {
-            if (recipient.Attributes?.GetTopLevel?.DocObject is Recorder recorder)
-            {
-                return recorder;
-            }
-        }
-
-        return null;
-    }
+    private Recorder? FindRecorder() => PromptPipelineView.FindRecorder(_prompter, 0);
 
     // busy while the Recorder itself is mid-run, or while any lifecycle component
     // consuming the Recorder's outgoing Signal (i.e. the Reasoner) is mid-run
-    private static bool IsPipelineBusy(Recorder recorder)
-    {
-        if (recorder.IsBusy)
-        {
-            return true;
-        }
-
-        foreach (var recipient in recorder.Params.Output[1].Recipients)
-        {
-            if (recipient.Attributes?.GetTopLevel?.DocObject is StatefulComponentBase stateful && stateful.IsBusy)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    private static bool IsPipelineBusy(Recorder recorder) => PromptPipelineView.IsPipelineBusy(recorder);
 
     // returns an ascii animation frame
     private static string GetAnimation(int time, string animation)

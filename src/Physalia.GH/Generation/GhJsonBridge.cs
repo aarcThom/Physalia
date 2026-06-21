@@ -14,6 +14,7 @@ using GhJSON.Grasshopper;
 using GhJSON.Grasshopper.PutOperations;
 using Grasshopper.Kernel;
 using Physalia.Core.Catalog;
+using Physalia.GH.Components;
 
 namespace Physalia.GH.Generation;
 
@@ -194,7 +195,7 @@ internal static class GhJsonBridge
 
         if (result.Success)
         {
-            ExpandNickNames(result.PlacedObjects);
+            ComponentHelpers.ApplyNickNameDisplay(result.PlacedObjects);
         }
 
         return result.Success
@@ -234,31 +235,4 @@ internal static class GhJsonBridge
         }
     }
 
-    /// <summary>
-    /// Sets every placed component's parameter <c>NickName</c> to its <c>Name</c> so that the
-    /// full parameter label is visible on the canvas after placement.
-    /// </summary>
-    /// <param name="placedObjects">The objects returned by <c>GhJsonGrasshopper.Put</c>.</param>
-    private static void ExpandNickNames(IEnumerable<IGH_DocumentObject> placedObjects)
-    {
-        foreach (IGH_DocumentObject obj in placedObjects)
-        {
-            if (obj is IGH_Component comp)
-            {
-                foreach (IGH_Param param in comp.Params.Input)
-                {
-                    param.NickName = param.Name;
-                }
-
-                foreach (IGH_Param param in comp.Params.Output)
-                {
-                    param.NickName = param.Name;
-                }
-            }
-            else if (obj is IGH_Param floatingParam)
-            {
-                floatingParam.NickName = floatingParam.Name;
-            }
-        }
-    }
 }

@@ -44,6 +44,7 @@ public class PythonShortcut : PhyBase
 
         python.Attributes.Pivot = pivot;
         document.AddObject(python, false);
+        ComponentHelpers.ApplyNickNameDisplay(python);
         document.RemoveObject(this, false);
         python.ExpireSolution(true);
     }

@@ -1,7 +1,9 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using System.Collections.Generic;
 using System.Drawing;
+using Grasshopper;
 using Grasshopper.Kernel;
 using Physalia.GH.Components.Utility;
 
@@ -9,6 +11,63 @@ namespace Physalia.GH.Components;
 
 internal static class ComponentHelpers
 {
+    /// <summary>
+    /// Applies the canvas "Draw Full Names" setting to freshly placed objects so their
+    /// parameter labels match the rest of the canvas. Grasshopper stores the displayed label
+    /// in each parameter's NickName and rewrites every nickname when the setting is toggled
+    /// (GH_Document.ConvertNickNamesToFullNames / ConvertFullNamesToNickNames); objects placed
+    /// programmatically miss that pass, so we apply the current state here. When full names are
+    /// off, the default abbreviated nicknames are left untouched — a later toggle is handled by
+    /// Grasshopper's own document-wide conversion.
+    /// </summary>
+    /// <param name="objects">The freshly placed document objects.</param>
+    internal static void ApplyNickNameDisplay(IEnumerable<IGH_DocumentObject> objects)
+    {
+        if (!CentralSettings.CanvasFullNames)
+        {
+            return;
+        }
+
+        foreach (IGH_DocumentObject obj in objects)
+        {
+            ExpandToFullName(obj);
+        }
+    }
+
+    /// <summary>
+    /// Applies the canvas "Draw Full Names" setting to a single freshly placed object.
+    /// </summary>
+    /// <param name="obj">The freshly placed document object.</param>
+    internal static void ApplyNickNameDisplay(IGH_DocumentObject obj)
+    {
+        if (CentralSettings.CanvasFullNames)
+        {
+            ExpandToFullName(obj);
+        }
+    }
+
+    // Sets each parameter's NickName to its full Name — the state GH itself puts the document in
+    // while "Draw Full Names" is on.
+    private static void ExpandToFullName(IGH_DocumentObject obj)
+    {
+        if (obj is IGH_Component comp)
+        {
+            foreach (IGH_Param param in comp.Params.Input)
+            {
+                param.NickName = param.Name;
+            }
+
+            foreach (IGH_Param param in comp.Params.Output)
+            {
+                param.NickName = param.Name;
+            }
+        }
+        else if (obj is IGH_Param floatingParam)
+        {
+            floatingParam.NickName = floatingParam.Name;
+        }
+    }
+
     /// <summary>
     /// Creates a <see cref="Picker"/> component, positions it to the left of the component,
     /// adds it to the document, and wires its output to the specified input parameter.
@@ -35,6 +94,7 @@ internal static class ComponentHelpers
             component.Attributes.Pivot.Y + yOffset);
 
         document.AddObject(picker, false);
+        ApplyNickNameDisplay(picker);
         component.Params.Input[paramIndex].AddSource(picker.Params.Output[0]);
 
         return picker;

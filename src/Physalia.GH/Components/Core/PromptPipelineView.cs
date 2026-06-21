@@ -60,6 +60,49 @@ internal static class PromptPipelineView
     }
 
     /// <summary>
+    /// Whether the prompt source feeds a complete inference pipeline: a Recorder is wired to
+    /// the given output, that Recorder fans out to a Reasoner, and the Reasoner has a Model
+    /// (LLM) connected. Used by the chat window to choose between the setup state and the
+    /// normal chat state, independent of how the window was opened.
+    /// </summary>
+    /// <param name="source">The prompt source component (Prompter or Chatbox).</param>
+    /// <param name="outputIndex">The Prompt Signal output index on the source.</param>
+    /// <returns>true when the Recorder -> Reasoner -> Model chain is fully wired.</returns>
+    public static bool IsPipelineReady(IGH_Component source, int outputIndex)
+    {
+        Recorder? recorder = FindRecorder(source, outputIndex);
+        if (recorder is null)
+        {
+            return false;
+        }
+
+        foreach (IGH_Param recipient in recorder.Params.Output[1].Recipients)
+        {
+            if (recipient.Attributes?.GetTopLevel?.DocObject is Reasoner reasoner
+                && HasModelConnected(reasoner))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // True when the Reasoner's Model input has at least one wired source (an LLM is connected).
+    private static bool HasModelConnected(Reasoner reasoner)
+    {
+        foreach (IGH_Param input in reasoner.Params.Input)
+        {
+            if (input.Name == "Model")
+            {
+                return input.SourceCount > 0;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// The partial response of the busy component (Reasoner) wired to the Recorder, or null
     /// when nothing is streaming.
     /// </summary>

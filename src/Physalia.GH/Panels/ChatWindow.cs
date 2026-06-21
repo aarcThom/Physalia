@@ -56,6 +56,7 @@ public class ChatWindow : Form
     private string? _lastStream;
     private bool? _lastConnected;
     private bool? _lastBusy;
+    private bool? _lastReady;
     private string? _lastStatus;
 
     /// <summary>
@@ -400,8 +401,13 @@ public class ChatWindow : Form
         Conversation? convo = recorder?.ActiveConversation;
         bool busy = recorder is not null && PromptPipelineView.IsPipelineBusy(recorder);
         bool connected = recorder is not null;
-        string status = recorder is null ? "Connect a Recorder to begin."
-            : busy ? "Working…"
+
+        // Setup state: the pipeline must run Recorder -> Reasoner -> Model for chat to work.
+        // When it isn't fully wired the window shows a setup state instead of the chat surface.
+        bool ready = PromptPipelineView.IsPipelineReady(_component, 0);
+        string status = busy ? "Working…"
+            : recorder is null ? "Connect a Recorder to begin."
+            : !ready ? "Add a Reasoner with a Model to begin."
             : string.Empty;
 
         if (!ReferenceEquals(convo, _lastConversation))
@@ -418,12 +424,13 @@ public class ChatWindow : Form
             Exec($"window.physalia&&window.physalia.setStream({JsonSerializer.Serialize(stream)});");
         }
 
-        if (connected != _lastConnected || busy != _lastBusy || status != _lastStatus)
+        if (connected != _lastConnected || busy != _lastBusy || ready != _lastReady || status != _lastStatus)
         {
             _lastConnected = connected;
             _lastBusy = busy;
+            _lastReady = ready;
             _lastStatus = status;
-            string state = JsonSerializer.Serialize(new { connected, busy, status }, WriteOpts);
+            string state = JsonSerializer.Serialize(new { connected, busy, ready, status }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
     }

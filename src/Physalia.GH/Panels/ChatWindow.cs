@@ -641,7 +641,10 @@ public class ChatWindow : Form
     // centred on it, the moment a provider becomes available — but only when the component isn't
     // already on a document. A Chatbox loaded from a saved file or hand-placed by the user is left
     // exactly where it is (we never move it); and while in first-run setup (no provider) nothing is
-    // placed, so the canvas isn't littered with an unusable component. Runs on the UI thread (Tick).
+    // placed, so the canvas isn't littered with an unusable component. If no document is open (the
+    // window was opened from the widget with an empty canvas), a fresh document is created to host
+    // the component — but only here, past the setup gate, so opening the setup page never makes
+    // one. Runs on the UI thread (Tick).
     private void MaybePlaceComponent()
     {
         if (_component.OnPingDocument() is not null)
@@ -655,8 +658,13 @@ public class ChatWindow : Form
         }
 
         GH_Canvas canvas = Instances.ActiveCanvas;
-        GH_Document? doc = canvas?.Document;
-        if (canvas is null || doc is null)
+        if (canvas is null)
+        {
+            return;
+        }
+
+        GH_Document? doc = canvas.Document ?? CreateActiveDocument(canvas);
+        if (doc is null)
         {
             return;
         }
@@ -691,6 +699,23 @@ public class ChatWindow : Form
         _component.Attributes.ExpireLayout();
         _component.Attributes.PerformLayout();
         canvas.Refresh();
+    }
+
+    // Creates a fresh, empty document and makes it the canvas's active one, so a chat started with
+    // no file open has a real canvas to drop the Chatbox onto. Returns null if the document server
+    // is unavailable. Runs on the UI thread (Tick), so touching the canvas/document is safe.
+    private static GH_Document? CreateActiveDocument(GH_Canvas canvas)
+    {
+        GH_DocumentServer? server = Instances.DocumentServer;
+        if (server is null)
+        {
+            return null;
+        }
+
+        var doc = new GH_Document();
+        server.AddDocument(doc);
+        canvas.Document = doc;
+        return doc;
     }
 
     // The canvas-world point a few pixels right of the window's right edge, level with its vertical

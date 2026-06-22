@@ -40,9 +40,11 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
 
 /// <summary>
 /// Canvas widget pinned to the bottom-right of the Grasshopper canvas, above the compass.
-/// Clicking it opens the Physalia chat window; if the document has no Chatbox component to
-/// drive the pipeline, one is created and the window places it onto the canvas (to its right)
-/// once a provider is available — so it isn't dropped during first-run setup. Grasshopper
+/// Clicking it opens the Physalia chat window — even when no document is open. If the document
+/// has no Chatbox component to drive the pipeline (or there is no document at all), one is
+/// created and the window places it onto the canvas (to its right) once a provider is
+/// available, creating a new document first if needed — so it isn't dropped during first-run
+/// setup. Grasshopper
 /// auto-discovers the widget and lists it (with a visibility checkbox) in the canvas
 /// Widgets right-click menu; the visibility choice persists in the GH settings.
 ///
@@ -151,15 +153,12 @@ public sealed class ChatWidget : GH_Widget
     // Opens (or focuses) the single shared chat window. Reuses a Chatbox already on the canvas;
     // otherwise creates one but does NOT place it — the window drops it onto the document itself,
     // to its right, once a provider is available (so first-run setup never litters the canvas).
+    // Works even with no document open: the new Chatbox stays detached until the window places it,
+    // at which point the window creates a document for it.
     private static void OpenChat(GH_Canvas canvas)
     {
         GH_Document? doc = canvas?.Document;
-        if (doc is null)
-        {
-            return;
-        }
-
-        Chatbox? chatbox = FindChatbox(doc);
+        Chatbox? chatbox = doc is null ? null : FindChatbox(doc);
         if (chatbox is null)
         {
             chatbox = new Chatbox();

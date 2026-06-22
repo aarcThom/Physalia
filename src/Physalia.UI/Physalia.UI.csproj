@@ -21,6 +21,14 @@
     <NoWarn>$(NoWarn);NETSDK1086</NoWarn>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <IncludeBuildOutput>false</IncludeBuildOutput>
+    <!-- CRITICAL: this project emits no assembly, so Visual Studio's fast up-to-date check
+         sees no managed outputs and SKIPS the project build entirely — which means the
+         BuildPhysaliaUI target below never runs in VS and Files/UI/chat.html is never
+         generated (the chat window then shows "UI not found"). `dotnet build` doesn't gate
+         on the fast check, which is why CLI builds work but VS builds silently don't.
+         Disabling the fast check forces VS to invoke MSBuild every build; the target's own
+         Inputs/Outputs still keep it cheap (npm/Vite are skipped when no UI source changed). -->
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
     <!-- On by default: the .NET build runs the Vite build and refreshes Files/UI/chat.html
          (gitignored, so there is no committed fallback). Pass -p:BuildUI=false to skip it
          for a Node-free build. -->
@@ -35,14 +43,28 @@
     <PhysaliaUiInput Include="$(MSBuildProjectDirectory)\*.json;$(MSBuildProjectDirectory)\*.ts;$(MSBuildProjectDirectory)\*.js;$(MSBuildProjectDirectory)\*.cjs;$(MSBuildProjectDirectory)\*.mjs;$(MSBuildProjectDirectory)\*.html;$(MSBuildProjectDirectory)\*.css" />
   </ItemGroup>
 
+  <!-- Restore npm packages. Incremental via a stamp file: re-runs whenever package-lock.json
+       changes (a plain `!Exists(node_modules)` guard never reinstalls after a dependency bump,
+       leaving a stale or broken node_modules that makes `npm run build` fail). Uses `npm ci`
+       when a lockfile is present (clean, reproducible install) and falls back to `npm install`
+       otherwise. -->
+  <Target Name="RestorePhysaliaUI" BeforeTargets="BuildPhysaliaUI" Condition="'$(BuildUI)' == 'true'"
+          Inputs="$(MSBuildProjectDirectory)\package-lock.json;$(MSBuildProjectDirectory)\package.json"
+          Outputs="$(MSBuildProjectDirectory)\node_modules\.physalia-install-stamp">
+    <Message Importance="high" Text="Physalia.UI: restoring npm packages…" />
+    <Exec Command="npm ci" WorkingDirectory="$(MSBuildProjectDirectory)"
+          Condition="Exists('$(MSBuildProjectDirectory)\package-lock.json')" />
+    <Exec Command="npm install" WorkingDirectory="$(MSBuildProjectDirectory)"
+          Condition="!Exists('$(MSBuildProjectDirectory)\package-lock.json')" />
+    <Touch Files="$(MSBuildProjectDirectory)\node_modules\.physalia-install-stamp" AlwaysCreate="true" />
+  </Target>
+
   <!-- Inputs/Outputs make this incremental: npm runs only when a UI source is newer than the
        generated chat.html (so plain C# rebuilds don't pay the Vite cost). -->
   <Target Name="BuildPhysaliaUI" AfterTargets="Build" Condition="'$(BuildUI)' == 'true'"
           Inputs="@(PhysaliaUiInput)"
           Outputs="$(MSBuildProjectDirectory)\..\..\Files\UI\chat.html">
     <Message Importance="high" Text="Physalia.UI: building chat window front-end with Vite…" />
-    <Exec Command="npm install" WorkingDirectory="$(MSBuildProjectDirectory)"
-          Condition="!Exists('$(MSBuildProjectDirectory)\node_modules')" />
     <Exec Command="npm run build" WorkingDirectory="$(MSBuildProjectDirectory)" />
     <MakeDir Directories="$(MSBuildProjectDirectory)\..\..\Files\UI" />
     <Copy SourceFiles="$(MSBuildProjectDirectory)\dist\index.html"

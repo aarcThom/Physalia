@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 using Grasshopper.Kernel;
 using System.Drawing;
 using System.Reflection;
@@ -9,7 +12,7 @@ public abstract class PhyBase : GH_Component
     //grabbing embedded resources
     protected readonly Assembly GHAssembly = Assembly.GetExecutingAssembly();
 
-    protected string IconPath;
+    protected string? IconPath;
     private Bitmap? _iconCache;
 
     protected PhyBase(string name, string nickname, string description, string subCategory)

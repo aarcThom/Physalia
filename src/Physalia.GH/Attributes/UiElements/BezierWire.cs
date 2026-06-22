@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using System;
 using System.Drawing;
 
 namespace Physalia.GH.Attributes.UiElements;
@@ -29,7 +30,7 @@ public class BezierWire
     private WireGradient _gradient;
 
     private Pen[] _pens;
-    private PointF[] _segments;
+    private PointF[] _segments = Array.Empty<PointF>();
     private bool _dirty = true;
 
     /// <summary>

@@ -1,8 +1,6 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-#nullable enable
-
 using GH_IO.Serialization;
 using Grasshopper.Kernel.Types;
 using Physalia.Core.ConvoInstruct;

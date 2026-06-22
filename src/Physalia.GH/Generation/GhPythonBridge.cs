@@ -222,7 +222,7 @@ public static class GhPythonBridge
     /// <returns>The mapped <c>ParamType</c>, or <c>ParamType.Any</c>.</returns>
     private static ParamType MapParamType(string typeHint)
     {
-        if (string.IsNullOrWhiteSpace(typeHint) || !TypeHintMap.TryGetValue(typeHint, out Type clrType))
+        if (string.IsNullOrWhiteSpace(typeHint) || !TypeHintMap.TryGetValue(typeHint, out Type? clrType))
             return ParamType.Any;
 
         try

@@ -141,7 +141,7 @@ public class Picker : PhyBase
         return null;
     }
 
-    private void OnValueSelected(object sender, EventArgs e)
+    private void OnValueSelected(object? sender, EventArgs e)
     {
         if (sender is ToolStripMenuItem item && item.Tag is string value)
         {

@@ -1,8 +1,6 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-#nullable enable
-
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -69,10 +67,10 @@ public class SchemaTranslator : RoutingComponentBase<string>
         if (!string.IsNullOrWhiteSpace(schema))
         {
             var validationResult = SchemaValidator.Validate(data, schema);
-            if (validationResult is Result<string, ValidationError>.Err validationErr)
+            if (validationResult.IsErr(out var validationErr, out _))
             {
                 return RoutingResult.Fail(
-                    validationErr.Error.Message, validationErr.Error.Message, GH_RuntimeMessageLevel.Warning);
+                    validationErr.Message, validationErr.Message, GH_RuntimeMessageLevel.Warning);
             }
         }
 

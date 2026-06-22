@@ -1,8 +1,6 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-#nullable enable
-
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -694,7 +692,7 @@ public class ChatWindow : Form
 
         // Provisional drop, then nudge so the component's left edge sits at the anchor and its
         // vertical centre lines up with it (Pivot is interior to the bounds, not a corner).
-        _component.Attributes.Pivot = anchor;
+        _component.Attributes!.Pivot = anchor;
         doc.AddObject(_component, false);
 
         // Match the rest of the canvas: show full parameter names when "Draw Full Names" is on.

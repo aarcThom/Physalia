@@ -23,7 +23,8 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class TokenEstimator : PhyBase, IPickableValuesSource
 {
-    private readonly HttpClient _httpClient = new HttpClient();
+    // Shared, not per-instance: HttpClient is thread-safe and reuse avoids socket exhaustion.
+    private static readonly HttpClient _httpClient = new();
 
     private string _lastTechnique = string.Empty;
     private string _lastTiktokenModel = string.Empty;
@@ -241,13 +242,13 @@ public class TokenEstimator : PhyBase, IPickableValuesSource
 
             if (ct.IsCancellationRequested) return;
 
-            if (result is Result<int, LlmError>.Ok ok)
+            if (result.IsOk(out var count, out var err))
             {
-                _lastAsyncResult = ok.Value;
+                _lastAsyncResult = count;
             }
-            else if (result is Result<int, LlmError>.Err err)
+            else
             {
-                _asyncWarning = $"{_lastTechnique} token count failed: {err.Error.Message}";
+                _asyncWarning = $"{_lastTechnique} token count failed: {err.Message}";
             }
 
             OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(true));

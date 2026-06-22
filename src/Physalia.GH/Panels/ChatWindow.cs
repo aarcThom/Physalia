@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
@@ -12,6 +13,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Eto.Forms;
+using Physalia.Core.Config;
 using Physalia.Core.ConvoInstruct;
 using Physalia.GH.Components;
 
@@ -48,6 +50,19 @@ public class ChatWindow : Form
     // How often the setup probe re-runs once a result is known, so the setup state clears within a
     // few seconds of the user adding a key / starting a local server (and reappears if removed).
     private static readonly TimeSpan ProviderProbeInterval = TimeSpan.FromSeconds(4);
+
+    // Maps a setup-screen provider id to its API_KEY_CONFIG.YAML location ({section}.api_keys.{leaf}).
+    // Only providers that authenticate with a pasted key appear here; Claude Code / local llama
+    // need no stored key. Matches the sections in API_KEY_CONFIG.YAML.example.
+    private static readonly Dictionary<string, (string Section, string Leaf)> KeyTargets =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["anthropic"] = ("anthropic", "api_key"),
+            ["google"] = ("gemini", "api_key"),
+            ["openai"] = ("openai_compatible", "openai"),
+            ["deepseek"] = ("openai_compatible", "deepseek"),
+            ["openrouter"] = ("openai_compatible", "openrouter"),
+        };
 
     private const string MissingHtml =
         "<!doctype html><html><body style='font:13px sans-serif;padding:24px;color:#333'>"
@@ -212,7 +227,116 @@ public class ChatWindow : Form
         // (same hazard as ManageImagesDialog's grid-edit deferral). The Tick loop renders
         // the recorded turn afterwards.
         Uri uri = e.Uri;
-        Application.Instance.AsyncInvoke(() => HandleSubmit(uri));
+        Application.Instance.AsyncInvoke(() => Dispatch(uri));
+    }
+
+    // Routes a cancelled phbridge:// navigation by its host: submit a prompt, open an external
+    // link in the system browser, or save a pasted API key. Runs on the UI thread.
+    private void Dispatch(Uri uri)
+    {
+        switch (uri.Host)
+        {
+            case "submit":
+                HandleSubmit(uri);
+                break;
+            case "open":
+                HandleOpen(uri);
+                break;
+            case "savekey":
+                HandleSaveKey(uri);
+                break;
+        }
+    }
+
+    // Opens an external setup link (http/https only) in the user's default browser. The chat runs
+    // from file://, so an in-page navigation would replace it — links route here instead.
+    private void HandleOpen(Uri uri)
+    {
+        string url = GetQueryValue(uri.Query, "url");
+        if (string.IsNullOrEmpty(url)
+            || !Uri.TryCreate(url, UriKind.Absolute, out Uri? parsed)
+            || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(parsed.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Rhino.RhinoApp.WriteLine($"[Physalia] Could not open link: {ex.Message}");
+        }
+    }
+
+    // Persists a pasted API key to API_KEY_CONFIG.YAML for the named provider, then forces a fresh
+    // provider probe so the setup state clears once the key is detected, and reports the outcome
+    // back to the page. The key is never logged.
+    private void HandleSaveKey(Uri uri)
+    {
+        string provider = GetQueryValue(uri.Query, "provider");
+        string key = GetQueryValue(uri.Query, "key");
+
+        if (!KeyTargets.TryGetValue(provider, out (string Section, string Leaf) target))
+        {
+            PushSetupResult(provider, false, "Unknown provider.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            PushSetupResult(provider, false, "Paste a non-empty API key, then press Enter.");
+            return;
+        }
+
+        string path = GetApiKeyConfigPath();
+        try
+        {
+            EnsureConfigFileExists(path);
+            Api.SetKey(path, target.Section, target.Leaf, key.Trim());
+        }
+        catch (Exception ex)
+        {
+            PushSetupResult(provider, false, $"Could not save the key: {ex.Message}");
+            return;
+        }
+
+        // Drop the cached result so the next tick re-probes; the now-present key resolves on the
+        // first (synchronous) check, clearing the setup state without waiting for the interval.
+        _providersConfigured = null;
+        _lastProviderProbeUtc = DateTime.MinValue;
+
+        PushSetupResult(provider, true, "API key saved to API_KEY_CONFIG.YAML. You're all set.");
+    }
+
+    // Copies the bundled template to API_KEY_CONFIG.YAML on first use so the standard provider
+    // sections exist; if the template is missing, Api.SetKey creates a minimal file itself.
+    private static void EnsureConfigFileExists(string path)
+    {
+        if (File.Exists(path))
+        {
+            return;
+        }
+
+        string? dir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        string example = path + ".example";
+        if (File.Exists(example))
+        {
+            File.Copy(example, path);
+        }
+    }
+
+    // One-shot push of a setup outcome to the page (the key is not included).
+    private void PushSetupResult(string provider, bool ok, string message)
+    {
+        string json = JsonSerializer.Serialize(new { provider, ok, message }, WriteOpts);
+        Exec($"window.physalia&&window.physalia.setSetupResult&&window.physalia.setSetupResult({json});");
     }
 
     // Turns a phbridge://submit navigation into a Prompt Signal. Text rides in the URL

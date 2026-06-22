@@ -51,11 +51,22 @@ export interface UiState {
 	status: string;
 }
 
+/** Outcome of a save-API-key request, pushed back by the host after it writes the config. */
+export interface SetupResult {
+	/** Provider id the result is for (matches a providers.ts id). */
+	provider: string;
+	/** True when the key was saved successfully. */
+	ok: boolean;
+	/** Human-readable message to show on the setup page. */
+	message: string;
+}
+
 /** Functions the host invokes on the page (set by the app on mount). */
 export interface PhysaliaHost {
 	setHistory(messages: UiMessage[]): void;
 	setStream(text: string | null): void;
 	setState(state: UiState): void;
+	setSetupResult(result: SetupResult | null): void;
 }
 
 /** An image attached in the prompt box, ready to send to the host. */

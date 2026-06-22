@@ -38,23 +38,17 @@ internal static class ProviderAvailability
         HttpClient client,
         CancellationToken ct)
     {
-        // TEMP (revert me): force the first-run setup state so the setup UI can be worked on
-        // without disabling every configured LLM provider. Uncomment the real checks below to
-        // restore detection.
-        await Task.CompletedTask.ConfigureAwait(false);
-        return false;
+        if (HasAnyApiKey(apiKeyConfigPath))
+        {
+            return true;
+        }
 
-        ////if (HasAnyApiKey(apiKeyConfigPath))
-        ////{
-        ////    return true;
-        ////}
+        if (ClaudeCodeProvider.IsCliAvailable())
+        {
+            return true;
+        }
 
-        ////if (ClaudeCodeProvider.IsCliAvailable())
-        ////{
-        ////    return true;
-        ////}
-
-        ////return await HasLlamaServerAsync(client, ct).ConfigureAwait(false);
+        return await HasLlamaServerAsync(client, ct).ConfigureAwait(false);
     }
 
     // True when at least one provider key resolves from the config file or its env vars.

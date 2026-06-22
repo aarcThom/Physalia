@@ -21,10 +21,15 @@
 		busy: boolean;
 		/** Setup not finished (no provider configured) — block input; there's nothing to send to. */
 		disabled?: boolean;
+		/** When set, the box captures an API key for this provider instead of sending a message. */
+		apiKeyProvider?: { id: string; label: string } | null;
 		onsend: (message: SubmitMessage) => void;
+		/** Called with the pasted API key when in apiKeyProvider mode. */
+		onsavekey?: (providerId: string, key: string) => void;
 	}
 
-	let { disconnected, busy, disabled = false, onsend }: Props = $props();
+	let { disconnected, busy, disabled = false, apiKeyProvider = null, onsend, onsavekey }: Props =
+		$props();
 
 	interface PendingImage {
 		id: number;
@@ -33,9 +38,10 @@
 		filename: string;
 	}
 
-	// Block while the pipeline is busy, or during setup (no provider yet). Do NOT block on mere
+	// Block while the pipeline is busy, or during setup (no provider yet) — EXCEPT in API-key
+	// mode, where the box stays live so the user can paste their key. Do NOT block on mere
 	// disconnection — the user can compose and send before/while wiring a Recorder.
-	let inert = $derived(busy || disabled);
+	let inert = $derived(busy || (disabled && !apiKeyProvider));
 
 	let text = $state('');
 	let pending = $state<PendingImage[]>([]);
@@ -44,15 +50,29 @@
 	let nextId = 0;
 
 	let placeholder = $derived(
-		disabled
-			? 'Finish setup to start chatting…'
-			: disconnected
-				? 'Send a message…  (connect a Recorder to see replies)'
-				: 'Send a message…  (Enter to send, Shift+Enter for a new line)'
+		apiKeyProvider
+			? `Paste your ${apiKeyProvider.label} API key here, then press Enter`
+			: disabled
+				? 'Finish setup to start chatting…'
+				: disconnected
+					? 'Send a message…  (connect a Recorder to see replies)'
+					: 'Send a message…  (Enter to send, Shift+Enter for a new line)'
 	);
 
 	// All [image#N] tokens. Order in the text mirrors insertion order, which mirrors `pending`.
 	const TOKEN = /\[image#\d+\]/g;
+
+	// Clear the box whenever API-key mode is entered, left, or switched between providers, so a
+	// typed key never carries over into a chat message (or another provider's key field).
+	let prevKeyProviderId = $state<string | null>(null);
+	$effect(() => {
+		const id = apiKeyProvider?.id ?? null;
+		if (id !== prevKeyProviderId) {
+			prevKeyProviderId = id;
+			text = '';
+			pending = [];
+		}
+	});
 
 	// Whole-window drag-and-drop (mirrors the old globalDrop). Document-level covers the root.
 	$effect(() => {
@@ -162,6 +182,18 @@
 			return;
 		}
 
+		// API-key mode: the box content IS the key — hand it to the host, don't send a message.
+		if (apiKeyProvider) {
+			let key = text.trim();
+			if (!key) {
+				return;
+			}
+			onsavekey?.(apiKeyProvider.id, key);
+			text = '';
+			pending = [];
+			return;
+		}
+
 		let sentText = tidy(text.replace(TOKEN, '')).trim();
 		let images = pending.map((p) => ({
 			base64: p.base64,
@@ -246,7 +278,7 @@
 		variant="ghost"
 		size="icon"
 		onclick={openPicker}
-		disabled={inert}
+		disabled={inert || !!apiKeyProvider}
 		title="Add image"
 	>
 		<ImagePlusIcon />

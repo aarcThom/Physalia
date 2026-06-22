@@ -10,7 +10,17 @@
 	import AssistantTurnGroup from '$lib/chat/AssistantTurnGroup.svelte';
 	import Composer from '$lib/chat/Composer.svelte';
 	import Setup from '$lib/chat/Setup.svelte';
-	import type { SubmitMessage, UiMessage, UiState } from '$lib/bridge';
+	import {
+		DropdownMenu,
+		DropdownMenuTrigger,
+		DropdownMenuContent,
+		DropdownMenuItem
+	} from '$lib/components/ui/dropdown-menu/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import MenuIcon from '@lucide/svelte/icons/menu';
+	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import { getProvider } from '$lib/chat/providers';
+	import type { SetupResult, SubmitMessage, UiMessage, UiState } from '$lib/bridge';
 
 	const BRIDGE_SCHEME = 'phbridge';
 
@@ -20,6 +30,25 @@
 	let busy = $state(false);
 	let needsSetup = $state(false);
 	let status = $state('');
+
+	// Setup screen state. `needsSetup` (from the host) forces it when no provider is configured;
+	// `manualSetup` lets the user open it from the header dropdown to add another provider later.
+	let manualSetup = $state(false);
+	let selectedProviderId = $state<string | null>(null);
+	let setupResult = $state<SetupResult | null>(null);
+
+	let showSetup = $derived(needsSetup || manualSetup);
+	// Only offer "Back to chat" when setup was opened manually (a provider already exists);
+	// during first-run setup there is nothing to return to yet.
+	let canClose = $derived(!needsSetup);
+	// When a key-requiring provider's guide is open, the prompt box captures the key instead.
+	let keyProvider = $derived.by(() => {
+		if (!showSetup) {
+			return null;
+		}
+		const provider = getProvider(selectedProviderId);
+		return provider && provider.needsKey ? { id: provider.id, label: provider.label } : null;
+	});
 
 	onMount(() => {
 		// C# -> JS surface. The host calls these via ExecuteScript on its UI timer.
@@ -35,6 +64,9 @@
 				busy = next.busy;
 				needsSetup = next.needsSetup ?? false;
 				status = next.status ?? '';
+			},
+			setSetupResult: (result) => {
+				setupResult = result;
 			}
 		};
 
@@ -79,6 +111,35 @@
 		window.location.href = `${BRIDGE_SCHEME}://submit?images=1`;
 	}
 
+	// Open an external setup link in the system browser (the host cancels the nav and shells out).
+	function openLink(url: string) {
+		window.location.href = `${BRIDGE_SCHEME}://open?url=${encodeURIComponent(url)}`;
+	}
+
+	// Hand a pasted API key to the host, which writes it to API_KEY_CONFIG.YAML and reports back
+	// via setSetupResult. encodeURIComponent keeps the key intact in the URL (no literal '+').
+	function saveKey(providerId: string, key: string) {
+		window.location.href =
+			`${BRIDGE_SCHEME}://savekey?provider=${encodeURIComponent(providerId)}&key=${encodeURIComponent(key)}`;
+	}
+
+	function selectProvider(id: string | null) {
+		selectedProviderId = id;
+		setupResult = null; // a fresh page shouldn't carry the previous provider's result
+	}
+
+	function openSetup() {
+		manualSetup = true;
+		selectedProviderId = null;
+		setupResult = null;
+	}
+
+	function closeSetup() {
+		manualSetup = false;
+		selectedProviderId = null;
+		setupResult = null;
+	}
+
 	let isEmpty = $derived(messages.length === 0 && !stream);
 
 	// Group the flat message list into render units: each user message stands alone, while
@@ -120,13 +181,39 @@
 </script>
 
 <main class="bg-background text-foreground flex h-screen flex-col overflow-hidden">
+	<!-- Header: a small menu at the very top. Its dropdown reopens the provider setup screen at
+	     any time (even with a provider already configured) so more can be added later. -->
+	<header class="flex shrink-0 items-center gap-2 border-b px-2 py-1">
+		<DropdownMenu>
+			<DropdownMenuTrigger>
+				{#snippet child({ props })}
+					<Button variant="ghost" size="sm" class="gap-1 px-2" title="Menu" {...props}>
+						<MenuIcon class="size-4" />
+						<ChevronDownIcon class="size-3.5" />
+					</Button>
+				{/snippet}
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="start">
+				<DropdownMenuItem onSelect={openSetup}>Set up providers…</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
+		<span class="text-muted-foreground text-xs font-medium">Physalia Chat</span>
+	</header>
+
 	<!-- flex-1 + min-h-0 lets this region size to the space left by the composer and
 	     shrink, so the composer stays pinned at the bottom and the chat scrolls within. -->
 	<div class="relative min-h-0 flex-1">
 		<Conversation class="h-full">
 			<ConversationContent class="min-h-0 flex-1 overflow-y-auto">
-			{#if needsSetup}
-				<Setup />
+			{#if showSetup}
+				<Setup
+					selectedId={selectedProviderId}
+					{setupResult}
+					{canClose}
+					onselect={selectProvider}
+					onopenlink={openLink}
+					onclose={closeSetup}
+				/>
 			{:else}
 			{#if isEmpty}
 				<div class="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 text-center">
@@ -172,11 +259,18 @@
 		</Conversation>
 	</div>
 
-	{#if status}
+	{#if status && !showSetup}
 		<div class="text-muted-foreground shrink-0 border-t px-4 py-1 text-xs">{status}</div>
 	{/if}
 
 	<div class="shrink-0 border-t p-3">
-		<Composer disconnected={!connected} {busy} disabled={needsSetup} onsend={send} />
+		<Composer
+			disconnected={!connected}
+			{busy}
+			disabled={showSetup}
+			apiKeyProvider={keyProvider}
+			onsend={send}
+			onsavekey={saveKey}
+		/>
 	</div>
 </main>

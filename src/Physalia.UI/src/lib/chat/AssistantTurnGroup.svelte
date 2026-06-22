@@ -8,7 +8,8 @@
 	// section (open while streaming, auto-collapsing once the turn finishes); the JSON block
 	// and anything after it stay visible as the answer. A turn that produces no JSON renders
 	// inline — nothing extra collapses (native reasoning keeps its own collapsible).
-	import { splitThinking, splitContent, type UiMessage, type UiTool } from '$lib/bridge';
+	import type { UiMessage, UiTool } from '$lib/bridge';
+	import { splitThinking, splitContent } from '$lib/content';
 	import Response from '$lib/components/ai-elements/response/response.svelte';
 	import JsonBlock from './JsonBlock.svelte';
 	import ChainOfThought from '$lib/components/ai-elements/chain-of-thought/chain-of-thought.svelte';

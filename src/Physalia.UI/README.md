@@ -1,47 +1,91 @@
-# Svelte + TS + Vite
+# Physalia.UI
 
-This template should help get you started developing with Svelte and TypeScript in Vite.
+The chat front-end for Physalia, built with **Svelte 5**, **TypeScript**, **Vite**,
+and **Tailwind CSS v4**.
 
-## Recommended IDE Setup
+This is a plain Vite + Svelte app (not SvelteKit). It builds to a **single,
+self-contained `index.html`** that the Grasshopper plugin (`Physalia.GH`) loads
+inside an Eto `WebView` from disk. There is no web server at runtime — the C# host
+and this page talk to each other directly (see [The bridge](#the-bridge)).
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
+## Commands
 
-## Need an official Svelte framework?
-
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less, and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
-
-## Technical considerations
-
-**Why use this over SvelteKit?**
-
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
-
-This template contains as little as possible to get started with Vite + TypeScript + Svelte, while taking into account the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte project.
-
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been structured similarly to SvelteKit so that it is easy to migrate.
-
-**Why `global.d.ts` instead of `compilerOptions.types` inside `jsconfig.json` or `tsconfig.json`?**
-
-Setting `compilerOptions.types` shuts out all other types not explicitly listed in the configuration. Using triple-slash references keeps the default TypeScript setting of accepting type information from the entire workspace, while also adding `svelte` and `vite/client` type information.
-
-**Why include `.vscode/extensions.json`?**
-
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to install the recommended extension upon opening the project.
-
-**Why enable `allowJs` in the TS template?**
-
-While `allowJs: false` would indeed prevent the use of `.js` files in the project, it does not prevent the use of JavaScript syntax in `.svelte` files. In addition, it would force `checkJs: false`, bringing the worst of both worlds: not being able to guarantee the entire codebase is TypeScript, and also having worse typechecking for the existing JavaScript. In addition, there are valid use cases in which a mixed codebase may be relevant.
-
-**Why is HMR not preserving my local component state?**
-
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr` and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the details [here](https://github.com/rixo/svelte-hmr#svelte-hmr).
-
-If you have state that's important to retain within a component, consider creating an external store which would not be replaced by HMR.
-
-```ts
-// store.ts
-// An extremely simple external store
-import { writable } from 'svelte/store'
-export default writable(0)
+```bash
+npm install      # install dependencies
+npm run dev      # local dev server with hot reload (browser preview)
+npm run build    # produce dist/index.html (one inlined file) for the host
+npm run check    # type-check the Svelte + TS sources
 ```
+
+`npm run dev` runs the UI in a normal browser, which is the easiest way to work on
+layout and styling. The host bridge isn't present there, so `window.physalia` is
+undefined and the chat stays empty — that's expected.
+
+## How it fits together
+
+The app is small. Start at these three files and follow the imports:
+
+| File | What it does |
+| --- | --- |
+| `src/main.ts` | Entry point — mounts `App.svelte` into `index.html`. |
+| `src/App.svelte` | The whole screen: header, conversation list, and the composer. Holds the top-level state and wires the bridge. |
+| `src/lib/bridge.ts` | The **contract** with the C# host: the message/state types and the JS↔C# messaging. |
+
+### The bridge
+
+`Physalia.UI` never makes network calls itself. The C# host
+(`Physalia.GH/Panels/ChatWindow.cs`) drives everything:
+
+- **C# → JS:** the host calls `window.physalia.{setHistory,setStream,setState,setSetupResult}`
+  to push conversation history, the live streaming text, and connection state into the page.
+- **JS → C#:** the page sends an outgoing message by navigating to a `phbridge://…`
+  URL that the host intercepts and cancels. Image-bearing messages are too large for
+  a URL, so the payload is handed over the WebView message channel (or stashed on
+  `window` for the host to pull back).
+
+Everything the two sides agree on — the message shapes and these functions — lives
+in `bridge.ts`, with comments explaining each piece.
+
+## Directory map
+
+```
+src/
+├─ main.ts            entry point
+├─ App.svelte         top-level screen + state + bridge wiring
+├─ app.css            Tailwind theme (light-mode only)
+└─ lib/
+   ├─ bridge.ts       host contract: message/state types + JS↔C# messaging
+   ├─ content.ts      pure helpers: split assistant text into reasoning / prose / JSON
+   ├─ utils.ts        the `cn()` class-name helper + a few type helpers
+   ├─ chat/           ← the app's own components (this is the code to read first)
+   │  ├─ Composer.svelte          the prompt box (typing, image paste/drop, send)
+   │  ├─ AssistantTurnGroup.svelte renders one assistant turn (reasoning, tools, prose, JSON)
+   │  ├─ JsonBlock.svelte         a collapsed, copyable JSON panel
+   │  ├─ Setup.svelte             first-run / add-a-provider screen
+   │  ├─ ConnectOptions.svelte    "connect a recorder" screen
+   │  ├─ Pill.svelte              the shared Physalia "pill" style
+   │  ├─ HappyFace.svelte         the placeholder logo
+   │  └─ providers.ts             the LLM providers + their setup guides (data)
+   ├─ hooks/          a small reusable Svelte hook (clipboard copy state)
+   └─ components/     ← VENDORED UI libraries — not authored here
+      ├─ ai-elements/ chat building blocks (message, conversation, tool, code, …)
+      └─ ui/          shadcn-svelte primitives (button, dropdown-menu, collapsible, …)
+```
+
+**Where to focus:** `src/App.svelte`, `src/lib/*.ts`, and `src/lib/chat/` are the
+app's own code. The `components/ai-elements` and `components/ui` folders are
+third-party component libraries copied in from the
+[shadcn-svelte](https://shadcn-svelte.com/) and
+[AI Elements](https://ai-sdk.dev/elements) registries — they're meant to be
+re-synced from those registries, so they're left as-is rather than rewritten.
+
+## Build notes
+
+The single-file build is handled by `vite-plugin-singlefile`. To keep that one file
+small, `vite.config.ts` stubs out heavy optional dependencies that the chat never
+actually uses (Mermaid diagrams, KaTeX math, and every Shiki syntax grammar except
+JSON) via the small `empty-module.ts` / `shiki-empty-lang.ts` shims. The comments in
+`vite.config.ts` explain each alias.
+
+> Wrapper note: `Physalia.UI.csproj` exists only so the .NET build can run
+> `npm run build` and copy the output alongside the plugin. There is no C# code here.

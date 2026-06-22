@@ -6,9 +6,6 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Signals;
@@ -92,57 +89,6 @@ public class SchemaTranslator : RoutingComponentBase<string>
     private static string TranslateToGhJson(PhySchemaDocument schema)
     {
         IReadOnlyDictionary<int, PointF> positions = HierarchicalLayout.ComputePositions(schema);
-
-        var root = new JsonObject
-        {
-            ["schema"] = "1.0",
-        };
-
-        var componentsArray = new JsonArray();
-        foreach (PhySchemaComponent component in schema.Components ?? Array.Empty<PhySchemaComponent>())
-        {
-            var compNode = new JsonObject
-            {
-                ["name"]         = component.Name,
-                ["instanceGuid"] = component.InstanceGuid,
-                ["id"]           = component.Id,
-            };
-
-            if (positions.TryGetValue(component.Id, out PointF pivot))
-                compNode["pivot"] = $"{(int)pivot.X},{(int)pivot.Y}";
-            else
-                compNode["pivot"] = "50,50";
-
-            if (component.ComponentState.HasValue)
-                compNode["componentState"] = JsonNode.Parse(component.ComponentState.Value.GetRawText());
-
-            componentsArray.Add(compNode);
-        }
-        root["components"] = componentsArray;
-
-        var connectionsArray = new JsonArray();
-        foreach (PhySchemaConnection connection in schema.Connections ?? Array.Empty<PhySchemaConnection>())
-        {
-            connectionsArray.Add(new JsonObject
-            {
-                ["from"] = new JsonObject
-                {
-                    ["id"]        = connection.From.Id,
-                    ["paramName"] = connection.From.ParamName,
-                },
-                ["to"] = new JsonObject
-                {
-                    ["id"]        = connection.To.Id,
-                    ["paramName"] = connection.To.ParamName,
-                },
-            });
-        }
-        root["connections"] = connectionsArray;
-
-        return root.ToJsonString(new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        });
+        return GhJsonBridge.SerializePhySchema(schema, positions);
     }
 }

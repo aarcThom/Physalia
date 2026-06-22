@@ -7,12 +7,14 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Text.Json;
 using GhJSON.Core;
 using GhJSON.Core.SchemaModels;
 using GhJSON.Core.Serialization;
 using GhJSON.Grasshopper;
 using GhJSON.Grasshopper.PutOperations;
 using Grasshopper.Kernel;
+using Newtonsoft.Json;
 using Physalia.Core.Catalog;
 using Physalia.GH.Components;
 
@@ -54,6 +56,55 @@ internal static class GhJsonBridge
         GhJsonDocument doc = GhJsonGrasshopper.GetByGuids(guids);
         StripNickNames(doc);
         GhJson.ToFile(doc, path, new WriteOptions { Indented = true });
+    }
+
+    /// <summary>
+    /// Serialises a <see cref="PhySchemaDocument"/> (the LLM-authored, position-free definition)
+    /// to a GhJSON string, stamping each component with the canvas pivot computed by the caller.
+    /// </summary>
+    /// <param name="schema">The parsed PhySchema document.</param>
+    /// <param name="pivots">Canvas pivot positions keyed by component id; components without an
+    /// entry fall back to (50, 50).</param>
+    /// <returns>The GhJSON document as an indented string.</returns>
+    internal static string SerializePhySchema(PhySchemaDocument schema, IReadOnlyDictionary<int, PointF> pivots)
+    {
+        var components = new List<GhJsonComponent>();
+        foreach (PhySchemaComponent component in schema.Components ?? Array.Empty<PhySchemaComponent>())
+        {
+            PointF pivot = pivots.TryGetValue(component.Id, out PointF p) ? p : new PointF(50f, 50f);
+
+            var ghComponent = new GhJsonComponent
+            {
+                Name = component.Name,
+                Id = component.Id,
+                Pivot = new GhJsonPivot(pivot.X, pivot.Y),
+            };
+
+            if (Guid.TryParse(component.InstanceGuid, out Guid instanceGuid))
+            {
+                ghComponent.InstanceGuid = instanceGuid;
+            }
+
+            if (component.ComponentState is JsonElement state)
+            {
+                ghComponent.ComponentState = JsonConvert.DeserializeObject<GhJsonComponentState>(state.GetRawText());
+            }
+
+            components.Add(ghComponent);
+        }
+
+        var connections = new List<GhJsonConnection>();
+        foreach (PhySchemaConnection connection in schema.Connections ?? Array.Empty<PhySchemaConnection>())
+        {
+            connections.Add(new GhJsonConnection
+            {
+                From = new GhJsonConnectionEndpoint { Id = connection.From.Id, ParamName = connection.From.ParamName },
+                To = new GhJsonConnectionEndpoint { Id = connection.To.Id, ParamName = connection.To.ParamName },
+            });
+        }
+
+        var doc = new GhJsonDocument("1.0", metadata: null, components, connections, groups: null);
+        return GhJson.ToJson(doc, new WriteOptions { Indented = true });
     }
 
     /// <summary>

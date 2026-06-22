@@ -41,7 +41,8 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
 /// <summary>
 /// Canvas widget pinned to the bottom-right of the Grasshopper canvas, above the compass.
 /// Clicking it opens the Physalia chat window; if the document has no Chatbox component to
-/// drive the pipeline, one is created first and the window binds to it. Grasshopper
+/// drive the pipeline, one is created and the window places it onto the canvas (to its right)
+/// once a provider is available — so it isn't dropped during first-run setup. Grasshopper
 /// auto-discovers the widget and lists it (with a visibility checkbox) in the canvas
 /// Widgets right-click menu; the visibility choice persists in the GH settings.
 ///
@@ -147,8 +148,9 @@ public sealed class ChatWidget : GH_Widget
         return GH_ObjectResponse.Ignore;
     }
 
-    // Finds a Chatbox in the document, creating and placing one at the viewport centre when none
-    // exists, then opens (or focuses) the single shared chat window bound to it.
+    // Opens (or focuses) the single shared chat window. Reuses a Chatbox already on the canvas;
+    // otherwise creates one but does NOT place it — the window drops it onto the document itself,
+    // to its right, once a provider is available (so first-run setup never litters the canvas).
     private static void OpenChat(GH_Canvas canvas)
     {
         GH_Document? doc = canvas?.Document;
@@ -162,11 +164,6 @@ public sealed class ChatWidget : GH_Widget
         {
             chatbox = new Chatbox();
             chatbox.CreateAttributes();
-            chatbox.Attributes.Pivot = canvas!.Viewport.MidPoint;
-            doc.AddObject(chatbox, false);
-
-            // Match the rest of the canvas: show full parameter names when "Draw Full Names" is on.
-            ComponentHelpers.ApplyNickNameDisplay(chatbox);
         }
 
         chatbox.OpenWindow();

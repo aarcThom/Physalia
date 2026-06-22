@@ -13,6 +13,9 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Eto.Forms;
+using Grasshopper;
+using Grasshopper.GUI.Canvas;
+using Grasshopper.Kernel;
 using Physalia.Core.Config;
 using Physalia.Core.ConvoInstruct;
 using Physalia.GH.Components;
@@ -550,6 +553,11 @@ public class ChatWindow : Form
         MaybeProbeProviders();
         bool needsSetup = _providersConfigured == false;
 
+        // Once a provider is known to exist (chat mode, not setup), drop this window's Chatbox
+        // onto the canvas if it isn't there yet — so the window is backed by a real component
+        // immediately, without waiting for the first message.
+        MaybePlaceComponent();
+
         // Pipeline-wiring readiness: chat needs Recorder -> Reasoner -> Model. Shown as a hint once
         // a provider exists but the graph isn't fully wired.
         bool ready = PromptPipelineView.IsPipelineReady(_component, 0);
@@ -628,6 +636,95 @@ public class ChatWindow : Form
             });
         });
     }
+
+    // Drops this window's Chatbox onto the canvas, to the right of the window and vertically
+    // centred on it, the moment a provider becomes available — but only when the component isn't
+    // already on a document. A Chatbox loaded from a saved file or hand-placed by the user is left
+    // exactly where it is (we never move it); and while in first-run setup (no provider) nothing is
+    // placed, so the canvas isn't littered with an unusable component. Runs on the UI thread (Tick).
+    private void MaybePlaceComponent()
+    {
+        if (_component.OnPingDocument() is not null)
+        {
+            return; // already bound to a canvas component — leave it where the user/file put it
+        }
+
+        if (_providersConfigured != true)
+        {
+            return; // still probing, or first-run setup: nothing to chat with yet, so don't place
+        }
+
+        GH_Canvas canvas = Instances.ActiveCanvas;
+        GH_Document? doc = canvas?.Document;
+        if (canvas is null || doc is null)
+        {
+            return;
+        }
+
+        if (_component.Attributes is null)
+        {
+            _component.CreateAttributes();
+        }
+
+        // Anchor = a few px right of the window's right edge, level with its vertical centre.
+        System.Drawing.PointF anchor = AnchorRightOfWindow(canvas);
+
+        // Provisional drop, then nudge so the component's left edge sits at the anchor and its
+        // vertical centre lines up with it (Pivot is interior to the bounds, not a corner).
+        _component.Attributes.Pivot = anchor;
+        doc.AddObject(_component, false);
+
+        // Match the rest of the canvas: show full parameter names when "Draw Full Names" is on.
+        ComponentHelpers.ApplyNickNameDisplay(_component);
+
+        // Force a layout so Bounds is valid (GH lays attributes out lazily, so a just-added
+        // component's Bounds is otherwise stale), then shift Pivot by the gap between where the
+        // bounds landed and where we want them.
+        _component.Attributes.ExpireLayout();
+        _component.Attributes.PerformLayout();
+        System.Drawing.RectangleF bounds = _component.Attributes.Bounds;
+        float dx = anchor.X - bounds.Left;
+        float dy = anchor.Y - (bounds.Top + (bounds.Height / 2f));
+        _component.Attributes.Pivot = new System.Drawing.PointF(
+            _component.Attributes.Pivot.X + dx,
+            _component.Attributes.Pivot.Y + dy);
+        _component.Attributes.ExpireLayout();
+        _component.Attributes.PerformLayout();
+        canvas.Refresh();
+    }
+
+    // The canvas-world point a few pixels right of the window's right edge, level with its vertical
+    // centre. Uses the native window rect (device px) so it lines up with the floating window
+    // regardless of pan/zoom; falls back to the viewport centre off Windows or if the rect is
+    // unavailable.
+    private System.Drawing.PointF AnchorRightOfWindow(GH_Canvas canvas)
+    {
+        const int PaddingPx = 12;
+#if WINDOWS
+        if (NativeHandle != IntPtr.Zero && GetWindowRect(NativeHandle, out RECT r))
+        {
+            var screenPt = new System.Drawing.Point(r.Right + PaddingPx, (r.Top + r.Bottom) / 2);
+            System.Drawing.Point clientPt = canvas.PointToClient(screenPt);
+            return canvas.Viewport.UnprojectPoint(new System.Drawing.PointF(clientPt.X, clientPt.Y));
+        }
+#endif
+        return canvas.Viewport.MidPoint;
+    }
+
+#if WINDOWS
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+#endif
 
     // Path to API_KEY_CONFIG.YAML beside the plug-in (matches the ApiKeys component's resolution).
     private static string GetApiKeyConfigPath()

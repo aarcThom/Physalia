@@ -256,7 +256,14 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
                 AddRuntimeMessage(result.MessageLevel, result.Message);
             }
 
-            if (result.IsAux)
+            if (result.IsBroadcast)
+            {
+                // A terminal result routed identically down both outputs: latch the one
+                // pre-minted signal on Success and Fail so either downstream branch receives
+                // the same payload and content (e.g. a message plus a viewport snapshot).
+                LatchBroadcast(result.BroadcastSignal!);
+            }
+            else if (result.IsAux)
             {
                 // A third-route result: latch quietly (no Success/Fail signal) and stash the
                 // pre-minted aux signal; Emit re-emits it on AuxOutputIndex.
@@ -378,13 +385,14 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// </summary>
     protected readonly record struct RoutingResult
     {
-        private RoutingResult(bool success, string output, string? message, GH_RuntimeMessageLevel messageLevel, PhySignal? auxSignal)
+        private RoutingResult(bool success, string output, string? message, GH_RuntimeMessageLevel messageLevel, PhySignal? auxSignal, PhySignal? broadcastSignal)
         {
             Success = success;
             Output = output;
             Message = message;
             MessageLevel = messageLevel;
             AuxSignal = auxSignal;
+            BroadcastSignal = broadcastSignal;
         }
 
         /// <summary>Gets a value indicating whether the run succeeded.</summary>
@@ -408,12 +416,21 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         public bool IsAux => AuxSignal is not null;
 
         /// <summary>
+        /// Gets the pre-minted signal to latch identically on both the Success and Fail outputs,
+        /// or null for a normal Success/Fail/Aux result.
+        /// </summary>
+        public PhySignal? BroadcastSignal { get; }
+
+        /// <summary>Gets a value indicating whether this result broadcasts to both outputs.</summary>
+        public bool IsBroadcast => BroadcastSignal is not null;
+
+        /// <summary>
         /// Creates a success result carrying the forward-routed result string.
         /// </summary>
         /// <param name="data">The result string carried by the minted success signal.</param>
         /// <returns>A success <see cref="RoutingResult"/>.</returns>
         public static RoutingResult Ok(string data) =>
-            new(true, data, null, GH_RuntimeMessageLevel.Blank, null);
+            new(true, data, null, GH_RuntimeMessageLevel.Blank, null, null);
 
         /// <summary>
         /// Creates a failure result carrying the back-routed feedback string.
@@ -423,7 +440,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         /// <param name="level">The level for the runtime message.</param>
         /// <returns>A failure <see cref="RoutingResult"/>.</returns>
         public static RoutingResult Fail(string feedback, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Warning) =>
-            new(false, feedback, message, level, null);
+            new(false, feedback, message, level, null, null);
 
         /// <summary>
         /// Creates a result that emits a caller-minted signal on the subclass's aux output
@@ -436,6 +453,19 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         /// <param name="level">The level for the runtime message.</param>
         /// <returns>An aux <see cref="RoutingResult"/>.</returns>
         public static RoutingResult Aux(PhySignal signal, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Blank) =>
-            new(true, string.Empty, message, level, signal);
+            new(true, string.Empty, message, level, signal, null);
+
+        /// <summary>
+        /// Creates a result that latches the same caller-minted signal on <em>both</em> the
+        /// Success and Fail outputs, so a terminal component routes one result identically down
+        /// either branch. The caller mints the signal so it can carry structured content (e.g. a
+        /// message plus an image).
+        /// </summary>
+        /// <param name="signal">The pre-minted signal to latch on both outputs.</param>
+        /// <param name="message">An optional runtime message to surface.</param>
+        /// <param name="level">The level for the runtime message.</param>
+        /// <returns>A broadcast <see cref="RoutingResult"/>.</returns>
+        public static RoutingResult Broadcast(PhySignal signal, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Blank) =>
+            new(true, string.Empty, message, level, null, signal);
     }
 }

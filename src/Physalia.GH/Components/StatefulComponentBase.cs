@@ -347,6 +347,24 @@ public abstract class StatefulComponentBase : PhyBase
     }
 
     /// <summary>
+    /// Enters <see cref="SolveState.SolveSuccess"/> and latches the <em>same</em> pre-minted
+    /// signal on both the success and failure outputs, so a terminal component can broadcast a
+    /// single result down either route. Unlike <see cref="LatchSuccess"/> the caller mints the
+    /// signal (so it can carry content blocks such as an image), and unlike the Success/Fail
+    /// pair the two outputs are deliberately not mutually exclusive — both carry identical
+    /// content. The shared sequence number is harmless: each downstream consumer tracks
+    /// consume-once independently.
+    /// </summary>
+    /// <param name="signal">The pre-minted signal to latch on both outputs.</param>
+    protected void LatchBroadcast(PhySignal signal)
+    {
+        State = SolveState.SolveSuccess;
+        SuccessSignal = signal;
+        FailSignal = signal;
+        UpdateStateDisplay();
+    }
+
+    /// <summary>
     /// Returns to <see cref="SolveState.Empty"/> and drops both outgoing signals. Used by
     /// the menu Clear and by aborted runs. Does not call <see cref="ClearStateOutputs"/> —
     /// callers decide whether outputs need wiping (an aborted run already cleared them on

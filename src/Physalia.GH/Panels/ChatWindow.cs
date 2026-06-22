@@ -87,11 +87,12 @@ public class ChatWindow : Form
     private bool? _lastReady;
     private bool? _lastNeedsSetup;
     private string? _lastStatus;
+    private string? _lastConfigured;
 
     // Cached result of the async provider-availability probe: null until the first probe lands,
-    // then true when some provider is configured. Mutated only on the UI thread (Tick / the
-    // probe's AsyncInvoke continuation), so no locking is needed.
-    private bool? _providersConfigured;
+    // then the setup-ids of the configured providers (empty when none → first-run setup). Mutated
+    // only on the UI thread (Tick / the probe's AsyncInvoke continuation), so no locking is needed.
+    private IReadOnlyList<string>? _configuredProviders;
     private DateTime _lastProviderProbeUtc = DateTime.MinValue;
     private bool _providerProbeInFlight;
 
@@ -106,11 +107,13 @@ public class ChatWindow : Form
         Title = "Physalia Chat";
         ClientSize = new Eto.Drawing.Size(460, 620);
         Resizable = true;
-        Owner = Rhino.UI.RhinoEtoApp.MainWindow;
 
-        // Float above the Rhino/Grasshopper canvas at all times — the user can keep clicking
-        // and editing the canvas while the chat stays visible on top.
-        Topmost = true;
+        // Float above the Rhino/Grasshopper canvas so the user can keep editing the canvas with the
+        // chat visible — but NOT above every other application (that's what Topmost would do). On
+        // Windows the window is re-owned by the Grasshopper editor once shown (OwnToGrasshopperEditor),
+        // so it tracks GH's z-order and drops behind whatever app the user switches to. The Eto owner
+        // is the cross-platform fallback (e.g. macOS, or if the editor handle is unavailable).
+        Owner = Rhino.UI.RhinoEtoApp.MainWindow;
 
         _webView = new WebView();
         _webView.DocumentLoading += OnDocumentLoading;
@@ -135,6 +138,7 @@ public class ChatWindow : Form
             HookHostClose();
 #if WINDOWS
             HookWebMessage();
+            OwnToGrasshopperEditor();
 #endif
         };
 
@@ -248,6 +252,9 @@ public class ChatWindow : Form
             case "savekey":
                 HandleSaveKey(uri);
                 break;
+            case "connectrecorder":
+                HandleConnectRecorder();
+                break;
         }
     }
 
@@ -307,7 +314,7 @@ public class ChatWindow : Form
 
         // Drop the cached result so the next tick re-probes; the now-present key resolves on the
         // first (synchronous) check, clearing the setup state without waiting for the interval.
-        _providersConfigured = null;
+        _configuredProviders = null;
         _lastProviderProbeUtc = DateTime.MinValue;
 
         PushSetupResult(provider, true, "API key saved to API_KEY_CONFIG.YAML. You're all set.");
@@ -550,8 +557,11 @@ public class ChatWindow : Form
         // First-run setup state: no LLM provider is configured at all (no API key, no Claude Code
         // CLI, no local llama-server). It takes precedence over the wiring hints below — there is
         // nothing to chat with until a provider exists. Detection is async; see MaybeProbeProviders.
+        // The list of ready providers is surfaced on the setup screen ("already set up"); null means
+        // the first probe hasn't landed yet, so assume configured and don't flash setup.
         MaybeProbeProviders();
-        bool needsSetup = _providersConfigured == false;
+        IReadOnlyList<string> configuredProviders = _configuredProviders ?? Array.Empty<string>();
+        bool needsSetup = _configuredProviders is { Count: 0 };
 
         // Once a provider is known to exist (chat mode, not setup), drop this window's Chatbox
         // onto the canvas if it isn't there yet — so the window is backed by a real component
@@ -563,7 +573,7 @@ public class ChatWindow : Form
         bool ready = PromptPipelineView.IsPipelineReady(_component, 0);
         string status = needsSetup ? "Setup mode"
             : busy ? "Working…"
-            : recorder is null ? "Connect a Recorder to begin."
+            : recorder is null ? "Choose an option above, or connect a recorder to begin."
             : !ready ? "Add a Reasoner with a Model to begin."
             : string.Empty;
 
@@ -581,15 +591,20 @@ public class ChatWindow : Form
             Exec($"window.physalia&&window.physalia.setStream({JsonSerializer.Serialize(stream)});");
         }
 
+        // Serialised form of the id list, used both as the change signature and the wire payload.
+        string configuredJson = JsonSerializer.Serialize(configuredProviders, WriteOpts);
+
         if (connected != _lastConnected || busy != _lastBusy || ready != _lastReady
-            || needsSetup != _lastNeedsSetup || status != _lastStatus)
+            || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured)
         {
             _lastConnected = connected;
             _lastBusy = busy;
             _lastReady = ready;
             _lastNeedsSetup = needsSetup;
             _lastStatus = status;
-            string state = JsonSerializer.Serialize(new { connected, busy, ready, needsSetup, status }, WriteOpts);
+            _lastConfigured = configuredJson;
+            string state = JsonSerializer.Serialize(
+                new { connected, busy, ready, needsSetup, status, configuredProviders }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
     }
@@ -604,7 +619,7 @@ public class ChatWindow : Form
             return;
         }
 
-        if (_providersConfigured is not null && DateTime.UtcNow - _lastProviderProbeUtc < ProviderProbeInterval)
+        if (_configuredProviders is not null && DateTime.UtcNow - _lastProviderProbeUtc < ProviderProbeInterval)
         {
             return;
         }
@@ -614,23 +629,23 @@ public class ChatWindow : Form
 
         Task.Run(async () =>
         {
-            bool configured;
+            IReadOnlyList<string>? configured;
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                configured = await ProviderAvailability.AnyConfiguredAsync(configPath, ProbeClient, cts.Token)
+                configured = await ProviderAvailability.ConfiguredProviderIdsAsync(configPath, ProbeClient, cts.Token)
                     .ConfigureAwait(false);
             }
             catch
             {
-                // Keep the last known answer on failure; before any result, assume configured so the
-                // setup screen never flashes during the very first probe.
-                configured = _providersConfigured ?? true;
+                // Keep the last known answer on failure; leaving it null before the first result means
+                // setup never flashes during the very first probe (null is treated as "configured").
+                configured = _configuredProviders;
             }
 
             Application.Instance.AsyncInvoke(() =>
             {
-                _providersConfigured = configured;
+                _configuredProviders = configured;
                 _lastProviderProbeUtc = DateTime.UtcNow;
                 _providerProbeInFlight = false;
             });
@@ -652,7 +667,7 @@ public class ChatWindow : Form
             return; // already bound to a canvas component — leave it where the user/file put it
         }
 
-        if (_providersConfigured != true)
+        if (_configuredProviders is not { Count: > 0 })
         {
             return; // still probing, or first-run setup: nothing to chat with yet, so don't place
         }
@@ -718,6 +733,56 @@ public class ChatWindow : Form
         return doc;
     }
 
+    // Places a Recorder on the canvas and wires this Chatbox's Prompt Signal output into it, so a
+    // freshly opened chat gets the start of a pipeline without hand-wiring (the connect screen's
+    // top option). Idempotent: does nothing if a Recorder is already wired. Runs on the UI thread
+    // (bridge dispatch), so editing the document and forcing a solve is safe. A reported "connected"
+    // on the next state tick dismisses the connect screen on its own.
+    private void HandleConnectRecorder()
+    {
+        if (PromptPipelineView.FindRecorder(_component, 0) is not null)
+        {
+            return; // already wired — nothing to do
+        }
+
+        GH_Document? doc = _component.OnPingDocument();
+        if (doc is null)
+        {
+            return; // Chatbox isn't on a canvas yet (shouldn't happen past the provider-setup gate)
+        }
+
+        var recorder = new Recorder();
+        recorder.CreateAttributes();
+
+        // Drop it to the right of the Chatbox, level with its top, so the wire runs left-to-right.
+        System.Drawing.RectangleF cb = _component.Attributes.Bounds;
+        recorder.Attributes.Pivot = new System.Drawing.PointF(cb.Right + 120f, cb.Top);
+
+        doc.AddObject(recorder, false);
+        ComponentHelpers.ApplyNickNameDisplay(recorder);
+
+        // Wire Chatbox Prompt Signal (its sole output) into the Recorder's Prompt Signal input,
+        // matched by name so it survives any future parameter reordering.
+        IGH_Param? promptInput = FindInputByName(recorder, "Prompt Signal");
+        promptInput?.AddSource(_component.Params.Output[0]);
+
+        doc.NewSolution(false);
+        Instances.ActiveCanvas?.Refresh();
+    }
+
+    private static IGH_Param? FindInputByName(IGH_Component component, string name)
+    {
+        foreach (IGH_Param param in component.Params.Input)
+        {
+            if (param.Name == name)
+            {
+                return param;
+            }
+        }
+
+        return null;
+    }
+
     // The canvas-world point a few pixels right of the window's right edge, level with its vertical
     // centre. Uses the native window rect (device px) so it lines up with the floating window
     // regardless of pan/zoom; falls back to the viewport centre off Windows or if the rect is
@@ -737,9 +802,32 @@ public class ChatWindow : Form
     }
 
 #if WINDOWS
+    // GetWindowLongPtr index for a window's owner handle.
+    private const int GWLP_HWNDPARENT = -8;
+
+    // Re-parents this window onto the Grasshopper editor as an owned (non-topmost) window: it stays
+    // above the GH/Rhino canvas, minimises and restores with it, and slips behind any other app the
+    // user switches to — instead of pinning above everything as Topmost did. No-op if either handle
+    // isn't available yet, in which case the Eto Owner (Rhino main window) remains the fallback.
+    private void OwnToGrasshopperEditor()
+    {
+        IntPtr child = NativeHandle;
+        IntPtr owner = _ghEditor?.Handle ?? IntPtr.Zero;
+        if (child == IntPtr.Zero || owner == IntPtr.Zero)
+        {
+            return;
+        }
+
+        SetWindowLongPtr(child, GWLP_HWNDPARENT, owner);
+    }
+
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    // x64 only (Rhino 8 is 64-bit); the SetWindowLongPtr export exists on 64-bit Windows.
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct RECT

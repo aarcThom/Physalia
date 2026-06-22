@@ -8,6 +8,8 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
 	import { PROVIDERS, getProvider } from '$lib/chat/providers';
+	import HappyFace from '$lib/chat/HappyFace.svelte';
+	import Pill from '$lib/chat/Pill.svelte';
 	import type { SetupResult } from '$lib/bridge';
 
 	interface Props {
@@ -17,18 +19,26 @@
 		setupResult: SetupResult | null;
 		/** True when setup was opened manually and a configured pipeline exists to return to. */
 		canClose: boolean;
+		/** Setup ids of providers already configured; shown as ready-state pills. */
+		configuredProviders: string[];
 		onselect: (id: string | null) => void;
 		onopenlink: (url: string) => void;
 		onclose: () => void;
 	}
 
-	let { selectedId, setupResult, canClose, onselect, onopenlink, onclose }: Props = $props();
+	let { selectedId, setupResult, canClose, configuredProviders, onselect, onopenlink, onclose }: Props =
+		$props();
 
 	let selected = $derived(getProvider(selectedId) ?? null);
 	// Only show a result that belongs to the provider currently on screen.
 	let result = $derived(
 		selected && setupResult && setupResult.provider === selected.id ? setupResult : null
 	);
+
+	// Split the known providers into the already-configured (shown as ready pills) and the rest
+	// (still clickable for their setup guide), keeping providers.ts order for a stable display.
+	let configured = $derived(PROVIDERS.filter((p) => configuredProviders.includes(p.id)));
+	let available = $derived(PROVIDERS.filter((p) => !configuredProviders.includes(p.id)));
 </script>
 
 <div class="mx-auto flex w-full max-w-xl flex-col px-4 py-6">
@@ -110,39 +120,39 @@
 		{/if}
 
 		<div class="flex flex-col items-center gap-6">
-			<!-- Placeholder face — swapped for real artwork later. -->
-			<svg
-				width="120"
-				height="120"
-				viewBox="0 0 120 120"
-				fill="none"
-				xmlns="http://www.w3.org/2000/svg"
-				aria-hidden="true"
-			>
-				<circle cx="60" cy="60" r="50" stroke="#dc2626" stroke-width="3" />
-				<circle cx="42" cy="48" r="6" stroke="#dc2626" stroke-width="3" />
-				<circle cx="78" cy="48" r="6" stroke="#dc2626" stroke-width="3" />
-				<path
-					d="M40 74 Q60 92 80 74"
-					stroke="#dc2626"
-					stroke-width="3"
-					stroke-linecap="round"
-					fill="none"
-				/>
-			</svg>
+			<HappyFace />
 
-			<div class="w-full rounded-md border p-4 text-sm leading-relaxed">
-				Welcome to Physalia. Let's get you set up. You haven't set up any LLM providers yet, so
-				let's do that first. Choose what provider you want to use:
-			</div>
+			{#if configured.length > 0}
+				<div class="w-full rounded-md border p-4 text-sm leading-relaxed">
+					You have already set up the following providers. You're good to go!
+				</div>
 
-			<div class="flex w-full flex-wrap gap-3">
-				{#each PROVIDERS as provider (provider.id)}
-					<Button variant="outline" class="h-auto py-2" onclick={() => onselect(provider.id)}>
-						{provider.label}
-					</Button>
-				{/each}
-			</div>
+				<!-- Ready providers: non-clickable Physalia pills (see Pill.svelte for the style). -->
+				<div class="flex w-full flex-wrap gap-3">
+					{#each configured as provider (provider.id)}
+						<Pill>{provider.label}</Pill>
+					{/each}
+				</div>
+
+				<div class="w-full rounded-md border p-4 text-sm leading-relaxed">
+					In addition, you can set up these providers. Click on the button for instructions.
+				</div>
+			{:else}
+				<div class="w-full rounded-md border p-4 text-sm leading-relaxed">
+					Welcome to Physalia. Let's get you set up. You haven't set up any LLM providers yet, so
+					let's do that first. Choose what provider you want to use:
+				</div>
+			{/if}
+
+			{#if available.length > 0}
+				<div class="flex w-full flex-wrap gap-3">
+					{#each available as provider (provider.id)}
+						<Button variant="outline" class="h-auto py-2" onclick={() => onselect(provider.id)}>
+							{provider.label}
+						</Button>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>

@@ -38,10 +38,10 @@
 		filename: string;
 	}
 
-	// Block while the pipeline is busy, or during setup (no provider yet) — EXCEPT in API-key
-	// mode, where the box stays live so the user can paste their key. Do NOT block on mere
-	// disconnection — the user can compose and send before/while wiring a Recorder.
-	let inert = $derived(busy || (disabled && !apiKeyProvider));
+	// Block while the pipeline is busy, during setup (no provider yet), or while no Recorder is
+	// wired (nothing to send to) — EXCEPT in API-key mode, where the box stays live so the user
+	// can paste their key. The connect screen offers the buttons to wire a Recorder instead.
+	let inert = $derived(busy || ((disabled || disconnected) && !apiKeyProvider));
 
 	let text = $state('');
 	let pending = $state<PendingImage[]>([]);
@@ -55,7 +55,7 @@
 			: disabled
 				? 'Finish setup to start chatting…'
 				: disconnected
-					? 'Send a message…  (connect a Recorder to see replies)'
+					? '' // no Recorder wired: the box is greyed out with no prompt text
 					: 'Send a message…  (Enter to send, Shift+Enter for a new line)'
 	);
 

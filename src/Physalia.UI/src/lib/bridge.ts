@@ -49,6 +49,8 @@ export interface UiState {
 	/** No LLM provider is configured yet — show the first-run setup screen. */
 	needsSetup: boolean;
 	status: string;
+	/** Setup-screen ids of every provider already configured (matches providers.ts ids). */
+	configuredProviders: string[];
 }
 
 /** Outcome of a save-API-key request, pushed back by the host after it writes the config. */

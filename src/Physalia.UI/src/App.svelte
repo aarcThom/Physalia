@@ -10,6 +10,7 @@
 	import AssistantTurnGroup from '$lib/chat/AssistantTurnGroup.svelte';
 	import Composer from '$lib/chat/Composer.svelte';
 	import Setup from '$lib/chat/Setup.svelte';
+	import ConnectOptions from '$lib/chat/ConnectOptions.svelte';
 	import {
 		DropdownMenu,
 		DropdownMenuTrigger,
@@ -30,6 +31,7 @@
 	let busy = $state(false);
 	let needsSetup = $state(false);
 	let status = $state('');
+	let configuredProviders = $state<string[]>([]);
 
 	// Setup screen state. `needsSetup` (from the host) forces it when no provider is configured;
 	// `manualSetup` lets the user open it from the header dropdown to add another provider later.
@@ -64,6 +66,7 @@
 				busy = next.busy;
 				needsSetup = next.needsSetup ?? false;
 				status = next.status ?? '';
+				configuredProviders = next.configuredProviders ?? [];
 			},
 			setSetupResult: (result) => {
 				setupResult = result;
@@ -116,6 +119,12 @@
 		window.location.href = `${BRIDGE_SCHEME}://open?url=${encodeURIComponent(url)}`;
 	}
 
+	// Ask the host to place a Recorder on the canvas and wire it to this Chatbox. The next state
+	// tick reports `connected`, which dismisses the connect screen on its own.
+	function connectRecorder() {
+		window.location.href = `${BRIDGE_SCHEME}://connectrecorder`;
+	}
+
 	// Hand a pasted API key to the host, which writes it to API_KEY_CONFIG.YAML and reports back
 	// via setSetupResult. encodeURIComponent keeps the key intact in the URL (no literal '+').
 	function saveKey(providerId: string, key: string) {
@@ -141,6 +150,9 @@
 	}
 
 	let isEmpty = $derived(messages.length === 0 && !stream);
+	// Provider configured (not setup) but no Recorder wired and nothing said yet: offer the
+	// connect-a-recorder / workflow / configure options instead of a bare empty conversation.
+	let showConnect = $derived(!showSetup && !connected && isEmpty);
 
 	// Group the flat message list into render units: each user message stands alone, while
 	// a run of consecutive assistant messages (the agentic rounds for one prompt) collapses
@@ -210,17 +222,18 @@
 					selectedId={selectedProviderId}
 					{setupResult}
 					{canClose}
+					{configuredProviders}
 					onselect={selectProvider}
 					onopenlink={openLink}
 					onclose={closeSetup}
 				/>
+			{:else if showConnect}
+				<ConnectOptions onconnectrecorder={connectRecorder} onconfigure={openSetup} />
 			{:else}
 			{#if isEmpty}
 				<div class="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 text-center">
 					<p class="text-sm font-medium">Physalia chat</p>
-					<p class="text-xs">
-						{connected ? 'Send a message to start the conversation.' : 'Connect this Chatbox to a Recorder to begin.'}
-					</p>
+					<p class="text-xs">Send a message to start the conversation.</p>
 				</div>
 			{/if}
 

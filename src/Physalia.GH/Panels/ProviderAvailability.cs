@@ -3,6 +3,8 @@
 
 #nullable enable
 
+using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,53 +17,90 @@ using Physalia.Core.Tokens;
 namespace Physalia.GH.Panels;
 
 /// <summary>
-/// Detects whether the user has any usable LLM provider configured, so the chat window can
-/// show its first-run setup state when none is. A provider counts as available when any of the
-/// following holds: an API key is resolvable from <c>API_KEY_CONFIG.YAML</c> (or its env vars),
-/// the Claude Code CLI is installed on PATH, or a local llama-server answers at its default
-/// endpoint. The llama-server probe is a network call, so the whole check is async and runs off
-/// the UI thread.
+/// Detects which usable LLM providers the user has configured, so the chat window can show its
+/// first-run setup state when none is and list the ready ones otherwise. A provider counts as
+/// available when an API key is resolvable from <c>API_KEY_CONFIG.YAML</c> (or its env vars), the
+/// Claude Code CLI is installed on PATH, or a local llama-server answers at its default endpoint.
+/// The llama-server probe is a network call, so the whole check is async and runs off the UI thread.
 /// </summary>
 internal static class ProviderAvailability
 {
+    // Maps an API-key provider name (as reported by Api.GetKeys) to the setup-screen provider id the
+    // chat UI knows (providers.ts). openai_compatible keys report their leaf name (openai/deepseek/
+    // openrouter); anthropic and gemini report their section name. Keeps the OpenAI-compatible
+    // providers identifiable by brand rather than collapsing them into one "OpenAI compatible" entry.
+    private static readonly Dictionary<string, string> KeyProviderToSetupId =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["anthropic"] = "anthropic",
+            ["gemini"] = "google",
+            ["openai"] = "openai",
+            ["deepseek"] = "deepseek",
+            ["openrouter"] = "openrouter",
+        };
+
     /// <summary>
-    /// Determines whether at least one LLM provider is configured. Cheap checks (API keys, then
-    /// the Claude CLI) are evaluated first and short-circuit before the network probe, so the
-    /// llama-server endpoint is only contacted when nothing else is set up.
+    /// Returns the setup-screen ids of every configured provider — empty when none is, which is
+    /// the signal for the window to show first-run setup. Key providers are read from the config
+    /// first (cheap), then the Claude CLI, then the llama-server network probe last. Order follows
+    /// that discovery order; the UI re-sorts into its own canonical order for display.
     /// </summary>
     /// <param name="apiKeyConfigPath">Absolute path to <c>API_KEY_CONFIG.YAML</c>.</param>
     /// <param name="client">Shared HTTP client for the llama-server probe.</param>
     /// <param name="ct">Cancellation token bounding the network probe.</param>
-    /// <returns>True when any provider is available; false when the window should show setup.</returns>
-    public static async Task<bool> AnyConfiguredAsync(
+    /// <returns>The configured providers' setup ids; empty when the window should show setup.</returns>
+    public static async Task<IReadOnlyList<string>> ConfiguredProviderIdsAsync(
         string apiKeyConfigPath,
         HttpClient client,
         CancellationToken ct)
     {
-        if (HasAnyApiKey(apiKeyConfigPath))
+        var ids = new List<string>();
+
+        foreach (string id in ConfiguredKeyProviderIds(apiKeyConfigPath))
         {
-            return true;
+            if (!ids.Contains(id))
+            {
+                ids.Add(id);
+            }
         }
 
         if (ClaudeCodeProvider.IsCliAvailable())
         {
-            return true;
+            ids.Add("claude-code");
         }
 
-        return await HasLlamaServerAsync(client, ct).ConfigureAwait(false);
+        if (await HasLlamaServerAsync(client, ct).ConfigureAwait(false))
+        {
+            ids.Add("local-llm");
+        }
+
+        return ids;
     }
 
-    // True when at least one provider key resolves from the config file or its env vars.
-    private static bool HasAnyApiKey(string apiKeyConfigPath)
+    // The setup ids of every provider whose key resolves from the config file or its env vars.
+    private static IReadOnlyList<string> ConfiguredKeyProviderIds(string apiKeyConfigPath)
     {
+        var ids = new List<string>();
+
+        IReadOnlyList<ApiKey> keys;
         try
         {
-            return Api.GetKeys(apiKeyConfigPath).Count > 0;
+            keys = Api.GetKeys(apiKeyConfigPath);
         }
         catch
         {
-            return false;
+            return ids;
         }
+
+        foreach (ApiKey key in keys)
+        {
+            if (KeyProviderToSetupId.TryGetValue(key.Provider, out string? id) && !ids.Contains(id))
+            {
+                ids.Add(id);
+            }
+        }
+
+        return ids;
     }
 
     // True when a llama-server answers a props query at the default local endpoint.

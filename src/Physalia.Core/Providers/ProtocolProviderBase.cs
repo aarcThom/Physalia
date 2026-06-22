@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -16,50 +17,129 @@ using Physalia.Core.Models;
 namespace Physalia.Core.Providers;
 
 /// <summary>
-/// Shared plumbing for all protocol providers: HTTP client ownership, config type
-/// guarding, request sending with error translation, and resilient stream-line reading.
-/// Wire-format concerns (request bodies, SSE event parsing, message serialisation)
-/// remain in each protocol subclass.
+/// Shared plumbing for all HTTP protocol providers: HTTP client ownership, the once-only
+/// config downcast, the identical streaming/model-list call skeletons, request sending with
+/// error translation, and resilient stream-line reading. Wire-format concerns — building the
+/// request body, parsing the SSE stream, serialising messages — live in each protocol subclass,
+/// which receives the already-downcast <typeparamref name="TConfig"/> and never repeats the cast.
 /// </summary>
-public abstract class ProtocolProviderBase : ILlmProvider
+/// <typeparam name="TConfig">The concrete config type this provider's wire format expects.</typeparam>
+public abstract class ProtocolProviderBase<TConfig> : ILlmProvider
+    where TConfig : ModelConfig
 {
-    /// <summary>
-    /// Shared HTTP client. Instantiated once per provider instance and never per-request.
-    /// </summary>
-    protected readonly HttpClient _httpClient;
+    // One HttpClient shared by every provider instance. HttpClient is thread-safe and designed
+    // for reuse; a fresh one per provider (or per request) leaks sockets. No per-request state is
+    // set on it — auth headers live on each HttpRequestMessage — so a single instance is safe.
+    private static readonly HttpClient _httpClient = new();
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="ProtocolProviderBase"/> class.
+    /// Streams an inference call: downcasts the config, sends the request, and yields the parsed
+    /// SSE chunks. The shape is identical for every protocol; subclasses supply only the
+    /// provider-specific <see cref="SendHttpRequestAsync"/> and <see cref="ParseSseStreamAsync"/>.
     /// </summary>
-    protected ProtocolProviderBase()
-    {
-        _httpClient = new HttpClient();
-    }
-
-    /// <inheritdoc/>
-    public abstract IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
+    /// <param name="conversation">The conversation history to send.</param>
+    /// <param name="systemPrompt">The system prompt, passed at call time and not stored in the conversation.</param>
+    /// <param name="config">Provider configuration. Must be a <typeparamref name="TConfig"/> instance.</param>
+    /// <param name="tools">Tool definitions to advertise to the model, or null/empty to send none.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>An async sequence of result chunks.</returns>
+    public async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
         Conversation conversation,
         string systemPrompt,
         ModelConfig config,
         IReadOnlyList<ToolDefinition>? tools,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(conversation);
+        ArgumentNullException.ThrowIfNull(config);
+
+        if (!TryGetConfig(config, out TConfig typed, out LlmError configError))
+        {
+            yield return new Result<LlmResponseChunk, LlmError>.Err(configError);
+            yield break;
+        }
+
+        var httpResult = await SendHttpRequestAsync(conversation, systemPrompt, typed, tools, ct);
+        if (httpResult.IsErr(out var httpErr, out var response))
+        {
+            yield return new Result<LlmResponseChunk, LlmError>.Err(httpErr);
+            yield break;
+        }
+
+        using HttpResponseMessage owned = response;
+        using var stream = await owned.Content.ReadAsStreamAsync(ct);
+
+        await foreach (var chunk in ParseSseStreamAsync(stream, ct))
+        {
+            yield return chunk;
+        }
+    }
+
+    /// <summary>
+    /// Returns the model IDs available for the given configuration. Downcasts the config, then
+    /// defers to the provider-specific <see cref="FetchAvailableModelsAsync"/>.
+    /// </summary>
+    /// <param name="config">Provider configuration. Must be a <typeparamref name="TConfig"/> instance.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>A list of model ID strings, or an error.</returns>
+    public async Task<Result<IReadOnlyList<string>, LlmError>> GetAvailableModelsAsync(
+        ModelConfig config,
+        CancellationToken ct)
+    {
+        if (!TryGetConfig(config, out TConfig typed, out LlmError configError))
+        {
+            return new Result<IReadOnlyList<string>, LlmError>.Err(configError);
+        }
+
+        return await FetchAvailableModelsAsync(typed, ct);
+    }
+
+    /// <summary>
+    /// Builds and sends the streaming inference request for this protocol. The caller owns and
+    /// disposes the returned response.
+    /// </summary>
+    /// <param name="conversation">The conversation history.</param>
+    /// <param name="systemPrompt">The system prompt.</param>
+    /// <param name="config">The already-downcast provider configuration.</param>
+    /// <param name="tools">Tool definitions to advertise, or null/empty.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The open response on success, or an error.</returns>
+    protected abstract Task<Result<HttpResponseMessage, LlmError>> SendHttpRequestAsync(
+        Conversation conversation,
+        string systemPrompt,
+        TConfig config,
+        IReadOnlyList<ToolDefinition>? tools,
         CancellationToken ct);
 
-    /// <inheritdoc/>
-    public abstract Task<Result<IReadOnlyList<string>, LlmError>> GetAvailableModelsAsync(
-        ModelConfig config,
+    /// <summary>
+    /// Parses the protocol's streaming response body into response chunks.
+    /// </summary>
+    /// <param name="stream">The open response body stream.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>An async sequence of result chunks.</returns>
+    protected abstract IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> ParseSseStreamAsync(
+        Stream stream,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Fetches the available model IDs for this protocol from the already-downcast config.
+    /// </summary>
+    /// <param name="config">The already-downcast provider configuration.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>A list of model ID strings, or an error.</returns>
+    protected abstract Task<Result<IReadOnlyList<string>, LlmError>> FetchAvailableModelsAsync(
+        TConfig config,
         CancellationToken ct);
 
     /// <summary>
     /// Checks that <paramref name="config"/> is the concrete config type this provider
     /// expects, producing a standard InvalidRequest error when it is not.
     /// </summary>
-    /// <typeparam name="TConfig">The expected concrete config type.</typeparam>
     /// <param name="config">The configuration passed by the caller.</param>
     /// <param name="typed">The downcast configuration when the check succeeds.</param>
     /// <param name="error">The error to return when the check fails; otherwise default.</param>
     /// <returns>true if the config is of the expected type; otherwise false.</returns>
-    protected static bool TryGetConfig<TConfig>(ModelConfig config, out TConfig typed, out LlmError error)
-        where TConfig : ModelConfig
+    private static bool TryGetConfig(ModelConfig config, out TConfig typed, out LlmError error)
     {
         if (config is TConfig match)
         {

@@ -28,7 +28,7 @@ public class LlamaCppModelInfo : PhyBase
     private static IReadOnlyDictionary<string, ModelEntry>? _models;
     private static bool _isFetching;
 
-    private readonly HttpClient _httpClient = new HttpClient();
+    private static readonly HttpClient _httpClient = new();
 
     private string _lastKey = string.Empty;
     private LlamaCppServerProps? _lastResult;
@@ -144,13 +144,13 @@ public class LlamaCppModelInfo : PhyBase
 
             if (ct.IsCancellationRequested) return;
 
-            if (result is Result<LlamaCppServerProps, LlmError>.Ok ok)
+            if (result.IsOk(out var props, out var err))
             {
-                _lastResult = ok.Value;
+                _lastResult = props;
             }
-            else if (result is Result<LlamaCppServerProps, LlmError>.Err err)
+            else
             {
-                _warning = $"Could not retrieve server props: {err.Error.Message}";
+                _warning = $"Could not retrieve server props: {err.Message}";
             }
 
             OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(true));
@@ -163,9 +163,9 @@ public class LlamaCppModelInfo : PhyBase
         {
             var result = await ModelList.FetchAsync(_modelsHttpClient);
 
-            if (result is Result<IReadOnlyDictionary<string, ModelEntry>, LlmError>.Ok ok)
+            if (result.IsOk(out var models, out _))
             {
-                _models = ok.Value;
+                _models = models;
             }
             else
             {

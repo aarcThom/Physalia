@@ -98,7 +98,7 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
         string model = string.Empty;
         int maxTokens = 4096;
 
-        GH_ApiKey keyGoo = null;
+        GH_ApiKey? keyGoo = null;
         DA.GetData(0, ref baseUrl);
         DA.GetData(1, ref keyGoo);
         DA.GetData(2, ref model);
@@ -145,13 +145,13 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
 
             if (ct.IsCancellationRequested) return;
 
-            if (result is Result<IReadOnlyList<string>, LlmError>.Ok ok)
+            if (result.IsOk(out var models, out var err))
             {
-                SetValues("Model", ok.Value);
+                SetValues("Model", models);
             }
-            else if (result is Result<IReadOnlyList<string>, LlmError>.Err err)
+            else
             {
-                _fetchWarning = $"Could not reach endpoint: {err.Error.Message}";
+                _fetchWarning = $"Could not reach endpoint: {err.Message}";
             }
 
             OnPingDocument()?.ScheduleSolution(1, _ =>

@@ -20,7 +20,7 @@ public class Physalia_GHInfo : GH_AssemblyInfo
     /// <summary>
     /// Gets a 24x24 pixel bitmap icon representing this plugin assembly.
     /// </summary>
-    public override Bitmap Icon => null;
+    public override Bitmap? Icon => null;
 
     /// <summary>
     /// Gets a short description of the purpose of this plugin assembly.
@@ -45,5 +45,5 @@ public class Physalia_GHInfo : GH_AssemblyInfo
     /// <summary>
     /// Gets the version string of the plugin, derived from the assembly version.
     /// </summary>
-    public override string AssemblyVersion => GetType().Assembly.GetName().Version.ToString();
+    public override string AssemblyVersion => GetType().Assembly.GetName().Version?.ToString() ?? string.Empty;
 }

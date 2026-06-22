@@ -109,14 +109,14 @@ public class ModelInformation : PhyBase
         {
             var result = await ModelList.FetchAsync(_httpClient);
 
-            if (result is Result<IReadOnlyDictionary<string, ModelEntry>, LlmError>.Ok ok)
+            if (result.IsOk(out var models, out var err))
             {
-                _models = ok.Value;
+                _models = models;
             }
-            else if (result is Result<IReadOnlyDictionary<string, ModelEntry>, LlmError>.Err err)
+            else
             {
                 _isFetching = false;
-                _warning = $"Failed to load model database: {err.Error.Message}";
+                _warning = $"Failed to load model database: {err.Message}";
             }
 
             OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(true));

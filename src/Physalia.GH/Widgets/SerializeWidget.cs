@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #if WINDOWS
-#nullable enable
-
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using Grasshopper.GUI.Canvas;

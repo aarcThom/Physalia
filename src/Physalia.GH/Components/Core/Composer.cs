@@ -261,13 +261,13 @@ public class Composer : PhyBase, IPickableValuesSource
             || string.Equals(ext, ".yml", StringComparison.OrdinalIgnoreCase);
     }
 
-    private void OnSaveComposer(object sender, EventArgs e)
+    private void OnSaveComposer(object? sender, EventArgs e)
     {
         AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Save new .composer is not yet implemented.");
         ExpireSolution(true);
     }
 
-    private void OnAppendComposer(object sender, EventArgs e)
+    private void OnAppendComposer(object? sender, EventArgs e)
     {
         AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Append to .composer is not yet implemented.");
         ExpireSolution(true);

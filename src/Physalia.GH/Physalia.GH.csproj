@@ -12,6 +12,9 @@
     <TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('Windows'))">net7.0</TargetFrameworks>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <TargetExt>.gha</TargetExt>
+    <!-- Nullable reference types on, matching Physalia.Core. Per-file '#nullable enable'
+         directives were removed once this became project-wide. -->
+    <Nullable>enable</Nullable>
     <NoWarn>NU1701</NoWarn>
 	<!-- Suppress System.Drawing platform warnings — Rhino ships its own compatibility layer on Mac.
 	https://discourse.mcneel.com/t/system-drawing-common-not-compatible-with-macos-anymore/166565

@@ -23,77 +23,28 @@ namespace Physalia.Core.Providers.Gemini;
 /// Handles HTTP transport, SSE parsing, and message serialisation.
 /// Subclasses override <see cref="BuildGenerationConfig"/> to inject provider-specific parameters.
 /// </summary>
-public abstract class GeminiProtocolProvider : ProtocolProviderBase
+public abstract class GeminiProtocolProvider : ProtocolProviderBase<GeminiProtocolConfig>
 {
-    /// <summary>
-    /// Streams an inference call to the Gemini <c>streamGenerateContent</c> endpoint and yields
-    /// response chunks as they arrive.
-    /// </summary>
-    /// <param name="conversation">The conversation history to send.</param>
-    /// <param name="systemPrompt">The system prompt, passed at call time and not stored in the conversation.</param>
-    /// <param name="config">Provider configuration. Must be a <see cref="GeminiProtocolConfig"/> instance.</param>
-    /// <param name="tools">Tool definitions to advertise to the model, or null/empty to send none.</param>
-    /// <param name="ct">Cancellation token.</param>
-    /// <returns>An async sequence of result chunks.</returns>
-    public override async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
-        Conversation conversation,
-        string systemPrompt,
-        ModelConfig config,
-        IReadOnlyList<ToolDefinition>? tools,
-        [EnumeratorCancellation] CancellationToken ct)
-    {
-        ArgumentNullException.ThrowIfNull(conversation);
-        ArgumentNullException.ThrowIfNull(config);
-
-        if (!TryGetConfig(config, out GeminiProtocolConfig geminiConfig, out LlmError configError))
-        {
-            yield return new Result<LlmResponseChunk, LlmError>.Err(configError);
-            yield break;
-        }
-
-        var httpResult = await SendHttpRequestAsync(conversation, systemPrompt, geminiConfig, tools, ct);
-
-        if (httpResult is Result<HttpResponseMessage, LlmError>.Err httpErr)
-        {
-            yield return new Result<LlmResponseChunk, LlmError>.Err(httpErr.Error);
-            yield break;
-        }
-
-        using var response = ((Result<HttpResponseMessage, LlmError>.Ok)httpResult).Value;
-        using var stream = await response.Content.ReadAsStreamAsync(ct);
-
-        await foreach (var chunk in ParseSseStreamAsync(stream, ct))
-        {
-            yield return chunk;
-        }
-    }
-
     /// <summary>
     /// Returns the list of chat-capable model IDs available on the Gemini API.
     /// Only models that support <c>generateContent</c> are included.
     /// </summary>
-    /// <param name="config">Provider configuration. Must be a <see cref="GeminiProtocolConfig"/> instance.</param>
+    /// <param name="config">The already-downcast provider configuration.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A list of model ID strings, or an error.</returns>
-    public override async Task<Result<IReadOnlyList<string>, LlmError>> GetAvailableModelsAsync(
-        ModelConfig config,
+    protected override async Task<Result<IReadOnlyList<string>, LlmError>> FetchAvailableModelsAsync(
+        GeminiProtocolConfig config,
         CancellationToken ct)
     {
-        if (!TryGetConfig(config, out GeminiProtocolConfig geminiConfig, out LlmError configError))
-        {
-            return new Result<IReadOnlyList<string>, LlmError>.Err(configError);
-        }
-
-        string url = $"{geminiConfig.BaseUrl}/models?key={geminiConfig.ApiKey}";
+        string url = $"{config.BaseUrl}/models?key={config.ApiKey}";
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
         var bodyResult = await SendForStringAsync(request, ct);
-        if (bodyResult is Result<string, LlmError>.Err bodyErr)
+        if (bodyResult.IsErr(out var bodyErr, out var json))
         {
-            return new Result<IReadOnlyList<string>, LlmError>.Err(bodyErr.Error);
+            return new Result<IReadOnlyList<string>, LlmError>.Err(bodyErr);
         }
 
-        var json = ((Result<string, LlmError>.Ok)bodyResult).Value;
         using var doc = JsonDocument.Parse(json);
 
         var ids = new List<string>();
@@ -147,7 +98,8 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase
 
     // HELPERS =====================================================================================
 
-    private async Task<Result<HttpResponseMessage, LlmError>> SendHttpRequestAsync(
+    /// <inheritdoc/>
+    protected override async Task<Result<HttpResponseMessage, LlmError>> SendHttpRequestAsync(
         Conversation conversation,
         string systemPrompt,
         GeminiProtocolConfig config,
@@ -222,7 +174,8 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase
         };
     }
 
-    private static async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> ParseSseStreamAsync(
+    /// <inheritdoc/>
+    protected override async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> ParseSseStreamAsync(
         Stream stream,
         [EnumeratorCancellation] CancellationToken ct)
     {

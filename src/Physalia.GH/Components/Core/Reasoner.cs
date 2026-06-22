@@ -1,8 +1,6 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-#nullable enable
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -245,28 +243,28 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
                     tools.Count > 0 ? tools : null,
                     ct))
                 {
-                    if (chunk is Result<LlmResponseChunk, LlmError>.Ok ok)
+                    if (chunk.IsOk(out var value, out var chunkError))
                     {
-                        if (ok.Value.ContentDelta != null)
+                        if (value.ContentDelta != null)
                         {
                             // Guarded: the Prompter reads this buffer from the UI thread mid-stream.
                             lock (_streamLock)
                             {
-                                sb.Append(ok.Value.ContentDelta);
+                                sb.Append(value.ContentDelta);
                             }
                         }
 
                         // Tool calls arrive on the final chunk; keep the last non-empty set.
-                        if (ok.Value.ToolCalls is { Count: > 0 } chunkCalls)
+                        if (value.ToolCalls is { Count: > 0 } chunkCalls)
                         {
                             toolCalls = chunkCalls;
                         }
                     }
-                    else if (chunk is Result<LlmResponseChunk, LlmError>.Err err)
+                    else
                     {
-                        if (err.Error.Kind != LlmErrorKind.Cancelled)
+                        if (chunkError.Kind != LlmErrorKind.Cancelled)
                         {
-                            error = err.Error.Message;
+                            error = chunkError.Message;
                         }
 
                         success = false;

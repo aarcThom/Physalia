@@ -23,52 +23,10 @@ namespace Physalia.Core.Providers.Anthropic;
 /// Handles HTTP transport, SSE parsing, and message serialisation.
 /// Subclasses override <see cref="BuildRequestBody"/> to inject provider-specific parameters.
 /// </summary>
-public abstract class AnthropicProtocolProvider : ProtocolProviderBase
+public abstract class AnthropicProtocolProvider : ProtocolProviderBase<AnthropicProtocolConfig>
 {
     private const string AnthropicVersion = "2023-06-01";
     private const int FallbackMaxTokens = 4096;
-
-    /// <summary>
-    /// Streams an inference call to the Anthropic Messages API and yields response chunks as they arrive.
-    /// </summary>
-    /// <param name="conversation">The conversation history to send.</param>
-    /// <param name="systemPrompt">The system prompt, passed at call time and not stored in the conversation.</param>
-    /// <param name="config">Provider configuration. Must be an <see cref="AnthropicProtocolConfig"/> instance.</param>
-    /// <param name="tools">Tool definitions to advertise to the model, or null/empty to send none.</param>
-    /// <param name="ct">Cancellation token.</param>
-    /// <returns>An async sequence of result chunks.</returns>
-    public override async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
-        Conversation conversation,
-        string systemPrompt,
-        ModelConfig config,
-        IReadOnlyList<ToolDefinition>? tools,
-        [EnumeratorCancellation] CancellationToken ct)
-    {
-        ArgumentNullException.ThrowIfNull(conversation);
-        ArgumentNullException.ThrowIfNull(config);
-
-        if (!TryGetConfig(config, out AnthropicProtocolConfig anthropicConfig, out LlmError configError))
-        {
-            yield return new Result<LlmResponseChunk, LlmError>.Err(configError);
-            yield break;
-        }
-
-        var httpResult = await SendHttpRequestAsync(conversation, systemPrompt, anthropicConfig, tools, ct);
-
-        if (httpResult is Result<HttpResponseMessage, LlmError>.Err httpErr)
-        {
-            yield return new Result<LlmResponseChunk, LlmError>.Err(httpErr.Error);
-            yield break;
-        }
-
-        using var response = ((Result<HttpResponseMessage, LlmError>.Ok)httpResult).Value;
-        using var stream = await response.Content.ReadAsStreamAsync(ct);
-
-        await foreach (var chunk in ParseSseStreamAsync(stream, ct))
-        {
-            yield return chunk;
-        }
-    }
 
     /// <summary>
     /// Builds the JSON request body. Override in subclasses to inject provider-specific fields.
@@ -153,36 +111,26 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase
         return array;
     }
 
-    /// <summary>
-    /// Returns the list of model IDs available on the Anthropic API.
-    /// </summary>
-    /// <param name="config">Provider configuration. Must be an <see cref="AnthropicProtocolConfig"/> instance.</param>
-    /// <param name="ct">Cancellation token.</param>
-    /// <returns>A list of model ID strings, or an error.</returns>
-    public override async Task<Result<IReadOnlyList<string>, LlmError>> GetAvailableModelsAsync(
-        ModelConfig config,
+    /// <inheritdoc/>
+    protected override async Task<Result<IReadOnlyList<string>, LlmError>> FetchAvailableModelsAsync(
+        AnthropicProtocolConfig config,
         CancellationToken ct)
     {
-        if (!TryGetConfig(config, out AnthropicProtocolConfig anthropicConfig, out LlmError configError))
-        {
-            return new Result<IReadOnlyList<string>, LlmError>.Err(configError);
-        }
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{anthropicConfig.BaseUrl}/models");
-        request.Headers.Add("x-api-key", anthropicConfig.ApiKey);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{config.BaseUrl}/models");
+        request.Headers.Add("x-api-key", config.ApiKey);
         request.Headers.Add("anthropic-version", AnthropicVersion);
 
         var bodyResult = await SendForStringAsync(request, ct);
-        if (bodyResult is Result<string, LlmError>.Err bodyErr)
+        if (bodyResult.IsErr(out var bodyErr, out var json))
         {
-            return new Result<IReadOnlyList<string>, LlmError>.Err(bodyErr.Error);
+            return new Result<IReadOnlyList<string>, LlmError>.Err(bodyErr);
         }
 
-        var json = ((Result<string, LlmError>.Ok)bodyResult).Value;
         return new Result<IReadOnlyList<string>, LlmError>.Ok(ParseModelIdsFromDataArray(json));
     }
 
-    private async Task<Result<HttpResponseMessage, LlmError>> SendHttpRequestAsync(
+    /// <inheritdoc/>
+    protected override async Task<Result<HttpResponseMessage, LlmError>> SendHttpRequestAsync(
         Conversation conversation,
         string systemPrompt,
         AnthropicProtocolConfig config,
@@ -205,7 +153,8 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase
     /// carries both an "event:" type line and a "data:" JSON payload.
     /// Tracks content_block_start/delta/stop events to accumulate tool call arguments.
     /// </summary>
-    private static async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> ParseSseStreamAsync(
+    /// <inheritdoc/>
+    protected override async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> ParseSseStreamAsync(
         Stream stream,
         [EnumeratorCancellation] CancellationToken ct)
     {

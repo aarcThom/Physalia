@@ -1,8 +1,6 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-#nullable enable
-
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -154,13 +152,13 @@ public abstract class ModelComponentBase : PhyBase, IPickableValuesSource
 
             if (ct.IsCancellationRequested) return;
 
-            if (result is Result<IReadOnlyList<string>, LlmError>.Ok ok)
+            if (result.IsOk(out var models, out var err))
             {
-                SetValues("Model", ok.Value);
+                SetValues("Model", models);
             }
-            else if (result is Result<IReadOnlyList<string>, LlmError>.Err err)
+            else
             {
-                _fetchWarning = $"Failed to fetch models: {err.Error.Message}";
+                _fetchWarning = $"Failed to fetch models: {err.Message}";
             }
 
             OnPingDocument()?.ScheduleSolution(1, _ =>

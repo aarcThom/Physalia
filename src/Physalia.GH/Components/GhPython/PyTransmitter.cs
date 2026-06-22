@@ -22,14 +22,14 @@ namespace Physalia.GH.Components.GhPython;
 /// Takes LLM-generated Python (validated against PythonComponent.json, arriving as the
 /// consumed signal's payload) and pushes its code, inputs, and outputs into a linked GH
 /// Python Script component, then reads back the target's runtime errors. On clean
-/// execution it routes the code forward on the Success Signal; on genuine errors it
+/// execution it routes the linked Python component's GUID forward on the Success Signal
+/// (so a downstream Observer or Output Snapshot can scope to it); on genuine errors it
 /// routes the messages back on the Fail Signal. Errors caused purely by unconnected
 /// inputs are ignored. Link to the target via the bottom-centre bezier grip.
 /// </summary>
 public class PyTransmitter : RoutingComponentBase<string>
 {
     private Guid _linkedGuid = Guid.Empty;
-    private string _pendingCode = string.Empty;
     private string? _pushError;
 
     /// <summary>
@@ -117,7 +117,6 @@ public class PyTransmitter : RoutingComponentBase<string>
         if (outputs.Count > 0)
             GhPythonBridge.SetOutputs(target, outputs);
 
-        _pendingCode = code;
         GhPythonBridge.Expire(target);
     }
 
@@ -140,8 +139,8 @@ public class PyTransmitter : RoutingComponentBase<string>
     /// <inheritdoc/>
     /// <remarks>
     /// Reads the target's fresh runtime errors (after its push-triggered re-solve),
-    /// filters out unconnected-input complaints, and routes Success (the code) or Fail
-    /// (the error text) accordingly.
+    /// filters out unconnected-input complaints, and routes Success (the linked component's
+    /// GUID) or Fail (the error text) accordingly.
     /// </remarks>
     protected override RoutingResult ReadSolve(string data, IGH_DataAccess da)
     {
@@ -158,7 +157,7 @@ public class PyTransmitter : RoutingComponentBase<string>
 
         return realErrors.Count > 0
             ? RoutingResult.Fail(BuildFeedback(realErrors), "Target Python reported errors.", GH_RuntimeMessageLevel.Warning)
-            : RoutingResult.Ok(_pendingCode);
+            : RoutingResult.Ok(_linkedGuid.ToString());
     }
 
     /// <inheritdoc/>

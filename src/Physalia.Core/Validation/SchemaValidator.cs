@@ -55,7 +55,7 @@ public static class SchemaValidator
         if (results.IsValid)
             return new Result<string, ValidationError>.Ok(json);
 
-        var violations = results.Details
+        var violations = (results.Details ?? Enumerable.Empty<EvaluationResults>())
             .Where(d => !d.IsValid && d.Errors != null)
             .SelectMany(d => d.Errors!.Select(
                 kvp => new SchemaViolation(d.InstanceLocation.ToString(), $"{kvp.Key}: {kvp.Value}")))

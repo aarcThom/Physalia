@@ -20,7 +20,10 @@ The harness won't find memory until the global memory dir is a junction into the
 ```powershell
 $repo   = "C:\Users\rober\repos\Physalia"          # <-- clone path on THIS machine
 $hash   = ($repo -replace '[:\\]','-')              # e.g. C--Users-rober-repos-Physalia
-$global = "$env:USERPROFILE\.claude\projects\$hash\memory"
+# Harness config root: honour CLAUDE_CONFIG_DIR if set (some machines point it at .claude-personal),
+# else fall back to the default %USERPROFILE%\.claude.
+$cfg    = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { "$env:USERPROFILE\.claude" }
+$global = "$cfg\projects\$hash\memory"
 $target = "$repo\.claude\memory"
 New-Item -ItemType Directory -Force (Split-Path $global) | Out-Null
 if (Test-Path $global) { Remove-Item -Recurse -Force $global }   # discards any local-only memory at the global path
@@ -31,3 +34,4 @@ Junctions need no admin rights (unlike symlinks). The project-hash folder name i
 ## Gotchas
 - The repo `.claude/memory/` must stay REAL files; only the GLOBAL path is the junction. (Git tracks the repo files; the junction is invisible to this repo's git.)
 - `cmd.exe /c "mklink /J …"` invoked from the bash tool mangled quoting and silently no-opped — use PowerShell `New-Item -ItemType Junction` (or verify with `Get-Item <path> -Force | select LinkType,Target`).
+- **`CLAUDE_CONFIG_DIR` overrides the config root** — the `tgaudin` machine sets it to `C:\Users\tgaudin\.claude-personal`, so its memory junction lives at `…\.claude-personal\projects\<hash>\memory`, NOT `…\.claude\projects\…`. A machine whose setup used the old hard-coded `%USERPROFILE%\.claude` path never got wired and silently diverged (real dir, not junction; harness wrote local-only memory there). The setup command above now derives the root from `$env:CLAUDE_CONFIG_DIR`. To check a machine: `Get-Item "$env:CLAUDE_CONFIG_DIR\projects\<hash>\memory" -Force | select LinkType,Target` — `LinkType` empty ⇒ NOT junctioned, re-run setup (copy any local-only files into the repo first).

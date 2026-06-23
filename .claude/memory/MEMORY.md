@@ -8,6 +8,7 @@
 - Record progress in MEMORY.md (and topic files if needed) whenever meaningful progress is made — don't wait to be asked.
 - Make code changes only when explicitly prompted (e.g. "make this change", "edit this", "fix this"). Default to advice/answers only otherwise.
 - Never run git commit. When asked for a commit message, write it out as text only.
+- [Commit/PR messages output-only](commit-and-pr-messages-output-only.md) — when asked for a commit message or PR description, print it in chat only; never run `git commit`/`push`/`gh` — the user runs the git action themselves (holds even when they say "we'll just commit to main").
 
 ## Project
 - Grasshopper AI plugin for Rhino (Physalia)
@@ -20,6 +21,7 @@
 - Two projects only: Physalia.Core (net7.0) and Physalia.GH (net7.0-windows on Windows, net7.0 on Mac — set via OS-conditional TargetFrameworks).
 - CLAUDE.md was rewritten 2026-06-11 to match actual code (signal lifecycle, real namespaces/providers, built-vs-planned component inventory, Sandbox removed). If CLAUDE.md and code disagree, trust code, but drift should now be rare.
 - System.Drawing warnings (CA1416) are false positives — Rhino ships its own compatibility layer. Suppress with <NoWarn>$(NoWarn);CA1416</NoWarn> or #pragma warning disable CA1416.
+- [Physalia repo gotchas](physalia-repo-gotchas.md) — slnx lives in `src/` (`dotnet build src/Physalia.slnx`), primitives doc in `planning/`; builds leave EOL-only (empty-diff) git noise on `Files/PhySchema.json` + `agent_guides/physchema_requirements.md` (don't commit); Svelte UI wrapper needs `DisableFastUpToDateCheck` or VS skips it.
 
 ## Tool Calling (robustness Phase 4)
 - [Phase 4 keystone](tool-calling-phase4.md) — provider contract now SENDS tool definitions (`ToolDefinition` + `StreamAsync` gained `IReadOnlyList<ToolDefinition>? tools`); GH visible-loop still TODO. Landed 2026-06-16.
@@ -27,6 +29,7 @@
 
 ## Claude Code provider (warm process)
 - [ClaudeCode warm-process rework](claudecode-warm-process.md) — provider now keeps ONE `claude` CLI process warm per Reasoner (stream-json in/out) instead of cold-starting per call; SDK is a dead end (no .NET, wraps the CLI, needs API key). Builds clean; live-Rhino timing/leak check still TODO. Landed 2026-06-18.
+- [ClaudeCode provider perf](claudecode-provider-perf.md) — the "freezes on real prompts" was extended thinking (fix `MAX_THINKING_TOKENS=0`); warm session ≈ API parity, cold start is native-binary-bound (not flag-bound); `--safe-mode` keeps OAuth, `--bare` breaks it; pipes pinned to no-BOM UTF-8. Measured 2026-06-18.
 
 ## v2 Architecture
 Full Core architecture decisions locked 2026-05-03. See [v2-core-architecture.md](v2-core-architecture.md).
@@ -35,6 +38,7 @@ Component-level spec: planning/physalia-primitives.md. API research: planning/ap
 ## Signal Lifecycle (rework landed 2026-06-10/11; replaces ALL trigger/pulse designs)
 Bool triggers, momentary pulses, SHA-256 change detection, and Data/Feedback output ports are **gone** (commits 91c83c5, 93ee097, d6a086c). Events are latched, sequence-numbered, consume-once `PhySignal`s (Core/Signals); the payload is the only data carrier between pipeline components (Success Signal(0) / Fail Signal(1), one wire per hop). Two-layer bases: `StatefulComponentBase` (state machine, ObserveSignalInputs/Consume*/Latch*, wall-clock-honest `ScheduleStateSolve` funnel) → `RoutingComponentBase<TData>` (push/read/latch; async = `AutoScheduleRead=false` + `RequestReadPass()`). Nothing in the lifecycle serializes — components reopen Empty.
 **Authoritative doc: `planning/data-marshalling.md` in the repo** — read that, not memory. Non-repo leftovers: [routing-trigger-system.md](routing-trigger-system.md).
+- [Trigger state machine status](trigger-state-machine-status.md) — marshalling history (bool pulses → PhySignal; GH keeps ONE schedule timer, shorter delays replace longer); the **locked decisions Thomas said not to relitigate** + manual-Rhino-verification-still-pending status (2026-06-11).
 - **Multimodal extension (2026-06-13):** `PhySignal` now also has an optional `IReadOnlyList<MessageContent> ContentBlocks` (init prop, default empty; `Mint` takes an optional `contentBlocks` arg; `StatefulComponentBase.LatchSuccess` forwards it). The string `Payload` stays the text/trace carrier; `ContentBlocks` rides alongside when a turn is richer than text. Needed because the only wire from Prompter→Recorder is the signal — an assembled image+text user turn can't use a parallel data wire. So "payload is the only carrier" is now "payload is the carrier for text-only events; ContentBlocks for multimodal." This couples `Physalia.Core.Signals`→`ConvoInstruct` (MessageContent). Only Prompter mints with blocks today; feedback/response/Construct-Signal mint empty.
 
 ## Prompter image references "/<alias>" (2026-06-13)

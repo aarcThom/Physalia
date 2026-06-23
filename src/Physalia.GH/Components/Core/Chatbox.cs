@@ -21,10 +21,9 @@ namespace Physalia.GH.Components;
 public class Chatbox : StatefulComponentBase
 {
     // Only one chat window may exist per Rhino session, across every Chatbox instance.
-    // Static so a second Chatbox takes over the single window rather than spawning another.
-    // Session-only — nothing here serializes.
+    // Static so a second Chatbox switches the single window to its own view rather than
+    // spawning another. Session-only — nothing here serializes.
     private static ChatWindow? _activeWindow;
-    private static Chatbox? _activeOwner;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Chatbox"/> class.
@@ -48,33 +47,27 @@ public class Chatbox : StatefulComponentBase
 
     /// <summary>
     /// Opens the chat window, or brings the existing one to the front. Only one chat window
-    /// exists session-wide: if another Chatbox already owns it, that window is closed and
-    /// this component takes over. Idempotent for the owning component.
+    /// exists session-wide: if it is already open, it is switched to view this Chatbox (the
+    /// same as clicking this component's circle in the window's switcher row) and brought
+    /// forward rather than torn down and reopened.
     /// </summary>
     public void OpenWindow()
     {
         if (_activeWindow is { } existing)
         {
-            if (ReferenceEquals(_activeOwner, this))
-            {
-                existing.BringToFront();
-                existing.Focus();
-                return;
-            }
-
-            // A different Chatbox owns the single window — close it and take over.
-            existing.Close();
+            existing.SetActiveComponent(this);
+            existing.BringToFront();
+            existing.Focus();
+            return;
         }
 
         var window = new ChatWindow(this);
         _activeWindow = window;
-        _activeOwner = this;
         window.Closed += (_, _) =>
         {
             if (ReferenceEquals(_activeWindow, window))
             {
                 _activeWindow = null;
-                _activeOwner = null;
             }
         };
         window.Show();
@@ -108,17 +101,15 @@ public class Chatbox : StatefulComponentBase
     }
 
     /// <summary>
-    /// Closes the chat window when this component is removed from the document, so the
-    /// window never outlives the component that drives it.
+    /// Notifies the chat window when this component is removed from the document. If the
+    /// window is currently viewing this Chatbox it switches to another one still on the
+    /// canvas, or closes if this was the last; a circle for an unrelated removed Chatbox
+    /// simply drops out of the switcher row on the next tick.
     /// </summary>
     /// <param name="document">The document the component was removed from.</param>
     public override void RemovedFromDocument(GH_Document document)
     {
-        if (ReferenceEquals(_activeOwner, this))
-        {
-            _activeWindow?.Close();
-        }
-
+        _activeWindow?.OnComponentRemoved(this);
         base.RemovedFromDocument(document);
     }
 

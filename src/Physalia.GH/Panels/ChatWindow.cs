@@ -73,7 +73,10 @@ public class ChatWindow : Form
         + "Build the <b>Physalia.UI</b> project (<code>npm run build</code>, or "
         + "<code>dotnet build -p:BuildUI=true</code>) to generate it.</p></body></html>";
 
-    private readonly Chatbox _component;
+    // The Chatbox this window is currently viewing. Mutable: the switcher row at the bottom of
+    // the window (and a double-click on another Chatbox) rebinds it to a different component,
+    // so one window can move between every Chatbox on the canvas. Always non-null.
+    private Chatbox _component;
     private readonly WebView _webView;
     private readonly UITimer _timer;
     private bool _loaded;
@@ -88,6 +91,13 @@ public class ChatWindow : Form
     private string? _lastStatus;
     private string? _lastConfigured;
     private string? _lastPresetSignature;
+    private string? _lastChatboxes;
+
+    // Set on a Chatbox switch: forces the next Tick to push history/stream/state unconditionally,
+    // even when the newly viewed component's values equal the reset caches (e.g. a fresh component
+    // with no conversation pushes null == null, which change-detection would otherwise suppress —
+    // leaving the previous component's messages on screen). Cleared after that one push.
+    private bool _forcePush;
 
     // Cached result of the async provider-availability probe: null until the first probe lands,
     // then the setup-ids of the configured providers (empty when none → first-run setup). Mutated
@@ -261,6 +271,9 @@ public class ChatWindow : Form
                 break;
             case "clearall":
                 HandleClearAll();
+                break;
+            case "selectchatbox":
+                HandleSelectChatbox(uri);
                 break;
         }
     }
@@ -584,7 +597,7 @@ public class ChatWindow : Form
             : !ready ? "Add a Reasoner with a Model to begin."
             : string.Empty;
 
-        if (!ReferenceEquals(convo, _lastConversation))
+        if (_forcePush || !ReferenceEquals(convo, _lastConversation))
         {
             _lastConversation = convo;
             string payload = JsonSerializer.Serialize(BuildMessages(convo), WriteOpts);
@@ -592,7 +605,7 @@ public class ChatWindow : Form
         }
 
         string? stream = busy ? PromptPipelineView.GetStreamingText(recorder!) : null;
-        if (stream != _lastStream)
+        if (_forcePush || stream != _lastStream)
         {
             _lastStream = stream;
             Exec($"window.physalia&&window.physalia.setStream({JsonSerializer.Serialize(stream)});");
@@ -601,7 +614,7 @@ public class ChatWindow : Form
         // Serialised form of the id list, used both as the change signature and the wire payload.
         string configuredJson = JsonSerializer.Serialize(configuredProviders, WriteOpts);
 
-        if (connected != _lastConnected || busy != _lastBusy || ready != _lastReady
+        if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured)
         {
             _lastConnected = connected;
@@ -615,8 +628,14 @@ public class ChatWindow : Form
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 
+        // The forced post-switch push (above) is done; subsequent ticks resume change-detection.
+        _forcePush = false;
+
         // Bundled presets for the "Add preset" page — pushed once and whenever the set changes.
         MaybePushPresets();
+
+        // Switcher row: one circle per Chatbox on the canvas, pushed when the set/active changes.
+        MaybePushChatboxes();
     }
 
     // Pushes the bundled presets (file name + metadata.description) to the page, but only when the
@@ -652,6 +671,157 @@ public class ChatWindow : Form
 
         string json = JsonSerializer.Serialize(presets, WriteOpts);
         Exec($"window.physalia&&window.physalia.setPresets&&window.physalia.setPresets({json});");
+    }
+
+    // Pushes the switcher list — one entry per Chatbox on the canvas, in left-to-right canvas order —
+    // marking which is active and which already has recorded history. Pushed only when the serialised
+    // list changes (a Chatbox added/removed/moved, the active one switched, or a history appearing).
+    private void MaybePushChatboxes()
+    {
+        var list = EnumerateChatboxes()
+            .Select(cb => new
+            {
+                id = cb.InstanceGuid.ToString(),
+                active = ReferenceEquals(cb, _component),
+                hasHistory = ChatboxHasHistory(cb),
+            })
+            .ToList();
+
+        string json = JsonSerializer.Serialize(list, WriteOpts);
+        if (json == _lastChatboxes)
+        {
+            return;
+        }
+
+        _lastChatboxes = json;
+        Exec($"window.physalia&&window.physalia.setChatboxes&&window.physalia.setChatboxes({json});");
+    }
+
+    // Every Chatbox on the canvas, ordered left-to-right then top-to-bottom by canvas position for a
+    // stable, intuitive circle sequence. The viewed component is always included even when it is not
+    // on a document yet (created by the widget, awaiting its provider-gated placement), so its circle
+    // is present and selectable from the first tick.
+    private List<Chatbox> EnumerateChatboxes()
+    {
+        var result = new List<Chatbox>();
+        GH_Document? doc = _component.OnPingDocument() ?? Instances.ActiveCanvas?.Document;
+        if (doc is not null)
+        {
+            foreach (IGH_DocumentObject obj in doc.Objects)
+            {
+                if (obj is Chatbox cb)
+                {
+                    result.Add(cb);
+                }
+            }
+        }
+
+        result.Sort(static (a, b) =>
+        {
+            System.Drawing.PointF pa = a.Attributes?.Pivot ?? default;
+            System.Drawing.PointF pb = b.Attributes?.Pivot ?? default;
+            int cmp = pa.X.CompareTo(pb.X);
+            return cmp != 0 ? cmp : pa.Y.CompareTo(pb.Y);
+        });
+
+        if (!result.Contains(_component))
+        {
+            result.Insert(0, _component);
+        }
+
+        return result;
+    }
+
+    // True when a Chatbox's wired Recorder holds a non-empty conversation — used to fill its circle.
+    private static bool ChatboxHasHistory(Chatbox chatbox)
+    {
+        Conversation? convo = PromptPipelineView.FindRecorder(chatbox, 0)?.ActiveConversation;
+        return convo is { Messages.Count: > 0 };
+    }
+
+    // Switches the window to view a different Chatbox (from the switcher row, a double-click, or a
+    // fallback after the viewed one is deleted). Resets the per-component change-detection caches so
+    // the new component's history and state push fresh on the next tick rather than being suppressed
+    // as "unchanged". No-op when already viewing it. Runs on the UI thread.
+    public void SetActiveComponent(Chatbox component)
+    {
+        if (component is null || ReferenceEquals(component, _component))
+        {
+            return;
+        }
+
+        _component = component;
+        ResetPushedState();
+    }
+
+    // Called when any Chatbox is removed from the document. If the viewed one was deleted, switch to
+    // another Chatbox still on the canvas, or close the window when none remain. An unrelated removal
+    // needs nothing here — the switcher row drops its circle on the next tick. Runs on the UI thread.
+    public void OnComponentRemoved(Chatbox removed)
+    {
+        if (!ReferenceEquals(removed, _component))
+        {
+            return;
+        }
+
+        GH_Document? doc = Instances.ActiveCanvas?.Document;
+        Chatbox? next = null;
+        if (doc is not null)
+        {
+            foreach (IGH_DocumentObject obj in doc.Objects)
+            {
+                if (obj is Chatbox cb && !ReferenceEquals(cb, removed))
+                {
+                    next = cb;
+                    break;
+                }
+            }
+        }
+
+        if (next is not null)
+        {
+            SetActiveComponent(next);
+        }
+        else
+        {
+            Close();
+        }
+    }
+
+    // Resolves a switcher-circle click (?id=<InstanceGuid>) to its Chatbox and views it. Runs on the
+    // UI thread (bridge dispatch).
+    private void HandleSelectChatbox(Uri uri)
+    {
+        string id = GetQueryValue(uri.Query, "id");
+        if (string.IsNullOrEmpty(id) || !Guid.TryParse(id, out Guid guid))
+        {
+            return;
+        }
+
+        foreach (Chatbox cb in EnumerateChatboxes())
+        {
+            if (cb.InstanceGuid == guid)
+            {
+                SetActiveComponent(cb);
+                return;
+            }
+        }
+    }
+
+    // Drops the per-component last-pushed caches so a freshly viewed Chatbox re-pushes its full
+    // history/state next tick. The preset and chatbox-list signatures are global (not per viewed
+    // component), so they are left intact.
+    private void ResetPushedState()
+    {
+        _lastConversation = null;
+        _lastStream = null;
+        _lastConnected = null;
+        _lastBusy = null;
+        _lastReady = null;
+        _lastNeedsSetup = null;
+        _lastStatus = null;
+        _lastConfigured = null;
+        _forcePush = true;
     }
 
     // Kicks off the async provider-availability probe when none is in flight and either no result

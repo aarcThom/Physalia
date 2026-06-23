@@ -25,7 +25,8 @@
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { getProvider } from '$lib/chat/providers';
-	import type { SetupResult, SubmitMessage, UiMessage, UiPreset, UiState } from '$lib/bridge';
+	import { cn } from '$lib/utils';
+	import type { SetupResult, SubmitMessage, UiChatbox, UiMessage, UiPreset, UiState } from '$lib/bridge';
 
 	const BRIDGE_SCHEME = 'phbridge';
 
@@ -48,6 +49,8 @@
 	let panel = $state<'preset' | 'manualdef' | null>(null);
 	// Bundled presets (from Files/PRESETS), pushed by the host.
 	let presets = $state<UiPreset[]>([]);
+	// Every Chatbox on the canvas (the bottom switcher row), pushed by the host.
+	let chatboxes = $state<UiChatbox[]>([]);
 
 	let showSetup = $derived(needsSetup || manualSetup);
 	// Only offer "Back to chat" when setup was opened manually (a provider already exists);
@@ -83,6 +86,9 @@
 			},
 			setPresets: (next) => {
 				presets = next ?? [];
+			},
+			setChatboxes: (next) => {
+				chatboxes = next ?? [];
 			}
 		};
 
@@ -148,6 +154,12 @@
 	// the open document.
 	function clearAllComponents() {
 		window.location.href = `${BRIDGE_SCHEME}://clearall`;
+	}
+
+	// Switch the window to view another Chatbox component (its recorder history, or the default
+	// screen when it has none). The next state tick re-pushes that component's history/state.
+	function selectChatbox(id: string) {
+		window.location.href = `${BRIDGE_SCHEME}://selectchatbox?id=${encodeURIComponent(id)}`;
 	}
 
 	// Hand a pasted API key to the host, which writes it to API_KEY_CONFIG.YAML and reports back
@@ -356,4 +368,37 @@
 			onsavekey={saveKey}
 		/>
 	</div>
+
+	<!-- Switcher row at the very bottom: one circle per Chatbox on the canvas. The active chat's
+	     circle reads as a raised accent dot; a chat with recorded history is a filled grey dot;
+	     an empty one is a pressed-in well. Clicking a circle views that Chatbox's recorder history
+	     (or the default screen when it has none). New circles appear as Chatboxes are placed. -->
+	{#if chatboxes.length > 0}
+		<div class="flex shrink-0 items-center justify-center gap-1 pb-2">
+			{#each chatboxes as box (box.id)}
+				<button
+					type="button"
+					onclick={() => selectChatbox(box.id)}
+					aria-pressed={box.active}
+					title={box.active
+						? 'Current chat'
+						: box.hasHistory
+							? 'Switch to this chat (has history)'
+							: 'Switch to this chat'}
+					class="group flex items-center justify-center rounded-full p-1.5"
+				>
+					<span
+						class={cn(
+							'size-2.5 rounded-full transition',
+							box.active
+								? 'bg-[var(--neu-accent)] shadow-[var(--neu-shadow-sm)]'
+								: box.hasHistory
+									? 'bg-muted-foreground/50 group-hover:bg-muted-foreground'
+									: 'bg-transparent shadow-[var(--neu-inset-sm)] group-hover:bg-muted-foreground/25'
+						)}
+					></span>
+				</button>
+			{/each}
+		</div>
+	{/if}
 </main>

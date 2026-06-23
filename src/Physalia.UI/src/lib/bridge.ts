@@ -66,6 +66,16 @@ export interface SetupResult {
 	message: string;
 }
 
+/** One Chatbox component on the canvas, shown as a circle in the switcher row. */
+export interface UiChatbox {
+	/** The component's InstanceGuid — the wire value sent back when its circle is clicked. */
+	id: string;
+	/** True for the Chatbox the window is currently viewing (its circle reads as selected). */
+	active: boolean;
+	/** True when this Chatbox's wired Recorder already holds a conversation (its circle is filled). */
+	hasHistory: boolean;
+}
+
 /** A bundled preset (.ghjson in Files/PRESETS) offered on the Add-preset page. */
 export interface UiPreset {
 	/** The preset file name, e.g. "complex-node.ghjson" — used as the wire value when placing. */
@@ -82,6 +92,8 @@ export interface PhysaliaHost {
 	setSetupResult(result: SetupResult | null): void;
 	/** Bundled presets (from Files/PRESETS) for the Add-preset page. */
 	setPresets(presets: UiPreset[]): void;
+	/** Every Chatbox on the canvas, for the bottom switcher row. */
+	setChatboxes(chatboxes: UiChatbox[]): void;
 }
 
 /** Strips a `data:<mime>;base64,` prefix, returning the raw base64 payload. The

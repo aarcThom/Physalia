@@ -43,17 +43,97 @@ internal static class GhJsonBridge
     /// when the component was already wired in the imported file.
     /// </summary>
     internal static bool IsImporting { get; private set; }
+
+    // componentState.extensions key under which a Feedback component's linked FeedbackCollector
+    // references are stored, as GhJSON component ids (not InstanceGuids, which Put regenerates).
+    // GhJSON treats extensions as an opaque pass-through, so this round-trips untouched.
+    private const string FeedbackCollectorsExtensionKey = "physalia.feedbackCollectors";
+
     /// <summary>
     /// Exports the Grasshopper objects identified by <paramref name="guids"/> to a
     /// <c>.ghjson</c> file at <paramref name="path"/>.
     /// </summary>
     /// <param name="guids">The instance GUIDs of the objects to export.</param>
     /// <param name="path">The destination file path.</param>
-    internal static void ExportToFile(IReadOnlyList<Guid> guids, string path)
+    /// <param name="comment">
+    /// Optional free-text description written to the file's <c>metadata.description</c>. Blank or
+    /// null leaves the metadata block out entirely.
+    /// </param>
+    internal static void ExportToFile(IReadOnlyList<Guid> guids, string path, string? comment = null)
     {
         GhJsonDocument doc = GhJsonGrasshopper.GetByGuids(guids);
         StripNickNames(doc);
+
+        // Wireless Feedback -> FeedbackCollector links are not GH wires, so GetByGuids misses them.
+        // Capture them (component-id based) into each Feedback's extensions before writing.
+        InjectFeedbackLinks(doc);
+
+        // Metadata has a private setter, so a user comment is injected by rebuilding the document
+        // (the component objects were mutated in place above, so they carry over).
+        if (!string.IsNullOrWhiteSpace(comment))
+        {
+            doc = new GhJsonDocument(
+                doc.Schema,
+                new GhJsonMetadata { Description = comment.Trim() },
+                doc.Components,
+                doc.Connections,
+                doc.Groups);
+        }
+
         GhJson.ToFile(doc, path, new WriteOptions { Indented = true });
+    }
+
+    /// <summary>
+    /// Records each exported <see cref="Feedback"/> component's linked FeedbackCollector targets as
+    /// GhJSON component ids under <see cref="FeedbackCollectorsExtensionKey"/> in the component's
+    /// state extensions. Only collectors that are themselves part of the export are recorded — a
+    /// link to a collector outside the selection cannot be expressed in the file and is dropped.
+    /// </summary>
+    /// <param name="doc">The freshly captured document to annotate in place.</param>
+    private static void InjectFeedbackLinks(GhJsonDocument doc)
+    {
+        GH_Document? live = Grasshopper.Instances.ActiveCanvas?.Document;
+        if (live is null)
+        {
+            return;
+        }
+
+        var guidToId = new Dictionary<Guid, int>();
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.InstanceGuid is Guid g && component.Id is int id)
+            {
+                guidToId[g] = id;
+            }
+        }
+
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.InstanceGuid is not Guid guid
+                || live.FindObject(guid, false) is not Feedback feedback)
+            {
+                continue;
+            }
+
+            var collectorIds = new List<int>();
+            foreach (Guid collectorGuid in feedback.CollectorGuids)
+            {
+                if (guidToId.TryGetValue(collectorGuid, out int collectorId))
+                {
+                    collectorIds.Add(collectorId);
+                }
+            }
+
+            if (collectorIds.Count == 0)
+            {
+                continue;
+            }
+
+            component.ComponentState ??= new GhJsonComponentState();
+            component.ComponentState.Extensions ??= new Dictionary<string, object>();
+            component.ComponentState.Extensions[FeedbackCollectorsExtensionKey] =
+                new FeedbackLinkExtension { CollectorIds = collectorIds };
+        }
     }
 
     /// <summary>
@@ -245,11 +325,64 @@ internal static class GhJsonBridge
         if (result.Success)
         {
             ComponentHelpers.ApplyNickNameDisplay(result.PlacedObjects);
+            RestoreFeedbackLinks(doc, result);
         }
 
         return result.Success
             ? new PlaceResult(true, result.ComponentsPlaced, result.ConnectionsCreated, result.Warnings.Count, null, result.PlacedObjects.Select(o => o.InstanceGuid).ToList(), result.Warnings.ToList(), unfixedIssues)
             : new PlaceResult(false, 0, 0, 0, result.ErrorMessage, Array.Empty<Guid>(), Array.Empty<string>(), unfixedIssues);
+    }
+
+    /// <summary>
+    /// Re-establishes wireless Feedback -> FeedbackCollector links after placement. The links were
+    /// stored as GhJSON component ids (see <see cref="InjectFeedbackLinks"/>); here each id is
+    /// remapped to the newly-placed object's InstanceGuid via <see cref="PutResult.IdToGuidMapping"/>
+    /// (Put regenerates guids, so the stored ones are stale) and re-applied with
+    /// <see cref="Feedback.AddCollector"/>. Every lookup is guarded; a missing id is skipped.
+    /// </summary>
+    /// <param name="doc">The placed document (post-Fix, so ids match the Put mapping).</param>
+    /// <param name="result">The Put result carrying the id-to-guid mapping and placed objects.</param>
+    private static void RestoreFeedbackLinks(GhJsonDocument doc, PutResult result)
+    {
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.Id is not int feedbackId
+                || component.ComponentState?.Extensions is not { } extensions
+                || !extensions.TryGetValue(FeedbackCollectorsExtensionKey, out object? raw))
+            {
+                continue;
+            }
+
+            FeedbackLinkExtension? link;
+            try
+            {
+                // The extension round-trips as a Newtonsoft token; re-serialise to read it back typed.
+                link = JsonConvert.DeserializeObject<FeedbackLinkExtension>(JsonConvert.SerializeObject(raw));
+            }
+            catch (Newtonsoft.Json.JsonException)
+            {
+                continue;
+            }
+
+            if (link?.CollectorIds is not { Count: > 0 } collectorIds
+                || !result.IdToGuidMapping.TryGetValue(feedbackId, out Guid feedbackGuid))
+            {
+                continue;
+            }
+
+            if (result.PlacedObjects.FirstOrDefault(o => o.InstanceGuid == feedbackGuid) is not Feedback feedback)
+            {
+                continue;
+            }
+
+            foreach (int collectorId in collectorIds)
+            {
+                if (result.IdToGuidMapping.TryGetValue(collectorId, out Guid collectorGuid))
+                {
+                    feedback.AddCollector(collectorGuid);
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -284,4 +417,16 @@ internal static class GhJsonBridge
         }
     }
 
+    /// <summary>
+    /// Serialised shape of a Feedback component's linked-collector list, stored under
+    /// <see cref="FeedbackCollectorsExtensionKey"/> in the component's state extensions.
+    /// </summary>
+    private sealed class FeedbackLinkExtension
+    {
+        /// <summary>
+        /// Gets or sets the GhJSON component ids of the linked FeedbackCollectors.
+        /// </summary>
+        [JsonProperty("collectorIds")]
+        public List<int>? CollectorIds { get; set; }
+    }
 }

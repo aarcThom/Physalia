@@ -69,6 +69,8 @@ export interface PhysaliaHost {
 	setStream(text: string | null): void;
 	setState(state: UiState): void;
 	setSetupResult(result: SetupResult | null): void;
+	/** Bundled preset .ghjson file names (from Files/PRESETS) for the Add-preset page. */
+	setPresets(files: string[]): void;
 }
 
 /** Strips a `data:<mime>;base64,` prefix, returning the raw base64 payload. The

@@ -43,10 +43,7 @@
 		class="absolute bottom-4 left-[50%] translate-x-[-50%]"
 	>
 		<Button
-			class={cn(
-				"bg-background/80 border-border/50 hover:bg-background/90 rounded-full shadow-lg backdrop-blur-sm hover:shadow-xl",
-				className
-			)}
+			class={cn("rounded-full", className)}
 			onclick={handleScrollToBottom}
 			size="icon"
 			type="button"

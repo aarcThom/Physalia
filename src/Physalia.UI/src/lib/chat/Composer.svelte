@@ -258,13 +258,13 @@
 				<img
 					src={`data:${image.mediaType};base64,${image.base64}`}
 					alt={image.filename}
-					class="h-12 w-12 rounded-md border object-cover"
+					class="neu-raised-sm h-12 w-12 rounded-md object-cover"
 				/>
 				<button
 					type="button"
 					onclick={() => removeImage(i)}
 					title="Remove image"
-					class="bg-background text-muted-foreground hover:text-foreground absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full border shadow-sm"
+					class="neu-btn text-muted-foreground hover:text-foreground absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full"
 				>
 					<XIcon class="size-3" />
 				</button>
@@ -273,7 +273,7 @@
 	</div>
 {/if}
 
-<div class="bg-background flex items-end gap-1.5 rounded-xl border p-2 shadow-sm">
+<div class="neu-well flex items-end gap-1.5 rounded-xl p-2">
 	<Button
 		variant="ghost"
 		size="icon"

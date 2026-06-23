@@ -60,7 +60,7 @@
 			{#each selected.steps as step, i (i)}
 				<li class="flex gap-2">
 					<span
-						class="bg-muted text-muted-foreground mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-medium"
+						class="neu-raised-sm text-muted-foreground mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-medium"
 					>
 						{i + 1}
 					</span>
@@ -77,7 +77,7 @@
 							<p class="text-muted-foreground mb-1 text-xs">{command.label}</p>
 						{/if}
 						<pre
-							class="bg-muted overflow-x-auto rounded-md border px-3 py-2 font-mono text-xs select-all">{command.code}</pre>
+							class="neu-well overflow-x-auto rounded-md px-3 py-2 font-mono text-xs select-all">{command.code}</pre>
 					</div>
 				{/each}
 			</div>
@@ -94,9 +94,9 @@
 
 		{#if result}
 			<div
-				class="mt-4 rounded-md border px-3 py-2 text-sm {result.ok
-					? 'border-green-600/40 bg-green-600/10 text-green-700'
-					: 'border-red-600/40 bg-red-600/10 text-red-700'}"
+				class="mt-4 rounded-md px-3 py-2 text-sm {result.ok
+					? 'bg-green-600/10 text-green-700'
+					: 'bg-red-600/10 text-red-700'}"
 			>
 				{result.message}
 			</div>
@@ -123,7 +123,7 @@
 			<HappyFace />
 
 			{#if configured.length > 0}
-				<div class="w-full rounded-md border p-4 text-sm leading-relaxed">
+				<div class="neu-raised w-full rounded-md p-4 text-sm leading-relaxed">
 					You have already set up the following providers. You're good to go!
 				</div>
 
@@ -134,11 +134,11 @@
 					{/each}
 				</div>
 
-				<div class="w-full rounded-md border p-4 text-sm leading-relaxed">
+				<div class="neu-raised w-full rounded-md p-4 text-sm leading-relaxed">
 					In addition, you can set up these providers. Click on the button for instructions.
 				</div>
 			{:else}
-				<div class="w-full rounded-md border p-4 text-sm leading-relaxed">
+				<div class="neu-raised w-full rounded-md p-4 text-sm leading-relaxed">
 					Welcome to Physalia. Let's get you set up. You haven't set up any LLM providers yet, so
 					let's do that first. Choose what provider you want to use:
 				</div>

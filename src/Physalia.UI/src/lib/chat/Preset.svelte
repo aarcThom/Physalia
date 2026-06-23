@@ -56,7 +56,7 @@
 					</Button>
 
 					<div
-						class="bg-background text-foreground pointer-events-none absolute top-full left-0 z-10 mt-1 hidden w-full rounded-md border px-3 py-2 text-xs whitespace-pre-wrap shadow-md group-hover:block"
+						class="neu-raised text-foreground pointer-events-none absolute top-full left-0 z-10 mt-1 hidden w-full rounded-md px-3 py-2 text-xs whitespace-pre-wrap group-hover:block"
 					>
 						{preset.description?.trim() ? preset.description : 'No description provided.'}
 					</div>

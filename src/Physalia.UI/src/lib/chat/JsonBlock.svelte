@@ -17,9 +17,9 @@
 	let lineCount = $derived(json.split('\n').length);
 </script>
 
-<Collapsible.Root bind:open class="not-prose my-3 w-full rounded-md border">
+<Collapsible.Root bind:open class="neu-raised not-prose my-3 w-full rounded-md">
 	<Collapsible.Trigger
-		class="bg-muted/50 hover:bg-muted flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm"
+		class="hover:bg-black/5 flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm"
 	>
 		<span class="text-muted-foreground flex items-center gap-2">
 			<BracesIcon class="size-4 shrink-0" />
@@ -31,7 +31,7 @@
 		/>
 	</Collapsible.Trigger>
 	<Collapsible.Content
-		class="data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 data-[state=closed]:animate-out data-[state=open]:animate-in border-t outline-none"
+		class="data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 data-[state=closed]:animate-out data-[state=open]:animate-in outline-none"
 	>
 		<div class="max-h-96 overflow-auto rounded-b-md">
 			<Code.Root code={json} lang="json" class="rounded-none border-0">

@@ -42,6 +42,37 @@
 	--sidebar-accent-foreground: oklch(0.205 0 0);
 	--sidebar-border: oklch(0.9 0.032 205);
 	--sidebar-ring: oklch(0.74 0.045 205);
+
+	/* Gradient tokens (hue ~205-215, the Physalia cyan-blue used by the pills) give the whole UI
+	   the soft, borderless, light-blue look: an angled page wash plus subtle top→bottom button/
+	   surface gradients. These are background-IMAGE values — apply with bg-[image:var(--grad-*)]. */
+	--grad-page: linear-gradient(
+		155deg,
+		oklch(0.94 0.035 215) 0%,
+		oklch(0.97 0.022 208) 45%,
+		oklch(0.99 0.008 205) 100%
+	);
+	--grad-surface: linear-gradient(180deg, oklch(1 0 0) 0%, oklch(0.955 0.024 205) 100%);
+	--grad-secondary: linear-gradient(180deg, oklch(0.96 0.022 205) 0%, oklch(0.9 0.04 205) 100%);
+	--grad-primary: linear-gradient(180deg, oklch(0.3 0.02 250) 0%, oklch(0.18 0.012 250) 100%);
+
+	/* Neumorphism ("soft UI"): every surface shares ONE base colour (--neu-bg) and is shaped only
+	   by a pair of shadows — a near-white highlight on the top-left and a darker blue shade on the
+	   bottom-right. No borders. Raised = the element pushes out of the surface; inset = it presses
+	   in (used for inputs / wells). Shadow colours are --neu-bg lightened / darkened, same blue hue.
+	   Apply via the .neu-* helper classes below, never as one-off box-shadows. */
+	--neu-bg: oklch(0.922 0.028 225);
+	--neu-light: oklch(0.99 0.012 220);
+	--neu-dark: oklch(0.8 0.05 233);
+	/* The one accent: the primary call-to-action (Send) reads as a raised blue chip. */
+	--neu-accent: oklch(0.62 0.13 250);
+
+	/* Extents kept under the chat's p-4 (16px) gutter so full-width raised blocks (JSON / tool
+	   cards) fade softly instead of being hard-clipped by the scroll container's overflow. */
+	--neu-shadow: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
+	--neu-shadow-sm: 3px 3px 7px var(--neu-dark), -3px -3px 7px var(--neu-light);
+	--neu-inset: inset 3px 3px 7px var(--neu-dark), inset -3px -3px 7px var(--neu-light);
+	--neu-inset-sm: inset 2px 2px 5px var(--neu-dark), inset -2px -2px 5px var(--neu-light);
 }
 
 .dark {
@@ -127,7 +158,77 @@
 	}
 
 	body {
-		@apply bg-background text-foreground;
+		@apply text-foreground;
 		margin: 0;
+		/* Flat soft-blue base so neumorphic surfaces (same colour) blend into it; the shapes are
+		   read from the .neu-* shadows, not from contrast. */
+		background-color: var(--neu-bg);
+	}
+
+	/* Light, soft scrollbars to match the UI. The WebView host is Chromium (WebView2), so the
+	   ::-webkit-scrollbar pseudo-elements apply; the default rendered as a dark bar. The track is
+	   transparent (shows the page) and the thumb is a muted blue pill, inset via a --neu-bg border. */
+	::-webkit-scrollbar {
+		width: 14px;
+		height: 14px;
+	}
+	::-webkit-scrollbar-track,
+	::-webkit-scrollbar-corner {
+		background: transparent;
+	}
+	::-webkit-scrollbar-thumb {
+		background-color: oklch(0.78 0.045 233);
+		border-radius: 9999px;
+		border: 4px solid var(--neu-bg);
+	}
+	::-webkit-scrollbar-thumb:hover {
+		background-color: oklch(0.7 0.06 245);
+	}
+}
+
+@layer components {
+	/* Raised surfaces — pushed out of the background. -sm is for smaller chrome (buttons/badges). */
+	.neu-raised {
+		background-color: var(--neu-bg);
+		box-shadow: var(--neu-shadow);
+	}
+	.neu-raised-sm {
+		background-color: var(--neu-bg);
+		box-shadow: var(--neu-shadow-sm);
+	}
+	/* Inset wells — pressed into the background (text inputs, code/JSON blocks). */
+	.neu-well {
+		background-color: var(--neu-bg);
+		box-shadow: var(--neu-inset);
+	}
+
+	/* Pressable button: raised, lifts on hover, presses in (inset) when active / open. */
+	.neu-btn {
+		background-color: var(--neu-bg);
+		box-shadow: var(--neu-shadow-sm);
+	}
+	.neu-btn:hover {
+		box-shadow: var(--neu-shadow);
+	}
+	.neu-btn:active,
+	.neu-btn[aria-expanded='true'],
+	.neu-btn[aria-pressed='true'] {
+		box-shadow: var(--neu-inset-sm);
+	}
+
+	/* Ghost: flat (no shadow) at rest, raises on hover, presses when active / open — keeps inline
+	   text buttons quiet until touched. */
+	.neu-ghost {
+		background-color: transparent;
+		box-shadow: none;
+	}
+	.neu-ghost:hover {
+		background-color: var(--neu-bg);
+		box-shadow: var(--neu-shadow-sm);
+	}
+	.neu-ghost:active,
+	.neu-ghost[aria-expanded='true'] {
+		background-color: var(--neu-bg);
+		box-shadow: var(--neu-inset-sm);
 	}
 }

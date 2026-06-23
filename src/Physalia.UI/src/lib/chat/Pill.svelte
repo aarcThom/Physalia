@@ -18,9 +18,9 @@
 	let { onclick = null, class: className = '', children }: Props = $props();
 
 	const base =
-		'inline-flex items-center rounded-md border border-[#e8bcff] bg-gradient-to-b from-white to-[#daf3f5] px-3 py-1.5 text-sm font-medium text-[#2f0857] shadow-[0_0_7px_rgba(232,188,255,0.8)]';
+		'neu-raised inline-flex items-center rounded-md px-3 py-1.5 text-sm font-medium text-[#2f0857]';
 	const interactive =
-		'cursor-pointer transition hover:to-[#c7ebef] hover:shadow-[0_0_9px_rgba(232,188,255,0.95)] active:brightness-95';
+		'cursor-pointer transition active:[box-shadow:var(--neu-inset)]';
 </script>
 
 {#if onclick}

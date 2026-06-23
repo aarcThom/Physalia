@@ -230,11 +230,11 @@
 	});
 </script>
 
-<main class="bg-background text-foreground flex h-screen flex-col overflow-hidden">
+<main class="bg-transparent text-foreground flex h-screen flex-col overflow-hidden">
 	<!-- Header: a small menu at the very top. Its dropdown reopens the provider setup screen,
 	     opens the preset gallery, or the manual-definition page. The clear-all button on the
 	     right wipes every Physalia component's signals / conversations in the open document. -->
-	<header class="flex shrink-0 items-center gap-2 border-b px-2 py-1">
+	<header class="flex shrink-0 items-center gap-2 px-2 py-1">
 		<DropdownMenu>
 			<DropdownMenuTrigger>
 				{#snippet child({ props })}
@@ -314,7 +314,7 @@
 										base64={image.base64}
 										mediaType={image.mediaType}
 										alt="attachment"
-										class="max-h-48 w-auto rounded-lg border"
+										class="neu-raised-sm max-h-48 w-auto rounded-lg"
 									/>
 								{/each}
 							</div>
@@ -340,10 +340,10 @@
 	</div>
 
 	{#if status && !showSetup}
-		<div class="text-muted-foreground shrink-0 border-t px-4 py-1 text-xs">{status}</div>
+		<div class="text-muted-foreground shrink-0 px-4 py-1 text-xs">{status}</div>
 	{/if}
 
-	<div class="shrink-0 border-t p-3">
+	<div class="shrink-0 p-3">
 		<Composer
 			disconnected={!connected}
 			{busy}

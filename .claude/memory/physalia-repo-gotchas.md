@@ -32,3 +32,10 @@ reinstalled after a dependency bump).
 **How to apply:** if the chat window shows "UI not found", confirm chat.html exists in
 `Files/UI/` and in `bin/<Config>/Files/UI/`; a no-output wrapper project skipped by VS is
 the usual cause.
+
+**`npm run build` alone does NOT reach `bin`.** It only writes `src/Physalia.UI/dist/index.html`.
+The propagation is MSBuild: the `BuildPhysaliaUI` target copies `dist/index.html` → repo
+`Files/UI/chat.html`, and `Physalia.GH` (ProjectReference) stages that into
+`bin/<Config>/Files/UI/`. So after any UI source edit, run `dotnet build src/Physalia.slnx -c Debug`
+(or build in VS) — not just `npm run build` — or the change is stranded in `dist/` and the
+chat window (loads `chat.html` via `file://`; reopen the window to pick it up) shows the old UI.

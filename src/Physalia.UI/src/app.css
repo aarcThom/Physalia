@@ -61,9 +61,22 @@
 	   bottom-right. No borders. Raised = the element pushes out of the surface; inset = it presses
 	   in (used for inputs / wells). Shadow colours are --neu-bg lightened / darkened, same blue hue.
 	   Apply via the .neu-* helper classes below, never as one-off box-shadows. */
-	--neu-bg: oklch(0.922 0.028 225);
-	--neu-light: oklch(0.99 0.012 220);
-	--neu-dark: oklch(0.8 0.05 233);
+	--neu-bg: oklch(0.978 0.01 230);
+	--neu-light: oklch(0.999 0.003 230);
+	--neu-dark: oklch(0.9 0.025 236);
+	/* User (human) message bubble: a touch lighter than the page so it lifts off the surface;
+	   paired with the Physalia purple text (matches the pills, see Pill.svelte). */
+	--neu-bubble: color-mix(in srgb, white 50%, oklch(0.993 0.006 230) 50%);
+	/* Feedback (auto-generated, not human-typed) user turns. The bubble is mostly white with a hint
+	   of pink (75% white / 25% the pink tone) and BOTH neumorphic shadows are pink-tinted — the
+	   highlight a pink-white, the lower shadow a pinkish blue — so the bubble melts into the light-
+	   blue surface rather than sitting on it as a distinct chip. */
+	--neu-feedback-tone: oklch(0.92 0.05 357);
+	--neu-feedback: color-mix(in srgb, white 87.5%, var(--neu-feedback-tone) 12.5%);
+	--neu-feedback-text: rgb(209 111 204);
+	--neu-feedback-light: color-mix(in srgb, var(--neu-light) 80%, var(--neu-feedback-tone) 20%);
+	--neu-feedback-dark: color-mix(in srgb, var(--neu-dark) 65%, var(--neu-feedback-tone) 35%);
+	--neu-feedback-shadow: 4px 4px 10px var(--neu-feedback-dark), -4px -4px 10px var(--neu-feedback-light);
 	/* The one accent: the primary call-to-action (Send) reads as a raised blue chip. */
 	--neu-accent: oklch(0.62 0.13 250);
 
@@ -165,6 +178,15 @@
 		background-color: var(--neu-bg);
 	}
 
+	/* LLM (assistant) response text: re-tone the black/foreground text within an assistant turn to
+	   the Physalia blue. Overriding --foreground (rather than each element) covers everything
+	   streamdown emits as text-foreground — paragraphs, headings, lists, inline code — in one place;
+	   muted sub-labels and accent colours keep their own tokens. .is-assistant is set on the Message
+	   wrapper (see message.svelte). */
+	.is-assistant {
+		--foreground: rgb(74 158 207);
+	}
+
 	/* Light, soft scrollbars to match the UI. The WebView host is Chromium (WebView2), so the
 	   ::-webkit-scrollbar pseudo-elements apply; the default rendered as a dark bar. The track is
 	   transparent (shows the page) and the thumb is a muted blue pill, inset via a --neu-bg border. */
@@ -177,12 +199,12 @@
 		background: transparent;
 	}
 	::-webkit-scrollbar-thumb {
-		background-color: oklch(0.78 0.045 233);
+		background-color: oklch(0.86 0.028 236);
 		border-radius: 9999px;
 		border: 4px solid var(--neu-bg);
 	}
 	::-webkit-scrollbar-thumb:hover {
-		background-color: oklch(0.7 0.06 245);
+		background-color: oklch(0.77 0.045 245);
 	}
 }
 

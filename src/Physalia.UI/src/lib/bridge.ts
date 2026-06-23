@@ -40,6 +40,9 @@ export interface UiMessage {
 	text: string;
 	images?: UiImage[];
 	tools?: UiTool[];
+	/** True when this user-role turn is auto-generated feedback (validation errors, fix-and-resubmit
+	 *  messages) rather than text the human typed — the UI styles it apart. */
+	feedback?: boolean;
 }
 
 /** Connection / busy state of the wired pipeline. */

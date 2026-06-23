@@ -1134,7 +1134,8 @@ public class ChatWindow : Form
                 role,
                 string.Join("\n\n", textParts),
                 images.Count > 0 ? images : null,
-                tools.Count > 0 ? tools : null));
+                tools.Count > 0 ? tools : null,
+                message.IsFeedback));
         }
 
         return messages;
@@ -1199,7 +1200,8 @@ public class ChatWindow : Form
         string Role,
         string Text,
         IReadOnlyList<UiImage>? Images,
-        IReadOnlyList<UiTool>? Tools);
+        IReadOnlyList<UiTool>? Tools,
+        bool Feedback);
 
     private sealed record SubmitImage(string Base64, string MediaType, string Filename);
 

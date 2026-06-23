@@ -266,7 +266,8 @@ public class Recorder : StatefulComponentBase
                     break;
                 }
 
-                RecordUserText(item.Signal.Payload);
+                // Mark as feedback (auto-generated, not human-typed) so the UI can style it apart.
+                RecordUserText(item.Signal.Payload, isFeedback: true);
                 break;
 
             case InToolSignal:
@@ -369,18 +370,18 @@ public class Recorder : StatefulComponentBase
         }
     }
 
-    private void RecordUserText(string text) =>
-        RecordUserBlocks(new MessageContent[] { new TextContent(text) }, text);
+    private void RecordUserText(string text, bool isFeedback = false) =>
+        RecordUserBlocks(new MessageContent[] { new TextContent(text) }, text, isFeedback);
 
-    private void RecordUserBlocks(IReadOnlyList<MessageContent> blocks, string traceText)
+    private void RecordUserBlocks(IReadOnlyList<MessageContent> blocks, string traceText, bool isFeedback = false)
     {
         try
         {
             // Applied per conversation: each merges or appends based on its own last role
             // (they can diverge around compaction absorbs). Merging preserves the strict
             // role alternation providers require when two user-side events arrive in a row.
-            _conversation = RecordUserInto(_conversation, blocks);
-            _recordedHistory = RecordUserInto(_recordedHistory, blocks);
+            _conversation = RecordUserInto(_conversation, blocks, isFeedback);
+            _recordedHistory = RecordUserInto(_recordedHistory, blocks, isFeedback);
             _pendingOutcome = AppendOutcome.UserTurn;
             _pendingUserText = traceText;
         }
@@ -390,10 +391,10 @@ public class Recorder : StatefulComponentBase
         }
     }
 
-    private static Conversation RecordUserInto(Conversation conversation, IReadOnlyList<MessageContent> blocks) =>
+    private static Conversation RecordUserInto(Conversation conversation, IReadOnlyList<MessageContent> blocks, bool isFeedback) =>
         conversation.Count > 0 && conversation.Messages[^1].Role == Role.User
             ? conversation.MergeIntoLastUserMessage(blocks)
-            : conversation.Append(new ConversationMessage(Role.User, blocks));
+            : conversation.Append(new ConversationMessage(Role.User, blocks) { IsFeedback = isFeedback });
 
     private void EmitOutputs(IGH_DataAccess da)
     {

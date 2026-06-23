@@ -19,4 +19,12 @@ public record ConversationMessage(Role Role, IReadOnlyList<MessageContent> Conte
         : this(role, new[] { new TextContent(text) })
     {
     }
+
+    /// <summary>
+    /// Gets a value indicating whether this user turn is auto-generated feedback (e.g. validation
+    /// errors routed back for correction) rather than text the human typed. Presentation-only: it
+    /// is ignored by provider adapters (they read only <see cref="Role"/> and <see cref="Content"/>)
+    /// and is session-only. Defaults to false.
+    /// </summary>
+    public bool IsFeedback { get; init; }
 }

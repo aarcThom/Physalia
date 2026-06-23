@@ -234,7 +234,10 @@
 	<!-- Header: a small menu at the very top. Its dropdown reopens the provider setup screen,
 	     opens the preset gallery, or the manual-definition page. The clear-all button on the
 	     right wipes every Physalia component's signals / conversations in the open document. -->
-	<header class="flex shrink-0 items-center gap-2 px-2 py-1">
+	<!-- pr matches the chat content's right edge: p-4 gutter (16px) + the reserved scrollbar gutter
+	     (14px, see app.css ::-webkit-scrollbar + scrollbar-gutter), so "Clear all components"
+	     right-aligns with the user message bubbles. -->
+	<header class="flex shrink-0 items-center gap-2 py-1 pl-2 pr-[30px]">
 		<DropdownMenu>
 			<DropdownMenuTrigger>
 				{#snippet child({ props })}
@@ -275,7 +278,7 @@
 	     shrink, so the composer stays pinned at the bottom and the chat scrolls within. -->
 	<div class="relative min-h-0 flex-1">
 		<Conversation class="h-full">
-			<ConversationContent class="min-h-0 flex-1 overflow-y-auto">
+			<ConversationContent class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
 			{#if showSetup}
 				<Setup
 					selectedId={selectedProviderId}
@@ -306,7 +309,7 @@
 
 			{#each groups as group (group.key)}
 				{#if group.kind === 'user'}
-					<Message from="user">
+					<Message from="user" feedback={group.message.feedback}>
 						{#if group.message.images?.length}
 							<div class="flex flex-wrap justify-end gap-2">
 								{#each group.message.images as image, i (i)}

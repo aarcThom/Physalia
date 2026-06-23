@@ -291,7 +291,7 @@
 		disabled={inert}
 		onkeydown={onKeyDown}
 		onpaste={onPaste}
-		class="max-h-48 min-h-10 flex-1 resize-none border-none bg-transparent p-1.5 shadow-none focus-visible:ring-0 dark:bg-transparent"
+		class="max-h-56 min-h-16 flex-1 resize-none border-none bg-transparent p-2 text-base md:text-base shadow-none focus-visible:ring-0 disabled:bg-transparent disabled:opacity-100 dark:bg-transparent"
 	/>
 
 	<Button size="icon" onclick={submit} disabled={inert} title="Send">

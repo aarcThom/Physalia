@@ -127,8 +127,12 @@
 	     fast up-to-date check rebuilds when a Files entry changes — without this, editing a schema
 	     while the C# is unchanged leaves a stale copy in the output.
 	     RemoveDir wipes the output Files folder first so deleted/renamed source files do not linger
-	     (Copy only adds/overwrites, it never removes). -->
-	<Target Name="CopyLibraryFiles" AfterTargets="Build">
+	     (Copy only adds/overwrites, it never removes).
+	     The TargetFramework guard keeps this OUT of the outer multi-targeting dispatch build: with
+	     TargetFrameworks (plural) MSBuild runs an outer build where $(TargetFramework)/$(TargetDir)
+	     are empty, so the unguarded target's "$(TargetDir)Files" destination resolves to a relative
+	     "Files" under the project dir and spawns a stray src/Physalia.GH/Files copy every build. -->
+	<Target Name="CopyLibraryFiles" AfterTargets="Build" Condition="'$(TargetFramework)' != ''">
 		<ItemGroup>
 			<LibraryFiles Include="$(MSBuildProjectDirectory)\..\..\Files\**\*" />
 		</ItemGroup>

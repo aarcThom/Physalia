@@ -484,8 +484,27 @@ internal static class GhJsonBridge
         if (result.Success)
         {
             ComponentHelpers.ApplyNickNameDisplay(result.PlacedObjects);
+
+            // The GhJSON library only reconstructs variable parameters for recognised script
+            // components, so a custom IGH_VariableParameterComponent (e.g. Router) is placed with
+            // its default params only — every user-added input/output in the file is dropped, and the
+            // wires that targeted them fail during Put. Recreate the missing params from the file's
+            // settings, then restore those dropped connections.
+            IReadOnlyCollection<int> reconciled = ReconcileVariableParameters(doc, result);
+            if (reconciled.Count > 0)
+            {
+                RecreateMissingConnections(doc, result, reconciled);
+            }
+
             RestoreFeedbackLinks(doc, result);
             afterPlace?.Invoke(result);
+
+            // Params and wires were changed after Put's own solution, so re-solve the now-expired
+            // components (and their downstream) to bring the recreated variable params live.
+            if (reconciled.Count > 0)
+            {
+                result.PlacedObjects.FirstOrDefault()?.OnPingDocument()?.NewSolution(false);
+            }
         }
 
         return result.Success
@@ -495,6 +514,172 @@ internal static class GhJsonBridge
 
     private static PlaceResult EmptyDocumentResult() =>
         new PlaceResult(false, 0, 0, 0, "The GhJSON file contains no components to place.", Array.Empty<Guid>(), Array.Empty<string>(), Array.Empty<string>());
+
+    /// <summary>
+    /// Recreates variable parameters that the GhJSON library left off a placed
+    /// <see cref="IGH_VariableParameterComponent"/>. The library only reconstructs them for known
+    /// script components, so a node like <see cref="Router"/> arrives with its default params only.
+    /// Each setting whose <c>parameterName</c> has no matching live param is minted by the node's own
+    /// <c>CreateParameter</c> (so it gets the correct type and respects the node's insertion rules)
+    /// and registered at the file's index.
+    /// </summary>
+    /// <param name="doc">The placed document (post-Fix, so ids match the Put mapping).</param>
+    /// <param name="result">The Put result carrying the id-to-guid mapping and placed objects.</param>
+    /// <returns>The GhJSON ids of the components whose params were changed.</returns>
+    private static IReadOnlyCollection<int> ReconcileVariableParameters(GhJsonDocument doc, PutResult result)
+    {
+        var reconciled = new HashSet<int>();
+        if (doc.Components is null)
+        {
+            return reconciled;
+        }
+
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.Id is not int id
+                || PlacedById(result, id) is not IGH_Component comp
+                || comp is not IGH_VariableParameterComponent varComp)
+            {
+                continue;
+            }
+
+            bool changed = ReconcileParamSide(comp, varComp, component.InputSettings, GH_ParameterSide.Input);
+            changed |= ReconcileParamSide(comp, varComp, component.OutputSettings, GH_ParameterSide.Output);
+
+            if (changed)
+            {
+                varComp.VariableParameterMaintenance();
+                comp.Params.OnParametersChanged();
+                comp.Attributes?.ExpireLayout();
+                reconciled.Add(id);
+            }
+        }
+
+        return reconciled;
+    }
+
+    /// <summary>
+    /// Adds any parameter named in <paramref name="settings"/> that is missing from one side of a
+    /// variable-parameter component. Existing params (fixed or already added) are left untouched, so
+    /// the pass is idempotent and a no-op for script components the library already handled.
+    /// </summary>
+    /// <param name="component">The placed component.</param>
+    /// <param name="varComp">The same object as its variable-parameter interface.</param>
+    /// <param name="settings">The file's parameter settings for this side, in order.</param>
+    /// <param name="side">Which side (input/output) is being reconciled.</param>
+    /// <returns>true when at least one parameter was added.</returns>
+    private static bool ReconcileParamSide(
+        IGH_Component component,
+        IGH_VariableParameterComponent varComp,
+        List<GhJsonParameterSettings>? settings,
+        GH_ParameterSide side)
+    {
+        if (settings is null || settings.Count == 0)
+        {
+            return false;
+        }
+
+        bool changed = false;
+        for (int i = 0; i < settings.Count; i++)
+        {
+            string? name = settings[i].ParameterName;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            IList<IGH_Param> live = side == GH_ParameterSide.Input ? component.Params.Input : component.Params.Output;
+            if (live.Any(p => string.Equals(p.Name, name, StringComparison.Ordinal)))
+            {
+                continue; // a fixed param, or one added on an earlier iteration
+            }
+
+            // Insert at the file's index when the node allows it there; fall back to the end. Skip if
+            // the node refuses insertion on this side entirely (e.g. Router accepts only outputs).
+            int index = Math.Min(i, live.Count);
+            if (!varComp.CanInsertParameter(side, index))
+            {
+                if (varComp.CanInsertParameter(side, live.Count))
+                {
+                    index = live.Count;
+                }
+                else
+                {
+                    continue;
+                }
+            }
+
+            IGH_Param param = varComp.CreateParameter(side, index);
+            if (param is null)
+            {
+                continue;
+            }
+
+            param.Name = name;
+            param.NickName = string.IsNullOrWhiteSpace(settings[i].NickName) ? name : settings[i].NickName;
+
+            if (side == GH_ParameterSide.Input)
+            {
+                component.Params.RegisterInputParam(param, index);
+            }
+            else
+            {
+                component.Params.RegisterOutputParam(param, index);
+            }
+
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// Re-creates the connections the library dropped because a variable param did not yet exist when
+    /// it built wires. Only connections touching a reconciled component are considered, and a wire is
+    /// added only when both endpoints resolve and it is not already present (idempotent).
+    /// </summary>
+    /// <param name="doc">The placed document.</param>
+    /// <param name="result">The Put result carrying the id-to-guid mapping and placed objects.</param>
+    /// <param name="reconciledIds">The ids of components whose params were just recreated.</param>
+    private static void RecreateMissingConnections(GhJsonDocument doc, PutResult result, IReadOnlyCollection<int> reconciledIds)
+    {
+        foreach (GhJsonConnection conn in doc.Connections ?? Enumerable.Empty<GhJsonConnection>())
+        {
+            if (conn.From?.Id is not int fromId || conn.To?.Id is not int toId
+                || (!reconciledIds.Contains(fromId) && !reconciledIds.Contains(toId)))
+            {
+                continue;
+            }
+
+            IGH_DocumentObject? fromObj = PlacedById(result, fromId);
+            IGH_DocumentObject? toObj = PlacedById(result, toId);
+            if (fromObj is null || toObj is null)
+            {
+                continue;
+            }
+
+            IGH_Param? source = FindParam(fromObj, conn.From.ParamName, output: true);
+            IGH_Param? sink = FindParam(toObj, conn.To.ParamName, output: false);
+            if (source is null || sink is null || sink.Sources.Contains(source))
+            {
+                continue;
+            }
+
+            sink.AddSource(source);
+        }
+    }
+
+    /// <summary>
+    /// Resolves a placed object from its GhJSON id via the Put id-to-guid mapping. Returns null when
+    /// the id was not placed (e.g. an invalid component skipped by Put).
+    /// </summary>
+    /// <param name="result">The Put result.</param>
+    /// <param name="id">The GhJSON component id.</param>
+    /// <returns>The placed object, or null.</returns>
+    private static IGH_DocumentObject? PlacedById(PutResult result, int id) =>
+        result.IdToGuidMapping.TryGetValue(id, out Guid guid)
+            ? result.PlacedObjects.FirstOrDefault(o => o.InstanceGuid == guid)
+            : null;
 
     // A connection from the placeholder slot to re-wire against the live anchor: the other endpoint's
     // GhJSON id + parameter name, the slot-side parameter name, and whether the slot was the source.

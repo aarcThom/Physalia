@@ -25,7 +25,7 @@
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { getProvider } from '$lib/chat/providers';
-	import type { SetupResult, SubmitMessage, UiMessage, UiState } from '$lib/bridge';
+	import type { SetupResult, SubmitMessage, UiMessage, UiPreset, UiState } from '$lib/bridge';
 
 	const BRIDGE_SCHEME = 'phbridge';
 
@@ -46,8 +46,8 @@
 	// Other full-screen pages opened from the header menu (mutually exclusive with the chat view
 	// and with setup). null = none open.
 	let panel = $state<'preset' | 'manualdef' | null>(null);
-	// Bundled preset .ghjson file names (from Files/PRESETS), pushed by the host.
-	let presets = $state<string[]>([]);
+	// Bundled presets (from Files/PRESETS), pushed by the host.
+	let presets = $state<UiPreset[]>([]);
 
 	let showSetup = $derived(needsSetup || manualSetup);
 	// Only offer "Back to chat" when setup was opened manually (a provider already exists);
@@ -81,8 +81,8 @@
 			setSetupResult: (result) => {
 				setupResult = result;
 			},
-			setPresets: (files) => {
-				presets = files ?? [];
+			setPresets: (next) => {
+				presets = next ?? [];
 			}
 		};
 
@@ -291,7 +291,11 @@
 			{:else if panel === 'manualdef'}
 				<ManualDefinition onclose={closePanel} />
 			{:else if showConnect}
-				<ConnectOptions onconnectrecorder={connectRecorder} onconfigure={openSetup} />
+				<ConnectOptions
+						onconnectrecorder={connectRecorder}
+						onpreset={() => openPanel('preset')}
+						onconfigure={openSetup}
+					/>
 			{:else}
 			{#if isEmpty}
 				<div class="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 text-center">

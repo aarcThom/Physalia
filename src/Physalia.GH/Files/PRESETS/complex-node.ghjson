@@ -1,5 +1,8 @@
 {
   "schema": "1.0",
+  "metadata": {
+    "description": "A fully featured Anthropic API based agentic workflow. Calls tools. Self reviews work."
+  },
   "components": [
     {
       "name": "Recorder",
@@ -185,7 +188,14 @@
       ],
       "outputSettings": [],
       "componentState": {
-        "selected": true
+        "selected": true,
+        "extensions": {
+          "physalia.feedbackCollectors": {
+            "collectorIds": [
+              8
+            ]
+          }
+        }
       }
     },
     {
@@ -282,7 +292,14 @@
       ],
       "outputSettings": [],
       "componentState": {
-        "selected": true
+        "selected": true,
+        "extensions": {
+          "physalia.feedbackCollectors": {
+            "collectorIds": [
+              13
+            ]
+          }
+        }
       }
     },
     {
@@ -360,7 +377,14 @@
       ],
       "outputSettings": [],
       "componentState": {
-        "selected": true
+        "selected": true,
+        "extensions": {
+          "physalia.feedbackCollectors": {
+            "collectorIds": [
+              13
+            ]
+          }
+        }
       }
     },
     {
@@ -401,7 +425,14 @@
       ],
       "outputSettings": [],
       "componentState": {
-        "selected": true
+        "selected": true,
+        "extensions": {
+          "physalia.feedbackCollectors": {
+            "collectorIds": [
+              13
+            ]
+          }
+        }
       }
     },
     {
@@ -489,7 +520,14 @@
       ],
       "outputSettings": [],
       "componentState": {
-        "selected": true
+        "selected": true,
+        "extensions": {
+          "physalia.feedbackCollectors": {
+            "collectorIds": [
+              23
+            ]
+          }
+        }
       }
     },
     {
@@ -540,7 +578,14 @@
       ],
       "outputSettings": [],
       "componentState": {
-        "selected": true
+        "selected": true,
+        "extensions": {
+          "physalia.feedbackCollectors": {
+            "collectorIds": [
+              24
+            ]
+          }
+        }
       }
     },
     {
@@ -689,7 +734,14 @@
       ],
       "outputSettings": [],
       "componentState": {
-        "selected": true
+        "selected": true,
+        "extensions": {
+          "physalia.feedbackCollectors": {
+            "collectorIds": [
+              13
+            ]
+          }
+        }
       }
     },
     {
@@ -819,7 +871,14 @@
       ],
       "outputSettings": [],
       "componentState": {
-        "selected": true
+        "selected": true,
+        "extensions": {
+          "physalia.feedbackCollectors": {
+            "collectorIds": [
+              13
+            ]
+          }
+        }
       }
     }
   ],

@@ -251,6 +251,24 @@ internal static class GhJsonBridge
     }
 
     /// <summary>
+    /// Reads the <c>metadata.description</c> from a <c>.ghjson</c> file, or null if the file is
+    /// missing/invalid or carries no description. Used to surface preset descriptions in the UI.
+    /// </summary>
+    /// <param name="path">Path to the <c>.ghjson</c> file.</param>
+    /// <returns>The description text, or null when none is available.</returns>
+    internal static string? TryReadMetadataDescription(string path)
+    {
+        try
+        {
+            return GhJson.FromFile(path).Metadata?.Description;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Parses a GhJSON string and places its components onto the active Grasshopper canvas,
     /// with the content's top-left pivot aligned to <paramref name="targetOrigin"/>.
     /// </summary>

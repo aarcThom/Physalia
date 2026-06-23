@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
@@ -86,7 +87,7 @@ public class ChatWindow : Form
     private bool? _lastNeedsSetup;
     private string? _lastStatus;
     private string? _lastConfigured;
-    private string? _lastPresets;
+    private string? _lastPresetSignature;
 
     // Cached result of the async provider-availability probe: null until the first probe lands,
     // then the setup-ids of the configured providers (empty when none → first-run setup). Mutated
@@ -614,12 +615,42 @@ public class ChatWindow : Form
         }
 
         // Bundled presets for the "Add preset" page — pushed once and whenever the set changes.
-        string presetsJson = JsonSerializer.Serialize(ListPresetFiles(), WriteOpts);
-        if (presetsJson != _lastPresets)
+        MaybePushPresets();
+    }
+
+    // Pushes the bundled presets (file name + metadata.description) to the page, but only when the
+    // set actually changes. A cheap signature (file names + last-write times) is compared first so
+    // the descriptions — which require parsing each .ghjson — are re-read only on a real change, not
+    // on every 0.15 s tick.
+    private void MaybePushPresets()
+    {
+        string dir = GetPresetsDir();
+        List<string> paths = Directory.Exists(dir)
+            ? Directory.EnumerateFiles(dir, "*.ghjson")
+                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : new List<string>();
+
+        string signature = string.Join(
+            ";",
+            paths.Select(p => $"{Path.GetFileName(p)}|{File.GetLastWriteTimeUtc(p).Ticks}"));
+        if (signature == _lastPresetSignature)
         {
-            _lastPresets = presetsJson;
-            Exec($"window.physalia&&window.physalia.setPresets&&window.physalia.setPresets({presetsJson});");
+            return;
         }
+
+        _lastPresetSignature = signature;
+
+        var presets = paths
+            .Select(p => new
+            {
+                file = Path.GetFileName(p),
+                description = Generation.GhJsonBridge.TryReadMetadataDescription(p),
+            })
+            .ToList();
+
+        string json = JsonSerializer.Serialize(presets, WriteOpts);
+        Exec($"window.physalia&&window.physalia.setPresets&&window.physalia.setPresets({json});");
     }
 
     // Kicks off the async provider-availability probe when none is in flight and either no result
@@ -950,26 +981,6 @@ public class ChatWindow : Form
         return assemblyDir is null
             ? "PRESETS"
             : Path.Combine(assemblyDir, "Files", "PRESETS");
-    }
-
-    // The .ghjson preset file names available under Files/PRESETS (just the file names, sorted),
-    // surfaced on the "Add preset" page. Empty when the directory is absent.
-    private static IReadOnlyList<string> ListPresetFiles()
-    {
-        string dir = GetPresetsDir();
-        if (!Directory.Exists(dir))
-        {
-            return Array.Empty<string>();
-        }
-
-        var files = new List<string>();
-        foreach (string path in Directory.EnumerateFiles(dir, "*.ghjson"))
-        {
-            files.Add(Path.GetFileName(path));
-        }
-
-        files.Sort(StringComparer.OrdinalIgnoreCase);
-        return files;
     }
 
     // Maps the committed conversation to the UI message shape (text / images / tool calls).

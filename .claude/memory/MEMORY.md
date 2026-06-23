@@ -21,7 +21,7 @@
 - Two projects only: Physalia.Core (net7.0) and Physalia.GH (net7.0-windows on Windows, net7.0 on Mac — set via OS-conditional TargetFrameworks).
 - CLAUDE.md was rewritten 2026-06-11 to match actual code (signal lifecycle, real namespaces/providers, built-vs-planned component inventory, Sandbox removed). If CLAUDE.md and code disagree, trust code, but drift should now be rare.
 - System.Drawing warnings (CA1416) are false positives — Rhino ships its own compatibility layer. Suppress with <NoWarn>$(NoWarn);CA1416</NoWarn> or #pragma warning disable CA1416.
-- [Physalia repo gotchas](physalia-repo-gotchas.md) — slnx lives in `src/` (`dotnet build src/Physalia.slnx`), primitives doc in `planning/`; builds leave EOL-only (empty-diff) git noise on `Files/PhySchema.json` + `agent_guides/physchema_requirements.md` (don't commit); Svelte UI wrapper needs `DisableFastUpToDateCheck` or VS skips it.
+- [Physalia repo gotchas](physalia-repo-gotchas.md) — slnx lives in `src/` (`dotnet build src/Physalia.slnx`), primitives doc in `planning/`; Files-folder build pipeline (repo-root `Files` → bin via `CopyLibraryFiles`) + its two MSBuild gotchas: the stray `src/Physalia.GH/Files` (empty `$(TargetDir)` in the outer multi-TFM build — now guarded + duplicate removed from git) and the VS one-build UI lag (BOTH `Physalia.UI` and `Physalia.GH` need `DisableFastUpToDateCheck`).
 
 ## Tool Calling (robustness Phase 4)
 - [Phase 4 keystone](tool-calling-phase4.md) — provider contract now SENDS tool definitions (`ToolDefinition` + `StreamAsync` gained `IReadOnlyList<ToolDefinition>? tools`); GH visible-loop still TODO. Landed 2026-06-16.

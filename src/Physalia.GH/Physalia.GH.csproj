@@ -12,6 +12,13 @@
     <TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('Windows'))">net7.0</TargetFrameworks>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <TargetExt>.gha</TargetExt>
+    <!-- Force VS to invoke MSBuild every build instead of skipping this project via the fast
+         up-to-date check. CopyLibraryFiles must run each build so the chat.html that the
+         Physalia.UI ProjectReference just regenerated (and any other Files/** edit) is staged
+         into bin; when VS skips GH because no .cs changed, bin's UI lags one build behind.
+         CoreCompile stays incremental (Csc still skips when no .cs changed), so the only added
+         cost is the MSBuild pass. Mirrors the same flag in Physalia.UI.csproj. -->
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
     <!-- Nullable reference types on, matching Physalia.Core. Per-file '#nullable enable'
          directives were removed once this became project-wide. -->
     <Nullable>enable</Nullable>

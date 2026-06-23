@@ -63,12 +63,22 @@ export interface SetupResult {
 	message: string;
 }
 
+/** A bundled preset (.ghjson in Files/PRESETS) offered on the Add-preset page. */
+export interface UiPreset {
+	/** The preset file name, e.g. "complex-node.ghjson" — used as the wire value when placing. */
+	file: string;
+	/** The preset's metadata.description, shown on hover. Null/absent when none is set. */
+	description?: string | null;
+}
+
 /** Functions the host invokes on the page (set by the app on mount). */
 export interface PhysaliaHost {
 	setHistory(messages: UiMessage[]): void;
 	setStream(text: string | null): void;
 	setState(state: UiState): void;
 	setSetupResult(result: SetupResult | null): void;
+	/** Bundled presets (from Files/PRESETS) for the Add-preset page. */
+	setPresets(presets: UiPreset[]): void;
 }
 
 /** Strips a `data:<mime>;base64,` prefix, returning the raw base64 payload. The

@@ -416,6 +416,21 @@ public abstract class StatefulComponentBase : PhyBase
         }
     }
 
+    /// <summary>
+    /// Clears every trace of the lifecycle back to <see cref="SolveState.Empty"/>: latched
+    /// output backing fields (<see cref="ClearStateOutputs"/>), domain data such as a recorded
+    /// conversation (<see cref="OnCleared"/>), and both outgoing signals (<see cref="ResetToEmpty"/>).
+    /// Does NOT re-solve — the caller decides when to recompute (the menu item expires this
+    /// component; a document-wide sweep expires all at once). Consume-once bookkeeping is
+    /// deliberately left intact, matching the menu Clear: clearing must never replay events.
+    /// </summary>
+    public void ClearLifecycle()
+    {
+        ClearStateOutputs();
+        OnCleared();
+        ResetToEmpty();
+    }
+
     /// <inheritdoc/>
     public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
     {
@@ -423,9 +438,7 @@ public abstract class StatefulComponentBase : PhyBase
         Menu_AppendSeparator(menu);
         Menu_AppendItem(menu, ClearMenuText, (_, _) =>
         {
-            ClearStateOutputs();
-            OnCleared();
-            ResetToEmpty();
+            ClearLifecycle();
             ExpireSolution(true);
         });
     }

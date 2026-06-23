@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
@@ -86,6 +87,7 @@ public class ChatWindow : Form
     private bool? _lastNeedsSetup;
     private string? _lastStatus;
     private string? _lastConfigured;
+    private string? _lastPresetSignature;
 
     // Cached result of the async provider-availability probe: null until the first probe lands,
     // then the setup-ids of the configured providers (empty when none → first-run setup). Mutated
@@ -252,6 +254,12 @@ public class ChatWindow : Form
                 break;
             case "connectrecorder":
                 HandleConnectRecorder();
+                break;
+            case "placepreset":
+                HandlePlacePreset(uri);
+                break;
+            case "clearall":
+                HandleClearAll();
                 break;
         }
     }
@@ -605,6 +613,44 @@ public class ChatWindow : Form
                 new { connected, busy, ready, needsSetup, status, configuredProviders }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
+
+        // Bundled presets for the "Add preset" page — pushed once and whenever the set changes.
+        MaybePushPresets();
+    }
+
+    // Pushes the bundled presets (file name + metadata.description) to the page, but only when the
+    // set actually changes. A cheap signature (file names + last-write times) is compared first so
+    // the descriptions — which require parsing each .ghjson — are re-read only on a real change, not
+    // on every 0.15 s tick.
+    private void MaybePushPresets()
+    {
+        string dir = GetPresetsDir();
+        List<string> paths = Directory.Exists(dir)
+            ? Directory.EnumerateFiles(dir, "*.ghjson")
+                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : new List<string>();
+
+        string signature = string.Join(
+            ";",
+            paths.Select(p => $"{Path.GetFileName(p)}|{File.GetLastWriteTimeUtc(p).Ticks}"));
+        if (signature == _lastPresetSignature)
+        {
+            return;
+        }
+
+        _lastPresetSignature = signature;
+
+        var presets = paths
+            .Select(p => new
+            {
+                file = Path.GetFileName(p),
+                description = Generation.GhJsonBridge.TryReadMetadataDescription(p),
+            })
+            .ToList();
+
+        string json = JsonSerializer.Serialize(presets, WriteOpts);
+        Exec($"window.physalia&&window.physalia.setPresets&&window.physalia.setPresets({json});");
     }
 
     // Kicks off the async provider-availability probe when none is in flight and either no result
@@ -768,6 +814,88 @@ public class ChatWindow : Form
         Instances.ActiveCanvas?.Refresh();
     }
 
+    // Clears every Physalia lifecycle component in the open document back to Empty — dropping
+    // latched signals and wiping recorded conversations / histories — then recomputes once so the
+    // cleared state propagates and the canvas redraws. The whole-document analogue of a single
+    // component's right-click "Clear" menu item. Runs on the UI thread (bridge dispatch), so
+    // editing the document and forcing a solve is safe (same as HandleConnectRecorder).
+    private void HandleClearAll()
+    {
+        GH_Document? doc = _component.OnPingDocument() ?? Instances.ActiveCanvas?.Document;
+        if (doc is null)
+        {
+            return;
+        }
+
+        int cleared = 0;
+        foreach (IGH_DocumentObject obj in doc.Objects)
+        {
+            if (obj is StatefulComponentBase stateful)
+            {
+                stateful.ClearLifecycle();
+                cleared++;
+            }
+        }
+
+        if (cleared > 0)
+        {
+            doc.NewSolution(true); // expire all + recompute so cleared wires/state propagate
+            Instances.ActiveCanvas?.Refresh();
+        }
+    }
+
+    // Places a bundled preset (.ghjson from Files/PRESETS) onto the canvas at the centre of the
+    // current view. The requested file name is validated against the presets directory (only a
+    // bare file name from the enumerated set is honoured — no path traversal). Runs on the UI
+    // thread (bridge dispatch); GhJsonBridge.LoadAndPlace -> Put mutates the document and triggers
+    // its own solution, which is safe here (outside any active solve, as in HandleConnectRecorder).
+    private void HandlePlacePreset(Uri uri)
+    {
+        string file = Path.GetFileName(GetQueryValue(uri.Query, "file"));
+        if (string.IsNullOrEmpty(file))
+        {
+            return;
+        }
+
+        string presetsDir = GetPresetsDir();
+        string path = Path.Combine(presetsDir, file);
+        if (!File.Exists(path))
+        {
+            Rhino.RhinoApp.WriteLine($"[Physalia] Preset not found: {file}");
+            return;
+        }
+
+        GH_Canvas? canvas = Instances.ActiveCanvas;
+        if (canvas is null)
+        {
+            return;
+        }
+
+        // Ensure a document exists to place into (the window may have been opened on an empty canvas).
+        GH_Document? doc = canvas.Document ?? CreateActiveDocument(canvas);
+        if (doc is null)
+        {
+            return;
+        }
+
+        try
+        {
+            System.Drawing.PointF origin = canvas.Viewport.MidPoint;
+            Generation.PlaceResult result = Generation.GhJsonBridge.LoadAndPlace(path, origin);
+            if (!result.Success)
+            {
+                Rhino.RhinoApp.WriteLine($"[Physalia] Preset placement failed: {result.ErrorMessage}");
+                return;
+            }
+
+            canvas.Refresh();
+        }
+        catch (Exception ex)
+        {
+            Rhino.RhinoApp.WriteLine($"[Physalia] Preset placement failed: {ex.Message}");
+        }
+    }
+
     private static IGH_Param? FindInputByName(IGH_Component component, string name)
     {
         foreach (IGH_Param param in component.Params.Input)
@@ -844,6 +972,15 @@ public class ChatWindow : Form
         return assemblyDir is null
             ? "API_KEY_CONFIG.YAML"
             : Path.Combine(assemblyDir, "Files", "API_KEY_CONFIG.YAML");
+    }
+
+    // Directory of bundled GhJSON preset definitions shipped beside the plug-in (Files/PRESETS).
+    private static string GetPresetsDir()
+    {
+        string? assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        return assemblyDir is null
+            ? "PRESETS"
+            : Path.Combine(assemblyDir, "Files", "PRESETS");
     }
 
     // Maps the committed conversation to the UI message shape (text / images / tool calls).

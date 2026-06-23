@@ -10,18 +10,22 @@
 	import AssistantTurnGroup from '$lib/chat/AssistantTurnGroup.svelte';
 	import Composer from '$lib/chat/Composer.svelte';
 	import Setup from '$lib/chat/Setup.svelte';
+	import Preset from '$lib/chat/Preset.svelte';
+	import ManualDefinition from '$lib/chat/ManualDefinition.svelte';
 	import ConnectOptions from '$lib/chat/ConnectOptions.svelte';
 	import {
 		DropdownMenu,
 		DropdownMenuTrigger,
 		DropdownMenuContent,
-		DropdownMenuItem
+		DropdownMenuItem,
+		DropdownMenuSeparator
 	} from '$lib/components/ui/dropdown-menu/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import MenuIcon from '@lucide/svelte/icons/menu';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { getProvider } from '$lib/chat/providers';
-	import type { SetupResult, SubmitMessage, UiMessage, UiState } from '$lib/bridge';
+	import type { SetupResult, SubmitMessage, UiMessage, UiPreset, UiState } from '$lib/bridge';
 
 	const BRIDGE_SCHEME = 'phbridge';
 
@@ -38,6 +42,12 @@
 	let manualSetup = $state(false);
 	let selectedProviderId = $state<string | null>(null);
 	let setupResult = $state<SetupResult | null>(null);
+
+	// Other full-screen pages opened from the header menu (mutually exclusive with the chat view
+	// and with setup). null = none open.
+	let panel = $state<'preset' | 'manualdef' | null>(null);
+	// Bundled presets (from Files/PRESETS), pushed by the host.
+	let presets = $state<UiPreset[]>([]);
 
 	let showSetup = $derived(needsSetup || manualSetup);
 	// Only offer "Back to chat" when setup was opened manually (a provider already exists);
@@ -70,6 +80,9 @@
 			},
 			setSetupResult: (result) => {
 				setupResult = result;
+			},
+			setPresets: (next) => {
+				presets = next ?? [];
 			}
 		};
 
@@ -125,6 +138,18 @@
 		window.location.href = `${BRIDGE_SCHEME}://connectrecorder`;
 	}
 
+	// Ask the host to place the chosen bundled preset (.ghjson) on the canvas, then return to chat.
+	function placePreset(file: string) {
+		window.location.href = `${BRIDGE_SCHEME}://placepreset?file=${encodeURIComponent(file)}`;
+		panel = null;
+	}
+
+	// Ask the host to clear signals / conversations / histories from every Physalia component in
+	// the open document.
+	function clearAllComponents() {
+		window.location.href = `${BRIDGE_SCHEME}://clearall`;
+	}
+
 	// Hand a pasted API key to the host, which writes it to API_KEY_CONFIG.YAML and reports back
 	// via setSetupResult. encodeURIComponent keeps the key intact in the URL (no literal '+').
 	function saveKey(providerId: string, key: string) {
@@ -139,6 +164,7 @@
 
 	function openSetup() {
 		manualSetup = true;
+		panel = null;
 		selectedProviderId = null;
 		setupResult = null;
 	}
@@ -147,6 +173,18 @@
 		manualSetup = false;
 		selectedProviderId = null;
 		setupResult = null;
+	}
+
+	// Open one of the header-menu pages (preset / manual definition), leaving setup.
+	function openPanel(which: 'preset' | 'manualdef') {
+		panel = which;
+		manualSetup = false;
+		selectedProviderId = null;
+		setupResult = null;
+	}
+
+	function closePanel() {
+		panel = null;
 	}
 
 	let isEmpty = $derived(messages.length === 0 && !stream);
@@ -193,8 +231,9 @@
 </script>
 
 <main class="bg-background text-foreground flex h-screen flex-col overflow-hidden">
-	<!-- Header: a small menu at the very top. Its dropdown reopens the provider setup screen at
-	     any time (even with a provider already configured) so more can be added later. -->
+	<!-- Header: a small menu at the very top. Its dropdown reopens the provider setup screen,
+	     opens the preset gallery, or the manual-definition page. The clear-all button on the
+	     right wipes every Physalia component's signals / conversations in the open document. -->
 	<header class="flex shrink-0 items-center gap-2 border-b px-2 py-1">
 		<DropdownMenu>
 			<DropdownMenuTrigger>
@@ -205,11 +244,31 @@
 					</Button>
 				{/snippet}
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align="start">
-				<DropdownMenuItem onSelect={openSetup}>Set up providers…</DropdownMenuItem>
+			<DropdownMenuContent align="start" class="w-60">
+				<DropdownMenuItem class="whitespace-nowrap" onSelect={openSetup}>
+					Set up providers…
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('preset')}>
+					Add preset
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('manualdef')}>
+					Add new manual definition
+				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
 		<span class="text-muted-foreground text-xs font-medium">Physalia Chat</span>
+		<Button
+			variant="outline"
+			size="sm"
+			class="ml-auto gap-1.5"
+			title="Clear signals, conversations and histories from every Physalia component in the open document"
+			onclick={clearAllComponents}
+		>
+			<Trash2Icon class="size-3.5" />
+			Clear all components
+		</Button>
 	</header>
 
 	<!-- flex-1 + min-h-0 lets this region size to the space left by the composer and
@@ -227,8 +286,16 @@
 					onopenlink={openLink}
 					onclose={closeSetup}
 				/>
+			{:else if panel === 'preset'}
+				<Preset {presets} onplace={placePreset} onclose={closePanel} />
+			{:else if panel === 'manualdef'}
+				<ManualDefinition onclose={closePanel} />
 			{:else if showConnect}
-				<ConnectOptions onconnectrecorder={connectRecorder} onconfigure={openSetup} />
+				<ConnectOptions
+						onconnectrecorder={connectRecorder}
+						onpreset={() => openPanel('preset')}
+						onconfigure={openSetup}
+					/>
 			{:else}
 			{#if isEmpty}
 				<div class="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 text-center">

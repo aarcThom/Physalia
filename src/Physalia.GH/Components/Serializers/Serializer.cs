@@ -29,6 +29,10 @@ public class Serializer : PhyBase
     private string? _statusMessage;
     private GH_RuntimeMessageLevel _statusLevel = GH_RuntimeMessageLevel.Remark;
 
+    // Latest Comment input, captured each solve. The interactive completion runs outside
+    // SolveInstance (from a canvas key handler), so it reads this rather than the live DA.
+    private string _comment = string.Empty;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="Serializer"/> class.
     /// </summary>
@@ -49,6 +53,14 @@ public class Serializer : PhyBase
             "Set to true to begin selecting objects to export. Press Enter to confirm, Esc to cancel.",
             GH_ParamAccess.item,
             false);
+
+        pManager.AddTextParameter(
+            "Comment",
+            "C",
+            "Optional description written to the file's metadata (top of the .ghjson).",
+            GH_ParamAccess.item,
+            string.Empty);
+        pManager[1].Optional = true;
     }
 
     /// <inheritdoc/>
@@ -72,6 +84,11 @@ public class Serializer : PhyBase
         {
             return;
         }
+
+        // Optional; capture for the deferred interactive export (which has no DA of its own).
+        string comment = string.Empty;
+        DA.GetData(1, ref comment);
+        _comment = comment ?? string.Empty;
 
         // Trigger on the rising edge of Run, and never while an interaction is already in flight.
         // The selection prompt is drawn as a persistent canvas overlay (SerializeWidget)
@@ -171,7 +188,7 @@ public class Serializer : PhyBase
 
         try
         {
-            GhJsonBridge.ExportToFile(guids, path);
+            GhJsonBridge.ExportToFile(guids, path, _comment);
             SetStatus($"Exported {selected.Count} object(s) to {path}", GH_RuntimeMessageLevel.Remark);
         }
         catch (Exception ex)

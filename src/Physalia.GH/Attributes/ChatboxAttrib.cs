@@ -35,6 +35,8 @@ public class ChatboxAttrib : GH_ComponentAttributes
     public override GH_ObjectResponse RespondToMouseDoubleClick(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
         _chatbox.OpenWindow();
+        _chatbox.Attributes.Selected = false;
+        sender.Refresh();
         return GH_ObjectResponse.Handled;
     }
 }

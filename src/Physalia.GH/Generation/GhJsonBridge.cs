@@ -453,7 +453,8 @@ internal static class GhJsonBridge
     }
 
     // Shared PutOptions for every Physalia placement: explicit offset (no auto-layout), connections
-    // and groups created, fresh instance guids, invalid components skipped, placed objects selected.
+    // and groups created, fresh instance guids, invalid components skipped, placed objects left
+    // deselected (so a fresh deserialize/placement doesn't drop a selection lasso on the canvas).
     private static PutOptions BuildPutOptions(PointF offset) => new PutOptions
     {
         Offset = offset,
@@ -462,7 +463,7 @@ internal static class GhJsonBridge
         CreateGroups = true,
         RegenerateInstanceGuids = true,
         SkipInvalidComponents = true,
-        SelectPlacedObjects = true,
+        SelectPlacedObjects = false,
     };
 
     // Runs Put for an already-Fixed document with caller-built options, then on success applies
@@ -484,6 +485,11 @@ internal static class GhJsonBridge
         if (result.Success)
         {
             ComponentHelpers.ApplyNickNameDisplay(result.PlacedObjects);
+
+            // PutOptions.SelectPlacedObjects is false, but the GhJSON library still selects created
+            // groups (and their members), so a preset carrying a group lands selected. Deselect every
+            // freshly placed object so all placements come in clean.
+            DeselectPlaced(result);
 
             // The GhJSON library only reconstructs variable parameters for recognised script
             // components, so a custom IGH_VariableParameterComponent (e.g. Router) is placed with
@@ -510,6 +516,37 @@ internal static class GhJsonBridge
         return result.Success
             ? new PlaceResult(true, result.ComponentsPlaced, result.ConnectionsCreated, result.Warnings.Count, null, result.PlacedObjects.Select(o => o.InstanceGuid).ToList(), result.Warnings.ToList(), unfixedIssues)
             : new PlaceResult(false, 0, 0, 0, result.ErrorMessage, Array.Empty<Guid>(), Array.Empty<string>(), unfixedIssues);
+    }
+
+    // Deselects every freshly placed object plus any group that contains one. The GhJSON library
+    // selects groups it creates (and their members) regardless of PutOptions.SelectPlacedObjects, so
+    // a preset carrying a group otherwise lands selected; a created group is not always reported in
+    // PlacedObjects, hence the separate group sweep over the live document.
+    private static void DeselectPlaced(PutResult result)
+    {
+        var placedGuids = new HashSet<Guid>(result.PlacedObjects.Select(o => o.InstanceGuid));
+
+        foreach (IGH_DocumentObject obj in result.PlacedObjects)
+        {
+            if (obj.Attributes is not null)
+            {
+                obj.Attributes.Selected = false;
+            }
+        }
+
+        GH_Document? doc = result.PlacedObjects.FirstOrDefault()?.OnPingDocument();
+        if (doc is null)
+        {
+            return;
+        }
+
+        foreach (Grasshopper.Kernel.Special.GH_Group group in doc.Objects.OfType<Grasshopper.Kernel.Special.GH_Group>())
+        {
+            if (group.Attributes is not null && group.ObjectIDs.Any(placedGuids.Contains))
+            {
+                group.Attributes.Selected = false;
+            }
+        }
     }
 
     private static PlaceResult EmptyDocumentResult() =>

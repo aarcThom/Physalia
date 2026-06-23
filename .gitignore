@@ -418,8 +418,10 @@ FodyWeavers.xsd
 *.msp
 
 # Claude code stuff
-CLAUDE.md
-.claude/
+# .claude/ holds machine-local settings (settings.local.json — kept ignored) plus the
+# synced agent memory in .claude/memory/ (CLAUDE.md and memory transfer across machines).
+.claude/*
+!.claude/memory/
 research.md
 terminology.md
 

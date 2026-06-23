@@ -1,0 +1,207 @@
+# Physalia — CLAUDE.md
+
+## Role
+Pair programmer. Give advice and answers by default. Make code changes **only** when explicitly asked ("make this change", "edit this", "fix this").
+
+---
+
+## Project Overview
+
+Physalia is a Grasshopper (Rhino) AI plugin. It builds a visual node-based pipeline that connects LLM inference to Grasshopper document manipulation.
+
+- **Working dir:** `C:\Users\rober\repos\Physalia\src`
+- **Projects:** `Physalia.Core` (net7.0), `Physalia.GH` (net7.0-windows on Windows, net7.0 on Mac — OS-conditional TargetFrameworks)
+- **Planning docs:** `planning/data-marshalling.md` (**authoritative** for signals + component lifecycle), `planning/physalia-primitives.md` (component spec), `planning/api_research.md`, `src/planning/ghjson-implementation.md`
+
+---
+
+## Core Architecture
+
+### Boundary Rule
+`Physalia.Core` is a pure functional library — no side effects, no GH dependency. GH owns all mutable state.
+
+### Namespace Structure (actual)
+```
+Physalia.Core/
+    Common/          ← Result<T,E>, LlmError, LlmErrorKind, LlmResponseChunk, LlmUsage,
+                       LlmToolCall, HttpErrorMapper, StringHelpers
+    Config/          ← Api (YAML key file parsing), ApiKey, LlmProviderFactory
+    ConvoInstruct/   ← Role, MessageContent, ImageSource, ConversationMessage,
+                       Conversation, ConversationHelpers, Instructions
+    Models/          ← ModelConfig (abstract), ModelEntry, ModelList
+        Protocol/    ← OpenAIProtocolConfig, AnthropicProtocolConfig, GeminiProtocolConfig (abstract records)
+        Named/       ← OpenAICompatibleConfig, AnthropicConfig, GeminiConfig, LlamaCppConfig
+    Providers/       ← ILlmProvider, ProtocolProviderBase (HttpClient + shared request/stream helpers)
+        OpenAiProtocol/, Anthropic/, Gemini/  ← protocol providers (per-provider wire-format parsing)
+        Named/       ← OpenAICompatibleProvider, AnthropicProvider, GeminiProvider, LlamaCppProvider
+    Signals/         ← PhySignal, SignalOutcome, SignalSequencer
+    Tokens/          ← ITokenEstimator + estimators, AsyncTokenEstimation, TokenEstimationHelpers
+    Validation/      ← SchemaValidator, ValidationError, JsonExtractor
+```
+
+### Conversation Model (`ConvoInstruct/`)
+```csharp
+public enum Role { User, Assistant }  // Tool added when tool-calls land
+
+public abstract record MessageContent;
+public record TextContent(string Text) : MessageContent;
+public record ImageContent(ImageSource Source) : MessageContent;
+
+public abstract record ImageSource;       // InlineImage, UrlImage, ManagedImage
+
+public record ConversationMessage(Role Role, IReadOnlyList<MessageContent> Content);
+public record Instructions(string SystemPrompt, Conversation Conversation);
+```
+
+- `Conversation` is a **class** (not record) — `Append()` returns a new `Conversation`, enforces invariants (no consecutive same-role turns); `MergeIntoLastUserMessage()` handles user-side text when the last turn is already a user message (providers require strict role alternation).
+- `Instructions` bundles conversation + system prompt for one inference call (Recorder → Reasoner).
+- Images travel inside `ConversationMessage`, not as a side-channel.
+
+### Provider Hierarchy
+Abstract classes (not interfaces) — share `HttpClient` state via `ProtocolProviderBase`.
+```
+ProtocolProviderBase
+    OpenAIProtocolProvider    → OpenAICompatibleProvider, LlamaCppProvider
+    AnthropicProtocolProvider → AnthropicProvider
+    GeminiProtocolProvider    → GeminiProvider
+```
+- `ProtocolProviderBase` owns HttpClient, `TryGetConfig<T>`, `SendStreamingRequestAsync`, `SendForStringAsync`, `ReadStreamLineAsync`, `ParseModelIdsFromDataArray`. **Wire-format/SSE parsing stays per-protocol provider** — do not merge it.
+- `ModelConfig` hierarchy mirrors the provider hierarchy. DeepSeek/Ollama/OpenRouter/Groq etc. ride `OpenAICompatibleProvider` via base-URL swap, not separate classes.
+- `HttpErrorMapper.MapStatusCode` is the single HTTP-status → `LlmErrorKind` source.
+
+### Provider Interface
+```csharp
+IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
+    Conversation conversation, string systemPrompt, ModelConfig config, CancellationToken ct);
+```
+
+### Result / Error Types
+```csharp
+Result<T, E>   // rolled our own (.Ok / .Err nested records), no external dependency
+public record LlmError(LlmErrorKind Kind, string Message);
+public enum LlmErrorKind { Network, Auth, RateLimit, InvalidRequest, Timeout, Cancelled }
+public record LlmResponseChunk(string? ContentDelta, bool IsLast, LlmUsage? Usage,
+                               IReadOnlyList<LlmToolCall>? ToolCalls = null);
+public record LlmUsage(int InputTokens, int OutputTokens);
+```
+
+### Validation (Auditor)
+Pure functions: `JsonExtractor.ExtractJson/PrettyPrint` (strip LLM prose / markdown fences) and `SchemaValidator.Validate(string json, string schema) → Result<string, ValidationError>`.
+
+### API Key Resolution (`Config/`)
+1. Environment variable (convention wins)
+2. YAML config file (`Files/API_KEY_CONFIG.YAML`)
+
+Fail explicitly if neither source has the key. No third fallback. **API keys are never serialized into GH files** (`GH_ModelConfig.Write/Read` are intentional no-ops).
+
+---
+
+## Signals & Component Lifecycle (reworked 2026-06; authoritative doc: `planning/data-marshalling.md`)
+
+Events between pipeline components travel as **`PhySignal`s** — immutable, sequence-numbered, **latched** (no momentary pulses, no pulse-reset solves). The signal **payload is the only data carrier** between pipeline components (result string on success, feedback string on failure): one wire per hop, never a parallel data wire.
+
+- `SignalSequencer` issues process-wide monotonic sequences; **sequence order is causal order**. Receivers keep a per-input consumed high-water mark, so each signal is consumed **exactly once** — idle re-solves, recomputes, and coalesced schedules can never re-fire, reorder, duplicate, or drop events. Correctness is by identity, not timing.
+- **Two-layer base classes** (`src/Physalia.GH/Components/`):
+  - `StatefulComponentBase : PhyBase` — solve state machine (`Empty / Active / SolveSuccess / SolveFailure` + canvas caption), `ObserveSignalInputs` (call every solve, even while Active), `TryConsumeOldestSignal` / `ConsumeAllSignals` (global sequence order), `LatchSuccess/LatchFailure` (mint latched outgoing signal; `emitSignal:false` = quiet), and `ScheduleStateSolve` — the **single scheduling funnel**, wall-clock honest (re-arms when GH's one collapsing document schedule flushes early), safe from background threads.
+  - `RoutingComponentBase<TData> : StatefulComponentBase` — the routing contract. Base-owned `Signal` input (list, optional, registered last); outputs `Success Signal`(0) / `Fail Signal`(1). Subclasses implement `TryGetData` (usually `signal.Payload`), `PushSolve` (side effects), `ReadSolve` (result), optionally `IsReadReady` (settle gate, bounded retries). Async components (Reasoner) set `AutoScheduleRead => false` and call `RequestReadPass()` from their completion callback.
+- Signal inputs accept **only** signals. A bare bool (Button/Toggle) has no payload, so wiring one into a Signal input is a hard error — same as text, numbers, or geometry. `ObserveSignalInputs` detects a foreign source by inspecting the source goo directly (it keeps its original type after the failed cast), so a null/empty wire is tolerated and only a genuinely foreign source fails loudly. Manual runs go through ConstructSignal, whose dedicated native Boolean Trigger input (`ObserveButtonPress` — one mint per false→true press, nothing on load/paste) mints a payload-carrying signal. That is the one sanctioned place a Button drives the pipeline.
+- **Nothing in the lifecycle persists** — state, signals, and consume-once bookkeeping are session-only; every component reopens Empty.
+- Rules for new components: never gate on bool edges between Physalia components; never encode ordering in `ScheduleSolution` delays; observe signal inputs every solve; the payload IS the data.
+
+---
+
+## GH Component Inventory
+
+### Built (`src/Physalia.GH/Components/`)
+| Folder | Components |
+|---|---|
+| **Core** | Composer (system prompt assembly), Prompter (chat UI entry point; Shift+Enter mints a Prompt Signal; displays the wired Recorder's conversation), Recorder (append-only conversation log; identity-based turns via three Signal inputs), Reasoner (async LLM forward pass), Auditor (JSON extraction + schema validation) |
+| **GhPython** | PyTransmitter (pushes generated Python into a linked Script component via grip-link; routes its errors), PythonShortcut |
+| **Models** | AnthropicModel/Tweaker, GeminiModel/Tweaker, OpenAICompatibleModel/Tweaker, ModelInformation, LlamaCppModelInfo, ApiKeys (+ `ModelComponentBase`, `TweakerComponentBase<TConfig>`) |
+| **Regulators** | Feedback, FeedbackCollector (wireless signal transport via grip-link; deliberately breaks the GH DAG) |
+| **Serializers** | Serializer / Deserializer (.ghjson canvas export/import via `GhJsonBridge`), SchemaTranslator |
+| **Signals** | ConstructSignal (manual mint), DeconstructSignal (passive inspect — never consumes) |
+| **Tokens** | TokenEstimator |
+| **Utility** | Picker, Conversation/Message/Instructions Compositors + Decompositors |
+
+### Planned, not yet built (spec: `planning/physalia-primitives.md`)
+PyValidator, Receiver, Counter, Meter, Monitor, Observer, Library, Aggregator, Router — plus Reasoner alternate roles via `.skill` files (Distiller, Reflector, Interpreter, etc.).
+
+---
+
+## Provider Integration Notes (API research — see `planning/api_research.md`)
+
+### Temperature
+- Anthropic range: `0.0–1.0`. OpenAI/Gemini/DeepSeek: `0.0–2.0`. **Clamp/normalise on intake for Anthropic.**
+- `max_tokens` is **required** on Anthropic — always inject a default.
+
+### Provider-as-adapter pattern
+- DeepSeek, Ollama, OpenRouter, Groq: `OpenAICompatibleProvider` + base URL swap.
+- DeepSeek thinking mode: drop `logprobs`/`top_logprobs` before forwarding (hard 400 error); manage `reasoning_content` in history depending on next turn type.
+- Ollama: `keep_alive` default `"5m"` or `"-1"` for agent loops; native API streams by default (inverse of cloud providers).
+- OpenRouter model IDs are namespaced: `anthropic/claude-sonnet-4-6`, `openai/gpt-4o`, etc.
+
+### Image Delivery
+- OpenAI + Anthropic: accept arbitrary public URLs inline. Gemini requires GCS or Files API URI.
+- Anthropic Files API: indefinite persistence. Gemini Files API: 48h TTL.
+- `ImageSource` discriminated union: `InlineImage`, `UrlImage`, `ManagedImage` — each adapter maps to provider format.
+
+---
+
+## C# Conventions
+
+- Abstract base class over interface when all implementations are controlled and share state.
+- `private readonly` fields + constructor injection; `ArgumentNullException.ThrowIfNull()` for null guard (net7.0).
+- `ThrowIfNullOrWhiteSpace` is net8.0+ — use `string.IsNullOrWhiteSpace + throw ArgumentException` on net7.0.
+- Template method: public non-virtual validates → calls `protected abstract` Core method.
+- `HttpClient` as `protected readonly` on base class — never instantiate per-request.
+- `throw new InvalidOperationException()` over base `Exception` for deserialization failures.
+- Abstract properties for per-subclass constants (`ProviderName`, `MaxTokens`).
+- XML doc: always multi-line, one tag per line, plain text in `<returns>` and `<param>`.
+- Copyright header: `Copyright (c) 2026 Physalia Contributors / SPDX-License-Identifier: AGPL-3.0-or-later`
+
+## GH Rendering Patterns
+- `GH_FontServer.StandardAdjusted`: zoom-aware text in custom `Render()`.
+- Custom `Layout()` without `base.Layout()`: manually set all param `Attributes.Pivot` + `Bounds`.
+- `GH_Capsule.AddOutputGrip(y)`: visual only — param bounds must be set separately for wire interaction.
+- `ContextMenuStrip` (WinForms) works on GH canvas; `Eto.ContextMenu` does not.
+- MidY: `Bounds.Y + Bounds.Height / 2f` (no `MidY` helper).
+- `InstanceGuid` = per-object UUID. `ComponentGuid` = static type GUID. Always use `InstanceGuid` for serialization/lookup.
+- Grip drag-to-link (Feedback, PyTransmitter): shared state machine in `Attributes/GripLinkAttrib.cs`.
+
+## GH Async Pattern
+- `AddRuntimeMessage` must be called during `SolveInstance` on the main thread.
+- Pattern: store warning in a field from the async task → emit via `AddRuntimeMessage` in `SolveInstance` → clear field.
+- Lifecycle components marshal async completion via `RequestReadPass()` / `ScheduleStateSolve` (safe from background threads) — never act on results directly from a `Task.Run` continuation.
+
+## Build
+- `System.Drawing` warnings (CA1416) are false positives — suppress with `<NoWarn>$(NoWarn);CA1416</NoWarn>`.
+- StyleCop enforced; SA1101 suppressed (underscore prefix convention used).
+
+## SystemPrompt Type Hints
+Primitives: `Number`, `Integer`, `Boolean`, `Text`
+Geometry: `Point`, `Vector`, `Plane`, `Line`, `Circle`, `Arc`, `Curve`, `Surface`, `Brep`, `Mesh`, `Geometry`, `Box`, `Transform`, `Interval`
+Other: `Colour`
+
+---
+
+## File Layout
+```
+/Physalia
+    /src
+        /Physalia.Core
+        /Physalia.GH
+        /planning
+            ghjson-implementation.md
+    /planning
+        data-marshalling.md      ← signals + lifecycle (authoritative)
+        physalia-primitives.md   ← component spec
+        api_research.md
+    /Files
+        API_KEY_CONFIG.YAML (+ .example)
+        /SKILLS           ← .skill files (Reasoner instructions)
+        /SYSTEM_PROMPTS
+        /PROMPTS
+        /RECEIVERS        ← .receiver files
+        /agent_guides
+```

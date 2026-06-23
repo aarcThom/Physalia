@@ -1,0 +1,178 @@
+# Physalia Project Memory
+
+## Meta
+- [Memory sync setup](memory-sync-setup.md) — CLAUDE.md + this memory sync across computers via git: canonical files in repo `.claude/memory/`, global memory path is a junction into the repo. New machine needs a one-time junction (command in the note).
+
+## General Preferences
+- Search the internet (WebFetch, WebSearch) anytime it would help answer a question — don't hesitate.
+- Record progress in MEMORY.md (and topic files if needed) whenever meaningful progress is made — don't wait to be asked.
+- Make code changes only when explicitly prompted (e.g. "make this change", "edit this", "fix this"). Default to advice/answers only otherwise.
+- Never run git commit. When asked for a commit message, write it out as text only.
+
+## Project
+- Grasshopper AI plugin for Rhino (Physalia)
+- Pair programmer role: give advice, answer questions; make code changes only when explicitly asked
+- Working dir: C:\Users\rober\repos\Physalia\src
+- [Chat widget](chat-widget.md) — bottom-right GH canvas widget (above the compass) that opens the chat window; find-or-creates a Chatbox; setup-state detection via IsPipelineReady. Windows-only for now.
+- [Chat window](chat-window.md) — standalone Eto WebView chat (additive to Prompter). FULL Svelte/shadcn/svelte-ai-elements UI in new `src/Physalia.UI` project (chain-of-thought thinking, tool calls, light mode, image paste/drop, JSON auto-collapse); builds clean → `Files/UI/chat.html`. Send/freeze/scroll/JSON fixed in Rhino; broader live test pending. Plan: `planning/chat-window.md`.
+
+## Platform / Build
+- Two projects only: Physalia.Core (net7.0) and Physalia.GH (net7.0-windows on Windows, net7.0 on Mac — set via OS-conditional TargetFrameworks).
+- CLAUDE.md was rewritten 2026-06-11 to match actual code (signal lifecycle, real namespaces/providers, built-vs-planned component inventory, Sandbox removed). If CLAUDE.md and code disagree, trust code, but drift should now be rare.
+- System.Drawing warnings (CA1416) are false positives — Rhino ships its own compatibility layer. Suppress with <NoWarn>$(NoWarn);CA1416</NoWarn> or #pragma warning disable CA1416.
+
+## Tool Calling (robustness Phase 4)
+- [Phase 4 keystone](tool-calling-phase4.md) — provider contract now SENDS tool definitions (`ToolDefinition` + `StreamAsync` gained `IReadOnlyList<ToolDefinition>? tools`); GH visible-loop still TODO. Landed 2026-06-16.
+- [GH tool-calling loop](tool-calling-gh-loop.md) — Reasoner/Router/tool nodes; Router aggregates results per round; tool nodes inherit `ToolComponentBase` (owns multi-call contract: ExecuteCall per call, one ToolResultContent per call). Landed 2026-06-17.
+
+## Claude Code provider (warm process)
+- [ClaudeCode warm-process rework](claudecode-warm-process.md) — provider now keeps ONE `claude` CLI process warm per Reasoner (stream-json in/out) instead of cold-starting per call; SDK is a dead end (no .NET, wraps the CLI, needs API key). Builds clean; live-Rhino timing/leak check still TODO. Landed 2026-06-18.
+
+## v2 Architecture
+Full Core architecture decisions locked 2026-05-03. See [v2-core-architecture.md](v2-core-architecture.md).
+Component-level spec: planning/physalia-primitives.md. API research: planning/api_research.md.
+
+## Signal Lifecycle (rework landed 2026-06-10/11; replaces ALL trigger/pulse designs)
+Bool triggers, momentary pulses, SHA-256 change detection, and Data/Feedback output ports are **gone** (commits 91c83c5, 93ee097, d6a086c). Events are latched, sequence-numbered, consume-once `PhySignal`s (Core/Signals); the payload is the only data carrier between pipeline components (Success Signal(0) / Fail Signal(1), one wire per hop). Two-layer bases: `StatefulComponentBase` (state machine, ObserveSignalInputs/Consume*/Latch*, wall-clock-honest `ScheduleStateSolve` funnel) → `RoutingComponentBase<TData>` (push/read/latch; async = `AutoScheduleRead=false` + `RequestReadPass()`). Nothing in the lifecycle serializes — components reopen Empty.
+**Authoritative doc: `planning/data-marshalling.md` in the repo** — read that, not memory. Non-repo leftovers: [routing-trigger-system.md](routing-trigger-system.md).
+- **Multimodal extension (2026-06-13):** `PhySignal` now also has an optional `IReadOnlyList<MessageContent> ContentBlocks` (init prop, default empty; `Mint` takes an optional `contentBlocks` arg; `StatefulComponentBase.LatchSuccess` forwards it). The string `Payload` stays the text/trace carrier; `ContentBlocks` rides alongside when a turn is richer than text. Needed because the only wire from Prompter→Recorder is the signal — an assembled image+text user turn can't use a parallel data wire. So "payload is the only carrier" is now "payload is the carrier for text-only events; ContentBlocks for multimodal." This couples `Physalia.Core.Signals`→`ConvoInstruct` (MessageContent). Only Prompter mints with blocks today; feedback/response/Construct-Signal mint empty.
+
+## Prompter image references "/<alias>" (2026-06-13)
+Prompter gained input 0 = **Image Sources** (`Param_ImageSource`, list, optional) fed by Image Gatherer. Typing `/<alias>` in a prompt and submitting (Shift+Enter) resolves each token to the referenced image **inline** (text split around the token; token text removed) → interleaved `TextContent`/`ImageContent` blocks delivered to the model.
+- Pure parser in Core: `Physalia.Core/ConvoInstruct/PromptImageResolver.Resolve(prompt, IReadOnlyDictionary<string,ImageSource>) → ResolvedPrompt(Text, Blocks)`. `/` matches only at a word boundary (so URLs/`and/or`/paths are safe); known aliases matched longest-first, case-insensitive, requiring a non-word boundary after the alias; unknown `/x` stays literal. `Text` (token-stripped) = signal payload.
+- Flow: Prompter caches alias→source map each `SolveInstance` (submit fires from UI, outside solve) → `LatchSuccess(text, contentBlocks: blocks)` → Recorder's `ApplySignal` prompt case records `ContentBlocks` (via new `RecordUserBlocks` + `Conversation.MergeIntoLastUserMessage(IReadOnlyList<MessageContent>)` overload) when present, else the old text path. Images-only prompt (blank text, has blocks) records fine.
+- **Aliases are single-token (no whitespace)** so `/<alias>` is unambiguous: `ImageGatherer.SanitizeAlias` (whitespace→`-`) sanitizes defaults; the Manage Images panel rejects whitespace on alias edit. Provider adapters already serialize `InlineImage`, so no provider work.
+- **PrompterAttrib gotcha:** `PrompterAttrib` fully overrides `Layout()`/`Render()` (custom panel) and renders the Objects channel itself, so GH does NOT auto-draw or auto-position param grips. Each param needs a manual `LayoutXParam()` (set `param.Attributes.Pivot` + `Bounds`) AND a custom `DrawWireGrip` call, or it's invisible/unwireable. The Image Sources input grip mirrors the output grip on the LEFT edge of the convo panel, vertically aligned (same midY); `_layoutBounds` is expanded on both sides (`x-4, _width+8`) so both grips stay clickable.
+
+## DRY Refactor (2026-06-10) — shared base classes
+Codebase-wide dedup; all GUIDs/param names/serialization keys preserved. New shared infrastructure:
+- **Core:** `Providers\ProtocolProviderBase` (HttpClient, TryGetConfig<T> guard, SendStreamingRequestAsync, SendForStringAsync, ReadStreamLineAsync, ParseModelIdsFromDataArray) — all three protocol providers rebase on it; wire-format parsing stays per-provider. `Common\HttpErrorMapper.MapStatusCode` is the single status→LlmErrorKind source (also used by AsyncTokenEstimation, LlamaCppServerQuery, ModelList). `Tokens\TokenEstimationHelpers` (overhead constants + ExtractText). `Validation\JsonExtractor` (ExtractJson/PrettyPrint moved out of Auditor).
+- **GH:** `Components\Models\ModelComponentBase` (Anthropic/Gemini Model — NOT OpenAICompatibleModel, which is structurally different: auto-detect first model, no Picker). `Components\Models\TweakerComponentBase<TConfig>` (all three Tweakers). `Goo\PhyGoo<TGoo,T>` + `Parameters\PhyParam<TGoo>` (all 6 Goo + 6 Param classes). `Attributes\GripLinkAttrib` (drag-to-link grip state machine; FeedbackAttrib multi-link/bottom-anchor, PyTransmitterAttrib single-link/top-anchor).
+- **Deleted dead code:** `PythonTest.cs` + `PythonTestAttrib.cs` (superseded by PyTransmitter).
+- Tweaker/Model nicknames unified to uppercase (t/p/k → T/P/K) per convention. llama.cpp count_tokens non-success now maps status codes (was always Network).
+
+## API Key goo (2026-06-13)
+- [GH_ApiKey goo](gh-apikey-goo.md) — API keys flow as a typed label-only goo (never serialized), not plain text; consumers (ApiKeys/ModelComponentBase/OpenAICompatibleModel) all switched to Param_ApiKey.
+
+## GhJSON (canvas import/export)
+GH export/import uses ghjson-dotnet (GhJSON.Core + GhJSON.Grasshopper, both v1.0.0), now referenced in Physalia.GH.csproj. Full implementation guide at src/planning/ghjson-implementation.md (facade API, component designs). Replaces the abandoned Assemblies subsystem.
+- [Component Transmitter (CompTx)](component-transmitter.md) — places an LLM GhJSON graph on canvas, routes placed-component errors + orphan-wiring back on Fail (whole-graph analog of PyTransmitter); GhJsonBridge gained `LoadAndPlaceJson` + `PlaceResult.PlacedGuids` (2026-06-13).
+- [GhJSON feedback links + comment](ghjson-feedback-links.md) — Feedback→FeedbackCollector wireless links round-trip via component-id `extensions` + `PutResult.IdToGuidMapping` remap; optional Serializer "Comment" input → `metadata.description`. No library change (2026-06-22).
+- [System-prompt preambles](system-prompt-preambles.md) — Composer assembles PREAMBLE + SCHEMA from Files/SYSTEM_PROMPTS (only .txt/.json/.yaml resolve, NOT .md); GhJSONSchema.json + `Python3 Script.txt` / `Node Graph.txt` preambles (2026-06-13).
+- GhJSON.Grasshopper 1.0.0 requires Grasshopper/RhinoCommon = 8.24.25281.15001. The csproj `Grasshopper` PackageReference was bumped from 8.0.23304.9001 → 8.24.25281.15001 to resolve an NU1107 RhinoCommon conflict. Both stay `ExcludeAssets="runtime"` (compile-time only; runtime uses installed Rhino — dev machine has 8.31, so a benign MSB3277 GH_IO 8.24-vs-8.31 warning appears). GhJSON DLLs + Newtonsoft.Json copy next to the .gha (NOT host-provided).
+- WriteOptions lives in `GhJSON.Core.Serialization` (not `GhJSON.Core`). Indented defaults to true.
+
+### GhJsonBridge (façade — `Physalia.GH/GhJSON/GhJsonBridge.cs`)
+All GhJSON library calls (GhJSON.Core, GhJSON.Grasshopper) are centralised in `internal static class GhJsonBridge` (namespace `Physalia.GH.GhJSON`). Serializer and Deserializer import only `Physalia.GH.GhJSON` — no direct GhJSON using statements in component files.
+- `ExportToFile(IReadOnlyList<Guid> guids, string path)` — GetByGuids → StripNickNames → ToFile
+- `IsValidJson(string json, out string? message)` — wraps GhJson.IsValid
+- `LoadAndPlace(string path, PointF targetOrigin)` → FromFile → min-pivot → Put → ComponentHelpers.ApplyNickNameDisplay; returns `PlaceResult` record
+- `PlaceResult(bool Success, int ComponentCount, int ConnectionCount, int WarningCount, string? ErrorMessage)` — defined in the same file
+
+### NickName handling (critical non-obvious behaviour)
+The GhJSON `IOIdentificationHandler` serialises `param.Name` as `parameterName` and stores `param.NickName` separately as `nickName` **only when NickName != Name**. On import `ApplyParameterSettings` restores only the `nickName` field; `Name` is assumed correct from `RegisterInputParams`. This means single-letter NickNames (e.g. "V" for Picker's "Value" output) appear in the JSON and get reapplied on placement.
+
+**Fix in GhJsonBridge:**
+- **Export (`StripNickNames`)**: after `GetByGuids`, null out every `nickName` entry in `inputSettings`/`outputSettings` before writing. JSON contains only full `parameterName` values, no abbreviated letters.
+- **Import (nickname display)**: after `Put()`, call `ComponentHelpers.ApplyNickNameDisplay(PutResult.PlacedObjects)`. This is **setting-aware** (2026-06-21 rework): GH's "Draw Full Names" toggle physically rewrites every param's NickName to its full Name (`GH_Document.ConvertNickNamesToFullNames`) and back; programmatically-placed objects miss that pass. So the helper sets `param.NickName = param.Name` (inputs/outputs + floating params) **only when `Grasshopper.CentralSettings.CanvasFullNames` is true**, else leaves the default abbreviated nicknames. A later user toggle is handled by GH's own doc-wide conversion. The OLD `ExpandNickNames` unconditionally forced full names (ignored the setting) — replaced. Same helper is applied at ALL Physalia programmatic placements (`ComponentHelpers` lives in `Physalia.GH.Components`): GhJSON import, the ChatWidget's auto-created Chatbox ([[chat-widget]]), `ComponentHelpers.PickerAdd`, `PythonShortcut`. (Router's dynamic "T1"/desired nicknames are functional labels — intentionally NOT touched.)
+
+### Serializer / Deserializer components
+- `Components/Serializers/Serializer.cs` — interactive selected-objects export (Windows-only `#if WINDOWS`, see Mac Todo). Delegates all GhJSON work to `GhJsonBridge.ExportToFile`.
+- `Components/Serializers/Deserializer.cs` — inputs File Path + Run, places a .ghjson file's components to the right of itself. Cross-platform (no WinForms). Delegates to `GhJsonBridge.IsValidJson` + `GhJsonBridge.LoadAndPlace`.
+- Placer pattern: `GhJsonGrasshopper.Put` mutates the live doc AND calls NewSolution(true) internally — defer via one-shot `Rhino.RhinoApp.Idle`. To place beside the component, set `PutOptions.Offset` explicitly + `AutoOffset=false`. Offset maps imported content's min pivot → (Bounds.Right + gap, Bounds.Y).
+
+## Resources Tab & Image Gatherer (2026-06-12)
+New **"Resources"** GH tab (created simply by passing `"Resources"` as the PhyBase `subCategory`). First component: **Image Gatherer** (`Components/Resources/ImageGatherer.cs`) — no inputs, single list output of a new `GH_ImageSource` goo. Right-click → **Manage Images** opens `ManageImagesDialog` (Eto panel) with a GridView (path / editable alias / preview / red-✕ remove) + Add Image / Paste buttons.
+- **Alias carried as real data**, not just a display string: new Core record `ImageResource(string Alias, ImageSource Source)` in `Physalia.Core/ConvoInstruct/ImageResource.cs`. Goo `GH_ImageSource : PhyGoo<GH_ImageSource, ImageResource>` (TypeName "Image Source"); param `Param_ImageSource`. Images become `InlineImage(bytes, mime)`.
+- **Persistence = file paths + aliases only** (component-level `Write`/`Read`; bytes re-read from disk on load via `File.ReadAllBytes`). Clipboard-pasted images have `FilePath = null` → NOT persisted; missing files on reopen → deferred warning surfaced in next `SolveInstance`. Goo `Write`/`Read` are no-ops (component owns persistence).
+- MIME map + unique-alias helpers are `internal static` on `ImageGatherer`, reused by the dialog. Alias uniqueness validated case-insensitively on cell-edit commit (revert + MessageBox on blank/dup).
+- **Eto/WPF GridView edit-commit gotcha (cost two crashes to find):** Rhino-Windows Eto is `Eto.Wpf`, so `GridView` wraps a WPF `DataGrid`. (1) Doing grid work synchronously inside the `CellEdited` handler re-enters the grid mid-commit and crashes — defer via `Application.Instance.AsyncInvoke`. (2) Even deferred, the row is STILL in a WPF `EditItem` transaction, and `GridView.ReloadData()` calls `CollectionView.Refresh()` → `InvalidOperationException: 'Refresh' is not allowed during an AddNew or EditItem transaction`. Fix: NEVER call `ReloadData` to reflect an edited cell — make the row model implement `INotifyPropertyChanged` and raise it on the edited property; Eto's property binding refreshes just that cell with no collection Refresh. `ImageEntry` does this for `Alias`.
+- **FIRST Eto.Forms usage in the repo.** Referenced via HintPath to Rhino's shipped `Eto.dll` (2.11) with `Private=False` (NOT a NuGet PackageReference) — deliberately matches the runtime to dodge the documented Eto 2.7-vs-2.11 CS1705 conflict (see GH Code Editor note below). Builds clean on Windows. `Eto.dll` holds both `Eto.Forms` and `Eto.Drawing`. Note: Eto 2.11 `GridView.ReloadData()` has NO parameterless overload — pass `Enumerable.Range(0, rowCount)`. Mac `Eto.dll` HintPath is a guess (Mac Todo); Eto UI surface untested on Mac.
+
+## GH Code Editor Investigation (concluded — abandoned)
+- Goal was to open the native GH Script editor from PyReceiver double-click
+- RhinoCodeEditor.dll uses Eto 2.11.x; Grasshopper NuGet ships Eto 2.7.x → CS1705 hard error at compile time
+- Open(3-param) + AddCode(Uri) works but opens Rhino editor, not GH editor with inputs/outputs panel
+- Root cause: GH dashboard requires a persistent Grasshopper1Script registered over the component's full lifecycle — not achievable per double-click
+- Decision: use custom ScriptEditorDialog (Eto.Forms) instead
+
+## GH Component Conventions
+- Parameter names (inputs and outputs) use Title Case: "System Prompt", "API Key", "LLM Response", "Tool Calls", "Max Tokens", "Base URL", "Top P", "Top K"
+- Acronyms keep all caps within title case: API, URL, LLM (e.g. "API Key" not "Api Key")
+- Nicknames (single-letter abbreviations) stay uppercase: "I", "M", "T", "S", etc.
+- NOTE: GhJsonBridge strips these abbreviated NickNames on export (so .ghjson files never contain single-letter nickName fields). On import/placement, NickName is expanded to the full Name ONLY when the user's "Draw Full Names" (CanvasFullNames) setting is on (see ApplyNickNameDisplay above) — placement respects the user's setting, not a forced full-name. The single-letter convention is for the live canvas only, not for the serialised format.
+
+## GH Rendering Patterns
+- GH_FontServer.StandardAdjusted: correct font for canvas-zoom-aware text in custom Render()
+- GH_FontServer.Standard: component name size (too large for row labels)
+- Custom Layout() without base.Layout(): must manually set all param Attributes.Pivot + Bounds
+- GH_Capsule.AddOutputGrip(y): visual only — param bounds must be set separately for wire interaction
+- ContextMenuStrip (WinForms) works in GH canvas; Eto ContextMenu does not accept GH_Canvas as Control
+- MidY on RectangleF: Bounds.Y + Bounds.Height / 2f (no MidY helper exists)
+- InstanceGuid = per-object UUID. ComponentGuid = static type GUID. Always use InstanceGuid for serialization/lookup.
+- AddRuntimeMessage TEXT only shows while the component is hovered (only the coloured icon persists). For a persistent on-canvas prompt during an active interaction (e.g. Serializer's "select objects then Enter" banner), draw a HUD via `GH_Canvas.CanvasPostPaintWidgets += (GH_Canvas sender) => {...}`. Subscribe on interaction start, unsubscribe + canvas.Refresh() on end.
+- IMPORTANT: CanvasPostPaintWidgets paints UNDER the canvas pan/zoom transform (NOT screen space). To pin a HUD to a window corner, save `g.Transform`, call `g.ResetTransform()`, draw in device pixels (e.g. top-left at (10,10)), then restore `g.Transform` (and dispose the saved Matrix). Without the reset the banner lands somewhere out in world space far from the viewport.
+
+## GH Async Pattern
+- AddRuntimeMessage must be called during SolveInstance on the main thread — calls from async tasks are silently discarded
+- Pattern: store message in a `_fetchWarning` field from async task → emit via AddRuntimeMessage in SolveInstance → clear field
+
+## Tooling
+- StyleCop.Analyzers NuGet installed across all projects
+- stylecop.json at src/ level, referenced via <AdditionalFiles> in each .csproj
+- SA1101 (prefix local calls with this.) suppressed in .editorconfig — underscore prefix convention used instead
+- Documentation rules: public and internal members enforced, private members not required
+- Copyright header: "Copyright (c) 2026 Physalia Contributors / SPDX-License-Identifier: AGPL-3.0-or-later"
+
+## C# Patterns / Conventions
+- Abstract base class preferred over interface when all implementations are controlled and share state
+- private readonly fields + constructor injection: ArgumentNullException.ThrowIfNull() for null guard (net7.0)
+- ThrowIfNullOrWhiteSpace is net8.0+ only — use string.IsNullOrWhiteSpace + throw ArgumentException on net7.0
+- Template method pattern: public non-virtual method validates → calls protected abstract Core method
+- HttpClient: declare as protected readonly field on base class, never instantiate per-request
+- throw new InvalidOperationException() preferred over base Exception for deserialization failures
+- Abstract properties used for per-subclass constants (e.g. ProviderName, MaxTokens)
+- XML doc style: always multi-line, one tag per line, plain text in <returns> and <param>:
+  /// <summary>
+  /// Deserialisation stub — intentionally reads nothing; API key is not persisted.
+  /// </summary>
+  /// <param name="reader">The GH_IReader to read from.</param>
+  /// <returns>true.</returns>
+
+## Mac Todo
+
+### PrompterAttrib — WinForms surface untested on Mac
+`Attributes/PrompterAttrib.cs` (added 2026-06-11, port of main-branch ComposerAttrib) compiles unguarded on both TFMs like the other attribs, but its WinForms surface — in-place `TextBox` overlay added to `GH_Canvas.Controls`, `System.Windows.Forms.Timer` (busy animation), `Keys`/`KeyEventArgs` in the Shift+Enter handler — has never run on Mac Rhino. Verify the overlay focus/Leave behaviour there; fall back to an Eto dialog if the canvas-hosted TextBox misbehaves.
+
+### Serializers folder — Windows/Mac compatibility split
+The two components in `Components/Serializers/` have OPPOSITE cross-platform status:
+- **`Serializer.cs` — Windows-only (`#if WINDOWS`).** Interactive export (select objects → Enter/Esc → SaveFileDialog → .ghjson) uses `System.Windows.Forms.SaveFileDialog`, `Keys`, and `KeyEventArgs`, plus a `GH_Canvas.KeyDown` hook. WinForms is only available on the `net7.0-windows` TFM, so the **entire file is wrapped in `#if WINDOWS`** — the Mac (`net7.0`) build compiles fine but the component is simply absent there. The `WINDOWS` symbol is defined explicitly in the windows-TFM `<PropertyGroup>` in `Physalia.GH.csproj` (alongside `UseWindowsForms`), not relied on from the SDK implicit define. **This is the only Serializers component that needs Mac work.** To port: replace `SaveFileDialog` with `Eto.Forms.SaveFileDialog`, replace the canvas `KeyDown` hook with an Eto-compatible keyboard equivalent, then drop the `#if WINDOWS` guard. The HUD overlay (`CanvasPostPaintWidgets` + System.Drawing) and GhJSON export calls are already cross-platform.
+- **`Deserializer.cs` — cross-platform (no guard).** Inputs File Path + Run; no WinForms (path is a plain string, not a dialog). Deferral uses `Rhino.RhinoApp.Idle` (RhinoCommon, cross-platform). Compiles and runs on both TFMs as-is.
+
+(Note: the old `Assemblies/AssemblyDefinition.cs` + `AssemblyIO.cs` that these conceptually replace were removed in commit f76f7d4; no `Disassembler.cs` was ever committed.)
+
+### GhPythonBridge — Mac DLL paths to verify
+Three DLLs need their Mac HintPaths confirmed against an actual Rhino 8 Mac install.
+The csproj already has placeholder Mac ItemGroups with guessed paths:
+- `Rhino.Runtime.Code.dll` — used directly; `ParamType` lives here
+- `RhinoCodePlatform.GH.dll` — used directly; `IScriptComponent`, `ScriptParamSpec`, `ScriptParamAccess` live here
+- `RhinoCodePlatform.GH1.dll` — in csproj but no longer imported in code (kept for completeness)
+
+### GhPythonBridge — cross-platform compatibility
+
+**Should work on Mac without changes (pure GH or reflection):**
+- `IsScriptComponent` — `IScriptComponent` interface check, pure GH
+- `SetScript` / `GetScript` — `IScriptComponent.Text`, in `RhinoCodePlatform.GH`
+- `GetInputs` / `GetOutputs` — `IScriptComponent.Inputs/Outputs` + `IScriptParameter`, in `RhinoCodePlatform.GH`
+- `GetErrors` / `GetWarnings` — `IGH_ActiveObject.RuntimeMessages`, pure GH
+- `Expire` — `IGH_ActiveObject.ExpireSolution`, pure GH
+- `GetInputValues` / `GetOutputValues` — `IGH_Component.Params.Input/Output` + `VolatileData`, pure GH
+- `SetInputs` / `SetOutputs` — uses `ScriptParamSpec` + `ParamType.Any` (both in referenced DLLs) and reflection to call `UpdateInputParameters`/`UpdateOutputParameters` on `BaseScriptComponent`; reflection resolves at runtime so platform-agnostic once DLLs load
+
+**Requires Mac DLL path verification before it can compile on Mac:**
+- All of the above, because they depend on `RhinoCodePlatform.GH.dll` and `Rhino.Runtime.Code.dll` being resolvable at compile time
+
+## SystemPrompt Type Hints (for format prompts passed to LLM)
+- Primitives: Number, Integer, Boolean, Text
+- Geometry: Point, Vector, Plane, Line, Circle, Arc, Curve, Surface, Brep, Mesh, Geometry, Box, Transform, Interval
+- Other: Colour

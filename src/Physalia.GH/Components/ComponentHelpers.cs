@@ -47,7 +47,10 @@ internal static class ComponentHelpers
     }
 
     // Sets each parameter's NickName to its full Name — the state GH itself puts the document in
-    // while "Draw Full Names" is on.
+    // while "Draw Full Names" is on. The attributes' layout is then expired so the next layout pass
+    // recomputes capsule widths to fit the full names: objects placed by GhJSON's Put were already
+    // laid out with the short JSON nicknames, so without this the label is truncated ("Si...") to
+    // the stale narrow width.
     private static void ExpandToFullName(IGH_DocumentObject obj)
     {
         if (obj is IGH_Component comp)
@@ -66,6 +69,8 @@ internal static class ComponentHelpers
         {
             floatingParam.NickName = floatingParam.Name;
         }
+
+        obj.Attributes?.ExpireLayout();
     }
 
     /// <summary>

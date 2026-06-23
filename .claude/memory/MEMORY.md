@@ -11,11 +11,10 @@
 - [Commit/PR messages output-only](commit-and-pr-messages-output-only.md) — when asked for a commit message or PR description, print it in chat only; never run `git commit`/`push`/`gh` — the user runs the git action themselves (holds even when they say "we'll just commit to main").
 
 ## Project
-- Grasshopper AI plugin for Rhino (Physalia)
-- Pair programmer role: give advice, answer questions; make code changes only when explicitly asked
-- Working dir: C:\Users\rober\repos\Physalia\src
+- Grasshopper AI plugin for Rhino (Physalia). Pair-programmer role + working dir: see CLAUDE.md.
 - [Chat widget](chat-widget.md) — bottom-right GH canvas widget (above the compass) that opens the chat window; find-or-creates a Chatbox; setup-state detection via IsPipelineReady. Windows-only for now.
 - [Chat window](chat-window.md) — standalone Eto WebView chat (additive to Prompter). FULL Svelte/shadcn/svelte-ai-elements UI in new `src/Physalia.UI` project (chain-of-thought thinking, tool calls, light mode, image paste/drop, JSON auto-collapse); builds clean → `Files/UI/chat.html`. Send/freeze/scroll/JSON fixed in Rhino; broader live test pending. Plan: `planning/chat-window.md`.
+- [Preset placement](preset-placement.md) — "Add preset" splices the live Chatbox into the preset's placeholder Chatbox slot via `GhJsonBridge.LoadAndPlaceAnchored` (no duplicate); + `ExpandToFullName` ExpireLayout fix (full param names on GhJSON-placed components) + chat window centres over the GH editor on multi-monitor. 2026-06-23, builds clean, live test pending.
 
 ## Platform / Build
 - Two projects only: Physalia.Core (net7.0) and Physalia.GH (net7.0-windows on Windows, net7.0 on Mac — set via OS-conditional TargetFrameworks).
@@ -66,24 +65,11 @@ GH export/import uses ghjson-dotnet (GhJSON.Core + GhJSON.Grasshopper, both v1.0
 - GhJSON.Grasshopper 1.0.0 requires Grasshopper/RhinoCommon = 8.24.25281.15001. The csproj `Grasshopper` PackageReference was bumped from 8.0.23304.9001 → 8.24.25281.15001 to resolve an NU1107 RhinoCommon conflict. Both stay `ExcludeAssets="runtime"` (compile-time only; runtime uses installed Rhino — dev machine has 8.31, so a benign MSB3277 GH_IO 8.24-vs-8.31 warning appears). GhJSON DLLs + Newtonsoft.Json copy next to the .gha (NOT host-provided).
 - WriteOptions lives in `GhJSON.Core.Serialization` (not `GhJSON.Core`). Indented defaults to true.
 
-### GhJsonBridge (façade — `Physalia.GH/GhJSON/GhJsonBridge.cs`)
-All GhJSON library calls (GhJSON.Core, GhJSON.Grasshopper) are centralised in `internal static class GhJsonBridge` (namespace `Physalia.GH.GhJSON`). Serializer and Deserializer import only `Physalia.GH.GhJSON` — no direct GhJSON using statements in component files.
-- `ExportToFile(IReadOnlyList<Guid> guids, string path)` — GetByGuids → StripNickNames → ToFile
-- `IsValidJson(string json, out string? message)` — wraps GhJson.IsValid
-- `LoadAndPlace(string path, PointF targetOrigin)` → FromFile → min-pivot → Put → ComponentHelpers.ApplyNickNameDisplay; returns `PlaceResult` record
-- `PlaceResult(bool Success, int ComponentCount, int ConnectionCount, int WarningCount, string? ErrorMessage)` — defined in the same file
-
-### NickName handling (critical non-obvious behaviour)
-The GhJSON `IOIdentificationHandler` serialises `param.Name` as `parameterName` and stores `param.NickName` separately as `nickName` **only when NickName != Name**. On import `ApplyParameterSettings` restores only the `nickName` field; `Name` is assumed correct from `RegisterInputParams`. This means single-letter NickNames (e.g. "V" for Picker's "Value" output) appear in the JSON and get reapplied on placement.
-
-**Fix in GhJsonBridge:**
-- **Export (`StripNickNames`)**: after `GetByGuids`, null out every `nickName` entry in `inputSettings`/`outputSettings` before writing. JSON contains only full `parameterName` values, no abbreviated letters.
-- **Import (nickname display)**: after `Put()`, call `ComponentHelpers.ApplyNickNameDisplay(PutResult.PlacedObjects)`. This is **setting-aware** (2026-06-21 rework): GH's "Draw Full Names" toggle physically rewrites every param's NickName to its full Name (`GH_Document.ConvertNickNamesToFullNames`) and back; programmatically-placed objects miss that pass. So the helper sets `param.NickName = param.Name` (inputs/outputs + floating params) **only when `Grasshopper.CentralSettings.CanvasFullNames` is true**, else leaves the default abbreviated nicknames. A later user toggle is handled by GH's own doc-wide conversion. The OLD `ExpandNickNames` unconditionally forced full names (ignored the setting) — replaced. Same helper is applied at ALL Physalia programmatic placements (`ComponentHelpers` lives in `Physalia.GH.Components`): GhJSON import, the ChatWidget's auto-created Chatbox ([[chat-widget]]), `ComponentHelpers.PickerAdd`, `PythonShortcut`. (Router's dynamic "T1"/desired nicknames are functional labels — intentionally NOT touched.)
-
-### Serializer / Deserializer components
-- `Components/Serializers/Serializer.cs` — interactive selected-objects export (Windows-only `#if WINDOWS`, see Mac Todo). Delegates all GhJSON work to `GhJsonBridge.ExportToFile`.
-- `Components/Serializers/Deserializer.cs` — inputs File Path + Run, places a .ghjson file's components to the right of itself. Cross-platform (no WinForms). Delegates to `GhJsonBridge.IsValidJson` + `GhJsonBridge.LoadAndPlace`.
-- Placer pattern: `GhJsonGrasshopper.Put` mutates the live doc AND calls NewSolution(true) internally — defer via one-shot `Rhino.RhinoApp.Idle`. To place beside the component, set `PutOptions.Offset` explicitly + `AutoOffset=false`. Offset maps imported content's min pivot → (Bounds.Right + gap, Bounds.Y).
+### GhJsonBridge (façade) + placement nuggets
+All GhJSON library calls funnel through `internal static class GhJsonBridge` — now at **`Physalia.GH/Generation/GhJsonBridge.cs`, namespace `Physalia.GH.Generation`** (moved from the old `GhJSON` folder; CLAUDE.md/code authoritative for its current API + `PlaceResult` shape, which has grown beyond the old 5-field record). Anchored preset placement details: [[preset-placement]].
+- **NickName round-trip:** GhJSON stores `nickName` only when `!= Name`; export `StripNickNames` nulls them so files carry only full `parameterName`. Import `ComponentHelpers.ApplyNickNameDisplay(PutResult.PlacedObjects)` is **setting-aware** — sets `NickName = Name` + `ExpireLayout` (see [[preset-placement]]) only when `Grasshopper.CentralSettings.CanvasFullNames` is on, else leaves abbreviations (a later toggle is handled by GH's own doc-wide conversion). Applied at ALL Physalia programmatic placements (GhJSON import, ChatWidget's Chatbox [[chat-widget]], `PickerAdd`, `PythonShortcut`). Router's dynamic "T1" nicknames are functional labels — NOT touched.
+- **Placer pattern:** `GhJsonGrasshopper.Put` mutates the live doc AND calls `NewSolution(true)` internally — defer via one-shot `Rhino.RhinoApp.Idle`. Place beside a component via explicit `PutOptions.Offset` + `AutoOffset=false`.
+- **Serializer** (`Components/Serializers/`) interactive export is Windows-only (`#if WINDOWS`, Mac Todo); **Deserializer** is cross-platform. Both delegate to GhJsonBridge.
 
 ## Resources Tab & Image Gatherer (2026-06-12)
 New **"Resources"** GH tab (created simply by passing `"Resources"` as the PhyBase `subCategory`). First component: **Image Gatherer** (`Components/Resources/ImageGatherer.cs`) — no inputs, single list output of a new `GH_ImageSource` goo. Right-click → **Manage Images** opens `ManageImagesDialog` (Eto panel) with a GridView (path / editable alias / preview / red-✕ remove) + Add Image / Paste buttons.
@@ -100,48 +86,9 @@ New **"Resources"** GH tab (created simply by passing `"Resources"` as the PhyBa
 - Root cause: GH dashboard requires a persistent Grasshopper1Script registered over the component's full lifecycle — not achievable per double-click
 - Decision: use custom ScriptEditorDialog (Eto.Forms) instead
 
-## GH Component Conventions
-- Parameter names (inputs and outputs) use Title Case: "System Prompt", "API Key", "LLM Response", "Tool Calls", "Max Tokens", "Base URL", "Top P", "Top K"
-- Acronyms keep all caps within title case: API, URL, LLM (e.g. "API Key" not "Api Key")
-- Nicknames (single-letter abbreviations) stay uppercase: "I", "M", "T", "S", etc.
-- NOTE: GhJsonBridge strips these abbreviated NickNames on export (so .ghjson files never contain single-letter nickName fields). On import/placement, NickName is expanded to the full Name ONLY when the user's "Draw Full Names" (CanvasFullNames) setting is on (see ApplyNickNameDisplay above) — placement respects the user's setting, not a forced full-name. The single-letter convention is for the live canvas only, not for the serialised format.
-
-## GH Rendering Patterns
-- GH_FontServer.StandardAdjusted: correct font for canvas-zoom-aware text in custom Render()
-- GH_FontServer.Standard: component name size (too large for row labels)
-- Custom Layout() without base.Layout(): must manually set all param Attributes.Pivot + Bounds
-- GH_Capsule.AddOutputGrip(y): visual only — param bounds must be set separately for wire interaction
-- ContextMenuStrip (WinForms) works in GH canvas; Eto ContextMenu does not accept GH_Canvas as Control
-- MidY on RectangleF: Bounds.Y + Bounds.Height / 2f (no MidY helper exists)
-- InstanceGuid = per-object UUID. ComponentGuid = static type GUID. Always use InstanceGuid for serialization/lookup.
-- AddRuntimeMessage TEXT only shows while the component is hovered (only the coloured icon persists). For a persistent on-canvas prompt during an active interaction (e.g. Serializer's "select objects then Enter" banner), draw a HUD via `GH_Canvas.CanvasPostPaintWidgets += (GH_Canvas sender) => {...}`. Subscribe on interaction start, unsubscribe + canvas.Refresh() on end.
-- IMPORTANT: CanvasPostPaintWidgets paints UNDER the canvas pan/zoom transform (NOT screen space). To pin a HUD to a window corner, save `g.Transform`, call `g.ResetTransform()`, draw in device pixels (e.g. top-left at (10,10)), then restore `g.Transform` (and dispose the saved Matrix). Without the reset the banner lands somewhere out in world space far from the viewport.
-
-## GH Async Pattern
-- AddRuntimeMessage must be called during SolveInstance on the main thread — calls from async tasks are silently discarded
-- Pattern: store message in a `_fetchWarning` field from async task → emit via AddRuntimeMessage in SolveInstance → clear field
-
-## Tooling
-- StyleCop.Analyzers NuGet installed across all projects
-- stylecop.json at src/ level, referenced via <AdditionalFiles> in each .csproj
-- SA1101 (prefix local calls with this.) suppressed in .editorconfig — underscore prefix convention used instead
-- Documentation rules: public and internal members enforced, private members not required
-- Copyright header: "Copyright (c) 2026 Physalia Contributors / SPDX-License-Identifier: AGPL-3.0-or-later"
-
-## C# Patterns / Conventions
-- Abstract base class preferred over interface when all implementations are controlled and share state
-- private readonly fields + constructor injection: ArgumentNullException.ThrowIfNull() for null guard (net7.0)
-- ThrowIfNullOrWhiteSpace is net8.0+ only — use string.IsNullOrWhiteSpace + throw ArgumentException on net7.0
-- Template method pattern: public non-virtual method validates → calls protected abstract Core method
-- HttpClient: declare as protected readonly field on base class, never instantiate per-request
-- throw new InvalidOperationException() preferred over base Exception for deserialization failures
-- Abstract properties used for per-subclass constants (e.g. ProviderName, MaxTokens)
-- XML doc style: always multi-line, one tag per line, plain text in <returns> and <param>:
-  /// <summary>
-  /// Deserialisation stub — intentionally reads nothing; API key is not persisted.
-  /// </summary>
-  /// <param name="reader">The GH_IReader to read from.</param>
-  /// <returns>true.</returns>
+## GH / C# conventions, rendering, async, tooling, type hints
+**All in CLAUDE.md** — param naming (Title Case, acronyms all-caps, uppercase nicknames), GH rendering patterns (GH_FontServer, custom Layout, AddOutputGrip, ContextMenuStrip, MidY, InstanceGuid vs ComponentGuid), GH async pattern (AddRuntimeMessage main-thread-only → field + emit in SolveInstance), StyleCop/SA1101/copyright header, C# conventions (abstract base over interface, ThrowIfNull, template method, HttpClient on base, abstract const props, XML doc style), SystemPrompt type hints. Read CLAUDE.md, not here.
+- **Unique nugget (not in CLAUDE.md):** a persistent on-canvas HUD during an interaction (e.g. Serializer's "select objects then Enter" banner) draws via `GH_Canvas.CanvasPostPaintWidgets += …` (subscribe on interaction start, unsubscribe + `canvas.Refresh()` on end). It paints UNDER the pan/zoom transform — to pin to a window corner, save `g.Transform`, `g.ResetTransform()`, draw in device px, then restore (dispose the saved Matrix). Without the reset the banner lands far out in world space.
 
 ## Mac Todo
 
@@ -175,8 +122,3 @@ The csproj already has placeholder Mac ItemGroups with guessed paths:
 
 **Requires Mac DLL path verification before it can compile on Mac:**
 - All of the above, because they depend on `RhinoCodePlatform.GH.dll` and `Rhino.Runtime.Code.dll` being resolvable at compile time
-
-## SystemPrompt Type Hints (for format prompts passed to LLM)
-- Primitives: Number, Integer, Boolean, Text
-- Geometry: Point, Vector, Plane, Line, Circle, Arc, Curve, Surface, Brep, Mesh, Geometry, Box, Transform, Interval
-- Other: Colour

@@ -138,6 +138,7 @@ public class ChatWindow : Form
             HookHostClose();
 #if WINDOWS
             HookWebMessage();
+            PositionOverGrasshopperEditor();
             OwnToGrasshopperEditor();
 #endif
         };
@@ -728,6 +729,15 @@ public class ChatWindow : Form
             return;
         }
 
+        DropComponent(canvas, doc);
+    }
+
+    // Adds this window's Chatbox to the document and positions it a few pixels right of the window,
+    // vertically centred on it. Split out of MaybePlaceComponent so preset placement can guarantee
+    // the component is on the canvas before anchoring a workflow to it (see EnsureComponentPlaced).
+    // Runs on the UI thread.
+    private void DropComponent(GH_Canvas canvas, GH_Document doc)
+    {
         if (_component.Attributes is null)
         {
             _component.CreateAttributes();
@@ -758,6 +768,34 @@ public class ChatWindow : Form
         _component.Attributes.ExpireLayout();
         _component.Attributes.PerformLayout();
         canvas.Refresh();
+    }
+
+    // Guarantees this window's Chatbox is on a canvas, dropping it if it isn't yet (e.g. a preset is
+    // placed before MaybePlaceComponent's provider-gated tick has run). Unlike MaybePlaceComponent it
+    // does not gate on configured providers — the user has explicitly asked to place a workflow that
+    // the Chatbox anchors. Returns the hosting document, or null if no canvas/document is available.
+    // Runs on the UI thread (bridge dispatch).
+    private GH_Document? EnsureComponentPlaced()
+    {
+        if (_component.OnPingDocument() is { } existing)
+        {
+            return existing; // already on a canvas — leave it where the user/file/tick put it
+        }
+
+        GH_Canvas canvas = Instances.ActiveCanvas;
+        if (canvas is null)
+        {
+            return null;
+        }
+
+        GH_Document? doc = canvas.Document ?? CreateActiveDocument(canvas);
+        if (doc is null)
+        {
+            return null;
+        }
+
+        DropComponent(canvas, doc);
+        return doc;
     }
 
     // Creates a fresh, empty document and makes it the canvas's active one, so a chat started with
@@ -865,30 +903,31 @@ public class ChatWindow : Form
             return;
         }
 
-        GH_Canvas? canvas = Instances.ActiveCanvas;
-        if (canvas is null)
-        {
-            return;
-        }
-
-        // Ensure a document exists to place into (the window may have been opened on an empty canvas).
-        GH_Document? doc = canvas.Document ?? CreateActiveDocument(canvas);
+        // The first Chatbox in the preset is a placeholder slot: this window's live Chatbox is spliced
+        // in for it and the rest of the workflow is laid out relative to where the Chatbox sits. Make
+        // sure the Chatbox is on the canvas first so there is something to anchor to.
+        GH_Document? doc = EnsureComponentPlaced();
         if (doc is null)
         {
             return;
         }
 
+        // Force a layout so the Chatbox's pivot is valid (GH lays attributes out lazily) before it is
+        // used as the placement anchor.
+        _component.Attributes.ExpireLayout();
+        _component.Attributes.PerformLayout();
+
         try
         {
-            System.Drawing.PointF origin = canvas.Viewport.MidPoint;
-            Generation.PlaceResult result = Generation.GhJsonBridge.LoadAndPlace(path, origin);
+            Generation.PlaceResult result = Generation.GhJsonBridge.LoadAndPlaceAnchored(path, _component, _component.ComponentGuid);
             if (!result.Success)
             {
                 Rhino.RhinoApp.WriteLine($"[Physalia] Preset placement failed: {result.ErrorMessage}");
                 return;
             }
 
-            canvas.Refresh();
+            doc.NewSolution(false); // register the re-wired sources, then redraw
+            Instances.ActiveCanvas?.Refresh();
         }
         catch (Exception ex)
         {
@@ -947,9 +986,45 @@ public class ChatWindow : Form
         SetWindowLongPtr(child, GWLP_HWNDPARENT, owner);
     }
 
+    // SetWindowPos flags: keep the current size and z-order and don't steal focus — we only move.
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_NOACTIVATE = 0x0010;
+
+    // Centres this window over the Grasshopper editor window (device pixels, via the native rects),
+    // so it always opens on the monitor the canvas is on rather than wherever the Rhino main window
+    // (the Eto owner) happens to be — on a multi-monitor setup the two can be on different screens,
+    // which previously landed the window off-canvas and threw off the anchored component placement.
+    // No-op if either handle or rect is unavailable, leaving Eto's default placement.
+    private void PositionOverGrasshopperEditor()
+    {
+        IntPtr child = NativeHandle;
+        IntPtr editor = _ghEditor?.Handle ?? IntPtr.Zero;
+        if (child == IntPtr.Zero || editor == IntPtr.Zero)
+        {
+            return;
+        }
+
+        if (!GetWindowRect(editor, out RECT er) || !GetWindowRect(child, out RECT cr))
+        {
+            return;
+        }
+
+        int childWidth = cr.Right - cr.Left;
+        int childHeight = cr.Bottom - cr.Top;
+        int x = er.Left + (((er.Right - er.Left) - childWidth) / 2);
+        int y = er.Top + (((er.Bottom - er.Top) - childHeight) / 2);
+
+        SetWindowPos(child, IntPtr.Zero, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
     // x64 only (Rhino 8 is 64-bit); the SetWindowLongPtr export exists on 64-bit Windows.
     [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]

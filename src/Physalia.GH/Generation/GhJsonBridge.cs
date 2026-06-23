@@ -291,7 +291,7 @@ internal static class GhJsonBridge
     {
         if (doc.Components is null || doc.Components.Count == 0)
         {
-            return new PlaceResult(false, 0, 0, 0, "The GhJSON file contains no components to place.", Array.Empty<Guid>(), Array.Empty<string>(), Array.Empty<string>());
+            return EmptyDocumentResult();
         }
 
         // Normalise AI-authored JSON (missing ids, stray fields, near-miss structure) before placing.
@@ -318,17 +318,158 @@ internal static class GhJsonBridge
             minY = 0f;
         }
 
-        var options = new PutOptions
-        {
-            Offset = new PointF(targetOrigin.X - minX, targetOrigin.Y - minY),
-            AutoOffset = false,
-            CreateConnections = true,
-            CreateGroups = true,
-            RegenerateInstanceGuids = true,
-            SkipInvalidComponents = true,
-            SelectPlacedObjects = true,
-        };
+        var options = BuildPutOptions(new PointF(targetOrigin.X - minX, targetOrigin.Y - minY));
+        return ExecutePut(doc, options, unfixedIssues);
+    }
 
+    /// <summary>
+    /// Loads a <c>.ghjson</c> preset and places it anchored to an existing live component. The first
+    /// component in the file whose type matches <paramref name="placeholderComponentGuid"/> is treated
+    /// as a placeholder slot: it is not instantiated; instead <paramref name="anchor"/> is spliced in
+    /// where it would have gone. The rest of the graph is offset so the placeholder's pivot lands on
+    /// the anchor's pivot (preserving the preset's relative layout), and every connection that touched
+    /// the placeholder is re-wired to the matching parameter on <paramref name="anchor"/>.
+    /// </summary>
+    /// <param name="path">Path to the <c>.ghjson</c> file.</param>
+    /// <param name="anchor">The live component to splice in for the placeholder slot.</param>
+    /// <param name="placeholderComponentGuid">The component-type GUID that marks the placeholder slot.</param>
+    /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
+    internal static PlaceResult LoadAndPlaceAnchored(string path, IGH_Component anchor, Guid placeholderComponentGuid)
+    {
+        ArgumentNullException.ThrowIfNull(anchor);
+
+        GhJsonDocument doc = GhJson.FromFile(path);
+        if (doc.Components is null || doc.Components.Count == 0)
+        {
+            return EmptyDocumentResult();
+        }
+
+        var fixResult = GhJson.Fix(doc);
+        doc = fixResult.Document;
+        IReadOnlyList<string> unfixedIssues = fixResult.UnfixedIssues ?? (IReadOnlyList<string>)Array.Empty<string>();
+
+        // Locate the first placeholder slot (e.g. the preset's own Chatbox). With no slot to splice,
+        // fall back to ordinary placement anchored at the live component's pivot.
+        GhJsonComponent? placeholder = doc.Components.FirstOrDefault(
+            c => c.ComponentGuid is Guid g && g == placeholderComponentGuid);
+
+        PointF anchorPivot = anchor.Attributes?.Pivot ?? new PointF(50f, 50f);
+
+        if (placeholder is null || placeholder.Id is not int placeholderId || placeholder.Pivot is null)
+        {
+            return PlaceDocument(doc, anchorPivot);
+        }
+
+        // Capture every connection touching the placeholder, recording the OTHER endpoint plus the
+        // placeholder-side parameter name and direction, then keep only the connections that don't.
+        var rewires = new List<RewireRequest>();
+        var keptConnections = new List<GhJsonConnection>();
+        foreach (GhJsonConnection conn in doc.Connections ?? Enumerable.Empty<GhJsonConnection>())
+        {
+            bool fromSlot = conn.From?.Id is int fromId && fromId == placeholderId;
+            bool toSlot = conn.To?.Id is int toId && toId == placeholderId;
+
+            if (fromSlot && toSlot)
+            {
+                continue; // self-loop on the slot — nothing meaningful to re-wire
+            }
+
+            if (fromSlot && conn.To is { } to && to.Id is int toOtherId)
+            {
+                rewires.Add(new RewireRequest(toOtherId, to.ParamName, conn.From!.ParamName, SlotIsSource: true));
+            }
+            else if (toSlot && conn.From is { } from && from.Id is int fromOtherId)
+            {
+                rewires.Add(new RewireRequest(fromOtherId, from.ParamName, conn.To!.ParamName, SlotIsSource: false));
+            }
+            else
+            {
+                keptConnections.Add(conn);
+            }
+        }
+
+        var keptComponents = doc.Components.Where(c => !ReferenceEquals(c, placeholder)).ToList();
+        var prunedDoc = new GhJsonDocument(doc.Schema, doc.Metadata, keptComponents, keptConnections, doc.Groups);
+
+        var options = BuildPutOptions(new PointF(
+            anchorPivot.X - (float)placeholder.Pivot.X,
+            anchorPivot.Y - (float)placeholder.Pivot.Y));
+
+        return ExecutePut(prunedDoc, options, unfixedIssues, result => RewireAnchor(anchor, rewires, result));
+    }
+
+    // Re-establishes the placeholder's connections against the live anchor component. Each captured
+    // endpoint id is remapped to its newly-placed InstanceGuid via Put's id-to-guid mapping, the
+    // matching parameter is found by name on both sides, and a source is added in the recorded
+    // direction. Every lookup is guarded; an unresolved endpoint is skipped.
+    private static void RewireAnchor(IGH_Component anchor, IReadOnlyList<RewireRequest> rewires, PutResult result)
+    {
+        foreach (RewireRequest rewire in rewires)
+        {
+            if (!result.IdToGuidMapping.TryGetValue(rewire.OtherId, out Guid otherGuid))
+            {
+                continue;
+            }
+
+            IGH_DocumentObject? placed = result.PlacedObjects.FirstOrDefault(o => o.InstanceGuid == otherGuid);
+            if (placed is null)
+            {
+                continue;
+            }
+
+            IGH_Param? source;
+            IGH_Param? sink;
+            if (rewire.SlotIsSource)
+            {
+                // anchor output -> placed component input
+                source = FindParam(anchor, rewire.SlotParamName, output: true);
+                sink = FindParam(placed, rewire.OtherParamName, output: false);
+            }
+            else
+            {
+                // placed component output -> anchor input
+                source = FindParam(placed, rewire.OtherParamName, output: true);
+                sink = FindParam(anchor, rewire.SlotParamName, output: false);
+            }
+
+            if (source is not null && sink is not null)
+            {
+                sink.AddSource(source);
+            }
+        }
+    }
+
+    // Finds an input or output parameter by full Name on a placed object: a component's matching param
+    // list, or the floating param itself. Returns null when no match exists.
+    private static IGH_Param? FindParam(IGH_DocumentObject obj, string? name, bool output)
+    {
+        if (obj is IGH_Component component)
+        {
+            IList<IGH_Param> list = output ? component.Params.Output : component.Params.Input;
+            return list.FirstOrDefault(p => p.Name == name);
+        }
+
+        return obj as IGH_Param;
+    }
+
+    // Shared PutOptions for every Physalia placement: explicit offset (no auto-layout), connections
+    // and groups created, fresh instance guids, invalid components skipped, placed objects selected.
+    private static PutOptions BuildPutOptions(PointF offset) => new PutOptions
+    {
+        Offset = offset,
+        AutoOffset = false,
+        CreateConnections = true,
+        CreateGroups = true,
+        RegenerateInstanceGuids = true,
+        SkipInvalidComponents = true,
+        SelectPlacedObjects = true,
+    };
+
+    // Runs Put for an already-Fixed document with caller-built options, then on success applies
+    // nickname display, restores wireless feedback links, and runs the optional post-placement step
+    // (used to splice an anchor component into a placeholder slot). Shapes the PlaceResult.
+    private static PlaceResult ExecutePut(GhJsonDocument doc, PutOptions options, IReadOnlyList<string> unfixedIssues, Action<PutResult>? afterPlace = null)
+    {
         IsImporting = true;
         PutResult result;
         try
@@ -344,12 +485,20 @@ internal static class GhJsonBridge
         {
             ComponentHelpers.ApplyNickNameDisplay(result.PlacedObjects);
             RestoreFeedbackLinks(doc, result);
+            afterPlace?.Invoke(result);
         }
 
         return result.Success
             ? new PlaceResult(true, result.ComponentsPlaced, result.ConnectionsCreated, result.Warnings.Count, null, result.PlacedObjects.Select(o => o.InstanceGuid).ToList(), result.Warnings.ToList(), unfixedIssues)
             : new PlaceResult(false, 0, 0, 0, result.ErrorMessage, Array.Empty<Guid>(), Array.Empty<string>(), unfixedIssues);
     }
+
+    private static PlaceResult EmptyDocumentResult() =>
+        new PlaceResult(false, 0, 0, 0, "The GhJSON file contains no components to place.", Array.Empty<Guid>(), Array.Empty<string>(), Array.Empty<string>());
+
+    // A connection from the placeholder slot to re-wire against the live anchor: the other endpoint's
+    // GhJSON id + parameter name, the slot-side parameter name, and whether the slot was the source.
+    private readonly record struct RewireRequest(int OtherId, string? OtherParamName, string? SlotParamName, bool SlotIsSource);
 
     /// <summary>
     /// Re-establishes wireless Feedback -> FeedbackCollector links after placement. The links were

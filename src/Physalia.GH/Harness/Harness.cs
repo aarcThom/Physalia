@@ -57,21 +57,81 @@ public sealed class Harness
     /// members are hidden immediately when the group is already collapsed.
     /// </summary>
     /// <param name="guids">The InstanceGuids to add.</param>
-    public void Add(IEnumerable<Guid> guids)
+    /// <returns>The members actually added (excludes the proxy and existing members).</returns>
+    public IReadOnlyList<Guid> Add(IEnumerable<Guid> guids)
     {
-        bool changed = false;
+        GH_Document? doc = _owner.OnPingDocument();
+        var added = new List<Guid>();
         foreach (Guid g in guids)
         {
-            if (g != _owner.InstanceGuid && _members.Add(g))
+            if (g == _owner.InstanceGuid || !CanContain(doc, g))
             {
-                changed = true;
+                continue;
+            }
+
+            if (_members.Add(g))
+            {
+                added.Add(g);
             }
         }
 
-        if (changed && _collapsed)
+        if (added.Count > 0 && _collapsed)
         {
             ApplyState();
         }
+
+        return added;
+    }
+
+    /// <summary>Whether the given component is a member of this group.</summary>
+    /// <param name="g">The component InstanceGuid to test.</param>
+    /// <returns>true when it is a member.</returns>
+    public bool Contains(Guid g) => _members.Contains(g);
+
+    /// <summary>
+    /// Whether a component is already a member of some Chatbox's harness other than the one
+    /// identified by <paramref name="exceptOwnerGuid"/>. Keeps each component in at most one
+    /// harness and stops a chatbox that is itself a member from starting its own (no nesting).
+    /// </summary>
+    /// <param name="doc">The document to scan.</param>
+    /// <param name="memberGuid">The candidate component's InstanceGuid.</param>
+    /// <param name="exceptOwnerGuid">A Chatbox owner to ignore (usually the asking harness).</param>
+    /// <returns>true when another harness already owns the component.</returns>
+    public static bool IsMemberOfAnyHarness(GH_Document doc, Guid memberGuid, Guid exceptOwnerGuid)
+    {
+        foreach (Chatbox cb in doc.Objects.OfType<Chatbox>())
+        {
+            if (cb.InstanceGuid != exceptOwnerGuid && cb.Group.Contains(memberGuid))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Whether a candidate may join this harness: not a Chatbox that already owns a harness (no
+    // nesting), and not already a member of another Chatbox's harness (single membership). A plain
+    // chatbox with no members of its own may still be added.
+    private bool CanContain(GH_Document? doc, Guid g)
+    {
+        if (doc is null)
+        {
+            return true; // can't validate without a document (rare, e.g. before load) — allow.
+        }
+
+        IGH_DocumentObject? obj = doc.FindObject(g, false);
+        if (obj is null)
+        {
+            return false;
+        }
+
+        if (obj is Chatbox cb && cb.Group.Count > 0)
+        {
+            return false;
+        }
+
+        return !IsMemberOfAnyHarness(doc, g, _owner.InstanceGuid);
     }
 
     /// <summary>
@@ -79,17 +139,26 @@ public sealed class Harness
     /// the canvas.
     /// </summary>
     /// <param name="guids">The InstanceGuids to remove.</param>
-    public void Remove(IEnumerable<Guid> guids)
+    /// <returns>The members actually removed (those that were in the group).</returns>
+    public IReadOnlyList<Guid> Remove(IEnumerable<Guid> guids)
     {
+        var removed = new List<Guid>();
         foreach (Guid g in guids.ToList())
         {
             if (_members.Remove(g))
             {
                 ShowMember(Find(g), g);
+                removed.Add(g);
             }
         }
 
-        Refresh(expireOwner: true);
+        if (removed.Count > 0)
+        {
+            ResetIfEmpty();
+            Refresh(expireOwner: true);
+        }
+
+        return removed;
     }
 
     /// <summary>
@@ -160,6 +229,18 @@ public sealed class Harness
                 _members.Remove(g);
                 _swapped.Remove(g);
             }
+        }
+
+        ResetIfEmpty();
+    }
+
+    // Once the group is empty it is no longer a harness, so drop any lingering collapsed state.
+    private void ResetIfEmpty()
+    {
+        if (_members.Count == 0)
+        {
+            _collapsed = false;
+            _lastPoint = new PointF(float.NaN, float.NaN);
         }
     }
 

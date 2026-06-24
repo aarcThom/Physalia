@@ -1110,8 +1110,12 @@ public class ChatWindow : Form
             }
 
             // The preset's components become the Chatbox's harness group, so the whole workflow
-            // can be collapsed behind the single proxy node it was anchored to.
-            _component.Group.Add(result.PlacedGuids);
+            // can be collapsed behind the single proxy node it was anchored to. A second Chatbox in
+            // the preset is a peer entry point, never a member, so it is excluded.
+            List<Guid> seed = result.PlacedGuids
+                .Where(g => doc.FindObject(g, false) is not Chatbox)
+                .ToList();
+            _component.Group.Add(seed);
 
             doc.NewSolution(false); // register the re-wired sources, then redraw
             Instances.ActiveCanvas?.Refresh();

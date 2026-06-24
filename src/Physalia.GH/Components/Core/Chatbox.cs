@@ -138,10 +138,27 @@ public class Chatbox : StatefulComponentBase
     {
         base.AppendAdditionalMenuItems(menu);
         Menu_AppendSeparator(menu);
-        Menu_AppendItem(menu, _group.Collapsed ? "Expand Harness" : "Collapse Harness", (_, _) => ToggleCollapse());
-        Menu_AppendItem(menu, "Collapse Selected into Harness", (_, _) => CollapseSelectedIntoHarness());
-        Menu_AppendItem(menu, "Add Selected to Harness", (_, _) => AddSelectedToHarness());
-        Menu_AppendItem(menu, "Remove Selected from Harness", (_, _) => RemoveSelectedFromHarness());
+
+        // A Chatbox is a harness only once it owns members. While it has none, only the entry
+        // items show; the collapse/expand and remove items appear once it is a harness.
+        bool hasMembers = _group.Count > 0;
+
+        // A Chatbox that is itself a member of another harness must not start or extend its own,
+        // so harnesses can never nest — the entry items are greyed out in that case.
+        bool isMember = IsMemberOfAnotherHarness();
+
+        if (hasMembers)
+        {
+            Menu_AppendItem(menu, _group.Collapsed ? "Expand Harness" : "Collapse Harness", (_, _) => ToggleCollapse());
+        }
+
+        Menu_AppendItem(menu, "Collapse Selected into Harness", (_, _) => CollapseSelectedIntoHarness(), !isMember);
+        Menu_AppendItem(menu, "Add Selected to Harness", (_, _) => AddSelectedToHarness(), !isMember);
+
+        if (hasMembers)
+        {
+            Menu_AppendItem(menu, "Remove Selected from Harness", (_, _) => RemoveSelectedFromHarness());
+        }
     }
 
     /// <summary>
@@ -152,25 +169,27 @@ public class Chatbox : StatefulComponentBase
 
     /// <summary>
     /// Adds the document's currently selected objects (other than this Chatbox) to the harness
-    /// group and collapses it — "collapse these into my Chatbox".
+    /// group and collapses it — "collapse these into my Chatbox". The membership change is
+    /// recorded for undo/redo.
     /// </summary>
     public void CollapseSelectedIntoHarness()
     {
-        _group.Add(SelectedGuids());
+        IReadOnlyList<Guid> added = _group.Add(SelectedGuids());
+        RecordMembershipUndo(added, added: true);
         _group.SetCollapsed(true);
     }
 
     /// <summary>
     /// Adds the currently selected objects to the harness group without changing its collapsed
-    /// state — "add to harness".
+    /// state — "add to harness". Recorded for undo/redo.
     /// </summary>
-    public void AddSelectedToHarness() => _group.Add(SelectedGuids());
+    public void AddSelectedToHarness() => RecordMembershipUndo(_group.Add(SelectedGuids()), added: true);
 
     /// <summary>
     /// Removes the currently selected objects from the harness group, restoring any that were
-    /// hidden.
+    /// hidden. Recorded for undo/redo.
     /// </summary>
-    public void RemoveSelectedFromHarness() => _group.Remove(SelectedGuids());
+    public void RemoveSelectedFromHarness() => RecordMembershipUndo(_group.Remove(SelectedGuids()), added: false);
 
     /// <inheritdoc/>
     public override bool Write(GH_IWriter writer)
@@ -189,6 +208,29 @@ public class Chatbox : StatefulComponentBase
 
     /// <inheritdoc/>
     protected override string MessageForState(SolveState state) => string.Empty;
+
+    // Pushes a harness membership change onto Grasshopper's undo stack so it can be undone and
+    // redone. The action reverses the exact delta through Group.Add/Remove. No-op for an empty
+    // delta (e.g. nothing selected, or all already members).
+    private void RecordMembershipUndo(IReadOnlyList<Guid> changed, bool added)
+    {
+        if (changed.Count == 0)
+        {
+            return;
+        }
+
+        GH_Document? doc = OnPingDocument();
+        string name = added ? "Add to Harness" : "Remove from Harness";
+        doc?.UndoServer.PushUndoRecord(name, new Physalia.GH.Harness.HarnessMembershipUndoAction(InstanceGuid, changed, added));
+    }
+
+    // Whether this Chatbox is itself a member of another Chatbox's harness — in which case it may
+    // not start or extend its own (no nested harnesses).
+    private bool IsMemberOfAnotherHarness()
+    {
+        GH_Document? doc = OnPingDocument();
+        return doc is not null && HarnessGroup.IsMemberOfAnyHarness(doc, InstanceGuid, InstanceGuid);
+    }
 
     // The selected document objects other than this Chatbox itself.
     private IReadOnlyList<Guid> SelectedGuids()

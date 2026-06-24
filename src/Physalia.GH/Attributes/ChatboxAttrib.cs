@@ -41,11 +41,15 @@ public class ChatboxAttrib : GH_ComponentAttributes
     {
         base.Layout();
 
-        _chevronBounds = new RectangleF(
-            Bounds.Right - ChevronSize - ChevronInset,
-            Bounds.Top + ChevronInset,
-            ChevronSize,
-            ChevronSize);
+        // The chevron only exists once this Chatbox is a harness (owns members); an empty Chatbox
+        // is a plain node, so the toggle target collapses to nothing.
+        _chevronBounds = _chatbox.Group.Count > 0
+            ? new RectangleF(
+                Bounds.Right - ChevronSize - ChevronInset,
+                Bounds.Top + ChevronInset,
+                ChevronSize,
+                ChevronSize)
+            : RectangleF.Empty;
 
         // While collapsed, keep the hidden members glued under this (possibly moved) proxy.
         _chatbox.Group.RefreshCollapsePoint();
@@ -57,6 +61,12 @@ public class ChatboxAttrib : GH_ComponentAttributes
         base.Render(canvas, graphics, channel);
 
         if (channel != GH_CanvasChannel.Objects)
+        {
+            return;
+        }
+
+        // Not a harness until it owns members — draw no chevron/decoration, so it reads as a plain node.
+        if (_chatbox.Group.Count == 0)
         {
             return;
         }

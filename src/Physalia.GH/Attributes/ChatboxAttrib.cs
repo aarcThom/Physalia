@@ -8,6 +8,7 @@ using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Components;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Attributes;
 
@@ -39,6 +40,14 @@ public class ChatboxAttrib : GH_ComponentAttributes
     /// <inheritdoc/>
     protected override void Layout()
     {
+        // This Chatbox may itself be a (plain) member of another harness — when that harness is
+        // collapsed, hide it like any member: shrink to the collapse point and skip the proxy chrome.
+        if (CollapseGuard.TryCollapseLayout(this))
+        {
+            _chevronBounds = RectangleF.Empty;
+            return;
+        }
+
         base.Layout();
 
         // The chevron only exists once this Chatbox is a harness (owns members); an empty Chatbox
@@ -58,6 +67,12 @@ public class ChatboxAttrib : GH_ComponentAttributes
     /// <inheritdoc/>
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
     {
+        // Hidden as a collapsed member of another harness — draw nothing at all.
+        if (CollapseGuard.IsCollapsed(this))
+        {
+            return;
+        }
+
         base.Render(canvas, graphics, channel);
 
         if (channel != GH_CanvasChannel.Objects)

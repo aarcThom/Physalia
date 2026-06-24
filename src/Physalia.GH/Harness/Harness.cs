@@ -1,0 +1,298 @@
+// Copyright (c) 2026 Physalia Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Linq;
+using GH_IO.Serialization;
+using Grasshopper.Kernel;
+using Physalia.GH.Components;
+
+namespace Physalia.GH.Harness;
+
+/// <summary>
+/// Manages a collapsible group of pipeline components behind a single proxy node (a Chatbox).
+/// Holds the member set, the collapsed state, and the bookkeeping to hide and restore members
+/// in place: Physalia (<see cref="PhyBase"/>) members are flagged and their own attributes
+/// shrink them to the proxy; non-Physalia members have their attributes swapped for a
+/// <see cref="CollapsedProxyAttributes"/> stand-in and restored on expand. Members are never
+/// moved or removed, so they stay wired and keep solving while hidden.
+///
+/// <para>All the group/collapse logic lives here so the Chatbox stays a thin proxy that merely
+/// delegates. The member set and collapsed flag persist with the Chatbox; the swapped-attribute
+/// map is session-only and rebuilt by re-applying the collapsed state after a load.</para>
+/// </summary>
+public sealed class Harness
+{
+    private readonly IGH_DocumentObject _owner;
+    private readonly HashSet<Guid> _members = new();
+    private readonly Dictionary<Guid, IGH_Attributes> _swapped = new();
+    private bool _collapsed;
+
+    // The collapse point last pushed to the members, so the layout-time refresh re-pushes only
+    // when the proxy has actually moved (NaN = force on the next apply).
+    private PointF _lastPoint = new(float.NaN, float.NaN);
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="Harness"/> class.
+    /// </summary>
+    /// <param name="owner">The proxy node (Chatbox) that owns and represents the group.</param>
+    public Harness(IGH_DocumentObject owner)
+    {
+        _owner = owner ?? throw new ArgumentNullException(nameof(owner));
+    }
+
+    /// <summary>Gets a value indicating whether the group is currently collapsed (hidden).</summary>
+    public bool Collapsed => _collapsed;
+
+    /// <summary>Gets the number of components in the group.</summary>
+    public int Count => _members.Count;
+
+    // The shared point every member collapses to: the proxy node's pivot.
+    private PointF Point => _owner.Attributes?.Pivot ?? PointF.Empty;
+
+    /// <summary>
+    /// Adds components to the group, ignoring the proxy itself and duplicates. Newly added
+    /// members are hidden immediately when the group is already collapsed.
+    /// </summary>
+    /// <param name="guids">The InstanceGuids to add.</param>
+    public void Add(IEnumerable<Guid> guids)
+    {
+        bool changed = false;
+        foreach (Guid g in guids)
+        {
+            if (g != _owner.InstanceGuid && _members.Add(g))
+            {
+                changed = true;
+            }
+        }
+
+        if (changed && _collapsed)
+        {
+            ApplyState();
+        }
+    }
+
+    /// <summary>
+    /// Removes components from the group, restoring any that were hidden so they reappear on
+    /// the canvas.
+    /// </summary>
+    /// <param name="guids">The InstanceGuids to remove.</param>
+    public void Remove(IEnumerable<Guid> guids)
+    {
+        foreach (Guid g in guids.ToList())
+        {
+            if (_members.Remove(g))
+            {
+                ShowMember(Find(g), g);
+            }
+        }
+
+        Refresh(expireOwner: true);
+    }
+
+    /// <summary>
+    /// Collapses (hides) or expands (restores) the whole group.
+    /// </summary>
+    /// <param name="collapsed">true to hide the members, false to restore them.</param>
+    public void SetCollapsed(bool collapsed)
+    {
+        _collapsed = collapsed;
+        ApplyState();
+    }
+
+    /// <summary>Toggles the collapsed state.</summary>
+    public void Toggle() => SetCollapsed(!_collapsed);
+
+    /// <summary>
+    /// (Re)applies the current collapsed state to every member, pruning any that have left the
+    /// document. Idempotent — safe to call after a load, after edits, or when the proxy moves.
+    /// </summary>
+    /// <param name="expireOwner">
+    /// Whether to expire the proxy's own layout too. False when called from the proxy's layout
+    /// pass (e.g. <see cref="RefreshCollapsePoint"/>) to avoid re-entrant layout.
+    /// </param>
+    public void ApplyState(bool expireOwner = true)
+    {
+        GH_Document? doc = _owner.OnPingDocument();
+        if (doc is null)
+        {
+            return;
+        }
+
+        PointF point = Point;
+        _lastPoint = _collapsed ? point : new PointF(float.NaN, float.NaN);
+
+        foreach (Guid g in _members.ToList())
+        {
+            IGH_DocumentObject? obj = doc.FindObject(g, false);
+            if (obj is null)
+            {
+                _members.Remove(g);
+                _swapped.Remove(g);
+                continue;
+            }
+
+            if (_collapsed)
+            {
+                HideMember(obj, point);
+            }
+            else
+            {
+                ShowMember(obj, g);
+            }
+        }
+
+        Refresh(expireOwner);
+    }
+
+    /// <summary>
+    /// Drops members that are no longer in the document. Cheap; safe to call every solve.
+    /// </summary>
+    /// <param name="doc">The owning document.</param>
+    public void Prune(GH_Document doc)
+    {
+        foreach (Guid g in _members.ToList())
+        {
+            if (doc.FindObject(g, false) is null)
+            {
+                _members.Remove(g);
+                _swapped.Remove(g);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Keeps hidden members glued under the proxy when it is dragged. Cheap and safe to call
+    /// from the proxy's own layout pass: it re-pushes the collapse point only when the proxy has
+    /// actually moved, expires just the member layouts, and never refreshes the canvas (which
+    /// would loop the paint). No-op when expanded.
+    /// </summary>
+    public void RefreshCollapsePoint()
+    {
+        if (!_collapsed)
+        {
+            return;
+        }
+
+        PointF point = Point;
+        if (point == _lastPoint)
+        {
+            return;
+        }
+
+        GH_Document? doc = _owner.OnPingDocument();
+        if (doc is null)
+        {
+            return;
+        }
+
+        _lastPoint = point;
+
+        foreach (Guid g in _members)
+        {
+            IGH_DocumentObject? obj = doc.FindObject(g, false);
+            if (obj is PhyBase member)
+            {
+                member.HarnessCollapsePoint = point;
+                member.Attributes?.ExpireLayout();
+            }
+            else if (obj?.Attributes is CollapsedProxyAttributes proxy)
+            {
+                proxy.UpdatePoint(point);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Persists the member set and collapsed flag with the owning Chatbox.
+    /// </summary>
+    /// <param name="writer">The writer to persist into.</param>
+    public void Write(GH_IWriter writer)
+    {
+        writer.SetBoolean("HarnessCollapsed", _collapsed);
+        writer.SetInt32("HarnessMemberCount", _members.Count);
+
+        int i = 0;
+        foreach (Guid g in _members)
+        {
+            writer.SetGuid("HarnessMember", i++, g);
+        }
+    }
+
+    /// <summary>
+    /// Restores the member set and collapsed flag. The collapsed state is re-applied to the
+    /// members later (once the document has loaded) via <see cref="ApplyState"/>.
+    /// </summary>
+    /// <param name="reader">The reader to restore from.</param>
+    public void Read(GH_IReader reader)
+    {
+        _members.Clear();
+        _swapped.Clear();
+        _collapsed = false;
+
+        reader.TryGetBoolean("HarnessCollapsed", ref _collapsed);
+
+        int count = 0;
+        reader.TryGetInt32("HarnessMemberCount", ref count);
+        for (int i = 0; i < count; i++)
+        {
+            if (reader.ItemExists("HarnessMember", i))
+            {
+                _members.Add(reader.GetGuid("HarnessMember", i));
+            }
+        }
+    }
+
+    private void HideMember(IGH_DocumentObject obj, PointF point)
+    {
+        if (obj is PhyBase member)
+        {
+            member.HarnessCollapsed = true;
+            member.HarnessCollapsePoint = point;
+            member.Attributes?.ExpireLayout();
+            return;
+        }
+
+        if (obj.Attributes is CollapsedProxyAttributes proxy)
+        {
+            // Already hidden — just keep it under the (possibly moved) proxy.
+            proxy.UpdatePoint(point);
+            return;
+        }
+
+        IGH_Attributes original = obj.Attributes;
+        _swapped[obj.InstanceGuid] = original;
+        obj.Attributes = new CollapsedProxyAttributes(obj, original, point);
+        obj.Attributes.ExpireLayout();
+    }
+
+    private void ShowMember(IGH_DocumentObject? obj, Guid g)
+    {
+        if (obj is PhyBase member)
+        {
+            member.HarnessCollapsed = false;
+            member.Attributes?.ExpireLayout();
+        }
+        else if (obj is not null && _swapped.TryGetValue(g, out IGH_Attributes? original))
+        {
+            obj.Attributes = original;
+            original.ExpireLayout();
+        }
+
+        _swapped.Remove(g);
+    }
+
+    private IGH_DocumentObject? Find(Guid g) => _owner.OnPingDocument()?.FindObject(g, false);
+
+    private void Refresh(bool expireOwner)
+    {
+        if (expireOwner)
+        {
+            _owner.Attributes?.ExpireLayout();
+        }
+
+        Grasshopper.Instances.ActiveCanvas?.Refresh();
+    }
+}

@@ -10,6 +10,7 @@ using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Attributes.UiElements;
 using Physalia.GH.Components.Utility;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Attributes;
 
@@ -39,6 +40,14 @@ public class PickerAttrib : GH_ComponentAttributes
     /// <inheritdoc/>
     protected override void Layout()
     {
+        if (CollapseGuard.TryCollapseLayout(this))
+        {
+            _buttonBounds = RectangleF.Empty;
+            _backgroundBrush?.Dispose();
+            _backgroundBrush = null;
+            return;
+        }
+
         base.Layout();
 
         // Enforce a minimum width for the dropdown button.
@@ -72,6 +81,11 @@ public class PickerAttrib : GH_ComponentAttributes
     /// <inheritdoc/>
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
     {
+        if (CollapseGuard.IsCollapsed(this))
+        {
+            return;
+        }
+
         base.Render(canvas, graphics, channel);
 
         if (channel == GH_CanvasChannel.Objects && _backgroundBrush != null)

@@ -92,6 +92,8 @@ public class ChatWindow : Form
     private string? _lastConfigured;
     private string? _lastPresetSignature;
     private string? _lastChatboxes;
+    private bool? _lastCollapsed;
+    private int? _lastHarnessCount;
 
     // Set on a Chatbox switch: forces the next Tick to push history/stream/state unconditionally,
     // even when the newly viewed component's values equal the reset caches (e.g. a fresh component
@@ -274,6 +276,9 @@ public class ChatWindow : Form
                 break;
             case "selectchatbox":
                 HandleSelectChatbox(uri);
+                break;
+            case "togglecollapse":
+                _component.ToggleCollapse();
                 break;
         }
     }
@@ -614,8 +619,14 @@ public class ChatWindow : Form
         // Serialised form of the id list, used both as the change signature and the wire payload.
         string configuredJson = JsonSerializer.Serialize(configuredProviders, WriteOpts);
 
+        // Harness collapse state: whether the viewed Chatbox's group is collapsed and how many
+        // components it hides — drives the show/hide-harness button in the window.
+        bool collapsed = _component.Group.Collapsed;
+        int harnessCount = _component.Group.Count;
+
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
-            || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured)
+            || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
+            || collapsed != _lastCollapsed || harnessCount != _lastHarnessCount)
         {
             _lastConnected = connected;
             _lastBusy = busy;
@@ -623,8 +634,10 @@ public class ChatWindow : Form
             _lastNeedsSetup = needsSetup;
             _lastStatus = status;
             _lastConfigured = configuredJson;
+            _lastCollapsed = collapsed;
+            _lastHarnessCount = harnessCount;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 
@@ -1095,6 +1108,10 @@ public class ChatWindow : Form
                 Rhino.RhinoApp.WriteLine($"[Physalia] Preset placement failed: {result.ErrorMessage}");
                 return;
             }
+
+            // The preset's components become the Chatbox's harness group, so the whole workflow
+            // can be collapsed behind the single proxy node it was anchored to.
+            _component.Group.Add(result.PlacedGuids);
 
             doc.NewSolution(false); // register the re-wired sources, then redraw
             Instances.ActiveCanvas?.Refresh();

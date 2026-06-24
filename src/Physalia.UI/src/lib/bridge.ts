@@ -54,6 +54,10 @@ export interface UiState {
 	status: string;
 	/** Setup-screen ids of every provider already configured (matches providers.ts ids). */
 	configuredProviders: string[];
+	/** True when the viewed Chatbox's harness group is collapsed (its components hidden). */
+	collapsed: boolean;
+	/** How many components are in the viewed Chatbox's harness group (0 = nothing to collapse). */
+	harnessCount: number;
 }
 
 /** Outcome of a save-API-key request, pushed back by the host after it writes the config. */

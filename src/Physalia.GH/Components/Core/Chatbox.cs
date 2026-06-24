@@ -3,11 +3,15 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Windows.Forms;
+using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.ConvoInstruct;
 using Physalia.GH.Attributes;
 using Physalia.GH.Panels;
 using Physalia.GH.Parameters;
+using HarnessGroup = Physalia.GH.Harness.Harness;
 
 namespace Physalia.GH.Components;
 
@@ -25,16 +29,32 @@ public class Chatbox : StatefulComponentBase
     // spawning another. Session-only — nothing here serializes.
     private static ChatWindow? _activeWindow;
 
+    // The collapsible group of pipeline components this Chatbox proxies. All group/collapse
+    // logic lives in HarnessGroup; the Chatbox just delegates.
+    private readonly HarnessGroup _group;
+
+    // Set after a Read so the collapsed state is re-applied to members once the whole
+    // document has finished loading (deferred to the next solve / idle pass).
+    private bool _pendingApply;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="Chatbox"/> class.
     /// </summary>
     public Chatbox()
         : base("Chatbox", "Chat", "Standalone chat window driving the pipeline. Double-click to open the window; send a message to mint a Prompt Signal.", "Core")
     {
+        _group = new HarnessGroup(this);
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("B7E4B6F2-3C2A-4D71-9E0A-7F1C2D3E4A5B");
+
+    /// <summary>
+    /// Gets the collapsible harness group this Chatbox represents. The proxy renders a
+    /// distinct collapsed capsule while the group is collapsed; the chat window and canvas
+    /// menu drive it through here.
+    /// </summary>
+    public HarnessGroup Group => _group;
 
     /// <inheritdoc/>
     protected override string ClearMenuText => "Clear Signal";
@@ -114,7 +134,76 @@ public class Chatbox : StatefulComponentBase
     }
 
     /// <inheritdoc/>
+    public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
+    {
+        base.AppendAdditionalMenuItems(menu);
+        Menu_AppendSeparator(menu);
+        Menu_AppendItem(menu, _group.Collapsed ? "Expand Harness" : "Collapse Harness", (_, _) => ToggleCollapse());
+        Menu_AppendItem(menu, "Collapse Selected into Harness", (_, _) => CollapseSelectedIntoHarness());
+        Menu_AppendItem(menu, "Add Selected to Harness", (_, _) => AddSelectedToHarness());
+        Menu_AppendItem(menu, "Remove Selected from Harness", (_, _) => RemoveSelectedFromHarness());
+    }
+
+    /// <summary>
+    /// Toggles the collapsed state of the harness group, hiding or restoring its members.
+    /// Driven by the canvas chevron/menu and the chat-window button.
+    /// </summary>
+    public void ToggleCollapse() => _group.Toggle();
+
+    /// <summary>
+    /// Adds the document's currently selected objects (other than this Chatbox) to the harness
+    /// group and collapses it — "collapse these into my Chatbox".
+    /// </summary>
+    public void CollapseSelectedIntoHarness()
+    {
+        _group.Add(SelectedGuids());
+        _group.SetCollapsed(true);
+    }
+
+    /// <summary>
+    /// Adds the currently selected objects to the harness group without changing its collapsed
+    /// state — "add to harness".
+    /// </summary>
+    public void AddSelectedToHarness() => _group.Add(SelectedGuids());
+
+    /// <summary>
+    /// Removes the currently selected objects from the harness group, restoring any that were
+    /// hidden.
+    /// </summary>
+    public void RemoveSelectedFromHarness() => _group.Remove(SelectedGuids());
+
+    /// <inheritdoc/>
+    public override bool Write(GH_IWriter writer)
+    {
+        _group.Write(writer);
+        return base.Write(writer);
+    }
+
+    /// <inheritdoc/>
+    public override bool Read(GH_IReader reader)
+    {
+        _group.Read(reader);
+        _pendingApply = true;
+        return base.Read(reader);
+    }
+
+    /// <inheritdoc/>
     protected override string MessageForState(SolveState state) => string.Empty;
+
+    // The selected document objects other than this Chatbox itself.
+    private IReadOnlyList<Guid> SelectedGuids()
+    {
+        GH_Document? doc = OnPingDocument();
+        if (doc is null)
+        {
+            return Array.Empty<Guid>();
+        }
+
+        return doc.SelectedObjects()
+            .Where(o => o.InstanceGuid != InstanceGuid)
+            .Select(o => o.InstanceGuid)
+            .ToList();
+    }
 
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
@@ -131,6 +220,26 @@ public class Chatbox : StatefulComponentBase
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
+        GH_Document? doc = OnPingDocument();
+        if (doc is not null)
+        {
+            _group.Prune(doc);
+
+            if (_pendingApply)
+            {
+                // Re-apply a loaded collapsed state once, deferred to idle so every member
+                // has been added to the document and laid out first.
+                _pendingApply = false;
+                Rhino.RhinoApp.Idle += ApplyGroupOnIdle;
+            }
+        }
+
         EmitSignal(DA, 0, SuccessSignal);
+    }
+
+    private void ApplyGroupOnIdle(object? sender, EventArgs e)
+    {
+        Rhino.RhinoApp.Idle -= ApplyGroupOnIdle;
+        _group.ApplyState();
     }
 }

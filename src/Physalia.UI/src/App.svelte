@@ -37,6 +37,10 @@
 	let needsSetup = $state(false);
 	let status = $state('');
 	let configuredProviders = $state<string[]>([]);
+	// Harness collapse state for the viewed Chatbox: whether its component group is hidden,
+	// and how many components it holds (0 hides the show/hide-harness control).
+	let collapsed = $state(false);
+	let harnessCount = $state(0);
 
 	// Setup screen state. `needsSetup` (from the host) forces it when no provider is configured;
 	// `manualSetup` lets the user open it from the header dropdown to add another provider later.
@@ -80,6 +84,8 @@
 				needsSetup = next.needsSetup ?? false;
 				status = next.status ?? '';
 				configuredProviders = next.configuredProviders ?? [];
+				collapsed = next.collapsed ?? false;
+				harnessCount = next.harnessCount ?? 0;
 			},
 			setSetupResult: (result) => {
 				setupResult = result;
@@ -154,6 +160,12 @@
 	// the open document.
 	function clearAllComponents() {
 		window.location.href = `${BRIDGE_SCHEME}://clearall`;
+	}
+
+	// Ask the host to collapse/expand the viewed Chatbox's harness group on the canvas. The next
+	// state tick reports the new `collapsed` flag, which updates the menu label.
+	function toggleHarness() {
+		window.location.href = `${BRIDGE_SCHEME}://togglecollapse`;
 	}
 
 	// Switch the window to view another Chatbox component (its recorder history, or the default
@@ -271,6 +283,12 @@
 				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('manualdef')}>
 					Add new manual definition
 				</DropdownMenuItem>
+				{#if harnessCount > 0}
+					<DropdownMenuSeparator />
+					<DropdownMenuItem class="whitespace-nowrap" onSelect={toggleHarness}>
+						{collapsed ? `Show harness (${harnessCount})` : `Hide harness (${harnessCount})`}
+					</DropdownMenuItem>
+				{/if}
 			</DropdownMenuContent>
 		</DropdownMenu>
 		<span class="text-muted-foreground text-xs font-medium">Physalia Chat</span>

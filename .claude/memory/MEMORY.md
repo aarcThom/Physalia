@@ -17,6 +17,7 @@
 - [UI design: neumorphism](ui-design-neumorphism.md) — chat UI design language (soft UI: one blue base, dual shadows, no borders); `--neu-*` tokens + `.neu-*` helpers in app.css, plus the two edge-shadow gotchas (gutter clip, overflow-hidden clips child shadows).
 - [Chatbox switcher row](chatbox-switcher-row.md) — bottom row of circles in the chat window switches the single window between multiple Chatbox components (`ChatWindow._component` now mutable + `SetActiveComponent`); `selectchatbox` bridge verb; double-click another Chatbox switches view. 2026-06-23, builds clean, live test pending.
 - [Preset placement](preset-placement.md) — "Add preset" splices the live Chatbox into the preset's placeholder Chatbox slot via `GhJsonBridge.LoadAndPlaceAnchored` (no duplicate); + `ExpandToFullName` ExpireLayout fix (full param names on GhJSON-placed components) + chat window centres over the GH editor on multi-monitor. 2026-06-23, builds clean, live test pending.
+- [Collapsible harness](collapsible-harness.md) — hide/show a Chatbox's pipeline behind the single Chatbox proxy node (in-place visual collapse, not a real cluster); new `src/Physalia.GH/Harness/` folder + `Harness` class, `PhyBase` collapse flag, native-member attribute-swap, chevron + menu + chat-window toggle. 2026-06-24, builds clean, live test pending.
 
 ## Platform / Build
 - Two projects only: Physalia.Core (net7.0) and Physalia.GH (net7.0-windows on Windows, net7.0 on Mac — set via OS-conditional TargetFrameworks).

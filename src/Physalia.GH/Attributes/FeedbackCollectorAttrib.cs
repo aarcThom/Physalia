@@ -6,6 +6,7 @@ using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Attributes.UiElements;
 using Physalia.GH.Components;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Attributes;
 
@@ -33,6 +34,13 @@ public class FeedbackCollectorAttrib : GH_ComponentAttributes
     /// </summary>
     protected override void Layout()
     {
+        if (CollapseGuard.TryCollapseLayout(this))
+        {
+            _visualBounds = Bounds;
+            _gripBounds = Bounds;
+            return;
+        }
+
         base.Layout();
         _visualBounds = Bounds;
         _gripBounds = new RectangleF(Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height + 10f);
@@ -47,6 +55,11 @@ public class FeedbackCollectorAttrib : GH_ComponentAttributes
     /// <param name="channel">The current rendering channel.</param>
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
     {
+        if (CollapseGuard.IsCollapsed(this))
+        {
+            return;
+        }
+
         Bounds = _visualBounds;
 
         if (channel == GH_CanvasChannel.Objects)

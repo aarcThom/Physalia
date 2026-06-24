@@ -1119,6 +1119,13 @@ public class ChatWindow : Form
 
             doc.NewSolution(false); // register the re-wired sources, then redraw
             Instances.ActiveCanvas?.Refresh();
+
+            // A predefined workflow lands collapsed behind the Chatbox proxy (deferred to idle so
+            // the placement solution has settled and the members are laid out first).
+            if (_component.Group.Count > 0)
+            {
+                _component.CollapseHarnessDeferred();
+            }
         }
         catch (Exception ex)
         {

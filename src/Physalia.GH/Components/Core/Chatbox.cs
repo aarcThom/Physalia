@@ -168,6 +168,18 @@ public class Chatbox : StatefulComponentBase
     public void ToggleCollapse() => _group.Toggle();
 
     /// <summary>
+    /// Collapses the harness on the next idle pass. Used right after a predefined workflow is
+    /// placed, so the workflow lands collapsed — deferred so the placement's solution has settled
+    /// and every member has been laid out (so native-member attribute swaps and the proxy pivot
+    /// are valid) before the group is hidden.
+    /// </summary>
+    public void CollapseHarnessDeferred()
+    {
+        Rhino.RhinoApp.Idle -= CollapseOnIdle; // never stack handlers
+        Rhino.RhinoApp.Idle += CollapseOnIdle;
+    }
+
+    /// <summary>
     /// Adds the document's currently selected objects (other than this Chatbox) to the harness
     /// group and collapses it — "collapse these into my Chatbox". The membership change is
     /// recorded for undo/redo.
@@ -283,5 +295,11 @@ public class Chatbox : StatefulComponentBase
     {
         Rhino.RhinoApp.Idle -= ApplyGroupOnIdle;
         _group.ApplyState();
+    }
+
+    private void CollapseOnIdle(object? sender, EventArgs e)
+    {
+        Rhino.RhinoApp.Idle -= CollapseOnIdle;
+        _group.SetCollapsed(true);
     }
 }

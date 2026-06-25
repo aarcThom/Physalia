@@ -27,6 +27,14 @@ public class PhyComponentAttributes : GH_ComponentAttributes
     {
     }
 
+    /// <summary>
+    /// Gets a value indicating whether the owning component is currently a collapsed harness
+    /// member — in which case its layout shrinks to the proxy and its render draws nothing. This
+    /// is the single place subclasses consult the harness collapse state, so they need not
+    /// reference <see cref="CollapseGuard"/> directly.
+    /// </summary>
+    protected bool IsHarnessCollapsed => CollapseGuard.IsCollapsed(this);
+
     /// <inheritdoc/>
     protected override void Layout()
     {

@@ -22,13 +22,12 @@ public record WireGradient(Color From, Color To, int Steps = 40);
 public class BezierWire
 {
     private static readonly float _controlOffset = 80f;
-    private static readonly float _arrowHeight = 8f;
-    private static readonly float _arrowWidth = 4f;
 
     private PointF _start;
     private PointF _end;
     private WireGradient _gradient;
     private bool _horizontalEnd;
+    private IArrowHead _arrowHead = TriangleArrowHead.Default;
 
     private Pen[] _pens;
     private PointF[] _segments = Array.Empty<PointF>();
@@ -101,6 +100,16 @@ public class BezierWire
     }
 
     /// <summary>
+    /// Gets or sets the head drawn at <see cref="End"/>. Defaults to a filled triangle; assign a
+    /// different <see cref="IArrowHead"/> to change the tip ornament without touching the wire.
+    /// </summary>
+    public IArrowHead ArrowHead
+    {
+        get => _arrowHead;
+        set => _arrowHead = value ?? TriangleArrowHead.Default;
+    }
+
+    /// <summary>
     /// Draws the bezier wire and an arrow tip at <see cref="End"/>.
     /// </summary>
     /// <param name="graphics">The GDI+ graphics context.</param>
@@ -111,12 +120,29 @@ public class BezierWire
         for (int i = 0; i < _pens.Length; i++)
             graphics.DrawLine(_pens[i], _segments[i], _segments[i + 1]);
 
-        Color arrowColor = _gradient.To;
-
-        DrawArrow(graphics, _end, arrowColor, _horizontalEnd);
+        _arrowHead.Draw(graphics, _end, EndDirection(), _gradient.To);
     }
 
     // -------------------------------------------------------------------------
+
+    // Unit travel direction of the wire at its end, taken from the last sampled segment. Falls back
+    // to the curve's nominal approach (rightward when horizontal, upward otherwise) when degenerate.
+    private PointF EndDirection()
+    {
+        int n = _segments.Length;
+        if (n >= 2)
+        {
+            float dx = _segments[n - 1].X - _segments[n - 2].X;
+            float dy = _segments[n - 1].Y - _segments[n - 2].Y;
+            float len = (float)Math.Sqrt((dx * dx) + (dy * dy));
+            if (len > 0.0001f)
+            {
+                return new PointF(dx / len, dy / len);
+            }
+        }
+
+        return _horizontalEnd ? new PointF(1f, 0f) : new PointF(0f, -1f);
+    }
 
     private void Recompute()
     {
@@ -131,27 +157,6 @@ public class BezierWire
             _segments[i] = SampleBezier(_start, cp1, cp2, _end, (float)i / steps);
 
         _dirty = false;
-    }
-
-    private static void DrawArrow(Graphics graphics, PointF wireEnd, Color arrowColor, bool horizontal)
-    {
-        PointF tip, baseA, baseB;
-        if (horizontal)
-        {
-            // Points right; the wire end is the base centre, the tip extends to the right.
-            tip = new PointF(wireEnd.X + _arrowHeight, wireEnd.Y);
-            baseA = new PointF(wireEnd.X, wireEnd.Y - _arrowWidth);
-            baseB = new PointF(wireEnd.X, wireEnd.Y + _arrowWidth);
-        }
-        else
-        {
-            tip = new PointF(wireEnd.X, wireEnd.Y - _arrowHeight);
-            baseA = new PointF(tip.X - _arrowWidth, tip.Y + _arrowHeight);
-            baseB = new PointF(tip.X + _arrowWidth, tip.Y + _arrowHeight);
-        }
-
-        using var fill = new SolidBrush(arrowColor);
-        graphics.FillPolygon(fill, new[] { tip, baseA, baseB });
     }
 
     private static Pen[] BuildPens(WireGradient gradient)

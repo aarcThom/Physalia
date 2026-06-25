@@ -16,8 +16,6 @@ namespace Physalia.GH.Attributes;
 /// </summary>
 public class ZoomGuidAttrib : GripLinkAttrib
 {
-    private static readonly WireGradient _defaultGradient = new WireGradient(Color.Gold, Color.RoyalBlue);
-
     private readonly ZoomGuid _zoomGuid;
 
     /// <summary>
@@ -31,7 +29,7 @@ public class ZoomGuidAttrib : GripLinkAttrib
     }
 
     /// <inheritdoc/>
-    protected override WireGradient Gradient => _defaultGradient;
+    public override WireGradient ArrowGradient => ArrowStyles.ZoomGuid;
 
     /// <inheritdoc/>
     protected override IEnumerable<Guid> LinkedTargets

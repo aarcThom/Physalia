@@ -18,8 +18,6 @@ namespace Physalia.GH.Attributes;
 /// </summary>
 public class PyTransmitterAttrib : GripLinkAttrib
 {
-    private static readonly WireGradient _defaultGradient = new WireGradient(Color.Aquamarine, Color.DeepPink);
-
     private readonly PyTransmitter _pyTransmitter;
 
     /// <summary>
@@ -33,7 +31,7 @@ public class PyTransmitterAttrib : GripLinkAttrib
     }
 
     /// <inheritdoc/>
-    protected override WireGradient Gradient => _defaultGradient;
+    public override WireGradient ArrowGradient => ArrowStyles.PyTransmitter;
 
     /// <inheritdoc/>
     protected override IEnumerable<Guid> LinkedTargets

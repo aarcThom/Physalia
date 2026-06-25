@@ -22,6 +22,7 @@
 - [GH collapsed-harness grips](gh-collapsed-harness-grips.md) — block wire-drag from a collapsed harness by gating param-attribute HasInputGrip/HasOutputGrip (RelevantObjectAtPoint), not the component; hidden members leak grips at the proxy pivot. HarnessParamAttributes + Harness Hide/ShowMember.
 - [Collapsed Chatbox arrow](collapsed-chatbox-arrow.md) — collapsed harness proxy shows a delegated bottom drag arrow (new `IHarnessArrow`) when it holds exactly one transmitter; grip hit zone bottom-centre only so the proxy stays movable. 2026-06-25, builds clean, live test pending.
 - [Collapsible harness](collapsible-harness.md) — hide/show a Chatbox's pipeline behind the single Chatbox proxy node (in-place visual collapse, not a real cluster); new `src/Physalia.GH/Harness/` folder + `Harness` class, `PhyBase` collapse flag, native-member attribute-swap, chevron + menu + chat-window toggle. 2026-06-24, builds clean, live test pending.
+- [Arrow DRY refactor](arrow-dry-refactor.md) — drag-arrow grip/wire-cache/drag-state-machine unified into one `ArrowGrip` controller + `IArrowHost` (composition, so ChatboxAttrib shares it); pluggable `IArrowHead`/`TriangleArrowHead`; central `ArrowStyles` gradient palette; `CollapsedProxyAttributes` moved to `Attributes/`. 2026-06-25, builds clean, live test pending.
 
 ## Platform / Build
 - Two projects only: Physalia.Core (net7.0) and Physalia.GH (net7.0-windows on Windows, net7.0 on Mac — set via OS-conditional TargetFrameworks).

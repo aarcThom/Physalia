@@ -10,7 +10,6 @@ using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Attributes.UiElements;
 using Physalia.GH.Components.Utility;
-using Physalia.GH.Harness;
 
 namespace Physalia.GH.Attributes;
 
@@ -19,7 +18,7 @@ namespace Physalia.GH.Attributes;
 /// button on the Grasshopper canvas showing the currently selected value.
 /// Left-clicking the button opens the selection menu.
 /// </summary>
-public class PickerAttrib : GH_ComponentAttributes
+public class PickerAttrib : PhyComponentAttributes
 {
     private const float MinWidth = 120f;
     private const float ButtonPadding = 4f;
@@ -40,15 +39,16 @@ public class PickerAttrib : GH_ComponentAttributes
     /// <inheritdoc/>
     protected override void Layout()
     {
-        if (CollapseGuard.TryCollapseLayout(this))
+        // PhyComponentAttributes handles the collapse guard and the normal GH layout.
+        base.Layout();
+
+        if (IsHarnessCollapsed)
         {
             _buttonBounds = RectangleF.Empty;
             _backgroundBrush?.Dispose();
             _backgroundBrush = null;
             return;
         }
-
-        base.Layout();
 
         // Enforce a minimum width for the dropdown button.
         if (Bounds.Width < MinWidth)
@@ -81,11 +81,8 @@ public class PickerAttrib : GH_ComponentAttributes
     /// <inheritdoc/>
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
     {
-        if (CollapseGuard.IsCollapsed(this))
-        {
-            return;
-        }
-
+        // PhyComponentAttributes' render honours the collapse guard; when collapsed the button
+        // bounds and brush are cleared in Layout, so the dropdown below does not draw either.
         base.Render(canvas, graphics, channel);
 
         if (channel == GH_CanvasChannel.Objects && _backgroundBrush != null)

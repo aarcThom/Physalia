@@ -17,8 +17,6 @@ namespace Physalia.GH.Attributes;
 /// </summary>
 public class FeedbackAttrib : GripLinkAttrib
 {
-    private static readonly WireGradient _defaultGradient = new WireGradient(Color.Blue, Color.Purple);
-
     private readonly Feedback _feedback;
 
     /// <summary>
@@ -32,7 +30,7 @@ public class FeedbackAttrib : GripLinkAttrib
     }
 
     /// <inheritdoc/>
-    protected override WireGradient Gradient => _defaultGradient;
+    public override WireGradient ArrowGradient => ArrowStyles.Feedback;
 
     /// <inheritdoc/>
     protected override IEnumerable<Guid> LinkedTargets => _feedback.CollectorGuids;

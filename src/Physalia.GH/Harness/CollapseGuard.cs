@@ -4,6 +4,7 @@
 using System.Drawing;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
+using Physalia.GH.Attributes;
 using Physalia.GH.Components;
 
 namespace Physalia.GH.Harness;

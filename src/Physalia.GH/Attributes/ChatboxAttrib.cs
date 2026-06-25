@@ -22,7 +22,7 @@ namespace Physalia.GH.Attributes;
 /// body with a lavender-pink edge — so a harness Chatbox reads distinctly from a plain one.
 /// Collapse is driven from the right-click menu and the chat window.
 /// </summary>
-public class ChatboxAttrib : GH_ComponentAttributes
+public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
 {
     // Harness tint: light-blue body, black capsule edge, dark-purple text. A secondary outline
     // (HarnessGlow → white, top-to-bottom) is traced just outside the black edge.
@@ -34,21 +34,14 @@ public class ChatboxAttrib : GH_ComponentAttributes
     // Width of the secondary gradient outline; ~half straddles outside the 1px black edge.
     private const float GlowWidth = 1f;
 
-    // Delegated arrow colour: the same blue→purple as the Feedback arrows, regardless of which
-    // transmitter the proxy stands in for.
-    private static readonly WireGradient ArrowGradient = new(Color.Blue, Color.Purple);
-
     private readonly Chatbox _chatbox;
 
-    // Delegated bottom arrow, drawn only while collapsed with exactly one transmitter member
+    // The delegated bottom arrow, drawn only while collapsed with exactly one transmitter member
     // (see Harness.TryGetSoleArrow). The proxy hosts the grip + wires and forwards the drag to the
     // real transmitter through IHarnessArrow, so the link/placement is real and survives expansion.
+    // The Chatbox is a bespoke proxy (not a BottomGripAttributes), so it owns its own grip dot.
     private readonly CanvasGrip _grip = new(PointF.Empty);
-    private readonly List<BezierWire> _wires = new();
-    private BezierWire? _dragWire;
-
-    private bool _isDragging;
-    private PointF _dragPoint;
+    private readonly ArrowGrip _arrow = new();
 
     // Bounds before/after the downward grip expansion: the capsule draws at _visualBounds, while
     // _gripBounds (10px taller) is the object's pick region so the bottom grip is hittable.
@@ -66,20 +59,56 @@ public class ChatboxAttrib : GH_ComponentAttributes
     }
 
     /// <inheritdoc/>
+    public PointF ArrowOrigin => GripOrigin();
+
+    /// <inheritdoc/>
+    /// <remarks>The delegated arrow uses the Feedback blue→purple regardless of the transmitter.</remarks>
+    public WireGradient ArrowGradient => ArrowStyles.Proxy;
+
+    /// <inheritdoc/>
+    public IArrowHead ArrowHead => TriangleArrowHead.Default;
+
+    /// <inheritdoc/>
+    /// <remarks>The proxy arrow terminates horizontally (rightward tip) toward its target.</remarks>
+    public bool HorizontalArrow => true;
+
+    /// <inheritdoc/>
+    public IEnumerable<PointF> SettledEndpoints(GH_Document doc)
+    {
+        if (_chatbox.Group.TryGetSoleArrow(out IHarnessArrow? source) && source is not null)
+        {
+            return source.GetArrowEndpoints(doc);
+        }
+
+        return System.Array.Empty<PointF>();
+    }
+
+    /// <inheritdoc/>
+    public void OnDrop(GH_Document doc, PointF dropPoint, bool ctrl)
+    {
+        if (_chatbox.Group.TryGetSoleArrow(out IHarnessArrow? source) && source is not null)
+        {
+            source.HandleDrop(doc, dropPoint, ctrl);
+        }
+    }
+
+    /// <inheritdoc/>
     protected override void Layout()
     {
-        // This Chatbox may itself be a (plain) member of another harness — when that harness is
-        // collapsed, hide it like any member: shrink to the collapse point and skip the proxy chrome.
-        if (CollapseGuard.TryCollapseLayout(this))
+        // PhyComponentAttributes handles the collapse guard and the normal GH layout. This Chatbox
+        // may itself be a (plain) member of another harness — when that harness is collapsed, hide
+        // it like any member: shrink to the collapse point and skip the proxy chrome.
+        base.Layout();
+
+        if (IsHarnessCollapsed)
         {
             _visualBounds = Bounds;
             _gripBounds = Bounds;
             return;
         }
 
-        base.Layout();
-
-        // While collapsed, keep the hidden members glued under this (possibly moved) proxy.
+        // While collapsed (as a proxy over its own group), keep the hidden members glued under this
+        // (possibly moved) proxy.
         _chatbox.Group.RefreshCollapsePoint();
 
         // When collapsed over a single transmitter, expand the pick region 10px downward so the
@@ -112,13 +141,13 @@ public class ChatboxAttrib : GH_ComponentAttributes
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
     {
         // Hidden as a collapsed member of another harness — draw nothing at all.
-        if (CollapseGuard.IsCollapsed(this))
+        if (IsHarnessCollapsed)
         {
             return;
         }
 
         bool harnessTint = channel == GH_CanvasChannel.Objects && _chatbox.Group.Count > 0;
-        bool arrow = ShowsArrow(out IHarnessArrow? source) && source is not null;
+        bool arrow = ShowsArrow(out _);
 
         // A plain Chatbox (no members), and the channels where neither the tint nor the arrow
         // apply, render as a normal node.
@@ -157,65 +186,10 @@ public class ChatboxAttrib : GH_ComponentAttributes
         }
         else if (arrow)
         {
-            DrawArrowWires(canvas, graphics, source!);
+            _arrow.DrawWires(graphics, canvas.Document, this);
         }
 
         Bounds = gripBounds;
-    }
-
-    // Draws the delegated arrow's settled wires (to the transmitter's current target/placement) and
-    // the live drag wire, from the proxy's bottom-centre grip. Mirrors the transmitters' Wires pass.
-    private void DrawArrowWires(GH_Canvas canvas, Graphics graphics, IHarnessArrow source)
-    {
-        PointF from = GripOrigin();
-
-        // Hide the settled arrow while a drag is in flight, so only the live drag wire shows.
-        int count = 0;
-        if (!_isDragging && canvas.Document is { } doc)
-        {
-            foreach (PointF to in source.GetArrowEndpoints(doc))
-            {
-                BezierWire wire = WireAt(count++, from, to);
-                wire.Draw(graphics);
-            }
-        }
-
-        while (_wires.Count > count)
-        {
-            _wires.RemoveAt(_wires.Count - 1);
-        }
-
-        if (_isDragging)
-        {
-            if (_dragWire is null)
-            {
-                _dragWire = new BezierWire(from, _dragPoint, ArrowGradient) { HorizontalEnd = true };
-            }
-            else
-            {
-                _dragWire.Start = from;
-                _dragWire.End = _dragPoint;
-            }
-
-            _dragWire.Draw(graphics);
-        }
-    }
-
-    // Reuses a cached wire (preserving its sampled-segment cache across frames) or grows the list.
-    // Every proxy arrow terminates horizontally with the Feedback blue→purple gradient.
-    private BezierWire WireAt(int index, PointF from, PointF to)
-    {
-        if (index < _wires.Count)
-        {
-            BezierWire wire = _wires[index];
-            wire.Start = from;
-            wire.End = to;
-            return wire;
-        }
-
-        var created = new BezierWire(from, to, ArrowGradient) { HorizontalEnd = true };
-        _wires.Add(created);
-        return created;
     }
 
     // Mirrors GH_ComponentAttributes.RenderComponentCapsule but rounds both edges
@@ -336,13 +310,8 @@ public class ChatboxAttrib : GH_ComponentAttributes
     {
         if (e.Button == MouseButtons.Left && ShowsArrow(out _) && GripHitZone().Contains(e.CanvasLocation))
         {
-            _isDragging = true;
-            _dragPoint = e.CanvasLocation;
-
             bool ctrl = (Control.ModifierKeys & Keys.Control) == Keys.Control;
-            sender.Cursor = Grasshopper.Instances.CursorServer.Cursor(ctrl ? "GH_RemoveWire" : "GH_AddWire");
-
-            sender.ScheduleRegen(2);
+            _arrow.StartDrag(sender, e.CanvasLocation, ctrl);
             return GH_ObjectResponse.Capture;
         }
 
@@ -357,10 +326,9 @@ public class ChatboxAttrib : GH_ComponentAttributes
     /// <returns>Handled if a drag is in progress; otherwise the base response.</returns>
     public override GH_ObjectResponse RespondToMouseMove(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
-        if (_isDragging)
+        if (_arrow.IsDragging)
         {
-            _dragPoint = e.CanvasLocation;
-            sender.ScheduleRegen(2);
+            _arrow.UpdateDrag(sender, e.CanvasLocation);
             return GH_ObjectResponse.Handled;
         }
 
@@ -376,18 +344,9 @@ public class ChatboxAttrib : GH_ComponentAttributes
     /// <returns>Handled if a drag was in progress; otherwise the base response.</returns>
     public override GH_ObjectResponse RespondToMouseUp(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
-        if (_isDragging)
+        if (_arrow.IsDragging)
         {
-            _isDragging = false;
-            _dragWire = null;
-
-            bool ctrl = (Control.ModifierKeys & Keys.Control) == Keys.Control;
-            if (sender.Document is { } doc && _chatbox.Group.TryGetSoleArrow(out IHarnessArrow? source) && source is not null)
-            {
-                source.HandleDrop(doc, e.CanvasLocation, ctrl);
-            }
-
-            sender.ScheduleRegen(2);
+            _arrow.EndDrag(sender, sender.Document, e.CanvasLocation, this);
             return GH_ObjectResponse.Handled;
         }
 

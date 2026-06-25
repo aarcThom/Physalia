@@ -5,13 +5,14 @@ using System.Drawing;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
+using Physalia.GH.Harness;
 
-namespace Physalia.GH.Harness;
+namespace Physalia.GH.Attributes;
 
 /// <summary>
 /// Stand-in attributes that hide a non-Physalia harness member (a native node such as a
 /// Number Slider or Panel that has no Physalia collapse flag to honour). On collapse the
-/// <see cref="Harness"/> stashes the member's real attributes and assigns this proxy, which
+/// <see cref="Physalia.GH.Harness.Harness"/> stashes the member's real attributes and assigns this proxy, which
 /// reports a zero-size rectangle at the shared collapse point and draws nothing — so the node
 /// and its wires disappear while it stays in the document, wired and solving. On expand the
 /// original attributes are restored.

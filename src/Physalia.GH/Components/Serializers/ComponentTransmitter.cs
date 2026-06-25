@@ -12,7 +12,9 @@ using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Signals;
 using Physalia.GH.Attributes;
+using Physalia.GH.Attributes.UiElements;
 using Physalia.GH.Generation;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Components;
 
@@ -26,7 +28,7 @@ namespace Physalia.GH.Components;
 /// scopes its runtime-health scan (errors, warnings, dead components) to exactly those GUIDs.
 /// Each run removes the previous placement before placing the new graph.
 /// </summary>
-public class ComponentTransmitter : RoutingComponentBase<string>
+public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 {
     private const float PlacementGap = 50f;
 
@@ -88,6 +90,28 @@ public class ComponentTransmitter : RoutingComponentBase<string>
     public void ResetPlacementTarget()
     {
         _placementOffset = null;
+    }
+
+    // IHarnessArrow — lets a collapsed Chatbox proxy delegate its bottom arrow to this transmitter.
+    // Mirrors CompTxAttrib: orange→orchid wire to a free canvas point that a drop simply stores.
+
+    /// <inheritdoc/>
+    WireGradient IHarnessArrow.ArrowGradient => new WireGradient(Color.Orange, Color.MediumOrchid);
+
+    /// <inheritdoc/>
+    IEnumerable<PointF> IHarnessArrow.GetArrowEndpoints(GH_Document doc)
+    {
+        if (PlacementTarget is { } target)
+        {
+            yield return target;
+        }
+    }
+
+    /// <inheritdoc/>
+    void IHarnessArrow.HandleDrop(GH_Document doc, PointF dropPoint, bool ctrl)
+    {
+        SetPlacementTarget(dropPoint);
+        ExpireSolution(true);
     }
 
     /// <inheritdoc/>

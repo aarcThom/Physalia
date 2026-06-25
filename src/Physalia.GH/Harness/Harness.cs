@@ -95,6 +95,40 @@ public sealed class Harness
     public bool Contains(Guid g) => _members.Contains(g);
 
     /// <summary>
+    /// Finds the single arrow-bearing member (a transmitter) of this harness, so a collapsed
+    /// proxy can delegate its bottom arrow to it. Succeeds only when exactly one member
+    /// implements <see cref="IHarnessArrow"/>; zero or more than one yields false.
+    /// </summary>
+    /// <param name="arrow">The sole arrow member when the result is true; otherwise null.</param>
+    /// <returns>true when exactly one member exposes a delegated arrow.</returns>
+    public bool TryGetSoleArrow(out IHarnessArrow? arrow)
+    {
+        arrow = null;
+
+        GH_Document? doc = _owner.OnPingDocument();
+        if (doc is null)
+        {
+            return false;
+        }
+
+        foreach (Guid g in _members)
+        {
+            if (doc.FindObject(g, false) is IHarnessArrow candidate)
+            {
+                if (arrow is not null)
+                {
+                    arrow = null; // more than one — ambiguous, no proxy arrow.
+                    return false;
+                }
+
+                arrow = candidate;
+            }
+        }
+
+        return arrow is not null;
+    }
+
+    /// <summary>
     /// Whether a component is already a member of some Chatbox's harness other than the one
     /// identified by <paramref name="exceptOwnerGuid"/>. Keeps each component in at most one
     /// harness and stops a chatbox that is itself a member from starting its own (no nesting).

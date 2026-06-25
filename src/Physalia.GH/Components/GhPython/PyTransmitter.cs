@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -12,7 +13,9 @@ using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Signals;
 using Physalia.GH.Attributes;
+using Physalia.GH.Attributes.UiElements;
 using Physalia.GH.Generation;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Components.GhPython;
 
@@ -25,7 +28,7 @@ namespace Physalia.GH.Components.GhPython;
 /// routes the messages back on the Fail Signal. Errors caused purely by unconnected
 /// inputs are ignored. Link to the target via the bottom-centre bezier grip.
 /// </summary>
-public class PyTransmitter : RoutingComponentBase<string>
+public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
 {
     private Guid _linkedGuid = Guid.Empty;
     private string? _pushError;
@@ -73,6 +76,45 @@ public class PyTransmitter : RoutingComponentBase<string>
     public void Unlink()
     {
         _linkedGuid = Guid.Empty;
+    }
+
+    // IHarnessArrow — lets a collapsed Chatbox proxy delegate its bottom arrow to this transmitter.
+    // Mirrors PyTransmitterAttrib: aquamarine→deep-pink wire, landing on the linked target, and a
+    // drop that links the script under the point (or unlinks on Ctrl).
+
+    /// <inheritdoc/>
+    WireGradient IHarnessArrow.ArrowGradient => new WireGradient(Color.Aquamarine, Color.DeepPink);
+
+    /// <inheritdoc/>
+    IEnumerable<PointF> IHarnessArrow.GetArrowEndpoints(GH_Document doc)
+    {
+        if (_linkedGuid != Guid.Empty && doc.FindObject(_linkedGuid, false) is { } target)
+        {
+            RectangleF b = target.Attributes.Bounds;
+            yield return new PointF(b.Left + (b.Width / 2f), b.Bottom + 6f);
+        }
+    }
+
+    /// <inheritdoc/>
+    void IHarnessArrow.HandleDrop(GH_Document doc, PointF dropPoint, bool ctrl)
+    {
+        foreach (IGH_DocumentObject obj in doc.Objects)
+        {
+            if (obj.Attributes.Bounds.Contains(dropPoint) && GhPythonBridge.IsScriptComponent(obj))
+            {
+                if (ctrl)
+                {
+                    Unlink();
+                }
+                else
+                {
+                    LinkTo(obj.InstanceGuid);
+                }
+
+                ExpireSolution(true);
+                return;
+            }
+        }
     }
 
     /// <inheritdoc/>

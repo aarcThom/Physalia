@@ -20,6 +20,7 @@
 - [Chatbox emoji identity](chatbox-emoji-identity.md) — each Chatbox gets a random ocean emoji as its canvas icon + switcher dot (TextRenderer color emoji, deduped on placement, persisted). 2026-06-24, builds clean, live test pending.
 - [GH no-preview Hidden palette](gh-nopreview-hidden-palette.md) — to tint a signal-only GH component's capsule via GH_Skin, swap the Hidden palette (not just Normal): GH forces non-preview-capable nodes onto GH_Palette.Hidden. (Chatbox ultimately custom-renders instead.)
 - [GH collapsed-harness grips](gh-collapsed-harness-grips.md) — block wire-drag from a collapsed harness by gating param-attribute HasInputGrip/HasOutputGrip (RelevantObjectAtPoint), not the component; hidden members leak grips at the proxy pivot. HarnessParamAttributes + Harness Hide/ShowMember.
+- [Collapsed Chatbox arrow](collapsed-chatbox-arrow.md) — collapsed harness proxy shows a delegated bottom drag arrow (new `IHarnessArrow`) when it holds exactly one transmitter; grip hit zone bottom-centre only so the proxy stays movable. 2026-06-25, builds clean, live test pending.
 - [Collapsible harness](collapsible-harness.md) — hide/show a Chatbox's pipeline behind the single Chatbox proxy node (in-place visual collapse, not a real cluster); new `src/Physalia.GH/Harness/` folder + `Harness` class, `PhyBase` collapse flag, native-member attribute-swap, chevron + menu + chat-window toggle. 2026-06-24, builds clean, live test pending.
 
 ## Platform / Build

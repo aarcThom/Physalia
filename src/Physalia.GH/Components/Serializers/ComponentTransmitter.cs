@@ -6,9 +6,12 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Text;
+using System.Windows.Forms;
+using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Signals;
+using Physalia.GH.Attributes;
 using Physalia.GH.Generation;
 
 namespace Physalia.GH.Components;
@@ -33,6 +36,10 @@ public class ComponentTransmitter : RoutingComponentBase<string>
     private IReadOnlyList<string> _placeWarnings = Array.Empty<string>();
     private IReadOnlyList<string> _unfixedIssues = Array.Empty<string>();
 
+    // Drop-arrow placement origin, stored as an offset from this component's pivot so the
+    // arrow tip travels with the component; null falls back to placement right of the node.
+    private PointF? _placementOffset;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="ComponentTransmitter"/> class.
     /// </summary>
@@ -47,6 +54,41 @@ public class ComponentTransmitter : RoutingComponentBase<string>
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("4BA76257-AD4C-462C-AB7E-B130DB176BF4");
+
+    /// <summary>
+    /// Gets the absolute canvas point (the drop-arrow tip) where the placed graph's top-left
+    /// origin lands, or <see langword="null"/> when no arrow has been dropped. Reconstructed
+    /// each call from the stored pivot-relative offset so it follows the moving component.
+    /// </summary>
+    public PointF? PlacementTarget =>
+        _placementOffset is { } off
+            ? new PointF(Attributes.Pivot.X + off.X, Attributes.Pivot.Y + off.Y)
+            : null;
+
+    /// <inheritdoc/>
+    public override void CreateAttributes()
+    {
+        m_attributes = new CompTxAttrib(this);
+    }
+
+    /// <summary>
+    /// Stores the placement-target arrow tip, dropped anywhere on the canvas, as an offset from
+    /// the component's pivot. Called by <see cref="CompTxAttrib"/> when the user drops the arrow.
+    /// </summary>
+    /// <param name="canvasPoint">The drop point in canvas coordinates.</param>
+    public void SetPlacementTarget(PointF canvasPoint)
+    {
+        PointF pivot = Attributes.Pivot;
+        _placementOffset = new PointF(canvasPoint.X - pivot.X, canvasPoint.Y - pivot.Y);
+    }
+
+    /// <summary>
+    /// Clears the placement target, reverting to the default placement right of the component.
+    /// </summary>
+    public void ResetPlacementTarget()
+    {
+        _placementOffset = null;
+    }
 
     /// <inheritdoc/>
     /// <remarks>
@@ -119,6 +161,42 @@ public class ComponentTransmitter : RoutingComponentBase<string>
     }
 
     /// <inheritdoc/>
+    public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
+    {
+        base.AppendAdditionalMenuItems(menu);
+        Menu_AppendItem(
+            menu,
+            "Reset Placement Target",
+            (_, _) =>
+            {
+                ResetPlacementTarget();
+                Grasshopper.Instances.RedrawCanvas();
+            },
+            _placementOffset.HasValue);
+    }
+
+    /// <inheritdoc/>
+    public override bool Write(GH_IWriter writer)
+    {
+        if (_placementOffset is { } off)
+        {
+            writer.SetDrawingPointF("PlacementOffset", off);
+        }
+
+        return base.Write(writer);
+    }
+
+    /// <inheritdoc/>
+    public override bool Read(GH_IReader reader)
+    {
+        _placementOffset = reader.ItemExists("PlacementOffset")
+            ? reader.GetDrawingPointF("PlacementOffset")
+            : null;
+
+        return base.Read(reader);
+    }
+
+    /// <inheritdoc/>
     protected override void OnCleared()
     {
         base.OnCleared();
@@ -146,7 +224,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>
             _unfixedIssues = Array.Empty<string>();
 
             RectangleF bounds = Attributes.Bounds;
-            var targetOrigin = new PointF(bounds.Right + PlacementGap, bounds.Y);
+            PointF targetOrigin = PlacementTarget ?? new PointF(bounds.Right + PlacementGap, bounds.Y);
             PlaceResult result = GhJsonBridge.LoadAndPlaceJson(_pendingJson, targetOrigin);
             _unfixedIssues = result.UnfixedIssues;
 

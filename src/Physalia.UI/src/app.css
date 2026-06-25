@@ -187,6 +187,17 @@
 		--foreground: rgb(74 158 207);
 	}
 
+	/* Streamdown indents lists with `ml-4` (a left margin) and `list-outside` markers. The
+	   marker box renders to the left of the list's content edge, so with only a 16px margin the
+	   numbers/bullets overflow it and hang into the body-text gutter (left of the paragraph
+	   column). Swap the margin for an equal padding: with `list-outside` the markers then sit
+	   within the padding at the paragraph column, aligned with the surrounding text, and wrapped
+	   lines keep a clean hanging indent. */
+	.is-assistant :is([data-streamdown-ol], [data-streamdown-ul]) {
+		margin-inline-start: 0;
+		padding-inline-start: 1.5em;
+	}
+
 	/* Light, soft scrollbars to match the UI. The WebView host is Chromium (WebView2), so the
 	   ::-webkit-scrollbar pseudo-elements apply; the default rendered as a dark bar. The track is
 	   transparent (shows the page) and the thumb is a muted blue pill, inset via a --neu-bg border. */

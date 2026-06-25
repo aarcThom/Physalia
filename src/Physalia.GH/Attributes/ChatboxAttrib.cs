@@ -34,6 +34,10 @@ public class ChatboxAttrib : GH_ComponentAttributes
     // Width of the secondary gradient outline; ~half straddles outside the 1px black edge.
     private const float GlowWidth = 1f;
 
+    // Delegated arrow colour: the same blue→purple as the Feedback arrows, regardless of which
+    // transmitter the proxy stands in for.
+    private static readonly WireGradient ArrowGradient = new(Color.Blue, Color.Purple);
+
     private readonly Chatbox _chatbox;
 
     // Delegated bottom arrow, drawn only while collapsed with exactly one transmitter member
@@ -164,7 +168,6 @@ public class ChatboxAttrib : GH_ComponentAttributes
     private void DrawArrowWires(GH_Canvas canvas, Graphics graphics, IHarnessArrow source)
     {
         PointF from = GripOrigin();
-        WireGradient gradient = source.ArrowGradient;
 
         // Hide the settled arrow while a drag is in flight, so only the live drag wire shows.
         int count = 0;
@@ -172,7 +175,7 @@ public class ChatboxAttrib : GH_ComponentAttributes
         {
             foreach (PointF to in source.GetArrowEndpoints(doc))
             {
-                BezierWire wire = WireAt(count++, from, to, gradient);
+                BezierWire wire = WireAt(count++, from, to);
                 wire.Draw(graphics);
             }
         }
@@ -186,16 +189,12 @@ public class ChatboxAttrib : GH_ComponentAttributes
         {
             if (_dragWire is null)
             {
-                _dragWire = new BezierWire(from, _dragPoint, gradient);
+                _dragWire = new BezierWire(from, _dragPoint, ArrowGradient) { HorizontalEnd = true };
             }
             else
             {
                 _dragWire.Start = from;
                 _dragWire.End = _dragPoint;
-                if (_dragWire.Gradient != gradient)
-                {
-                    _dragWire.Gradient = gradient;
-                }
             }
 
             _dragWire.Draw(graphics);
@@ -203,22 +202,18 @@ public class ChatboxAttrib : GH_ComponentAttributes
     }
 
     // Reuses a cached wire (preserving its sampled-segment cache across frames) or grows the list.
-    private BezierWire WireAt(int index, PointF from, PointF to, WireGradient gradient)
+    // Every proxy arrow terminates horizontally with the Feedback blue→purple gradient.
+    private BezierWire WireAt(int index, PointF from, PointF to)
     {
         if (index < _wires.Count)
         {
             BezierWire wire = _wires[index];
             wire.Start = from;
             wire.End = to;
-            if (wire.Gradient != gradient)
-            {
-                wire.Gradient = gradient;
-            }
-
             return wire;
         }
 
-        var created = new BezierWire(from, to, gradient);
+        var created = new BezierWire(from, to, ArrowGradient) { HorizontalEnd = true };
         _wires.Add(created);
         return created;
     }

@@ -260,6 +260,16 @@ public class Recorder : StatefulComponentBase
                 break;
 
             case InFeedbackSignal:
+                // Feedback may carry resolved content blocks (e.g. an Output Snapshot's image
+                // alongside its message) just like a prompt; record them so the image survives.
+                // An image-only feedback turn has blocks but a blank payload, so check blocks first.
+                if (item.Signal.ContentBlocks.Count > 0)
+                {
+                    // Mark as feedback (auto-generated, not human-typed) so the UI can style it apart.
+                    RecordUserBlocks(item.Signal.ContentBlocks, item.Signal.Payload, isFeedback: true);
+                    break;
+                }
+
                 if (!StringHelpers.IsNonBlank(item.Signal.Payload))
                 {
                     AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Feedback signal received with an empty payload.");

@@ -4,7 +4,6 @@
 using System.Collections.Generic;
 using System.Drawing;
 using Grasshopper.Kernel;
-using Physalia.GH.Attributes.UiElements;
 
 namespace Physalia.GH.Harness;
 
@@ -17,12 +16,6 @@ namespace Physalia.GH.Harness;
 /// </summary>
 public interface IHarnessArrow
 {
-    /// <summary>
-    /// Gets the colour gradient the proxy paints the delegated arrow with (so it reads as the
-    /// transmitter it stands in for).
-    /// </summary>
-    WireGradient ArrowGradient { get; }
-
     /// <summary>
     /// Returns the canvas points where the settled arrow(s) currently land — the linked target's
     /// anchor for a link arrow, or the stored placement point for a drop arrow. Empty when nothing

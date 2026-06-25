@@ -1,0 +1,693 @@
+{
+  "schema": "1.0",
+  "metadata": {
+    "description": "a demonstration of a claude code based python script harness"
+  },
+  "components": [
+    {
+      "name": "Recorder",
+      "library": "Physalia",
+      "nickName": "Rec",
+      "componentGuid": "43a02f6d-d97d-4241-b4dd-067d7ae0d75e",
+      "instanceGuid": "66b9083e-ba7e-41fe-ad18-e0b3467a0fa6",
+      "id": 1,
+      "pivot": "1455,130",
+      "inputSettings": [
+        {
+          "parameterName": "System Prompt"
+        },
+        {
+          "parameterName": "Prompt Signal"
+        },
+        {
+          "parameterName": "Response Signal"
+        },
+        {
+          "parameterName": "Feedback Signal"
+        },
+        {
+          "parameterName": "Tool Signal"
+        },
+        {
+          "parameterName": "Conversation"
+        }
+      ],
+      "outputSettings": [
+        {
+          "parameterName": "Instructions"
+        },
+        {
+          "parameterName": "Signal"
+        },
+        {
+          "parameterName": "Recorded History"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Reasoner",
+      "library": "Physalia",
+      "nickName": "Rea",
+      "componentGuid": "f1097b2b-564a-43f8-8f70-ba6961f00e00",
+      "instanceGuid": "bfc52171-b286-461e-b616-c9a090decbe0",
+      "id": 2,
+      "pivot": "1718,90",
+      "inputSettings": [
+        {
+          "parameterName": "Model"
+        },
+        {
+          "parameterName": "Instructions"
+        },
+        {
+          "parameterName": "Tools"
+        },
+        {
+          "parameterName": "Cancel"
+        },
+        {
+          "parameterName": "Signal"
+        }
+      ],
+      "outputSettings": [
+        {
+          "parameterName": "Success Signal"
+        },
+        {
+          "parameterName": "Fail Signal"
+        },
+        {
+          "parameterName": "Tool Calls"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Button",
+      "library": "Params",
+      "componentGuid": "a8b97322-2d53-47cd-905e-b932c3ccd74e",
+      "instanceGuid": "54d6f9ee-de5b-4cd8-921e-af64c8d889ad",
+      "id": 3,
+      "pivot": "1420,-37",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Button"
+        }
+      ],
+      "componentState": {
+        "selected": true,
+        "extensions": {
+          "gh.button": {
+            "normal": "False",
+            "pressed": "True"
+          }
+        }
+      }
+    },
+    {
+      "name": "Composer",
+      "library": "Physalia",
+      "nickName": "Cmp",
+      "componentGuid": "ba4fcd24-96db-4b2b-b7f7-e756a98bc185",
+      "instanceGuid": "e1b0a683-ebaa-42ed-a7dc-6a744c1bdb58",
+      "id": 4,
+      "pivot": "1033,110",
+      "inputSettings": [
+        {
+          "parameterName": "Preamble"
+        },
+        {
+          "parameterName": "Schema"
+        },
+        {
+          "parameterName": "Component Catalog"
+        }
+      ],
+      "outputSettings": [
+        {
+          "parameterName": "Schema"
+        },
+        {
+          "parameterName": "System Prompt"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Feedback",
+      "library": "Physalia",
+      "nickName": "FB",
+      "componentGuid": "4636fc1d-16b4-48b1-9a16-81af2f8ae483",
+      "instanceGuid": "66014806-eea4-4b80-b383-e013d58ecb94",
+      "id": 5,
+      "pivot": "2033,281",
+      "inputSettings": [
+        {
+          "parameterName": "Signal"
+        }
+      ],
+      "outputSettings": [],
+      "componentState": {
+        "selected": true,
+        "extensions": {
+          "physalia.feedbackCollectors": {
+            "collectorIds": [
+              6
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Feedback Collector",
+      "library": "Physalia",
+      "nickName": "FC",
+      "componentGuid": "97c158c6-ede4-4521-a666-eb76d2e85fb6",
+      "instanceGuid": "1bbc799e-2ee8-4120-892c-aa392ba24d74",
+      "id": 6,
+      "pivot": "1272,266",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Signal"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Auditor",
+      "library": "Physalia",
+      "nickName": "Aud",
+      "componentGuid": "f3a8c21d-7e04-4b69-a953-d60f2e8b1c47",
+      "instanceGuid": "bdde428c-8865-4c56-8019-08e1b82250a8",
+      "id": 7,
+      "pivot": "1953,31",
+      "inputSettings": [
+        {
+          "parameterName": "Schema"
+        },
+        {
+          "parameterName": "Signal"
+        }
+      ],
+      "outputSettings": [
+        {
+          "parameterName": "Success Signal"
+        },
+        {
+          "parameterName": "Fail Signal"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Relay",
+      "library": "Params",
+      "componentGuid": "b6236720-8d88-4289-93c3-ac4c99f9b97b",
+      "instanceGuid": "efd2b9a7-6d0a-49cd-b1ee-1cbe52a29491",
+      "id": 8,
+      "pivot": "1505,21",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Relay"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Relay",
+      "library": "Params",
+      "componentGuid": "b6236720-8d88-4289-93c3-ac4c99f9b97b",
+      "instanceGuid": "25db7b38-47cd-4f5e-8b2a-ff56bc8cf67a",
+      "id": 9,
+      "pivot": "1503,52",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Relay"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Feedback",
+      "library": "Physalia",
+      "nickName": "FB",
+      "componentGuid": "4636fc1d-16b4-48b1-9a16-81af2f8ae483",
+      "instanceGuid": "733167f3-7f24-46ff-8aff-75d2e3a99fc5",
+      "id": 10,
+      "pivot": "2185,283",
+      "inputSettings": [
+        {
+          "parameterName": "Signal"
+        }
+      ],
+      "outputSettings": [],
+      "componentState": {
+        "selected": true,
+        "extensions": {
+          "physalia.feedbackCollectors": {
+            "collectorIds": [
+              11
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Feedback Collector",
+      "library": "Physalia",
+      "nickName": "FC",
+      "componentGuid": "97c158c6-ede4-4521-a666-eb76d2e85fb6",
+      "instanceGuid": "2e699bf2-fe87-4413-a50d-259b8fc0aa36",
+      "id": 11,
+      "pivot": "1273,373",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Signal"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Chatbox",
+      "library": "Physalia",
+      "componentGuid": "b7e4b6f2-3c2a-4d71-9e0a-7f1c2d3e4a5b",
+      "instanceGuid": "e19ef8ed-4a6e-4c9a-bae4-1a8945f0eb80",
+      "id": 12,
+      "pivot": "1040,254",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Prompt Signal"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Claude Code Model",
+      "library": "Physalia",
+      "componentGuid": "9f2c7a4e-1b6d-4e83-a50f-3c8d2b91e47a",
+      "instanceGuid": "ce06a13e-0b53-41cf-a138-e7fce5ebb934",
+      "id": 13,
+      "pivot": "1205,2",
+      "inputSettings": [
+        {
+          "parameterName": "Model"
+        }
+      ],
+      "outputSettings": [
+        {
+          "parameterName": "Model"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Panel",
+      "library": "Params",
+      "componentGuid": "59e0b89a-e487-49f8-bab8-b5bab16be14c",
+      "instanceGuid": "e9b34fba-db2e-4051-8606-74cc6aad149b",
+      "id": 14,
+      "pivot": "922.2520751953125,-12.926867485046387",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Panel"
+        }
+      ],
+      "componentState": {
+        "selected": true,
+        "extensions": {
+          "gh.panel": {
+            "text": "sonnet",
+            "multiline": true,
+            "wrap": true,
+            "drawIndices": true,
+            "drawPaths": true,
+            "color": "argb:255,189,255,225",
+            "bounds": "160x43"
+          }
+        }
+      }
+    },
+    {
+      "name": "Panel",
+      "library": "Params",
+      "componentGuid": "59e0b89a-e487-49f8-bab8-b5bab16be14c",
+      "instanceGuid": "358502c7-0993-4697-b6d7-ea2bd147bd64",
+      "id": 15,
+      "pivot": "679.4284057617188,-5.647209167480469",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Panel"
+        }
+      ],
+      "componentState": {
+        "selected": true,
+        "extensions": {
+          "gh.panel": {
+            "text": "Python3 Script.txt\r\n",
+            "multiline": true,
+            "wrap": true,
+            "drawIndices": true,
+            "drawPaths": true,
+            "color": "argb:255,255,250,90",
+            "bounds": "160x100"
+          }
+        }
+      }
+    },
+    {
+      "name": "Panel",
+      "library": "Params",
+      "componentGuid": "59e0b89a-e487-49f8-bab8-b5bab16be14c",
+      "instanceGuid": "485f4de8-dbca-4d92-a6a0-18ba5f90bb46",
+      "id": 16,
+      "pivot": "678.0706787109375,110.364013671875",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Panel"
+        }
+      ],
+      "componentState": {
+        "selected": true,
+        "extensions": {
+          "gh.panel": {
+            "text": "Python3Schema.json\r\n",
+            "multiline": true,
+            "wrap": true,
+            "drawIndices": true,
+            "drawPaths": true,
+            "color": "argb:255,255,250,90",
+            "bounds": "160x100"
+          }
+        }
+      }
+    },
+    {
+      "name": "Py Transmitter",
+      "library": "Physalia",
+      "componentGuid": "8e3b1c7a-2f4d-4a19-9c6e-0b5d7a2e1f38",
+      "instanceGuid": "a0bcc999-a6c4-4016-b354-3b52fd6d4c45",
+      "id": 17,
+      "pivot": "2358,76",
+      "inputSettings": [
+        {
+          "parameterName": "Signal"
+        }
+      ],
+      "outputSettings": [
+        {
+          "parameterName": "Success Signal"
+        },
+        {
+          "parameterName": "Fail Signal"
+        }
+      ],
+      "componentState": {
+        "selected": true
+      }
+    },
+    {
+      "name": "Feedback",
+      "library": "Physalia",
+      "componentGuid": "4636fc1d-16b4-48b1-9a16-81af2f8ae483",
+      "instanceGuid": "58f89b04-fceb-4696-b100-b1dc8da58ceb",
+      "id": 18,
+      "pivot": "2502,209",
+      "inputSettings": [
+        {
+          "parameterName": "Signal"
+        }
+      ],
+      "outputSettings": [],
+      "componentState": {
+        "selected": true,
+        "extensions": {
+          "physalia.feedbackCollectors": {
+            "collectorIds": [
+              11
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": {
+        "id": 1,
+        "paramName": "Instructions",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 2,
+        "paramName": "Instructions",
+        "paramIndex": 1
+      }
+    },
+    {
+      "from": {
+        "id": 1,
+        "paramName": "Signal",
+        "paramIndex": 1
+      },
+      "to": {
+        "id": 2,
+        "paramName": "Signal",
+        "paramIndex": 4
+      }
+    },
+    {
+      "from": {
+        "id": 2,
+        "paramName": "Success Signal",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 5,
+        "paramName": "Signal",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 2,
+        "paramName": "Success Signal",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 7,
+        "paramName": "Signal",
+        "paramIndex": 1
+      }
+    },
+    {
+      "from": {
+        "id": 3,
+        "paramName": "Button",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 2,
+        "paramName": "Cancel",
+        "paramIndex": 3
+      }
+    },
+    {
+      "from": {
+        "id": 4,
+        "paramName": "Schema",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 8,
+        "paramName": "Relay",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 4,
+        "paramName": "System Prompt",
+        "paramIndex": 1
+      },
+      "to": {
+        "id": 1,
+        "paramName": "System Prompt",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 6,
+        "paramName": "Signal",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 1,
+        "paramName": "Response Signal",
+        "paramIndex": 2
+      }
+    },
+    {
+      "from": {
+        "id": 7,
+        "paramName": "Success Signal",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 17,
+        "paramName": "Signal",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 7,
+        "paramName": "Fail Signal",
+        "paramIndex": 1
+      },
+      "to": {
+        "id": 10,
+        "paramName": "Signal",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 8,
+        "paramName": "Relay",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 7,
+        "paramName": "Schema",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 9,
+        "paramName": "Relay",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 2,
+        "paramName": "Model",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 11,
+        "paramName": "Signal",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 1,
+        "paramName": "Feedback Signal",
+        "paramIndex": 3
+      }
+    },
+    {
+      "from": {
+        "id": 12,
+        "paramName": "Prompt Signal",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 1,
+        "paramName": "Prompt Signal",
+        "paramIndex": 1
+      }
+    },
+    {
+      "from": {
+        "id": 13,
+        "paramName": "Model",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 9,
+        "paramName": "Relay",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 14,
+        "paramName": "Panel",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 13,
+        "paramName": "Model",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 15,
+        "paramName": "Panel",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 4,
+        "paramName": "Preamble",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 16,
+        "paramName": "Panel",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 4,
+        "paramName": "Schema",
+        "paramIndex": 1
+      }
+    },
+    {
+      "from": {
+        "id": 17,
+        "paramName": "Fail Signal",
+        "paramIndex": 1
+      },
+      "to": {
+        "id": 18,
+        "paramName": "Signal",
+        "paramIndex": 0
+      }
+    }
+  ]
+}

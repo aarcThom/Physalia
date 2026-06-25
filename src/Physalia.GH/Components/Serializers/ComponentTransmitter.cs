@@ -12,7 +12,6 @@ using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Signals;
 using Physalia.GH.Attributes;
-using Physalia.GH.Attributes.UiElements;
 using Physalia.GH.Generation;
 using Physalia.GH.Harness;
 
@@ -93,10 +92,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
     }
 
     // IHarnessArrow — lets a collapsed Chatbox proxy delegate its bottom arrow to this transmitter.
-    // Mirrors CompTxAttrib: orange→orchid wire to a free canvas point that a drop simply stores.
-
-    /// <inheritdoc/>
-    WireGradient IHarnessArrow.ArrowGradient => new WireGradient(Color.Orange, Color.MediumOrchid);
+    // The wire lands on the stored placement point; a drop simply stores the new point.
 
     /// <inheritdoc/>
     IEnumerable<PointF> IHarnessArrow.GetArrowEndpoints(GH_Document doc)

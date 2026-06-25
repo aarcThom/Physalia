@@ -28,6 +28,7 @@ public class BezierWire
     private PointF _start;
     private PointF _end;
     private WireGradient _gradient;
+    private bool _horizontalEnd;
 
     private Pen[] _pens;
     private PointF[] _segments = Array.Empty<PointF>();
@@ -84,6 +85,22 @@ public class BezierWire
     }
 
     /// <summary>
+    /// Gets or sets a value indicating whether the wire approaches its end horizontally (from the
+    /// left) with a rightward arrow tip, rather than the default vertical approach with an upward
+    /// tip. Setting a new value invalidates the segment cache.
+    /// </summary>
+    public bool HorizontalEnd
+    {
+        get => _horizontalEnd;
+        set
+        {
+            if (_horizontalEnd == value) return;
+            _horizontalEnd = value;
+            _dirty = true;
+        }
+    }
+
+    /// <summary>
     /// Draws the bezier wire and an arrow tip at <see cref="End"/>.
     /// </summary>
     /// <param name="graphics">The GDI+ graphics context.</param>
@@ -96,7 +113,7 @@ public class BezierWire
 
         Color arrowColor = _gradient.To;
 
-        DrawArrow(graphics, _end, arrowColor);
+        DrawArrow(graphics, _end, arrowColor, _horizontalEnd);
     }
 
     // -------------------------------------------------------------------------
@@ -104,7 +121,9 @@ public class BezierWire
     private void Recompute()
     {
         var cp1 = new PointF(_start.X, _start.Y + _controlOffset);
-        var cp2 = new PointF(_end.X, _end.Y + _controlOffset);
+        var cp2 = _horizontalEnd
+            ? new PointF(_end.X - _controlOffset, _end.Y)
+            : new PointF(_end.X, _end.Y + _controlOffset);
 
         int steps = _gradient.Steps;
         _segments = new PointF[steps + 1];
@@ -114,13 +133,25 @@ public class BezierWire
         _dirty = false;
     }
 
-    private static void DrawArrow(Graphics graphics, PointF wireEnd, Color arrowColor)
+    private static void DrawArrow(Graphics graphics, PointF wireEnd, Color arrowColor, bool horizontal)
     {
-        var tip = new PointF(wireEnd.X, wireEnd.Y - _arrowHeight);
-        var baseLeft = new PointF(tip.X - _arrowWidth, tip.Y + _arrowHeight);
-        var baseRight = new PointF(tip.X + _arrowWidth, tip.Y + _arrowHeight);
+        PointF tip, baseA, baseB;
+        if (horizontal)
+        {
+            // Points right; the wire end is the base centre, the tip extends to the right.
+            tip = new PointF(wireEnd.X + _arrowHeight, wireEnd.Y);
+            baseA = new PointF(wireEnd.X, wireEnd.Y - _arrowWidth);
+            baseB = new PointF(wireEnd.X, wireEnd.Y + _arrowWidth);
+        }
+        else
+        {
+            tip = new PointF(wireEnd.X, wireEnd.Y - _arrowHeight);
+            baseA = new PointF(tip.X - _arrowWidth, tip.Y + _arrowHeight);
+            baseB = new PointF(tip.X + _arrowWidth, tip.Y + _arrowHeight);
+        }
+
         using var fill = new SolidBrush(arrowColor);
-        graphics.FillPolygon(fill, new[] { tip, baseLeft, baseRight });
+        graphics.FillPolygon(fill, new[] { tip, baseA, baseB });
     }
 
     private static Pen[] BuildPens(WireGradient gradient)

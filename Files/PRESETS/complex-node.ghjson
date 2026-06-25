@@ -1,16 +1,17 @@
 {
   "schema": "1.0",
   "metadata": {
-    "description": "A fully featured Anthropic API based agentic workflow. Calls tools. Self reviews work."
+    "description": "an anthropic API based harness. Generates nodes. Self critiques with viewport screenshot."
   },
   "components": [
     {
       "name": "Recorder",
       "library": "Physalia",
+      "nickName": "Rec",
       "componentGuid": "43a02f6d-d97d-4241-b4dd-067d7ae0d75e",
-      "instanceGuid": "8bae0b8e-fd7f-40d1-a78b-6f1e7164d951",
+      "instanceGuid": "1dcf5943-183e-43af-b8f3-ae74349c7217",
       "id": 1,
-      "pivot": "750,280",
+      "pivot": "1421,148",
       "inputSettings": [
         {
           "parameterName": "System Prompt"
@@ -49,10 +50,11 @@
     {
       "name": "Reasoner",
       "library": "Physalia",
+      "nickName": "Rea",
       "componentGuid": "f1097b2b-564a-43f8-8f70-ba6961f00e00",
-      "instanceGuid": "0f5ca465-45ff-43e7-8699-fa1b84af962c",
+      "instanceGuid": "a4ceed71-c41a-4e78-b759-3b892c5df995",
       "id": 2,
-      "pivot": "1009,242",
+      "pivot": "1680,110",
       "inputSettings": [
         {
           "parameterName": "Model"
@@ -89,9 +91,9 @@
       "name": "Button",
       "library": "Params",
       "componentGuid": "a8b97322-2d53-47cd-905e-b932c3ccd74e",
-      "instanceGuid": "33528b89-0f43-4681-a6d4-0d94092120f6",
+      "instanceGuid": "34235f65-d25a-4f1b-aa79-7b05e846b908",
       "id": 3,
-      "pivot": "715,113",
+      "pivot": "1386,-19",
       "inputSettings": [],
       "outputSettings": [
         {
@@ -111,10 +113,11 @@
     {
       "name": "Composer",
       "library": "Physalia",
+      "nickName": "Cmp",
       "componentGuid": "ba4fcd24-96db-4b2b-b7f7-e756a98bc185",
-      "instanceGuid": "6275a0fa-7d72-4c5b-959c-c16399b85c77",
+      "instanceGuid": "ab0284f0-3d5a-4e52-9692-b21df7b26b90",
       "id": 4,
-      "pivot": "328,260",
+      "pivot": "999,128",
       "inputSettings": [
         {
           "parameterName": "Preamble"
@@ -143,9 +146,9 @@
       "library": "Physalia",
       "nickName": "Pick",
       "componentGuid": "2d14368f-0302-4d08-bdec-61dd6a28732c",
-      "instanceGuid": "fdd71b00-5988-482d-bae7-aa246cd13b24",
+      "instanceGuid": "626011e9-3b3e-498b-85d5-e7745cb3143b",
       "id": 5,
-      "pivot": "28,245",
+      "pivot": "699,113",
       "inputSettings": [],
       "outputSettings": [
         {
@@ -161,9 +164,9 @@
       "library": "Physalia",
       "nickName": "Pick",
       "componentGuid": "2d14368f-0302-4d08-bdec-61dd6a28732c",
-      "instanceGuid": "0c38c225-087a-4f1f-83f7-0bdda97ef8cf",
+      "instanceGuid": "d764cddb-10b8-434d-a67f-ba0d8e829b6e",
       "id": 6,
-      "pivot": "28,275",
+      "pivot": "699,143",
       "inputSettings": [],
       "outputSettings": [
         {
@@ -177,10 +180,11 @@
     {
       "name": "Feedback",
       "library": "Physalia",
+      "nickName": "FB",
       "componentGuid": "4636fc1d-16b4-48b1-9a16-81af2f8ae483",
-      "instanceGuid": "8466a154-5e57-4ca6-b3c9-dfaf0aefa1e6",
+      "instanceGuid": "570c71c7-c50e-49b6-b4d0-ac3a69707665",
       "id": 7,
-      "pivot": "1328,431",
+      "pivot": "1999,299",
       "inputSettings": [
         {
           "parameterName": "Signal"
@@ -201,10 +205,11 @@
     {
       "name": "Feedback Collector",
       "library": "Physalia",
+      "nickName": "FC",
       "componentGuid": "97c158c6-ede4-4521-a666-eb76d2e85fb6",
-      "instanceGuid": "c09ed819-5bb5-4a9f-b7ec-7ee8e858cae9",
+      "instanceGuid": "0ddf82f7-73d4-4850-9945-09b96529059c",
       "id": 8,
-      "pivot": "567,416",
+      "pivot": "1238,284",
       "inputSettings": [],
       "outputSettings": [
         {
@@ -218,10 +223,11 @@
     {
       "name": "Auditor",
       "library": "Physalia",
+      "nickName": "Aud",
       "componentGuid": "f3a8c21d-7e04-4b69-a953-d60f2e8b1c47",
-      "instanceGuid": "c14cedf6-c760-4012-ba25-4183a2f89c6a",
+      "instanceGuid": "61615873-54e2-40b6-895c-45b1c5def668",
       "id": 9,
-      "pivot": "1248,181",
+      "pivot": "1919,49",
       "inputSettings": [
         {
           "parameterName": "Schema"
@@ -245,11 +251,10 @@
     {
       "name": "Relay",
       "library": "Params",
-      "nickName": "",
       "componentGuid": "b6236720-8d88-4289-93c3-ac4c99f9b97b",
-      "instanceGuid": "160edcb3-f653-4588-a0fc-688e3d52e120",
+      "instanceGuid": "ae1fa245-52a3-4c22-bf8e-937879622202",
       "id": 10,
-      "pivot": "800,171",
+      "pivot": "1471,39",
       "inputSettings": [],
       "outputSettings": [
         {
@@ -263,11 +268,10 @@
     {
       "name": "Relay",
       "library": "Params",
-      "nickName": "",
       "componentGuid": "b6236720-8d88-4289-93c3-ac4c99f9b97b",
-      "instanceGuid": "bf3559ad-9cdd-465c-a903-8c3b2dc5d99e",
+      "instanceGuid": "a96cb1f7-5cbd-4111-bc60-782e05ce1b94",
       "id": 11,
-      "pivot": "798,202",
+      "pivot": "1469,70",
       "inputSettings": [],
       "outputSettings": [
         {
@@ -281,10 +285,11 @@
     {
       "name": "Feedback",
       "library": "Physalia",
+      "nickName": "FB",
       "componentGuid": "4636fc1d-16b4-48b1-9a16-81af2f8ae483",
-      "instanceGuid": "b302caf1-d84f-47b9-a6f5-dbfac53d6057",
+      "instanceGuid": "aeb0187c-4d82-4dc7-a834-2ddff316ee35",
       "id": 12,
-      "pivot": "1480,433",
+      "pivot": "2151,301",
       "inputSettings": [
         {
           "parameterName": "Signal"
@@ -305,10 +310,11 @@
     {
       "name": "Feedback Collector",
       "library": "Physalia",
+      "nickName": "FC",
       "componentGuid": "97c158c6-ede4-4521-a666-eb76d2e85fb6",
-      "instanceGuid": "0ed297de-7f39-4614-b3da-248741ba9c98",
+      "instanceGuid": "6a5c21f8-2c7f-46a3-8ccf-37edec56639b",
       "id": 13,
-      "pivot": "568,523",
+      "pivot": "1239,391",
       "inputSettings": [],
       "outputSettings": [
         {
@@ -322,10 +328,11 @@
     {
       "name": "Resolver",
       "library": "Physalia",
+      "nickName": "Rslv",
       "componentGuid": "e3a9c52b-7d46-4f3a-b2c8-4a1f6e0d93c7",
-      "instanceGuid": "47533982-def6-448a-8733-88043e0bd7d3",
+      "instanceGuid": "f101839b-732c-446e-827d-2a6eb219abfa",
       "id": 14,
-      "pivot": "1560,180",
+      "pivot": "2231,48",
       "inputSettings": [
         {
           "parameterName": "Component Catalog"
@@ -349,10 +356,11 @@
     {
       "name": "Library",
       "library": "Physalia",
+      "nickName": "Lib",
       "componentGuid": "d2f8b41a-6c35-4e29-a1b7-3f0e5d9c82b6",
-      "instanceGuid": "e251a465-f17c-45d9-8987-c0f9a2f336db",
+      "instanceGuid": "269e35cc-b681-4a66-8638-f443def2dd90",
       "id": 15,
-      "pivot": "1215,113",
+      "pivot": "1886,-19",
       "inputSettings": [],
       "outputSettings": [
         {
@@ -366,10 +374,11 @@
     {
       "name": "Feedback",
       "library": "Physalia",
+      "nickName": "FB",
       "componentGuid": "4636fc1d-16b4-48b1-9a16-81af2f8ae483",
-      "instanceGuid": "03818f60-9f93-49e5-8441-e8fa473615e5",
+      "instanceGuid": "3ccee6c1-e931-466e-a437-447d64d4eb4e",
       "id": 16,
-      "pivot": "1677,430",
+      "pivot": "2348,298",
       "inputSettings": [
         {
           "parameterName": "Signal"
@@ -390,10 +399,11 @@
     {
       "name": "Component Transmitter",
       "library": "Physalia",
+      "nickName": "CompTx",
       "componentGuid": "4ba76257-ad4c-462c-ab7e-b130db176bf4",
-      "instanceGuid": "ad9dda3a-d0c0-4d9b-a8b7-ec4a354af80b",
+      "instanceGuid": "8d5c5a8d-d6ff-4680-a89e-8a27a444692e",
       "id": 17,
-      "pivot": "1816,170",
+      "pivot": "2487,38",
       "inputSettings": [
         {
           "parameterName": "Signal"
@@ -414,10 +424,11 @@
     {
       "name": "Feedback",
       "library": "Physalia",
+      "nickName": "FB",
       "componentGuid": "4636fc1d-16b4-48b1-9a16-81af2f8ae483",
-      "instanceGuid": "3d73968e-fed7-4073-bcfa-271e732a677c",
+      "instanceGuid": "6185b07f-00ba-4e6f-bc5b-ff13f2e2bc25",
       "id": 18,
-      "pivot": "2020,435",
+      "pivot": "2691,303",
       "inputSettings": [
         {
           "parameterName": "Signal"
@@ -438,10 +449,11 @@
     {
       "name": "Router",
       "library": "Physalia",
+      "nickName": "Rtr",
       "componentGuid": "b4e1c7a2-3d5f-4068-9a1c-7e2d5b9f36a4",
-      "instanceGuid": "ac1716dc-082a-48c7-b2f9-4627bd6840a3",
+      "instanceGuid": "db858ef1-ae9d-4954-9028-f736c74bb145",
       "id": 19,
-      "pivot": "1524,687",
+      "pivot": "2195,555",
       "inputSettings": [
         {
           "parameterName": "Tool Calls"
@@ -465,10 +477,11 @@
     {
       "name": "Component Search",
       "library": "Physalia",
+      "nickName": "Search",
       "componentGuid": "c5f2a9d4-6b81-4e37-a0c2-9d4f1b6e8350",
-      "instanceGuid": "62cbb01c-5297-441f-b899-778d231b70bb",
+      "instanceGuid": "99126efd-7960-4bae-a9d0-a14cd66529ca",
       "id": 20,
-      "pivot": "1988,687",
+      "pivot": "2659,555",
       "inputSettings": [
         {
           "parameterName": "Signal"
@@ -492,10 +505,11 @@
     {
       "name": "Library",
       "library": "Physalia",
+      "nickName": "Lib",
       "componentGuid": "d2f8b41a-6c35-4e29-a1b7-3f0e5d9c82b6",
-      "instanceGuid": "0360da99-d4b1-4719-ac10-4538826cdc9f",
+      "instanceGuid": "a885b147-8635-493d-ad07-f12e7a202150",
       "id": 21,
-      "pivot": "1600,855",
+      "pivot": "2271,723",
       "inputSettings": [],
       "outputSettings": [
         {
@@ -509,10 +523,11 @@
     {
       "name": "Feedback",
       "library": "Physalia",
+      "nickName": "FB",
       "componentGuid": "4636fc1d-16b4-48b1-9a16-81af2f8ae483",
-      "instanceGuid": "559bb2b6-0551-47ae-a44d-a86f71703190",
+      "instanceGuid": "d0e0e139-cc2e-413b-9d3b-02644dd95182",
       "id": 22,
-      "pivot": "1702,763",
+      "pivot": "2373,631",
       "inputSettings": [
         {
           "parameterName": "Signal"
@@ -533,10 +548,11 @@
     {
       "name": "Feedback Collector",
       "library": "Physalia",
+      "nickName": "FC",
       "componentGuid": "97c158c6-ede4-4521-a666-eb76d2e85fb6",
-      "instanceGuid": "3623dd9f-3b70-4c31-a259-d3243e88fefc",
+      "instanceGuid": "81932b09-941f-4173-a14a-4c6d59583248",
       "id": 23,
-      "pivot": "469,788",
+      "pivot": "1140,656",
       "inputSettings": [],
       "outputSettings": [
         {
@@ -550,10 +566,11 @@
     {
       "name": "Feedback Collector",
       "library": "Physalia",
+      "nickName": "FC",
       "componentGuid": "97c158c6-ede4-4521-a666-eb76d2e85fb6",
-      "instanceGuid": "9e186040-b3db-4a51-bed2-ad422616e6ef",
+      "instanceGuid": "61324bc7-4cfb-4277-9eff-55e6bfa7b779",
       "id": 24,
-      "pivot": "1378,853",
+      "pivot": "2049,721",
       "inputSettings": [],
       "outputSettings": [
         {
@@ -567,10 +584,11 @@
     {
       "name": "Feedback",
       "library": "Physalia",
+      "nickName": "FB",
       "componentGuid": "4636fc1d-16b4-48b1-9a16-81af2f8ae483",
-      "instanceGuid": "1973455b-1396-456f-95a7-c8828bd20005",
+      "instanceGuid": "1dede6da-3852-44cb-a276-03f20cef2d58",
       "id": 25,
-      "pivot": "2122,856",
+      "pivot": "2793,724",
       "inputSettings": [
         {
           "parameterName": "Signal"
@@ -591,10 +609,11 @@
     {
       "name": "Component Search",
       "library": "Physalia",
+      "nickName": "Search",
       "componentGuid": "c5f2a9d4-6b81-4e37-a0c2-9d4f1b6e8350",
-      "instanceGuid": "d3e2ab04-9c21-48b9-88ef-97f0d029d451",
+      "instanceGuid": "d8ba0ef5-9bbd-48ce-ad75-8ec0e01903bd",
       "id": 26,
-      "pivot": "826,401",
+      "pivot": "1497,269",
       "inputSettings": [
         {
           "parameterName": "Signal"
@@ -618,10 +637,11 @@
     {
       "name": "Anthropic Model",
       "library": "Physalia",
+      "nickName": "Anth",
       "componentGuid": "d60822a6-1abd-4ba8-ab0f-a54937d0b923",
-      "instanceGuid": "0e501c53-51cd-446b-8364-436e927d75cf",
+      "instanceGuid": "a9f4be08-f567-42ae-86b7-5f00a985e25e",
       "id": 27,
-      "pivot": "570,162",
+      "pivot": "1241,30",
       "inputSettings": [
         {
           "parameterName": "API Key"
@@ -640,30 +660,13 @@
       }
     },
     {
-      "name": "Picker",
-      "library": "Physalia",
-      "nickName": "Pick",
-      "componentGuid": "2d14368f-0302-4d08-bdec-61dd6a28732c",
-      "instanceGuid": "0a9c3d01-9731-45a2-8d85-3eb1fe026c0a",
-      "id": 28,
-      "pivot": "370,162",
-      "inputSettings": [],
-      "outputSettings": [
-        {
-          "parameterName": "Value"
-        }
-      ],
-      "componentState": {
-        "selected": true
-      }
-    },
-    {
       "name": "API Keys",
       "library": "Physalia",
+      "nickName": "APIKeys",
       "componentGuid": "6066e324-4a4d-4c08-b72b-5268ed7de772",
-      "instanceGuid": "67fff2bc-d039-45aa-bd17-8b313fc39eab",
-      "id": 29,
-      "pivot": "414,118",
+      "instanceGuid": "0c263945-2753-41b2-840c-e5a9b1c7cd21",
+      "id": 28,
+      "pivot": "1085,-14",
       "inputSettings": [
         {
           "parameterName": "Provider"
@@ -683,9 +686,9 @@
       "library": "Physalia",
       "nickName": "Pick",
       "componentGuid": "2d14368f-0302-4d08-bdec-61dd6a28732c",
-      "instanceGuid": "902c20de-4cdd-43be-a113-d8e9a145fb20",
-      "id": 30,
-      "pivot": "219,118",
+      "instanceGuid": "6540d66f-4ad6-47a8-8f41-a7af23e24f22",
+      "id": 29,
+      "pivot": "890,-14",
       "inputSettings": [],
       "outputSettings": [
         {
@@ -699,10 +702,11 @@
     {
       "name": "Observer",
       "library": "Physalia",
+      "nickName": "Obs",
       "componentGuid": "f4b0d63c-8e57-4a4b-9c3d-5b2a7f1e04d8",
-      "instanceGuid": "4f921c1d-b108-450d-93b5-916a1b660e26",
-      "id": 31,
-      "pivot": "2060,172",
+      "instanceGuid": "6c9465a9-63fa-415f-856a-fc0efea7e70c",
+      "id": 30,
+      "pivot": "2731,40",
       "inputSettings": [
         {
           "parameterName": "Signal"
@@ -723,10 +727,11 @@
     {
       "name": "Feedback",
       "library": "Physalia",
+      "nickName": "FB",
       "componentGuid": "4636fc1d-16b4-48b1-9a16-81af2f8ae483",
-      "instanceGuid": "0b0f15c6-3de3-4d23-97a4-ee56ac77ba3a",
-      "id": 32,
-      "pivot": "2230,437",
+      "instanceGuid": "16adc9ad-5afa-4c55-bea7-227f2c4227eb",
+      "id": 31,
+      "pivot": "2901,305",
       "inputSettings": [
         {
           "parameterName": "Signal"
@@ -745,29 +750,13 @@
       }
     },
     {
-      "name": "Chatbox",
-      "library": "Physalia",
-      "componentGuid": "b7e4b6f2-3c2a-4d71-9e0a-7f1c2d3e4a5b",
-      "instanceGuid": "24a29d19-2260-4622-a5c0-744d7cf6f59e",
-      "id": 33,
-      "pivot": "301,422",
-      "inputSettings": [],
-      "outputSettings": [
-        {
-          "parameterName": "Prompt Signal"
-        }
-      ],
-      "componentState": {
-        "selected": true
-      }
-    },
-    {
       "name": "Output Snapshot",
       "library": "Physalia",
+      "nickName": "Snap",
       "componentGuid": "4a969c47-c1e5-446d-bb20-9f973d5e2e3d",
-      "instanceGuid": "66a49ed6-207c-4461-ba21-6efec4765362",
-      "id": 34,
-      "pivot": "2499,162",
+      "instanceGuid": "14f3c07d-041c-46ea-9b36-19e94d1815cb",
+      "id": 32,
+      "pivot": "3170,30",
       "inputSettings": [
         {
           "parameterName": "Message"
@@ -791,11 +780,10 @@
     {
       "name": "Panel",
       "library": "Params",
-      "nickName": "",
       "componentGuid": "59e0b89a-e487-49f8-bab8-b5bab16be14c",
-      "instanceGuid": "a9373e9f-31a8-4b12-a101-483ca9ef0466",
-      "id": 35,
-      "pivot": "2235.395751953125,238.39932250976562",
+      "instanceGuid": "5cbad6e1-6e44-430f-b7fb-b936fa86ad68",
+      "id": 33,
+      "pivot": "2906.395751953125,106.39932250976562",
       "inputSettings": [],
       "outputSettings": [
         {
@@ -820,10 +808,11 @@
     {
       "name": "Signal Limiter",
       "library": "Physalia",
+      "nickName": "SigLim",
       "componentGuid": "98af02a3-89c2-4db7-b12b-676a9cc0b9b8",
-      "instanceGuid": "b12587f0-25f4-4b3f-975d-5925d35e8644",
-      "id": 36,
-      "pivot": "2296,180",
+      "instanceGuid": "8e184706-9c79-4466-8eac-0139e21904c6",
+      "id": 34,
+      "pivot": "2967,48",
       "inputSettings": [
         {
           "parameterName": "Signal"
@@ -860,10 +849,11 @@
     {
       "name": "Feedback",
       "library": "Physalia",
+      "nickName": "FB",
       "componentGuid": "4636fc1d-16b4-48b1-9a16-81af2f8ae483",
-      "instanceGuid": "29ac99c4-0c87-427a-875b-a590612eda8b",
-      "id": 37,
-      "pivot": "2594,456",
+      "instanceGuid": "86b06b8a-b7b0-4b62-8d44-68ef00f3c73d",
+      "id": 35,
+      "pivot": "3265,324",
       "inputSettings": [
         {
           "parameterName": "Signal"
@@ -879,6 +869,51 @@
             ]
           }
         }
+      }
+    },
+    {
+      "name": "Panel",
+      "library": "Params",
+      "componentGuid": "59e0b89a-e487-49f8-bab8-b5bab16be14c",
+      "instanceGuid": "bb971ae4-bcb3-4d63-a2f0-fb8ec903b3c7",
+      "id": 36,
+      "pivot": "960.78076171875,23.059755325317383",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Panel"
+        }
+      ],
+      "componentState": {
+        "selected": true,
+        "extensions": {
+          "gh.panel": {
+            "text": "claude-sonnet-4-6",
+            "multiline": true,
+            "wrap": true,
+            "drawIndices": true,
+            "drawPaths": true,
+            "color": "argb:255,212,255,251",
+            "bounds": "160x56"
+          }
+        }
+      }
+    },
+    {
+      "name": "Chatbox",
+      "library": "Physalia",
+      "componentGuid": "b7e4b6f2-3c2a-4d71-9e0a-7f1c2d3e4a5b",
+      "instanceGuid": "89db11db-7ed1-43d0-b474-79d054d8a4be",
+      "id": 37,
+      "pivot": "964,226",
+      "inputSettings": [],
+      "outputSettings": [
+        {
+          "parameterName": "Prompt Signal"
+        }
+      ],
+      "componentState": {
+        "selected": true
       }
     }
   ],
@@ -1118,7 +1153,7 @@
         "paramIndex": 0
       },
       "to": {
-        "id": 31,
+        "id": 30,
         "paramName": "Signal",
         "paramIndex": 0
       }
@@ -1140,6 +1175,18 @@
         "id": 19,
         "paramName": "search_components",
         "paramIndex": 0
+      },
+      "to": {
+        "id": 20,
+        "paramName": "Signal",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 19,
+        "paramName": "Feedback",
+        "paramIndex": 1
       },
       "to": {
         "id": 20,
@@ -1234,7 +1281,91 @@
     {
       "from": {
         "id": 28,
+        "paramName": "API Key",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 27,
+        "paramName": "API Key",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 29,
         "paramName": "Value",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 28,
+        "paramName": "Provider",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 30,
+        "paramName": "Success Signal",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 34,
+        "paramName": "Signal",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 30,
+        "paramName": "Fail Signal",
+        "paramIndex": 1
+      },
+      "to": {
+        "id": 31,
+        "paramName": "Signal",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 32,
+        "paramName": "Fail Signal",
+        "paramIndex": 1
+      },
+      "to": {
+        "id": 35,
+        "paramName": "Signal",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 33,
+        "paramName": "Panel",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 32,
+        "paramName": "Message",
+        "paramIndex": 0
+      }
+    },
+    {
+      "from": {
+        "id": 34,
+        "paramName": "Within Limit",
+        "paramIndex": 0
+      },
+      "to": {
+        "id": 32,
+        "paramName": "Signal",
+        "paramIndex": 1
+      }
+    },
+    {
+      "from": {
+        "id": 36,
+        "paramName": "Panel",
         "paramIndex": 0
       },
       "to": {
@@ -1245,55 +1376,7 @@
     },
     {
       "from": {
-        "id": 29,
-        "paramName": "API Key",
-        "paramIndex": 0
-      },
-      "to": {
-        "id": 27,
-        "paramName": "API Key",
-        "paramIndex": 0
-      }
-    },
-    {
-      "from": {
-        "id": 30,
-        "paramName": "Value",
-        "paramIndex": 0
-      },
-      "to": {
-        "id": 29,
-        "paramName": "Provider",
-        "paramIndex": 0
-      }
-    },
-    {
-      "from": {
-        "id": 31,
-        "paramName": "Success Signal",
-        "paramIndex": 0
-      },
-      "to": {
-        "id": 36,
-        "paramName": "Signal",
-        "paramIndex": 0
-      }
-    },
-    {
-      "from": {
-        "id": 31,
-        "paramName": "Fail Signal",
-        "paramIndex": 1
-      },
-      "to": {
-        "id": 32,
-        "paramName": "Signal",
-        "paramIndex": 0
-      }
-    },
-    {
-      "from": {
-        "id": 33,
+        "id": 37,
         "paramName": "Prompt Signal",
         "paramIndex": 0
       },
@@ -1302,47 +1385,11 @@
         "paramName": "Prompt Signal",
         "paramIndex": 1
       }
-    },
-    {
-      "from": {
-        "id": 34,
-        "paramName": "Fail Signal",
-        "paramIndex": 1
-      },
-      "to": {
-        "id": 37,
-        "paramName": "Signal",
-        "paramIndex": 0
-      }
-    },
-    {
-      "from": {
-        "id": 35,
-        "paramName": "Panel",
-        "paramIndex": 0
-      },
-      "to": {
-        "id": 34,
-        "paramName": "Message",
-        "paramIndex": 0
-      }
-    },
-    {
-      "from": {
-        "id": 36,
-        "paramName": "Within Limit",
-        "paramIndex": 0
-      },
-      "to": {
-        "id": 34,
-        "paramName": "Signal",
-        "paramIndex": 1
-      }
     }
   ],
   "groups": [
     {
-      "instanceGuid": "b54f1c60-fa77-4347-a915-e8bc7006277d",
+      "instanceGuid": "ab501297-0ff2-4c22-bb78-395cdabb6418",
       "id": 38,
       "name": "",
       "color": "argb:150,255,255,255",

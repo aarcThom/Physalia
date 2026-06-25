@@ -387,10 +387,11 @@
 		/>
 	</div>
 
-	<!-- Switcher row at the very bottom: one circle per Chatbox on the canvas. The active chat's
-	     circle reads as a raised accent dot; a chat with recorded history is a filled grey dot;
-	     an empty one is a pressed-in well. Clicking a circle views that Chatbox's recorder history
-	     (or the default screen when it has none). New circles appear as Chatboxes are placed. -->
+	<!-- Switcher row at the very bottom: one emoji per Chatbox on the canvas — its assigned
+	     sea/ocean glyph, matching the component's canvas icon so the two are easy to pair. The
+	     active chat sits on a raised accent ring; a chat with no recorded history is dimmed.
+	     Clicking an emoji views that Chatbox's recorder history (or the default screen when it
+	     has none). New emojis appear as Chatboxes are placed. -->
 	{#if chatboxes.length > 0}
 		<div class="flex shrink-0 items-center justify-center gap-1 pb-2">
 			{#each chatboxes as box (box.id)}
@@ -403,18 +404,18 @@
 						: box.hasHistory
 							? 'Switch to this chat (has history)'
 							: 'Switch to this chat'}
-					class="group flex items-center justify-center rounded-full p-1.5"
+					class="group flex items-center justify-center rounded-full p-0.5"
 				>
 					<span
 						class={cn(
-							'size-2.5 rounded-full transition',
+							'flex size-6 items-center justify-center rounded-full text-sm leading-none transition',
 							box.active
-								? 'bg-[var(--neu-accent)] shadow-[var(--neu-shadow-sm)]'
+								? 'bg-[var(--neu-accent)]/15 shadow-[var(--neu-shadow-sm)]'
 								: box.hasHistory
-									? 'bg-muted-foreground/50 group-hover:bg-muted-foreground'
-									: 'bg-transparent shadow-[var(--neu-inset-sm)] group-hover:bg-muted-foreground/25'
+									? 'opacity-100 group-hover:bg-muted-foreground/10'
+									: 'opacity-40 group-hover:opacity-70'
 						)}
-					></span>
+					>{box.emoji}</span>
 				</button>
 			{/each}
 		</div>

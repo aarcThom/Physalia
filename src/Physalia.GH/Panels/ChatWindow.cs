@@ -697,6 +697,7 @@ public class ChatWindow : Form
                 id = cb.InstanceGuid.ToString(),
                 active = ReferenceEquals(cb, _component),
                 hasHistory = ChatboxHasHistory(cb),
+                emoji = cb.Emoji,
             })
             .ToList();
 

@@ -3,6 +3,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Windows.Forms;
 using GH_IO.Serialization;
@@ -24,6 +26,16 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class Chatbox : StatefulComponentBase
 {
+    // Single-glyph sea/ocean emojis used as a Chatbox's visual identity — shown in place of
+    // its canvas icon and as its circle in the chat window's switcher row, so the user can
+    // tell which Chatbox a given dot belongs to. Kept to plain single-codepoint glyphs (no
+    // ZWJ sequences or variation selectors) so TextRenderer paints them predictably.
+    private static readonly string[] OceanEmoji =
+    {
+        "🌊", "🐠", "🐟", "🐡", "🦈", "🐙", "🐚", "🦀", "🦞", "🦐",
+        "🦑", "🐳", "🐋", "🐬", "🦭", "🐢", "🪼", "🐧", "🦦", "⚓", "🪸",
+    };
+
     // Only one chat window may exist per Rhino session, across every Chatbox instance.
     // Static so a second Chatbox switches the single window to its own view rather than
     // spawning another. Session-only — nothing here serializes.
@@ -37,6 +49,18 @@ public class Chatbox : StatefulComponentBase
     // document has finished loading (deferred to the next solve / idle pass).
     private bool _pendingApply;
 
+    // This Chatbox's assigned ocean emoji (its identity). Always non-empty — seeded randomly
+    // in the constructor, deduped against canvas siblings on first placement, and persisted.
+    private string _emoji;
+
+    // True once this instance was restored from a file (Read ran), so first-placement dedupe
+    // is skipped and a persisted emoji is never reshuffled.
+    private bool _loaded;
+
+    // The per-instance colour emoji icon (a bundled Noto bitmap scaled to 24x24); lazily built,
+    // dropped when the emoji changes so the next Icon get rebuilds it.
+    private Bitmap? _iconBitmap;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="Chatbox"/> class.
     /// </summary>
@@ -44,10 +68,17 @@ public class Chatbox : StatefulComponentBase
         : base("Chatbox", "Chat", "Standalone chat window driving the pipeline. Double-click to open the window; send a message to mint a Prompt Signal.", "Core")
     {
         _group = new HarnessGroup(this);
+        _emoji = OceanEmoji[Random.Shared.Next(OceanEmoji.Length)];
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("B7E4B6F2-3C2A-4D71-9E0A-7F1C2D3E4A5B");
+
+    /// <summary>
+    /// Gets the ocean emoji that identifies this Chatbox on the canvas (as its icon) and in
+    /// the chat window's switcher row. Stable for the life of the component and persisted.
+    /// </summary>
+    public string Emoji => _emoji;
 
     /// <summary>
     /// Gets the collapsible harness group this Chatbox represents. The proxy renders a
@@ -63,6 +94,47 @@ public class Chatbox : StatefulComponentBase
     public override void CreateAttributes()
     {
         m_attributes = new ChatboxAttrib(this);
+    }
+
+    /// <summary>
+    /// Gets the component icon — this Chatbox's assigned ocean emoji as a bundled colour bitmap
+    /// (Noto Emoji), so each Chatbox reads as a distinct node. GDI cannot colour-render an emoji
+    /// font, so a pre-made image is used rather than drawn glyphs. The ribbon/palette proxy (no
+    /// document) shows the palette's first emoji as a stable, recognisable button.
+    /// </summary>
+    protected override Bitmap Icon =>
+        _iconBitmap ??= BuildEmojiIcon(OnPingDocument() is null ? OceanEmoji[0] : _emoji);
+
+    // Loads the bundled colour PNG for an emoji (Resources/emoji/emoji_u<codepoint>.png) and scales
+    // it to a 24x24 icon. Falls back to the shared brain icon if the resource is missing.
+    private Bitmap BuildEmojiIcon(string emoji)
+    {
+        string resource = string.IsNullOrEmpty(emoji)
+            ? string.Empty
+            : $"Physalia.GH.Resources.emoji.emoji_u{char.ConvertToUtf32(emoji, 0):x}.png";
+
+        using System.IO.Stream? stream = string.IsNullOrEmpty(resource) ? null : GHAssembly.GetManifestResourceStream(resource);
+        if (stream is null)
+        {
+            using System.IO.Stream? brain = GHAssembly.GetManifestResourceStream("Physalia.GH.Resources.brain.png");
+            return brain != null ? new Bitmap(brain) : new Bitmap(24, 24);
+        }
+
+        using var source = new Bitmap(stream);
+        var icon = new Bitmap(24, 24);
+        using Graphics graphics = Graphics.FromImage(icon);
+        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        graphics.DrawImage(source, new Rectangle(0, 0, 24, 24));
+        return icon;
+    }
+
+    // Drops the cached emoji icon and clears GH's icon cache so the next paint rebuilds it — used
+    // when the emoji changes (dedupe / load) or when a placed component gains its document.
+    private void ResetEmojiIcon()
+    {
+        _iconBitmap = null;
+        DestroyIconCache();
     }
 
     /// <summary>
@@ -131,6 +203,45 @@ public class Chatbox : StatefulComponentBase
     {
         _activeWindow?.OnComponentRemoved(this);
         base.RemovedFromDocument(document);
+    }
+
+    /// <summary>
+    /// On first placement (not a file load), reassigns this Chatbox's emoji to one not already
+    /// used by another Chatbox on the canvas, so freshly placed boxes are visually distinct.
+    /// Falls back to the random pick when the palette is exhausted. A Chatbox restored from a
+    /// file keeps its persisted emoji untouched.
+    /// </summary>
+    /// <param name="document">The document this component was added to.</param>
+    public override void AddedToDocument(GH_Document document)
+    {
+        base.AddedToDocument(document);
+
+        // Now that this instance has a document, flip its icon from the ribbon brain to the
+        // blank canvas slot (the emoji is painted over it live).
+        ResetEmojiIcon();
+
+        if (_loaded)
+        {
+            return;
+        }
+
+        var used = new HashSet<string>();
+        foreach (IGH_DocumentObject obj in document.Objects)
+        {
+            if (obj is Chatbox cb && !ReferenceEquals(cb, this) && !string.IsNullOrEmpty(cb._emoji))
+            {
+                used.Add(cb._emoji);
+            }
+        }
+
+        if (used.Contains(_emoji))
+        {
+            string? free = OceanEmoji.FirstOrDefault(e => !used.Contains(e));
+            if (free is not null)
+            {
+                _emoji = free;
+            }
+        }
     }
 
     /// <inheritdoc/>
@@ -207,6 +318,7 @@ public class Chatbox : StatefulComponentBase
     public override bool Write(GH_IWriter writer)
     {
         _group.Write(writer);
+        writer.SetString("ChatboxEmoji", _emoji);
         return base.Write(writer);
     }
 
@@ -215,6 +327,15 @@ public class Chatbox : StatefulComponentBase
     {
         _group.Read(reader);
         _pendingApply = true;
+        _loaded = true;
+
+        string stored = string.Empty;
+        if (reader.TryGetString("ChatboxEmoji", ref stored) && !string.IsNullOrEmpty(stored))
+        {
+            _emoji = stored;
+            ResetEmojiIcon();
+        }
+
         return base.Read(reader);
     }
 

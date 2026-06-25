@@ -78,6 +78,8 @@ export interface UiChatbox {
 	active: boolean;
 	/** True when this Chatbox's wired Recorder already holds a conversation (its circle is filled). */
 	hasHistory: boolean;
+	/** The sea/ocean emoji that identifies this Chatbox — shown as its switcher dot (and canvas icon). */
+	emoji: string;
 }
 
 /** A bundled preset (.ghjson in Files/PRESETS) offered on the Add-preset page. */

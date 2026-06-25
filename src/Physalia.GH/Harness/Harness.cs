@@ -7,6 +7,7 @@ using System.Drawing;
 using System.Linq;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Physalia.GH.Attributes;
 using Physalia.GH.Components;
 
 namespace Physalia.GH.Harness;
@@ -28,6 +29,11 @@ public sealed class Harness
     private readonly IGH_DocumentObject _owner;
     private readonly HashSet<Guid> _members = new();
     private readonly Dictionary<Guid, IGH_Attributes> _swapped = new();
+
+    // Original parameter attributes stashed while a member is hidden (keyed by param InstanceGuid),
+    // so its grips can be made non-wireable behind the collapsed proxy and restored on expand.
+    private readonly Dictionary<Guid, IGH_Attributes> _swappedParams = new();
+
     private bool _collapsed;
 
     // The collapse point last pushed to the members, so the layout-time refresh re-pushes only
@@ -328,6 +334,10 @@ public sealed class Harness
 
     private void HideMember(IGH_DocumentObject obj, PointF point)
     {
+        // Drop the member's parameter grips (computed from the original attributes' Kind) so no
+        // wire can be pulled from the collapsed cluster, then hide the member itself.
+        HideParamGrips(obj);
+
         if (obj is PhyBase member)
         {
             member.HarnessCollapsed = true;
@@ -363,6 +373,47 @@ public sealed class Harness
         }
 
         _swapped.Remove(g);
+        ShowParamGrips(obj);
+    }
+
+    // Wraps each of a member's parameter attributes so their grips disappear while the harness is
+    // collapsed (gated on this harness). Stashes the originals for restore; idempotent.
+    private void HideParamGrips(IGH_DocumentObject obj)
+    {
+        if (obj is not IGH_Component component)
+        {
+            return;
+        }
+
+        foreach (IGH_Param param in component.Params.Input.Concat(component.Params.Output))
+        {
+            if (param.Attributes is HarnessParamAttributes)
+            {
+                continue;
+            }
+
+            _swappedParams[param.InstanceGuid] = param.Attributes;
+            param.Attributes = new HarnessParamAttributes(param, component.Attributes, this);
+        }
+    }
+
+    // Restores a member's original parameter attributes (and their normal grips) on expand.
+    private void ShowParamGrips(IGH_DocumentObject? obj)
+    {
+        if (obj is not IGH_Component component)
+        {
+            return;
+        }
+
+        foreach (IGH_Param param in component.Params.Input.Concat(component.Params.Output))
+        {
+            if (_swappedParams.TryGetValue(param.InstanceGuid, out IGH_Attributes? original))
+            {
+                param.Attributes = original;
+                param.Attributes.ExpireLayout();
+                _swappedParams.Remove(param.InstanceGuid);
+            }
+        }
     }
 
     private IGH_DocumentObject? Find(Guid g) => _owner.OnPingDocument()?.FindObject(g, false);

@@ -94,6 +94,14 @@ public class Chatbox : StatefulComponentBase
     public override void CreateAttributes()
     {
         m_attributes = new ChatboxAttrib(this);
+
+        // Give the output its harness-aware param attributes so the proxy drops its grips while
+        // collapsed (no wires can be pulled), staying draggable. GH only auto-creates linked
+        // param attributes when none are set, so pre-assigning these wins.
+        foreach (IGH_Param output in Params.Output)
+        {
+            output.Attributes = new HarnessParamAttributes(output, m_attributes, _group);
+        }
     }
 
     /// <summary>

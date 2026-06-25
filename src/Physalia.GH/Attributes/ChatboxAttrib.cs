@@ -3,9 +3,9 @@
 
 using System.Drawing;
 using System.Drawing.Drawing2D;
-using System.Windows.Forms;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
+using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
 using Physalia.GH.Components;
 using Physalia.GH.Harness;
@@ -15,17 +15,23 @@ namespace Physalia.GH.Attributes;
 /// <summary>
 /// Attributes for the Chatbox component. The chat UI lives in a standalone window (opened on
 /// double-click); on the canvas the Chatbox doubles as the proxy node for its collapsible
-/// harness group. A small chevron toggles collapse, and while collapsed the node takes on a
-/// distinct "stacked" look with a badge counting the hidden members.
+/// harness group. Once it owns members, the node takes on the Prompter's look — a light-blue
+/// body with a lavender-pink edge — so a harness Chatbox reads distinctly from a plain one.
+/// Collapse is driven from the right-click menu and the chat window.
 /// </summary>
 public class ChatboxAttrib : GH_ComponentAttributes
 {
-    private const float ChevronSize = 13f;
-    private const float ChevronInset = 3f;
+    // Harness tint: light-blue body, black capsule edge, dark-purple text. A secondary outline
+    // (HarnessGlow → white, top-to-bottom) is traced just outside the black edge.
+    private static readonly Color HarnessFill = Color.FromArgb(255, 218, 243, 245);
+    private static readonly Color HarnessEdge = Color.Black;
+    private static readonly Color HarnessText = Color.FromArgb(255, 47, 8, 87);
+    private static readonly Color HarnessGlow = Color.FromArgb(255, 236, 0, 150);
+
+    // Width of the secondary gradient outline; ~half straddles outside the 1px black edge.
+    private const float GlowWidth = 1f;
 
     private readonly Chatbox _chatbox;
-
-    private RectangleF _chevronBounds;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ChatboxAttrib"/> class.
@@ -44,21 +50,10 @@ public class ChatboxAttrib : GH_ComponentAttributes
         // collapsed, hide it like any member: shrink to the collapse point and skip the proxy chrome.
         if (CollapseGuard.TryCollapseLayout(this))
         {
-            _chevronBounds = RectangleF.Empty;
             return;
         }
 
         base.Layout();
-
-        // The chevron only exists once this Chatbox is a harness (owns members); an empty Chatbox
-        // is a plain node, so the toggle target collapses to nothing.
-        _chevronBounds = _chatbox.Group.Count > 0
-            ? new RectangleF(
-                Bounds.Right - ChevronSize - ChevronInset,
-                Bounds.Top + ChevronInset,
-                ChevronSize,
-                ChevronSize)
-            : RectangleF.Empty;
 
         // While collapsed, keep the hidden members glued under this (possibly moved) proxy.
         _chatbox.Group.RefreshCollapsePoint();
@@ -73,115 +68,145 @@ public class ChatboxAttrib : GH_ComponentAttributes
             return;
         }
 
-        base.Render(canvas, graphics, channel);
+        // A plain Chatbox (owns no members) renders as a normal node; only the Objects channel of
+        // a harness Chatbox gets the Prompter-style tint.
+        if (channel != GH_CanvasChannel.Objects || _chatbox.Group.Count == 0)
+        {
+            base.Render(canvas, graphics, channel);
+            return;
+        }
 
-        if (channel != GH_CanvasChannel.Objects)
+        // Render the capsule ourselves so it reads like the Prompter: GH would force a jagged
+        // "no inputs" left edge and (because the Chatbox is not preview-capable) the Hidden
+        // palette. Rounding both edges and driving fill/edge/text from our own style sidesteps
+        // both. The output grip shows only while expanded; a collapsed proxy carries no grips.
+        var style = new GH_PaletteStyle(HarnessFill, HarnessEdge, HarnessText);
+        RenderSmoothCapsule(canvas, graphics, style);
+
+        // Secondary outline on top, hugging the inside of the black edge: a pink→white gradient
+        // traced on the exact capsule shape. A CompoundArray restricts the fat pen to its inner
+        // band (GH's own inner-shine trick), so the stroke stays inside the path and the black
+        // edge survives on the outside.
+        DrawHarnessGlow(graphics);
+    }
+
+    // Mirrors GH_ComponentAttributes.RenderComponentCapsule but rounds both edges
+    // (SetJaggedEdges(false, false)) and draws the fill/edge/text from our own palette style,
+    // skipping GH's jagged-left + Hidden-palette behaviour for a not-preview-capable component.
+    // The output grip is added only while the harness is expanded.
+    private void RenderSmoothCapsule(GH_Canvas canvas, Graphics graphics, GH_PaletteStyle style)
+    {
+        RectangleF rec = Bounds;
+        bool visible = canvas.Viewport.IsVisible(ref rec, 10f);
+        Bounds = rec;
+        if (!visible)
         {
             return;
         }
 
-        // Not a harness until it owns members — draw no chevron/decoration, so it reads as a plain node.
-        if (_chatbox.Group.Count == 0)
+        var capsule = GH_Capsule.CreateCapsule(Bounds, GH_Palette.Normal);
+        try
         {
-            return;
+            capsule.SetJaggedEdges(false, false);
+
+            // No inputs ever; the output grip is the proxy's only grip and is hidden while collapsed.
+            if (!_chatbox.Group.Collapsed)
+            {
+                foreach (IGH_Param output in _chatbox.Params.Output)
+                {
+                    capsule.AddOutputGrip(output.Attributes.OutputGrip.Y);
+                }
+            }
+
+            graphics.SmoothingMode = SmoothingMode.HighQuality;
+            canvas.SetSmartTextRenderingHint();
+
+            if (!string.IsNullOrWhiteSpace(_chatbox.Message))
+            {
+                capsule.RenderEngine.RenderMessage(graphics, _chatbox.Message, style);
+            }
+
+            capsule.Render(graphics, style);
+
+            bool iconMode = _chatbox.IconDisplayMode == GH_IconDisplayMode.icon
+                || (_chatbox.IconDisplayMode == GH_IconDisplayMode.application && Grasshopper.CentralSettings.CanvasObjectIcons);
+
+            if (iconMode)
+            {
+                Image? icon = _chatbox.Locked ? _chatbox.Icon_24x24_Locked : _chatbox.Icon_24x24;
+                if (icon != null)
+                {
+                    capsule.RenderEngine.RenderIcon(graphics, icon, m_innerBounds);
+                }
+            }
+            else
+            {
+                var text = GH_Capsule.CreateTextCapsule(
+                    m_innerBounds, m_innerBounds, GH_Palette.Black, _chatbox.NickName,
+                    GH_FontServer.LargeAdjusted, GH_Orientation.vertical_center, 3, 6);
+                text.Render(graphics, Selected, _chatbox.Locked, hidden: false);
+                text.Dispose();
+            }
+
+            RenderComponentParameters(canvas, graphics, _chatbox, style);
         }
-
-        bool collapsed = _chatbox.Group.Collapsed;
-
-        if (collapsed)
+        finally
         {
-            DrawCollapsedDecoration(graphics);
+            capsule.Dispose();
         }
+    }
 
-        DrawChevron(graphics, collapsed);
+    // Traces the exact capsule silhouette (jagged input edge included) with a fat pen filled by a
+    // vertical pink→white gradient, restricted by a CompoundArray to the pen's inner half so the
+    // stroke lands just inside the black edge. Drawn on top of the fill: the rim fades from pink
+    // at the bottom to white on top, with the black capsule edge still visible outside it.
+    private void DrawHarnessGlow(Graphics graphics)
+    {
+        var capsule = GH_Capsule.CreateCapsule(Bounds, GH_Palette.Hidden);
+        try
+        {
+            // Both edges rounded, matching the capsule drawn in RenderSmoothCapsule.
+            capsule.SetJaggedEdges(false, false);
+            GraphicsPath? outline = capsule.OutlineShape;
+            if (outline is null)
+            {
+                return;
+            }
+
+            // White at the top of the node, pink at the bottom.
+            using var brush = new LinearGradientBrush(
+                RectangleF.Inflate(Bounds, 2f, 2f), Color.White, HarnessGlow, LinearGradientMode.Vertical);
+
+            // Pen centred on the path; CompoundArray draws only the inner band (1f is the inner
+            // edge of the stroke, as in GH's InnerContourPen), keeping it inside the path.
+            using var pen = new Pen(brush, GlowWidth * 2f)
+            {
+                LineJoin = LineJoin.Round,
+                CompoundArray = new[] { 0.5f, 1f },
+            };
+
+            SmoothingMode prev = graphics.SmoothingMode;
+            graphics.SmoothingMode = SmoothingMode.HighQuality;
+            graphics.DrawPath(pen, outline);
+            graphics.SmoothingMode = prev;
+        }
+        finally
+        {
+            capsule.Dispose();
+        }
     }
 
     /// <summary>
-    /// Opens the chat window on double-click (outside the collapse chevron).
+    /// Opens the chat window on double-click.
     /// </summary>
     /// <param name="sender">The Grasshopper canvas that raised the event.</param>
     /// <param name="e">The mouse event data.</param>
     /// <returns>Handled — the double-click is consumed to open the window.</returns>
     public override GH_ObjectResponse RespondToMouseDoubleClick(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
-        if (_chevronBounds.Contains(e.CanvasLocation))
-        {
-            return GH_ObjectResponse.Handled;
-        }
-
         _chatbox.OpenWindow();
         _chatbox.Attributes.Selected = false;
         sender.Refresh();
         return GH_ObjectResponse.Handled;
-    }
-
-    /// <summary>
-    /// Toggles the harness collapse when the chevron is clicked.
-    /// </summary>
-    /// <param name="sender">The Grasshopper canvas that raised the event.</param>
-    /// <param name="e">The mouse event data.</param>
-    /// <returns>Handled if the chevron was clicked; otherwise the base response.</returns>
-    public override GH_ObjectResponse RespondToMouseDown(GH_Canvas sender, GH_CanvasMouseEvent e)
-    {
-        if (e.Button == MouseButtons.Left && _chevronBounds.Contains(e.CanvasLocation))
-        {
-            _chatbox.ToggleCollapse();
-            sender.Refresh();
-            return GH_ObjectResponse.Handled;
-        }
-
-        return base.RespondToMouseDown(sender, e);
-    }
-
-    // A double outline + accent badge so a collapsed Chatbox reads as "more than one node".
-    private void DrawCollapsedDecoration(Graphics graphics)
-    {
-        var outer = RectangleF.Inflate(Bounds, 3f, 3f);
-        using var accent = new Pen(Color.FromArgb(200, 119, 0, 255), 1.5f);
-        graphics.DrawRectangle(accent, outer.X, outer.Y, outer.Width, outer.Height);
-
-        // Member-count badge at the top-left corner.
-        string count = _chatbox.Group.Count.ToString();
-        var badge = new RectangleF(Bounds.Left - 7f, Bounds.Top - 7f, 16f, 16f);
-        using var badgeFill = new SolidBrush(Color.FromArgb(255, 119, 0, 255));
-        using var badgeText = new SolidBrush(Color.White);
-        using var badgeFont = new Font(FontFamily.GenericSansSerif, 6f, FontStyle.Bold);
-        using var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-        graphics.FillEllipse(badgeFill, badge);
-        graphics.DrawString(count, badgeFont, badgeText, badge, fmt);
-    }
-
-    // A small framed chevron: pointing right (▸) while collapsed, down (▾) while expanded.
-    private void DrawChevron(Graphics graphics, bool collapsed)
-    {
-        using var bg = new SolidBrush(Color.FromArgb(180, 255, 255, 255));
-        using var frame = new Pen(Color.FromArgb(255, 47, 8, 87), 1f);
-        graphics.FillRectangle(bg, _chevronBounds);
-        graphics.DrawRectangle(frame, _chevronBounds.X, _chevronBounds.Y, _chevronBounds.Width, _chevronBounds.Height);
-
-        float cx = _chevronBounds.X + (_chevronBounds.Width / 2f);
-        float cy = _chevronBounds.Y + (_chevronBounds.Height / 2f);
-        using var arrow = new Pen(Color.FromArgb(255, 47, 8, 87), 1.6f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
-
-        if (collapsed)
-        {
-            // ▸
-            graphics.DrawLines(arrow, new[]
-            {
-                new PointF(cx - 2f, cy - 3.5f),
-                new PointF(cx + 2.5f, cy),
-                new PointF(cx - 2f, cy + 3.5f),
-            });
-        }
-        else
-        {
-            // ▾
-            graphics.DrawLines(arrow, new[]
-            {
-                new PointF(cx - 3.5f, cy - 2f),
-                new PointF(cx, cy + 2.5f),
-                new PointF(cx + 3.5f, cy - 2f),
-            });
-        }
     }
 }

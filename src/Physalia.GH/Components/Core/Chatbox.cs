@@ -53,10 +53,6 @@ public class Chatbox : StatefulComponentBase
     // in the constructor, deduped against canvas siblings on first placement, and persisted.
     private string _emoji;
 
-    // True once this instance was restored from a file (Read ran), so first-placement dedupe
-    // is skipped and a persisted emoji is never reshuffled.
-    private bool _loaded;
-
     // The per-instance colour emoji icon (a bundled Noto bitmap scaled to 24x24); lazily built,
     // dropped when the emoji changes so the next Icon get rebuilds it.
     private Bitmap? _iconBitmap;
@@ -214,10 +210,12 @@ public class Chatbox : StatefulComponentBase
     }
 
     /// <summary>
-    /// On first placement (not a file load), reassigns this Chatbox's emoji to one not already
-    /// used by another Chatbox on the canvas, so freshly placed boxes are visually distinct.
-    /// Falls back to the random pick when the palette is exhausted. A Chatbox restored from a
-    /// file keeps its persisted emoji untouched.
+    /// Reassigns this Chatbox's emoji to one not already used by another Chatbox on the canvas,
+    /// so placed boxes are visually distinct. The reassign is collision-based, so a clean file
+    /// load (where every persisted emoji is already unique) leaves persisted emojis untouched,
+    /// while an on-canvas duplicate (copy-paste / duplicate, which also runs through Read) is
+    /// reshuffled because it collides with its source. Falls back to the existing pick when the
+    /// palette is exhausted.
     /// </summary>
     /// <param name="document">The document this component was added to.</param>
     public override void AddedToDocument(GH_Document document)
@@ -227,11 +225,6 @@ public class Chatbox : StatefulComponentBase
         // Now that this instance has a document, flip its icon from the ribbon brain to the
         // blank canvas slot (the emoji is painted over it live).
         ResetEmojiIcon();
-
-        if (_loaded)
-        {
-            return;
-        }
 
         var used = new HashSet<string>();
         foreach (IGH_DocumentObject obj in document.Objects)
@@ -248,6 +241,9 @@ public class Chatbox : StatefulComponentBase
             if (free is not null)
             {
                 _emoji = free;
+
+                // The top-of-method reset ran before _emoji changed, so rebuild the icon now.
+                ResetEmojiIcon();
             }
         }
     }
@@ -335,7 +331,6 @@ public class Chatbox : StatefulComponentBase
     {
         _group.Read(reader);
         _pendingApply = true;
-        _loaded = true;
 
         string stored = string.Empty;
         if (reader.TryGetString("ChatboxEmoji", ref stored) && !string.IsNullOrEmpty(stored))

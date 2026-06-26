@@ -55,6 +55,12 @@ public abstract class ToolComponentBase : StatefulComponentBase
     protected abstract ToolDefinition Definition { get; }
 
     /// <summary>
+    /// Gets the tool definition this node advertises. Public so a Tools In Use scanner can collect
+    /// it directly off the canvas without relying on the node having solved.
+    /// </summary>
+    public ToolDefinition AdvertisedDefinition => Definition;
+
+    /// <summary>
     /// Registers the tool's own inputs after the base-owned Signal input (index 1 onward).
     /// Default implementation adds nothing.
     /// </summary>

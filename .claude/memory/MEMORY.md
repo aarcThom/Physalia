@@ -33,6 +33,7 @@
 ## Tool Calling (robustness Phase 4)
 - [Phase 4 keystone](tool-calling-phase4.md) — provider contract now SENDS tool definitions (`ToolDefinition` + `StreamAsync` gained `IReadOnlyList<ToolDefinition>? tools`); GH visible-loop still TODO. Landed 2026-06-16.
 - [GH tool-calling loop](tool-calling-gh-loop.md) — Reasoner/Router/tool nodes; Router aggregates results per round; tool nodes inherit `ToolComponentBase` (owns multi-call contract: ExecuteCall per call, one ToolResultContent per call). Landed 2026-06-17.
+- [Tools In Use component](tools-in-use-component.md) — new GH node scans doc for tool nodes wired to a Router, emits their definitions as one list into Reasoner.Tools (replaces manual per-tool fan-in); + public `ToolComponentBase.AdvertisedDefinition`. Builds clean, live test pending. 2026-06-25.
 
 ## Claude Code provider (warm process)
 - [ClaudeCode warm-process rework](claudecode-warm-process.md) — provider now keeps ONE `claude` CLI process warm per Reasoner (stream-json in/out) instead of cold-starting per call; SDK is a dead end (no .NET, wraps the CLI, needs API key). Builds clean; live-Rhino timing/leak check still TODO. Landed 2026-06-18.

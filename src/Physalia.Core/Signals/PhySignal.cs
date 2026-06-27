@@ -36,6 +36,16 @@ public sealed record PhySignal(
     public IReadOnlyList<MessageContent> ContentBlocks { get; init; } = Array.Empty<MessageContent>();
 
     /// <summary>
+    /// Gets a whole compacted conversation carried by the event, when one applies (a compaction
+    /// component routing its result back to a Recorder via a Feedback Collector). Null for the
+    /// common case. Like <see cref="ContentBlocks"/> this is a deliberate extension to the
+    /// payload-only contract: a conversation is a sequence of role-tagged turns that neither the
+    /// string <see cref="Payload"/> nor the flat <see cref="ContentBlocks"/> can represent, yet
+    /// the only path back across the DAG is the signal, so it must ride on it.
+    /// </summary>
+    public Conversation? Conversation { get; init; }
+
+    /// <summary>
     /// Mints a new signal with the next global sequence number. This is the only way a
     /// sequence is assigned — callers can never reuse or fabricate sequence numbers.
     /// </summary>
@@ -44,10 +54,12 @@ public sealed record PhySignal(
     /// <param name="sourceId">Instance GUID of the emitting component.</param>
     /// <param name="sourceName">Display name of the emitting component.</param>
     /// <param name="contentBlocks">Optional resolved content blocks; null is normalised to empty.</param>
+    /// <param name="conversation">Optional compacted conversation carried by the event; null for the common case.</param>
     /// <returns>A freshly sequenced signal.</returns>
-    public static PhySignal Mint(SignalOutcome outcome, string? payload, Guid sourceId, string sourceName, IReadOnlyList<MessageContent>? contentBlocks = null) =>
+    public static PhySignal Mint(SignalOutcome outcome, string? payload, Guid sourceId, string sourceName, IReadOnlyList<MessageContent>? contentBlocks = null, Conversation? conversation = null) =>
         new(SignalSequencer.Next(), outcome, payload ?? string.Empty, sourceId, sourceName, DateTime.UtcNow)
         {
             ContentBlocks = contentBlocks ?? Array.Empty<MessageContent>(),
+            Conversation = conversation,
         };
 }

@@ -39,6 +39,9 @@
 - [ClaudeCode warm-process rework](claudecode-warm-process.md) — provider now keeps ONE `claude` CLI process warm per Reasoner (stream-json in/out) instead of cold-starting per call; SDK is a dead end (no .NET, wraps the CLI, needs API key). Builds clean; live-Rhino timing/leak check still TODO. Landed 2026-06-18.
 - [ClaudeCode provider perf](claudecode-provider-perf.md) — the "freezes on real prompts" was extended thinking (fix `MAX_THINKING_TOKENS=0`); warm session ≈ API parity, cold start is native-binary-bound (not flag-bound); `--safe-mode` keeps OAuth, `--bare` breaks it; pipes pinned to no-BOM UTF-8. Measured 2026-06-18.
 
+## Compaction
+- [Conversation compaction](conversation-compaction.md) — sliding/token/anchored window + content prune + LLM summarizer; Core `Physalia.Core/Compaction/` (Reassemble keystone) + new GH **Compaction** tab. Fills Recorder's Conversation override. Report: `planning/conversation-compaction.md`. 2026-06-27, builds clean.
+
 ## v2 Architecture
 Full Core architecture decisions locked 2026-05-03. See [v2-core-architecture.md](v2-core-architecture.md).
 Component-level spec: planning/physalia-primitives.md. API research: planning/api_research.md.

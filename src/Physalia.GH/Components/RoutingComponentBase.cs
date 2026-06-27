@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using Grasshopper.Kernel;
+using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Signals;
 using Physalia.GH.Parameters;
 
@@ -270,7 +271,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
             }
             else if (result.Success)
             {
-                LatchSuccess(result.Output);
+                LatchSuccess(result.Output, conversation: result.Conversation);
             }
             else
             {
@@ -383,7 +384,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// </summary>
     protected readonly record struct RoutingResult
     {
-        private RoutingResult(bool success, string output, string? message, GH_RuntimeMessageLevel messageLevel, PhySignal? auxSignal, PhySignal? broadcastSignal)
+        private RoutingResult(bool success, string output, string? message, GH_RuntimeMessageLevel messageLevel, PhySignal? auxSignal, PhySignal? broadcastSignal, Conversation? conversation)
         {
             Success = success;
             Output = output;
@@ -391,6 +392,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
             MessageLevel = messageLevel;
             AuxSignal = auxSignal;
             BroadcastSignal = broadcastSignal;
+            Conversation = conversation;
         }
 
         /// <summary>Gets a value indicating whether the run succeeded.</summary>
@@ -423,12 +425,23 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         public bool IsBroadcast => BroadcastSignal is not null;
 
         /// <summary>
-        /// Creates a success result carrying the forward-routed result string.
+        /// Gets the compacted conversation carried by the minted success signal, or null when the
+        /// result carries only a text payload. Set by compaction components routing their result
+        /// back to a Recorder.
+        /// </summary>
+        public Conversation? Conversation { get; }
+
+        /// <summary>
+        /// Creates a success result carrying the forward-routed result string, optionally with a
+        /// compacted conversation on the minted signal and a runtime message to surface.
         /// </summary>
         /// <param name="data">The result string carried by the minted success signal.</param>
+        /// <param name="conversation">An optional compacted conversation to carry on the signal.</param>
+        /// <param name="message">An optional runtime message to surface.</param>
+        /// <param name="level">The level for the runtime message.</param>
         /// <returns>A success <see cref="RoutingResult"/>.</returns>
-        public static RoutingResult Ok(string data) =>
-            new(true, data, null, GH_RuntimeMessageLevel.Blank, null, null);
+        public static RoutingResult Ok(string data, Conversation? conversation = null, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Blank) =>
+            new(true, data, message, level, null, null, conversation);
 
         /// <summary>
         /// Creates a failure result carrying the back-routed feedback string.
@@ -438,7 +451,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         /// <param name="level">The level for the runtime message.</param>
         /// <returns>A failure <see cref="RoutingResult"/>.</returns>
         public static RoutingResult Fail(string feedback, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Warning) =>
-            new(false, feedback, message, level, null, null);
+            new(false, feedback, message, level, null, null, null);
 
         /// <summary>
         /// Creates a result that emits a caller-minted signal on the subclass's aux output
@@ -451,7 +464,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         /// <param name="level">The level for the runtime message.</param>
         /// <returns>An aux <see cref="RoutingResult"/>.</returns>
         public static RoutingResult Aux(PhySignal signal, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Blank) =>
-            new(true, string.Empty, message, level, signal, null);
+            new(true, string.Empty, message, level, signal, null, null);
 
         /// <summary>
         /// Creates a result that latches the same caller-minted signal on <em>both</em> the
@@ -464,6 +477,6 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         /// <param name="level">The level for the runtime message.</param>
         /// <returns>A broadcast <see cref="RoutingResult"/>.</returns>
         public static RoutingResult Broadcast(PhySignal signal, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Blank) =>
-            new(true, string.Empty, message, level, null, signal);
+            new(true, string.Empty, message, level, null, signal, null);
     }
 }

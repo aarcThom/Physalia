@@ -322,10 +322,14 @@ public abstract class StatefulComponentBase : PhyBase
     /// Optional resolved content blocks carried alongside the payload — e.g. a Prompter user
     /// turn with inline images. Null/empty for the common text-only case.
     /// </param>
-    protected void LatchSuccess(string payload, bool emitSignal = true, SignalOutcome outcome = SignalOutcome.Success, IReadOnlyList<MessageContent>? contentBlocks = null)
+    /// <param name="conversation">
+    /// Optional compacted conversation carried by the minted signal — e.g. a compaction component
+    /// routing its result back to a Recorder. Null for the common case.
+    /// </param>
+    protected void LatchSuccess(string payload, bool emitSignal = true, SignalOutcome outcome = SignalOutcome.Success, IReadOnlyList<MessageContent>? contentBlocks = null, Conversation? conversation = null)
     {
         State = SolveState.SolveSuccess;
-        SuccessSignal = emitSignal ? PhySignal.Mint(outcome, payload, InstanceGuid, Name, contentBlocks) : null;
+        SuccessSignal = emitSignal ? PhySignal.Mint(outcome, payload, InstanceGuid, Name, contentBlocks, conversation) : null;
         FailSignal = null;
         UpdateStateDisplay();
     }

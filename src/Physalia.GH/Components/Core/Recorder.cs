@@ -39,7 +39,6 @@ public class Recorder : StatefulComponentBase
 
     private Conversation _conversation = Conversation.Empty;
     private Conversation _recordedHistory = Conversation.Empty;
-    private Conversation? _lastOverride;
 
     // Latched outputs; null while Empty or Active so the wires are genuinely blank.
     private Instructions? _latchedInstructions;
@@ -55,6 +54,7 @@ public class Recorder : StatefulComponentBase
         Nothing,
         UserTurn,
         AssistantTurn,
+        CompactionApplied,
     }
 
     /// <summary>
@@ -86,7 +86,7 @@ public class Recorder : StatefulComponentBase
         pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the Reasoner's Success Signal.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Records feedback as a user turn. Wire one or more Feedback Collectors directly — no OR gate needed.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Tool Signal", "TS", "Records tool turns from a Router (via Feedback Collector): a signal whose content blocks carry tool_use is logged as an assistant turn; one whose blocks carry tool_result is logged as a user turn.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_Conversation(), "Conversation", "C", "Optional compacted conversation. Replaces the active conversation while all messages are preserved in Recorded History.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Conversation", "C", "Optional compacted-conversation signal from a Feedback Collector (fed by a compaction component). Replaces the active conversation; Recorded History keeps the full log. The compaction loop must arrive wirelessly — a direct wire would be an illegal cycle.", GH_ParamAccess.list);
 
         pManager[InPromptSignal].Optional = true;
         pManager[InResponseSignal].Optional = true;
@@ -118,34 +118,11 @@ public class Recorder : StatefulComponentBase
 
         DA.GetData(InSystemPrompt, ref systemPrompt);
 
-        // Apply compacted conversation override when a new one arrives. This lives outside
-        // the state machine — compaction is a data transformation, not a run outcome.
-        var overrideGoo = new GH_Conversation();
-        bool hasOverride = DA.GetData(InConversation, ref overrideGoo);
-        Conversation? overrideConversation = hasOverride ? overrideGoo?.Value : null;
-
-        if (overrideConversation is not null && !ReferenceEquals(overrideConversation, _lastOverride))
-        {
-            _lastOverride = overrideConversation;
-            _conversation = overrideConversation;
-
-            // Absorb the compacted conversation into the recorded history so no messages are lost.
-            foreach (var msg in overrideConversation.Messages)
-            {
-                try
-                {
-                    _recordedHistory = _recordedHistory.Append(msg);
-                }
-                catch (InvalidOperationException ex)
-                {
-                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"Recorded history skipped a message during compaction: {ex.Message}");
-                }
-            }
-        }
-
         // Observe every solve, even mid-run: events arriving while busy wait, latched on
-        // their wires, and are serviced after the latch.
-        ObserveSignalInputs(DA, InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal);
+        // their wires, and are serviced after the latch. The Conversation input is itself a
+        // Signal input — a compacted conversation arrives wirelessly via a Feedback Collector
+        // (a direct wire back from this Recorder's own output would be an illegal cycle).
+        ObserveSignalInputs(DA, InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal, InConversation);
 
         if (_doLatch)
         {
@@ -164,13 +141,18 @@ public class Recorder : StatefulComponentBase
                     // re-fire after its own response is recorded.
                     LatchSuccess(string.Empty, emitSignal: false);
                     break;
+                case AppendOutcome.CompactionApplied:
+                    // Quiet success: replacing the active conversation must not fire a new run.
+                    // The latched Instructions now carry the compacted conversation.
+                    LatchSuccess(string.Empty, emitSignal: false);
+                    break;
                 default:
                     AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Signal received but there was nothing new to record.");
                     LatchFailure(string.Empty, emitSignal: false);
                     break;
             }
 
-            if (HasUnconsumedSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal))
+            if (HasUnconsumedSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal, InConversation))
             {
                 // Events arrived mid-run; nothing was dropped. One follow-up solve
                 // services them in sequence order.
@@ -187,7 +169,7 @@ public class Recorder : StatefulComponentBase
             // always minted after the response that provoked it, so even when both land
             // in this one solve the assistant turn is recorded first.
             IReadOnlyList<ConsumedSignal> consumed =
-                ConsumeAllSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal);
+                ConsumeAllSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal, InConversation);
 
             if (consumed.Count > 0)
             {
@@ -222,7 +204,6 @@ public class Recorder : StatefulComponentBase
     {
         _conversation = Conversation.Empty;
         _recordedHistory = Conversation.Empty;
-        _lastOverride = null;
         _doLatch = false;
         _pendingOutcome = AppendOutcome.Nothing;
         _pendingUserText = string.Empty;
@@ -283,6 +264,34 @@ public class Recorder : StatefulComponentBase
             case InToolSignal:
                 RecordToolSignal(item.Signal);
                 break;
+
+            case InConversation:
+                ApplyConversationOverride(item.Signal);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Replaces the active conversation with a compacted one carried on a signal (from a
+    /// compaction component, delivered wirelessly via a Feedback Collector). Recorded History —
+    /// the append-only ground-truth log — is left untouched: a compaction is a derived view of
+    /// the history, not a new record, and the full log already holds every original message.
+    /// </summary>
+    /// <param name="signal">The consumed conversation signal.</param>
+    private void ApplyConversationOverride(PhySignal signal)
+    {
+        if (signal.Conversation is not Conversation overrideConversation)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Conversation signal carried no conversation to apply.");
+            return;
+        }
+
+        _conversation = overrideConversation;
+
+        // Do not downgrade a user turn recorded in the same batch (it must still fire the Reasoner).
+        if (_pendingOutcome == AppendOutcome.Nothing)
+        {
+            _pendingOutcome = AppendOutcome.CompactionApplied;
         }
     }
 

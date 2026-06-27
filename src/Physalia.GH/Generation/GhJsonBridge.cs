@@ -15,6 +15,7 @@ using Grasshopper.Kernel;
 using Newtonsoft.Json;
 using Physalia.Core.Catalog;
 using Physalia.GH.Components;
+using Physalia.GH.Components.Utility;
 
 namespace Physalia.GH.Generation;
 
@@ -49,6 +50,13 @@ internal static class GhJsonBridge
     // GhJSON treats extensions as an opaque pass-through, so this round-trips untouched.
     private const string FeedbackCollectorsExtensionKey = "physalia.feedbackCollectors";
 
+    // componentState.extensions key under which a Picker's selected value is stored, so a
+    // right-click selection survives .ghjson export/import (GhJSON does not capture a component's
+    // native Write/Read blob, where the Picker otherwise persists it). The stored value is always
+    // a benign label (a provider name, file name, or model id) — never a secret. GhJSON treats
+    // extensions as an opaque pass-through, so this round-trips untouched.
+    private const string PickerValueExtensionKey = "physalia.pickerValue";
+
     /// <summary>
     /// Exports the Grasshopper objects identified by <paramref name="guids"/> to a
     /// <c>.ghjson</c> file at <paramref name="path"/>.
@@ -67,6 +75,10 @@ internal static class GhJsonBridge
         // Wireless Feedback -> FeedbackCollector links are not GH wires, so GetByGuids misses them.
         // Capture them (component-id based) into each Feedback's extensions before writing.
         InjectFeedbackLinks(doc);
+
+        // The Picker's selected value lives in its native Write/Read blob, which GhJSON does not
+        // capture; persist it into the component's extensions so the selection survives the round-trip.
+        InjectPickerValues(doc);
 
         // Metadata has a private setter, so a user comment is injected by rebuilding the document
         // (the component objects were mutated in place above, so they carry over).
@@ -133,6 +145,37 @@ internal static class GhJsonBridge
             component.ComponentState.Extensions ??= new Dictionary<string, object>();
             component.ComponentState.Extensions[FeedbackCollectorsExtensionKey] =
                 new FeedbackLinkExtension { CollectorIds = collectorIds };
+        }
+    }
+
+    /// <summary>
+    /// Records each exported <see cref="Picker"/> component's selected value under
+    /// <see cref="PickerValueExtensionKey"/> in its state extensions, so a right-click selection
+    /// survives the .ghjson round-trip. Pickers with no selection yet are skipped. The value is a
+    /// plain label (provider name, file name, model id) — API keys themselves are never stored, only
+    /// the choice of which key to use, which is safe.
+    /// </summary>
+    /// <param name="doc">The freshly captured document to annotate in place.</param>
+    private static void InjectPickerValues(GhJsonDocument doc)
+    {
+        GH_Document? live = Grasshopper.Instances.ActiveCanvas?.Document;
+        if (live is null)
+        {
+            return;
+        }
+
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.InstanceGuid is not Guid guid
+                || live.FindObject(guid, false) is not Picker picker
+                || string.IsNullOrEmpty(picker.SelectedValue))
+            {
+                continue;
+            }
+
+            component.ComponentState ??= new GhJsonComponentState();
+            component.ComponentState.Extensions ??= new Dictionary<string, object>();
+            component.ComponentState.Extensions[PickerValueExtensionKey] = picker.SelectedValue;
         }
     }
 
@@ -503,11 +546,13 @@ internal static class GhJsonBridge
             }
 
             RestoreFeedbackLinks(doc, result);
+            bool pickersRestored = RestorePickerValues(doc, result);
             afterPlace?.Invoke(result);
 
             // Params and wires were changed after Put's own solution, so re-solve the now-expired
-            // components (and their downstream) to bring the recreated variable params live.
-            if (reconciled.Count > 0)
+            // components (and their downstream) to bring recreated variable params and restored
+            // Picker selections live.
+            if (reconciled.Count > 0 || pickersRestored)
             {
                 result.PlacedObjects.FirstOrDefault()?.OnPingDocument()?.NewSolution(false);
             }
@@ -772,6 +817,47 @@ internal static class GhJsonBridge
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Restores each placed <see cref="Picker"/>'s selected value from the
+    /// <see cref="PickerValueExtensionKey"/> extension written by <see cref="InjectPickerValues"/>.
+    /// The component id is remapped to the newly-placed object's InstanceGuid via
+    /// <see cref="PutResult.IdToGuidMapping"/> (Put regenerates guids). Returns whether any picker
+    /// was restored, so the caller can trigger a re-solve to push the restored value downstream.
+    /// </summary>
+    /// <param name="doc">The placed document (post-Fix, so ids match the Put mapping).</param>
+    /// <param name="result">The Put result carrying the id-to-guid mapping and placed objects.</param>
+    /// <returns>true when at least one picker selection was restored.</returns>
+    private static bool RestorePickerValues(GhJsonDocument doc, PutResult result)
+    {
+        bool restored = false;
+
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.Id is not int id
+                || component.ComponentState?.Extensions is not { } extensions
+                || !extensions.TryGetValue(PickerValueExtensionKey, out object? raw))
+            {
+                continue;
+            }
+
+            // The extension round-trips as a Newtonsoft token (or a boxed string); ToString gives
+            // the raw value either way.
+            string? value = raw as string ?? raw?.ToString();
+            if (string.IsNullOrEmpty(value)
+                || !result.IdToGuidMapping.TryGetValue(id, out Guid guid)
+                || result.PlacedObjects.FirstOrDefault(o => o.InstanceGuid == guid) is not Picker picker)
+            {
+                continue;
+            }
+
+            picker.SetSelectedValue(value);
+            picker.ExpireSolution(false);
+            restored = true;
+        }
+
+        return restored;
     }
 
     /// <summary>

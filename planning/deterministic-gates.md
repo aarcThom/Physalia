@@ -19,25 +19,44 @@ forward pass. The pattern is already proven twice — **Auditor** (JSON + schema
 follow the **SignalLimiter** shape — subclass `StatefulComponentBase`, accumulate per-session, add a
 Reset Boolean — because they route the *same* signal by a running count rather than minting feedback.
 
+## Already covered by existing components — do NOT build
+
+The existing pipeline already implements the obvious deterministic checks. Building these again
+would be redundant:
+
+- **JSON well-formedness + schema validation → Auditor.** `SchemaValidator.Validate` runs
+  `JsonDocument.Parse` and fails on malformed JSON before schema checking. (Numeric/string bounds can
+  also be enforced here via JSON Schema `minimum`/`maximum`/`pattern` when the output is JSON.)
+- **Python syntax + runtime errors → PyTransmitter.** It pushes the code into the linked Script
+  component, waits for it to re-solve, reads `GhPythonBridge.GetErrors`, and routes them on Fail.
+- **Placed-graph errors / dead components → Observer and ComponentTransmitter.**
+- **Attempt/retry capping → SignalLimiter.** It already routes the first N signals to Within Limit
+  and the rest to Over Limit with a Reset — i.e. it *is* the Retry Limiter/Counter. At most it wants
+  a thin relabel, not a new component.
+
+So the valuable new gates are the ones that check something **nothing currently checks**.
+
 ## Catalog (prioritized)
 
 ### Priority 1 — highest leverage
 
-1. **Retry Limiter** (Counter / Loop Breaker) — *trivial; SignalLimiter shape.* Cap self-correction
-   round-trips so a failing loop terminates. Inputs: `Max Attempts` (default 3), `Reset`. Routes the
-   signal to **Continue** while at/under the limit, to **Halted** (terminal message) once exceeded.
-   The single most important safety gate — without it every agent loop is an unbounded token sink.
-   (This is the spec's planned *Counter*.)
+1. **Retry Limiter** (Counter / Loop Breaker) — ⚠️ **already covered by SignalLimiter**, which routes
+   the first N signals to Within Limit and the rest to Over Limit with a Reset. Loop safety is
+   essential, but it is achieved by wiring the loop's feedback through the existing SignalLimiter — not
+   a new component. At most, add a thin relabelled variant (Continue/Halted + a terminal payload) if
+   the UX matters. **Not a new build.**
 2. **JSON Well-Formedness Gate** — *trivial; reuses `JsonExtractor`.* ⚠️ **Largely redundant with the
    Auditor.** `SchemaValidator.Validate` already does `JsonDocument.Parse` and Fails with
    `Invalid JSON: …` on a parse error, so whenever a schema is wired (the normal case — the Composer
    always feeds one) the Auditor already rejects malformed JSON. A standalone gate only adds value in
    the Auditor's `schema == ""` passthrough branch (prototyping with no schema yet). **Do not
    prioritize.** If wanted, it's a few lines, but it is not one of the first gates to build.
-3. **Python Syntax Gate** — *moderate; reuses `GhPythonBridge`/`CodeChecker`.* Catch Python syntax /
-   undefined-name errors before PyTransmitter pushes code into a live Script component and mutates the
-   doc. The first concrete slice of the planned **PyValidator**. Report pyflakes-style messages keyed
-   by stable codes (E999/F821/F401), optionally injecting input-name stubs to suppress false F821s.
+3. **Python Syntax Gate** — ⚠️ **already covered by PyTransmitter**, which pushes the code into the
+   linked Script component, waits for it to re-solve, reads `GhPythonBridge.GetErrors`, and routes the
+   syntax/runtime errors on Fail. A pre-execution gate only matters if you specifically want to avoid
+   pushing into the linked component first — but that component is the intended target, and the errors
+   are already routed deterministically. **Not a new build.** (A true static *pre-flight* PyValidator —
+   e.g. an allow/deny safety scan, see #6 — is the part with non-redundant value.)
 
 ### Priority 2 — broadly useful, mostly trivial
 
@@ -79,18 +98,24 @@ Other quick ideas: encoding/UTF gate, list item-count gate, a forward-only white
 
 ## Recommended first three
 
-1. **Retry Limiter** — non-negotiable loop safety; SignalLimiter is nearly the implementation.
-2. **Python Syntax Gate** — highest-leverage domain gate; stops bad Python before it mutates the doc
-   (and genuinely non-overlapping — the Auditor validates the JSON envelope, not the Python in the
-   `code` field).
-3. **Regex / Marker Gate** — *trivial.* Lets an agent loop self-terminate on a required marker
-   (e.g. `^DONE:`) and is a building block for other gates; pairs with the Retry Limiter.
+Chosen for being genuinely new — each checks something **no existing component checks**. (The earlier
+draft listed a JSON well-formedness gate, a Python syntax gate, and a Retry Limiter; all three were
+dropped as redundant with the Auditor, PyTransmitter, and SignalLimiter respectively — see the
+"Already covered" section.)
 
-(Originally this list included a JSON Well-Formedness gate — dropped, as the Auditor already covers
-it whenever a schema is wired; see #2 above.) Strong next additions: **Meter** (#9, token budget cap,
-the resource analog of the Retry Limiter) and the **Geometry-Valid Gate** (#11, the deepest,
-most Physalia-unique correctness check). These cover the count-, content-, execution-, and
-geometry-based families.
+1. **Geometry-Valid Gate** (#11) — the deepest, most Physalia-unique correctness check. The Observer
+   catches GH *runtime* errors, but a Brep/Mesh can be error-free yet geometrically invalid
+   (non-manifold, bad tolerances); nothing checks `IsValidWithLog`. Routes the validity log back as
+   feedback. *Moderate (Observer's `IsReadReady` deferral is the template).*
+2. **Allow/Deny Content Filter** (#6) — a real safety rail: block dangerous generated Python
+   (`os.system`, `subprocess`, file-delete) **before** PyTransmitter executes it. Non-redundant —
+   PyTransmitter routes *errors*, but harmful code that runs successfully produces no error. *Trivial.*
+3. **Token Budget Meter** (#9) — caps cumulative token spend across all retries; the *resource* cap
+   complementing SignalLimiter's *attempt* cap. Nothing tracks spend today. Critical for BYOK.
+   *Moderate.*
+
+Strong next: **Deduplication Gate** (#8) — detects the "model returns the same wrong answer twice"
+livelock that SignalLimiter only counts down on. Then **Regex/Marker** (#4) for loop self-termination.
 
 ## Key files for implementation
 - Base: `src/Physalia.GH/Components/RoutingComponentBase.cs` (sync gate template — `RoutingResult.Ok`/`.Fail`).

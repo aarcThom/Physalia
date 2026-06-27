@@ -28,10 +28,12 @@ Reset Boolean — because they route the *same* signal by a running count rather
    signal to **Continue** while at/under the limit, to **Halted** (terminal message) once exceeded.
    The single most important safety gate — without it every agent loop is an unbounded token sink.
    (This is the spec's planned *Counter*.)
-2. **JSON Well-Formedness Gate** — *trivial; reuses `JsonExtractor`.* Cheap structural pre-check that
-   the payload parses as JSON (`JsonExtractor.ExtractJson` + `JsonNode.Parse`), distinct from the
-   Auditor's heavier schema validation. Forward pretty-printed JSON, or Fail with the parse error +
-   position. Use as a fast first stage before a schema Auditor, or when there is no schema yet.
+2. **JSON Well-Formedness Gate** — *trivial; reuses `JsonExtractor`.* ⚠️ **Largely redundant with the
+   Auditor.** `SchemaValidator.Validate` already does `JsonDocument.Parse` and Fails with
+   `Invalid JSON: …` on a parse error, so whenever a schema is wired (the normal case — the Composer
+   always feeds one) the Auditor already rejects malformed JSON. A standalone gate only adds value in
+   the Auditor's `schema == ""` passthrough branch (prototyping with no schema yet). **Do not
+   prioritize.** If wanted, it's a few lines, but it is not one of the first gates to build.
 3. **Python Syntax Gate** — *moderate; reuses `GhPythonBridge`/`CodeChecker`.* Catch Python syntax /
    undefined-name errors before PyTransmitter pushes code into a live Script component and mutates the
    doc. The first concrete slice of the planned **PyValidator**. Report pyflakes-style messages keyed
@@ -78,11 +80,17 @@ Other quick ideas: encoding/UTF gate, list item-count gate, a forward-only white
 ## Recommended first three
 
 1. **Retry Limiter** — non-negotiable loop safety; SignalLimiter is nearly the implementation.
-2. **JSON Well-Formedness Gate** — pure reuse of `JsonExtractor`; cheap structural check.
-3. **Python Syntax Gate** — highest-leverage domain gate; stops bad Python before it mutates the doc.
+2. **Python Syntax Gate** — highest-leverage domain gate; stops bad Python before it mutates the doc
+   (and genuinely non-overlapping — the Auditor validates the JSON envelope, not the Python in the
+   `code` field).
+3. **Regex / Marker Gate** — *trivial.* Lets an agent loop self-terminate on a required marker
+   (e.g. `^DONE:`) and is a building block for other gates; pairs with the Retry Limiter.
 
-These cover the count-based, content-based, and execution-based families. Regex (#4) and Meter (#9)
-are the natural next additions.
+(Originally this list included a JSON Well-Formedness gate — dropped, as the Auditor already covers
+it whenever a schema is wired; see #2 above.) Strong next additions: **Meter** (#9, token budget cap,
+the resource analog of the Retry Limiter) and the **Geometry-Valid Gate** (#11, the deepest,
+most Physalia-unique correctness check). These cover the count-, content-, execution-, and
+geometry-based families.
 
 ## Key files for implementation
 - Base: `src/Physalia.GH/Components/RoutingComponentBase.cs` (sync gate template — `RoutingResult.Ok`/`.Fail`).

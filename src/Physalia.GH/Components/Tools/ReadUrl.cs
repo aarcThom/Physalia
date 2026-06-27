@@ -5,6 +5,7 @@ using System;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
@@ -53,6 +54,9 @@ public class ReadUrl : ToolComponentBase
     protected override ToolDefinition Definition => ToolDef;
 
     /// <inheritdoc/>
+    protected override bool RunsAsync => true;
+
+    /// <inheritdoc/>
     /// <remarks>Resolve the optional Jina key once per solve; the tool works without it.</remarks>
     protected override void OnSolveTick(IGH_DataAccess da)
     {
@@ -60,7 +64,7 @@ public class ReadUrl : ToolComponentBase
     }
 
     /// <inheritdoc/>
-    protected override ToolCallResult ExecuteCall(ToolCallContent call)
+    protected override async Task<ToolCallResult> ExecuteCallAsync(ToolCallContent call, CancellationToken ct)
     {
         (string url, int maxChars) = ParseArgs(call.InputJson);
         if (string.IsNullOrWhiteSpace(url))
@@ -68,11 +72,12 @@ public class ReadUrl : ToolComponentBase
             return ToolCallResult.Error("read_url requires a non-empty 'url'.");
         }
 
-        using var cts = new CancellationTokenSource(TimeoutMs);
-        Result<string, LlmError> result = WebTools
-            .FetchUrlAsync(url, maxChars, _jinaKey, _httpClient, cts.Token)
-            .GetAwaiter()
-            .GetResult();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeoutMs);
+
+        Result<string, LlmError> result = await WebTools
+            .FetchUrlAsync(url, maxChars, _jinaKey, _httpClient, timeout.Token)
+            .ConfigureAwait(false);
 
         return result.IsOk(out string? text, out LlmError? error)
             ? ToolCallResult.Ok(text)

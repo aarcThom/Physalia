@@ -5,6 +5,7 @@ using System;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
@@ -52,6 +53,9 @@ public class WebSearch : ToolComponentBase
     protected override ToolDefinition Definition => ToolDef;
 
     /// <inheritdoc/>
+    protected override bool RunsAsync => true;
+
+    /// <inheritdoc/>
     /// <remarks>Resolve the key once per solve so each dispatched call reuses it.</remarks>
     protected override void OnSolveTick(IGH_DataAccess da)
     {
@@ -59,7 +63,7 @@ public class WebSearch : ToolComponentBase
     }
 
     /// <inheritdoc/>
-    protected override ToolCallResult ExecuteCall(ToolCallContent call)
+    protected override async Task<ToolCallResult> ExecuteCallAsync(ToolCallContent call, CancellationToken ct)
     {
         if (_apiKey is null)
         {
@@ -73,11 +77,12 @@ public class WebSearch : ToolComponentBase
             return ToolCallResult.Error("web_search requires a non-empty 'query'.");
         }
 
-        using var cts = new CancellationTokenSource(TimeoutMs);
-        Result<string, LlmError> result = WebTools
-            .SearchTavilyAsync(query, count, _apiKey, _httpClient, cts.Token)
-            .GetAwaiter()
-            .GetResult();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeoutMs);
+
+        Result<string, LlmError> result = await WebTools
+            .SearchTavilyAsync(query, count, _apiKey, _httpClient, timeout.Token)
+            .ConfigureAwait(false);
 
         return result.IsOk(out string? text, out LlmError? error)
             ? ToolCallResult.Ok(text)

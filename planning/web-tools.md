@@ -7,10 +7,14 @@
 > **Implemented:** `Physalia.Core/Web/WebTools.cs` (`SearchTavilyAsync`, `FetchUrlAsync` — pure HTTP,
 > `ConfigureAwait(false)`); GH tools `WebSearch.cs` (`web_search`) + `ReadUrl.cs` (`read_url`) in
 > `Components/Tools/`; `WebToolKeys.cs` resolves keys from the `web_search` YAML section. The
-> `web_search` section was added to `API_KEY_CONFIG.YAML.example`. The HTTP call runs synchronously
-> inside the dispatched `ExecuteCall` (bounded by a 20s/30s timeout) — a future enhancement is async
-> tool support so the solve thread never blocks on the network. **Provider chosen: Tavily** (per the
-> recommendation below).
+> `web_search` section was added to `API_KEY_CONFIG.YAML.example`. **Provider chosen: Tavily.**
+>
+> **Async tools:** `ToolComponentBase` now supports asynchronous tools — set `RunsAsync => true` and
+> implement `ExecuteCallAsync(call, ct)`; the base runs the call batch off the solve thread and latches
+> the result signal on a self-scheduled solve (the Reasoner async pattern: one dispatched signal at a
+> time, queued signals wait). So the web tools **no longer block the GH solve thread** on the network
+> (each applies its own 20s/30s timeout via a linked CTS). Synchronous tools (ComponentSearch) keep
+> `ExecuteCall` and behave exactly as before.
 
 ## Headlines
 

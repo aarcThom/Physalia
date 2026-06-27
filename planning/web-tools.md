@@ -1,9 +1,16 @@
-# Web Search & Web Fetch Tools — Research
+# Web Search & Web Fetch Tools — Research & Implementation
 
-> Research deliverable (2026-06-27). Two new LLM tools for Physalia: **`web_search`** (find pages —
-> needs an API key) and **`read_url`** (read a page — keyless). Not yet implemented; this is the spec
-> + recommendation. Both are `ToolComponentBase` subclasses (advertise a `ToolDefinition`, `ExecuteCall`
-> returns one result string), reusing the shared `HttpClient` and `HttpErrorMapper`.
+> 2026-06-27. Two new LLM tools for Physalia: **`web_search`** (Tavily — needs a key) and **`read_url`**
+> (Jina Reader — keyless). **Implemented & builds clean; live-Rhino test pending.** Both are
+> `ToolComponentBase` subclasses reusing a shared `HttpClient` and `HttpErrorMapper`.
+>
+> **Implemented:** `Physalia.Core/Web/WebTools.cs` (`SearchTavilyAsync`, `FetchUrlAsync` — pure HTTP,
+> `ConfigureAwait(false)`); GH tools `WebSearch.cs` (`web_search`) + `ReadUrl.cs` (`read_url`) in
+> `Components/Tools/`; `WebToolKeys.cs` resolves keys from the `web_search` YAML section. The
+> `web_search` section was added to `API_KEY_CONFIG.YAML.example`. The HTTP call runs synchronously
+> inside the dispatched `ExecuteCall` (bounded by a 20s/30s timeout) — a future enhancement is async
+> tool support so the solve thread never blocks on the network. **Provider chosen: Tavily** (per the
+> recommendation below).
 
 ## Headlines
 

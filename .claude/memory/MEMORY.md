@@ -45,6 +45,7 @@
 ## Pickers / Models / Prompts (2026-06-27 batch)
 - [Picker GhJSON serialization](picker-ghjson-serialization.md) — Picker selection now round-trips through `.ghjson` via `physalia.pickerValue` extension (native `.gh` already worked); stores only labels, never API-key secrets.
 - [Model Information + minified prompts](model-information-and-minified-prompts.md) — ModelInformation now merges OpenRouter+LiteLLM with id normalization; minified preambles/schemas in `Files/SYSTEM_PROMPTS/` for small models. Research docs: `planning/deterministic-gates.md`, `planning/tool-components.md`, `planning/model-information.md`.
+- [Web search tools](web-search-tools.md) — `web_search` (Tavily) + `read_url` (Jina Reader, keyless) tool components; Core `Physalia.Core/Web/WebTools.cs`; keys via new `web_search` YAML section. Tools block on async HTTP (ToolComponentBase is sync). Research: `planning/web-tools.md`. 2026-06-27, builds clean.
 
 ## v2 Architecture
 Full Core architecture decisions locked 2026-05-03. See [v2-core-architecture.md](v2-core-architecture.md).

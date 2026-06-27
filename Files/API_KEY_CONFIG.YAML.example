@@ -36,3 +36,16 @@ openai_compatible:
     openai: ""
     openrouter: ""
     deepseek: ""
+
+# ── Web tools (Web Search / Read URL) ──────────────────────────────────────────
+# Used by the web_search and read_url tool components.
+#   tavily — required for web_search (free tier, no card: https://www.tavily.com)
+#   jina   — optional; read_url works without it (raises rate limits)
+
+web_search:
+  env_vars:
+    tavily: TAVILY_API_KEY
+    jina: JINA_API_KEY
+  api_keys:
+    tavily: ""
+    jina: ""

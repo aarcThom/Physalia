@@ -42,6 +42,10 @@
 ## Compaction
 - [Conversation compaction](conversation-compaction.md) — sliding/token/anchored window + content prune + LLM summarizer; Core `Physalia.Core/Compaction/` (Reassemble keystone) + new GH **Compaction** tab. Fills Recorder's Conversation override. Report: `planning/conversation-compaction.md`. 2026-06-27, builds clean.
 
+## Pickers / Models / Prompts (2026-06-27 batch)
+- [Picker GhJSON serialization](picker-ghjson-serialization.md) — Picker selection now round-trips through `.ghjson` via `physalia.pickerValue` extension (native `.gh` already worked); stores only labels, never API-key secrets.
+- [Model Information + minified prompts](model-information-and-minified-prompts.md) — ModelInformation now merges OpenRouter+LiteLLM with id normalization; minified preambles/schemas in `Files/SYSTEM_PROMPTS/` for small models. Research docs: `planning/deterministic-gates.md`, `planning/tool-components.md`, `planning/model-information.md`.
+
 ## v2 Architecture
 Full Core architecture decisions locked 2026-05-03. See [v2-core-architecture.md](v2-core-architecture.md).
 Component-level spec: planning/physalia-primitives.md. API research: planning/api_research.md.

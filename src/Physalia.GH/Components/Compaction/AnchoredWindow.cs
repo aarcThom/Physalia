@@ -52,12 +52,12 @@ public class AnchoredWindow : CompactionComponentBase
     }
 
     /// <inheritdoc/>
-    protected override CompactionResult Compact(Conversation conversation, IGH_DataAccess da)
+    protected override CompactionResult Compact(Instructions instructions, IGH_DataAccess da)
     {
         int keepFirst = 2;
         int keepLast = 8;
         da.GetData(InKeepFirst, ref keepFirst);
         da.GetData(InKeepLast, ref keepLast);
-        return ConversationCompactor.KeepHeadAndTail(conversation, keepFirst, keepLast);
+        return ConversationCompactor.KeepHeadAndTail(instructions.Conversation, keepFirst, keepLast);
     }
 }

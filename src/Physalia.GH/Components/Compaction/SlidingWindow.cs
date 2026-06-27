@@ -43,10 +43,10 @@ public class SlidingWindow : CompactionComponentBase
     }
 
     /// <inheritdoc/>
-    protected override CompactionResult Compact(Conversation conversation, IGH_DataAccess da)
+    protected override CompactionResult Compact(Instructions instructions, IGH_DataAccess da)
     {
         int maxMessages = 10;
         da.GetData(InMaxMessages, ref maxMessages);
-        return ConversationCompactor.KeepRecentMessages(conversation, maxMessages);
+        return ConversationCompactor.KeepRecentMessages(instructions.Conversation, maxMessages);
     }
 }

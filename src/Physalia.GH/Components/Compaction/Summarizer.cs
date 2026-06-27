@@ -30,9 +30,9 @@ namespace Physalia.GH.Components;
 /// the Success Signal through a <see cref="Feedback"/> → <see cref="FeedbackCollector"/> link back
 /// to a Recorder's Conversation input, which breaks GH's acyclic constraint.</para>
 /// </summary>
-public class Summarizer : RoutingComponentBase<Conversation>
+public class Summarizer : RoutingComponentBase<Instructions>
 {
-    private const int InSourceConversation = 0;
+    private const int InSourceInstructions = 0;
     private const int InModel = 1;
     private const int InInstruction = 2;
     private const int InKeepRecent = 3;
@@ -62,31 +62,31 @@ public class Summarizer : RoutingComponentBase<Conversation>
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Conversation(), "Conversation", "C", "The conversation history to compact — typically a Recorder's Recorded History output.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "The instructions to compact — typically a Recorder's Instructions output. The system prompt is preserved (never summarized); only the conversation is.", GH_ParamAccess.item);
         pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Model configuration for the summarization call, from a Model or Tweaker component.", GH_ParamAccess.item);
-        int instructionIdx = pManager.AddTextParameter("Instruction", "I", "Summarization instruction (system prompt). Optional; a sensible default is used when blank.", GH_ParamAccess.item, string.Empty);
+        int instructionIdx = pManager.AddTextParameter("Summary Prompt", "SP", "Summarization instruction (system prompt for the compaction call). Optional; a sensible default is used when blank.", GH_ParamAccess.item, string.Empty);
         pManager.AddIntegerParameter("Keep Recent", "K", "How many of the most recent messages to keep verbatim; everything older is summarized into one turn.", GH_ParamAccess.item, 6);
         pManager[instructionIdx].Optional = true;
     }
 
     /// <inheritdoc/>
     /// <remarks>The trigger signal just says "go"; the conversation to compact comes from the typed input.</remarks>
-    protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out Conversation data)
+    protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out Instructions data)
     {
         data = default!;
-        var goo = new GH_Conversation();
-        if (!da.GetData(InSourceConversation, ref goo) || goo.Value is not Conversation conversation)
+        var goo = new GH_Instructions();
+        if (!da.GetData(InSourceInstructions, ref goo) || goo.Value is not Instructions instructions)
         {
             return false;
         }
 
-        data = conversation;
+        data = instructions;
         return true;
     }
 
     /// <inheritdoc/>
     /// <remarks>Starts the async summarization. The read pass fires from the completion callback.</remarks>
-    protected override void PushSolve(Conversation data, IGH_DataAccess da)
+    protected override void PushSolve(Instructions data, IGH_DataAccess da)
     {
         _result = null;
         _error = null;
@@ -109,11 +109,12 @@ public class Summarizer : RoutingComponentBase<Conversation>
         // keeps one session per Summarizer rather than cold-starting each compaction.
         config = config with { SessionKey = InstanceGuid };
 
-        StartSummarization(data, config, instruction, keepRecent);
+        // Compact only the conversation; the system prompt rides through the Recorder untouched.
+        StartSummarization(data.Conversation, config, instruction, keepRecent);
     }
 
     /// <inheritdoc/>
-    protected override RoutingResult ReadSolve(Conversation data, IGH_DataAccess da)
+    protected override RoutingResult ReadSolve(Instructions data, IGH_DataAccess da)
     {
         if (_error != null)
         {

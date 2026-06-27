@@ -3,7 +3,6 @@
 
 using System;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Types;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Tokens;
 using Physalia.GH.Goo;
@@ -55,7 +54,7 @@ public class TokenThreshold : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddGenericParameter("Data", "D", "Instructions, Conversation, or text to measure — typically a Recorder's Instructions (the live context sent to the model).", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "The instructions to measure — typically a Recorder's Instructions (the live context sent to the model, system prompt included).", GH_ParamAccess.item);
         pManager.AddParameter(new Param_ITokenEstimator(), "Tokenization Technique", "T", "A synchronous token estimator (Heuristic or Tiktoken) used to measure the context.", GH_ParamAccess.item);
         pManager.AddIntegerParameter("Threshold", "N", "Fire when the estimated token count reaches this value (e.g. ~80% of the model's context limit).", GH_ParamAccess.item, 8000);
     }
@@ -85,10 +84,10 @@ public class TokenThreshold : StatefulComponentBase
             return;
         }
 
-        IGH_Goo? dataGoo = null;
-        if (!DA.GetData(InData, ref dataGoo) || !TokenInputHelper.TryResolve(dataGoo, out Instructions instructions))
+        var instrGoo = new GH_Instructions();
+        if (!DA.GetData(InData, ref instrGoo) || instrGoo.Value is not Instructions instructions)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Input could not be resolved to Instructions, Conversation, or text.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Connect a Recorder's Instructions output.");
             return;
         }
 

@@ -22,8 +22,7 @@ namespace Physalia.GH.Components;
 public class TokenWindow : CompactionComponentBase
 {
     private const int InEstimator = 1;
-    private const int InSystemPrompt = 2;
-    private const int InMaxTokens = 3;
+    private const int InMaxTokens = 2;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TokenWindow"/> class.
@@ -48,23 +47,16 @@ public class TokenWindow : CompactionComponentBase
             "T",
             "A synchronous token estimator (Heuristic or Tiktoken) used to measure the budget.",
             GH_ParamAccess.item);
-        pManager.AddTextParameter(
-            "System Prompt",
-            "S",
-            "The system prompt counted against the budget. Optional.",
-            GH_ParamAccess.item,
-            string.Empty);
         pManager.AddIntegerParameter(
             "Max Tokens",
             "N",
-            "The token budget the kept conversation (plus system prompt) must fit within.",
+            "The token budget the kept conversation (plus the system prompt, which is always counted but never dropped) must fit within.",
             GH_ParamAccess.item,
             8000);
-        pManager[InSystemPrompt].Optional = true;
     }
 
     /// <inheritdoc/>
-    protected override CompactionResult? Compact(Conversation conversation, IGH_DataAccess da)
+    protected override CompactionResult? Compact(Instructions instructions, IGH_DataAccess da)
     {
         var estimatorGoo = new GH_ITokenEstimator();
         if (!da.GetData(InEstimator, ref estimatorGoo) || estimatorGoo.Value is not ITokenEstimator estimator)
@@ -81,12 +73,10 @@ public class TokenWindow : CompactionComponentBase
             return null;
         }
 
-        string systemPrompt = string.Empty;
-        da.GetData(InSystemPrompt, ref systemPrompt);
-
         int maxTokens = 8000;
         da.GetData(InMaxTokens, ref maxTokens);
 
-        return ConversationCompactor.KeepWithinTokenBudget(conversation, systemPrompt ?? string.Empty, estimator, maxTokens);
+        // The system prompt rides in on Instructions: always counted toward the budget, never compacted.
+        return ConversationCompactor.KeepWithinTokenBudget(instructions.Conversation, instructions.SystemPrompt, estimator, maxTokens);
     }
 }

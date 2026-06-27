@@ -21,6 +21,25 @@ its structured graph, and inspects *after* — not a second whole-graph builder 
 pipeline. Categories borrowed from Claude Code (Read/Write/Edit/Glob/Grep/Bash/WebSearch) and the
 Rhino/GH MCP servers: sense state → search → act narrowly → run code → inspect after → reference docs.
 
+## Already built or covered by the pipeline — reconsider before building
+
+The model already builds and inspects via existing machinery; a tool is only worth adding when it
+gives the model a capability it has **no other way to get**. Watch these overlaps:
+
+- **`place_graph` ↔ ComponentTransmitter + the whole structured-output pipeline.** The model's primary
+  output already *is* a GhJSON graph: Reasoner → Auditor → **ComponentTransmitter** places it and routes
+  placement errors back. A `place_graph` tool is a second whole-graph builder competing with the
+  pipeline — exactly what the design principle above warns against. Its only non-redundant sliver is
+  tiny *incremental* edits mid-conversation, and even that mostly overlaps. **Demoted from the top set.**
+- **`capture_viewport` ↔ OutputSnapshot.** OutputSnapshot already zooms to the produced geometry,
+  captures the viewport, and emits the image as an inline content block into the loop (Success *and*
+  Fail). The model already sees its result. A tool only adds *on-demand* timing — wrap OutputSnapshot's
+  capture if that's wanted; it's not new capability. **Demoted.**
+- **`run_python` ↔ PyTransmitter** for *building* a Python component (the pipeline path). Genuinely new
+  only as an *ephemeral eval* (compute a hull, count intersections) that returns a value rather than
+  authoring an on-canvas script. Keep that scope, note the overlap, and gate it (arbitrary execution).
+- **`search_components` already exists** (ComponentSearch).
+
 ## Catalog (prioritized)
 
 ### Priority 1 — sensing (build first; read-only, can't corrupt the doc)
@@ -39,17 +58,18 @@ Rhino/GH MCP servers: sense state → search → act narrowly → run code → i
 
 ### Priority 2 — action & code (need verify-after; defer mutation to `RhinoApp.Idle`)
 
-5. **`place_graph`** — *medium; maximal reuse.* Place a small GhJSON sub-graph as a tool call (surgical
-   incremental edits mid-conversation). `GhJsonBridge.ResolveComponentNames` + `LoadAndPlaceJson`
-   already validate, fix, resolve names, place, and report `PlacedGuids` + `UnfixedIssues`. Needs a
-   wired Catalog input.
+5. **`place_graph`** — ⚠️ **overlaps ComponentTransmitter + the pipeline** (see "Already covered").
+   Only build if a clear *incremental-edit* need emerges that the whole-graph pipeline can't serve;
+   otherwise let the pipeline build. If built, it reuses `GhJsonBridge` (`ResolveComponentNames` +
+   `LoadAndPlaceJson`) and needs a wired Catalog input. **Not a first-set tool.**
 6. **`set_parameter`** — *medium.* Drive a slider / panel / boolean on an existing component without
    rebuilding. Set `PersistentData` / `GH_NumberSlider.SetSliderValue` then `ExpireSolution`. Reject
    wired inputs with a clear error; only persistent-data params are safely settable.
 7. **`run_python`** — *medium-high; gate behind explicit opt-in.* Execute a RhinoCommon Python snippet
-   and return stdout + result (the universal escape hatch — the most-used tool in every Rhino MCP
-   server). Runs via Rhino's embedded CPython (same path as PyValidator). Arbitrary code execution —
-   gate like agent harnesses gate Bash.
+   and return stdout + result — the universal escape hatch. **Scope it to ephemeral eval** (compute a
+   hull, count intersections, a quick sanity check), *not* authoring on-canvas script components — that
+   is PyTransmitter's job (see "Already covered"). Runs via Rhino's embedded CPython. Arbitrary code
+   execution — gate like agent harnesses gate Bash.
 
 ### Priority 3 — knowledge & reference
 
@@ -77,16 +97,25 @@ Rhino/GH MCP servers: sense state → search → act narrowly → run code → i
 
 ## Recommended first five
 
-Build the read → act → verify loop, leaning on existing bridges:
+The pipeline already *builds* graphs (Reasoner → Auditor → ComponentTransmitter) and OutputSnapshot
+already shows the result, so the highest-value tools are the **sensing** ones the model has no other
+way to obtain, plus the one *action* the pipeline does **not** cover (tweaking an existing node).
+`place_graph` (overlaps the pipeline) and `capture_viewport` (overlaps OutputSnapshot) are
+deliberately **not** in this set.
 
 1. **`get_document_summary`** — the model must see the canvas. Foundational, pure read.
-2. **`inspect_component`** — read a node's values + errors; reuses `GhPythonBridge` readers.
-3. **`query_geometry`** — numerically "see" produced geometry; pure RhinoCommon.
-4. **`place_graph`** — the core action tool; mostly wiring `ExecuteCall` to `GhJsonBridge`.
-5. **`run_python`** — the escape hatch covering everything else; behind an enable toggle.
+2. **`inspect_component`** — read a specific node's values + errors on demand (Observer only routes
+   errors as loop feedback; the model can't *query* a node). Reuses `GhPythonBridge` readers.
+3. **`query_geometry`** — numerically "see" produced geometry (bounds/area/validity); pure RhinoCommon.
+   Nothing else gives the model this.
+4. **`get_selection`** — resolve "make *these* taller" to concrete GUIDs; nothing exposes selection.
+5. **`set_parameter`** — the non-redundant action: nudge an existing slider/panel. The pipeline builds
+   *new* graphs but has no "tweak this" path, so this complements it rather than competing.
 
-`search_components` (already built) supplies names. Vision (`capture_viewport`) is the strong sixth
-once `ToolCallResult` can carry an image block.
+Strong next: **`calculate`** (units conversion against the doc unit system), **`read_file`** (bundled
+references, path-allow-listed), then **`run_python`** (ephemeral eval, gated). `search_components`
+already exists. Vision is already in the loop via OutputSnapshot — only wrap it as `capture_viewport`
+if on-demand timing proves necessary (and once `ToolCallResult` can carry an image block).
 
 ## Implementation gotchas
 - **Result shape:** `ToolCallResult` is text-only today — image-returning tools need a richer result.

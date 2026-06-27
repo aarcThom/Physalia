@@ -14,8 +14,10 @@ using Physalia.GH.Parameters;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Looks up a model configuration in the LiteLLM model database and outputs its
-/// context limits and capability flags. The database is fetched once at startup.
+/// Looks up a model configuration in the merged OpenRouter + LiteLLM model catalogs and outputs
+/// its context limits and capability flags. The catalogs are fetched once and matched against the
+/// model id under several normalised forms, so most cloud and OpenRouter-aggregated models resolve
+/// even when the user's id form differs from the catalog's.
 /// </summary>
 public class ModelInformation : PhyBase
 {
@@ -32,7 +34,7 @@ public class ModelInformation : PhyBase
         : base(
             "Model Information",
             "ModelInfo",
-            "Looks up a model in the LiteLLM database and returns its context limits and capability flags.",
+            "Looks up a model in the merged OpenRouter + LiteLLM catalogs and returns its context limits and capability flags.",
             "Models")
     {
     }

@@ -46,7 +46,13 @@ internal static class PromptPipelineView
             return true;
         }
 
-        foreach (IGH_Param recipient in recorder.Params.Output[1].Recipients)
+        IGH_Param? signal = RecorderSignalOutput(recorder);
+        if (signal is null)
+        {
+            return false;
+        }
+
+        foreach (IGH_Param recipient in signal.Recipients)
         {
             if (recipient.Attributes?.GetTopLevel?.DocObject is StatefulComponentBase { IsBusy: true })
             {
@@ -74,7 +80,13 @@ internal static class PromptPipelineView
             return false;
         }
 
-        foreach (IGH_Param recipient in recorder.Params.Output[1].Recipients)
+        IGH_Param? signal = RecorderSignalOutput(recorder);
+        if (signal is null)
+        {
+            return false;
+        }
+
+        foreach (IGH_Param recipient in signal.Recipients)
         {
             if (recipient.Attributes?.GetTopLevel?.DocObject is Reasoner reasoner
                 && HasModelConnected(reasoner))
@@ -108,7 +120,13 @@ internal static class PromptPipelineView
     /// <returns>The streaming text so far, or null.</returns>
     public static string? GetStreamingText(Recorder recorder)
     {
-        foreach (IGH_Param recipient in recorder.Params.Output[1].Recipients)
+        IGH_Param? signal = RecorderSignalOutput(recorder);
+        if (signal is null)
+        {
+            return null;
+        }
+
+        foreach (IGH_Param recipient in signal.Recipients)
         {
             if (recipient.Attributes?.GetTopLevel?.DocObject is IStreamingTextSource source
                 && source is StatefulComponentBase { IsBusy: true })
@@ -122,5 +140,20 @@ internal static class PromptPipelineView
         }
 
         return null;
+    }
+
+    // The Recorder's outgoing Signal output, found by name so a future output re-order can't break
+    // this (it used to be hard-coded to index 1; the Recorder is now signal-only at index 0).
+    private static IGH_Param? RecorderSignalOutput(Recorder recorder)
+    {
+        foreach (IGH_Param output in recorder.Params.Output)
+        {
+            if (output.Name == "Signal")
+            {
+                return output;
+            }
+        }
+
+        return recorder.Params.Output.Count > 0 ? recorder.Params.Output[0] : null;
     }
 }

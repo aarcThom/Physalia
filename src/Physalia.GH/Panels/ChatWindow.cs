@@ -593,13 +593,13 @@ public class ChatWindow : Form
         // immediately, without waiting for the first message.
         MaybePlaceComponent();
 
-        // Pipeline-wiring readiness: chat needs Recorder -> Reasoner -> Model. Shown as a hint once
-        // a provider exists but the graph isn't fully wired.
+        // Pipeline-wiring readiness: chat needs Recorder -> [compactor…] -> Reasoner -> Model. Shown
+        // as a hint once a provider exists but the graph isn't fully wired.
         bool ready = PromptPipelineView.IsPipelineReady(_component, 0);
         string status = needsSetup ? "Setup mode"
             : busy ? "Working…"
             : recorder is null ? "Choose an option above, or connect a recorder to begin."
-            : !ready ? "Add a Reasoner with a Model to begin."
+            : !ready ? "Add a Reasoner with a Model — directly or through a compactor — to begin."
             : string.Empty;
 
         if (_forcePush || !ReferenceEquals(convo, _lastConversation))

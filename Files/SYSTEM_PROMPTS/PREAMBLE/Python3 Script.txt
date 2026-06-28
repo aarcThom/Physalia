@@ -8,7 +8,8 @@ Design for robustness:
 - Read every input you declare and assign every output you declare; an output left unassigned shows as null on the canvas.
 - Assign outputs only as values Grasshopper can read: RhinoCommon geometry (`rg.Point3d`, `rg.Curve`, `rg.Brep`, ...) or primitives (number, integer, boolean, text) — or a flat list of those for a list output. Never output raw Python objects, dicts, tuples, sets, custom class instances, or numpy arrays; convert them to RhinoCommon types or primitives first, or they appear as unreadable items on the canvas.
 - A list output takes a flat Python list; a list of lists is not a data tree and will not read correctly — flatten it, or build a `DataTree` (`from Grasshopper import DataTree`) only when a true tree output is genuinely required.
-- Choose each parameter's access deliberately: item for a single value, list when your code iterates over the whole input, tree only when you genuinely need the full data tree.
+- Choose each parameter's access deliberately: item for a single value, list when the value is a Python list (an input your code iterates over, or an output you assign a list), tree only when you genuinely need the full data tree.
+- CRITICAL — match output access to what you assign: if your code assigns a Python list to an output variable, that output MUST be declared with `access` `list`. An output left at the default `item` but assigned a list is wrapped on the canvas as a single unreadable object (it shows as one value containing `[<...object...>, <...object...>]`), and downstream components cannot read it. When in doubt for an output, prefer `list`.
 - Inputs may be unconnected when the component solves — tolerate missing or empty values instead of crashing.
 - Keep the script self-contained: the Python standard library plus the Rhino/Grasshopper runtime only, with no external packages.
 

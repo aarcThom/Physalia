@@ -10,7 +10,7 @@
     "Do not use print to return results — assign to declared output variables.",
     "Each input/output name is a valid Python identifier, unique within its list.",
     "A typed input arrives already converted (type 'Point' -> Rhino.Geometry.Point3d). Omit type for any.",
-    "access: 'item' (single), 'list' (whole input as a Python list), or 'tree'."
+    "access: 'item' (single), 'list' (a Python list), or 'tree'. An output assigned a Python list MUST use access 'list' — an 'item' output given a list is unreadable on the canvas; when unsure for an output, prefer 'list'."
   ],
   "typeHints": ["Number", "Integer", "Boolean", "Text", "Point", "Vector", "Plane", "Line", "Circle", "Arc", "Curve", "Surface", "Brep", "Mesh", "Geometry", "Box", "Transform", "Interval", "Colour"],
   "properties": {

@@ -13,7 +13,7 @@
     "Do not use print to return results — print output goes only to the component's separate 'out' channel. Every result must be assigned to a declared output variable.",
     "Every input/output name must be a valid Python identifier and unique within its own list.",
     "A typed input arrives already converted to that Rhino type (e.g. type 'Point' gives a Rhino.Geometry.Point3d). Omit type for an untyped (any) parameter; use 'Geometry' or 'Text' when unsure.",
-    "access is 'item' (single value), 'list' (the whole input as a Python list), or 'tree' (the full data tree). For an output declared 'list', assign a Python list.",
+    "access is 'item' (single value), 'list' (a Python list), or 'tree' (the full data tree). An output's access MUST match the value the code assigns it: if the code assigns a Python list to an output, that output's access must be 'list' — an 'item' output given a list is wrapped as one unreadable object on the canvas. When unsure for an output, prefer 'list'.",
     "Inputs left unconnected on the canvas are not errors — write code that tolerates missing or empty values for the parameters you declare."
   ],
 

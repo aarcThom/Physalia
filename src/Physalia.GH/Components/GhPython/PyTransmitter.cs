@@ -11,6 +11,7 @@ using System.Text.RegularExpressions;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
+using Physalia.Core.Python;
 using Physalia.Core.Signals;
 using Physalia.GH.Attributes;
 using Physalia.GH.Generation;
@@ -267,7 +268,7 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
                 code = codeEl.GetString() ?? string.Empty;
 
             inputs = ParseParams(root, "inputs");
-            outputs = ParseParams(root, "outputs");
+            outputs = PromoteListOutputs(code, ParseParams(root, "outputs"));
 
             if (!StringHelpers.IsNonBlank(code))
             {
@@ -322,6 +323,41 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
         }
 
         return specs;
+    }
+
+    /// <summary>
+    /// Corrects output access against the code: any output the script assigns a Python list but that
+    /// was declared (or defaulted) to <c>item</c> access is promoted to <c>list</c>. An item-access
+    /// output handed a list wraps the whole list as one opaque object on the canvas, unreadable by
+    /// downstream components — this is the deterministic guard against that common model slip.
+    /// Outputs declared <c>tree</c> are left untouched.
+    /// </summary>
+    /// <param name="code">The component's Python source.</param>
+    /// <param name="outputs">The parsed output specs.</param>
+    /// <returns>The output specs with list-valued item outputs promoted to list access.</returns>
+    private static List<GhParamSpec> PromoteListOutputs(string code, List<GhParamSpec> outputs)
+    {
+        if (outputs.Count == 0)
+        {
+            return outputs;
+        }
+
+        IReadOnlyCollection<string> listOutputs = PythonOutputAccessInference.InferListVariables(
+            code, outputs.Select(o => o.Name));
+        if (listOutputs.Count == 0)
+        {
+            return outputs;
+        }
+
+        for (int i = 0; i < outputs.Count; i++)
+        {
+            if (outputs[i].Access == GhScriptParamAccess.Item && listOutputs.Contains(outputs[i].Name))
+            {
+                outputs[i] = outputs[i] with { Access = GhScriptParamAccess.List };
+            }
+        }
+
+        return outputs;
     }
 
     /// <summary>

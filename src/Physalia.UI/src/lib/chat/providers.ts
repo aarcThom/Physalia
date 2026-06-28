@@ -21,6 +21,10 @@ export interface GuideCommand {
 export interface Provider {
 	id: string;
 	label: string;
+	/** 'llm' (default) for chat-model providers; 'tool' for web-tool keys (Tavily / Jina) that
+	 *  power the Web Search / Read URL tools but are not chat providers — they are shown in their
+	 *  own setup section and do not satisfy the first-run LLM requirement. */
+	kind?: 'llm' | 'tool';
 	/** True when this provider authenticates with a pasted API key. */
 	needsKey: boolean;
 	/** One-line description shown under the heading. */
@@ -176,6 +180,42 @@ export const PROVIDERS: Provider[] = [
 			{ label: 'Ollama', url: 'https://ollama.com/' },
 			{ label: 'OpenRouter (hosted, many models)', url: 'https://openrouter.ai/' }
 		]
+	},
+	{
+		id: 'tavily',
+		label: 'Tavily (web search)',
+		kind: 'tool',
+		needsKey: true,
+		blurb:
+			'Powers the Web Search tool so the model can look things up online. Free tier — about 1,000 searches a month, no credit card.',
+		steps: [
+			'Sign up for a free Tavily account (no credit card required).',
+			'On your dashboard, copy your API key — it starts with tvly-….',
+			'Paste the key into the message box below and press Enter.'
+		],
+		links: [
+			{ label: 'Tavily — sign up / dashboard', url: 'https://app.tavily.com/' },
+			{ label: 'Tavily docs', url: 'https://docs.tavily.com/' }
+		],
+		note: 'Stored locally in API_KEY_CONFIG.YAML (web_search.tavily) — never committed, only sent to Tavily. Needed only for the Web Search tool.'
+	},
+	{
+		id: 'jina',
+		label: 'Jina (read URL)',
+		kind: 'tool',
+		needsKey: true,
+		blurb:
+			'Optional. The Read URL tool already works without a key; a free Jina key just raises the rate limits.',
+		steps: [
+			'The Read URL tool works with no key at all — only add a Jina key if you start hitting rate limits.',
+			'Get a free Jina API key (starts with jina_…) from the Jina dashboard.',
+			'Paste the key into the message box below and press Enter.'
+		],
+		links: [
+			{ label: 'Jina — get an API key', url: 'https://jina.ai/api-dashboard/' },
+			{ label: 'Jina Reader', url: 'https://jina.ai/reader/' }
+		],
+		note: 'Optional — Read URL works without it. Stored locally in API_KEY_CONFIG.YAML (web_search.jina).'
 	}
 ];
 

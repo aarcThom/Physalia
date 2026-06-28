@@ -35,6 +35,11 @@ internal static class ProviderAvailability
             ["openai"] = "openai",
             ["deepseek"] = "deepseek",
             ["openrouter"] = "openrouter",
+
+            // Web-tool keys (web_search section). Not chat providers — they show as configured pills
+            // but the chat window excludes them from the first-run LLM requirement.
+            ["tavily"] = "tavily",
+            ["jina"] = "jina",
         };
 
     /// <summary>

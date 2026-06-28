@@ -42,6 +42,7 @@ public class DeconstructSignal : PhyBase
         pManager.AddTextParameter("Payload", "P", "The carried payload: result text on success, feedback text on failure.", GH_ParamAccess.item);
         pManager.AddTextParameter("Source", "Sr", "Name of the component that minted the signal.", GH_ParamAccess.item);
         pManager.AddTextParameter("Time", "T", "Local mint time (HH:mm:ss.fff).", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "The full inference context the signal carries (system prompt + conversation), when it is a Recorder→Reasoner event. Empty for other signals.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -59,5 +60,10 @@ public class DeconstructSignal : PhyBase
         DA.SetData(2, signal.Payload);
         DA.SetData(3, signal.SourceName);
         DA.SetData(4, signal.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff"));
+
+        if (signal.Instructions is not null)
+        {
+            DA.SetData(5, new GH_Instructions(signal.Instructions));
+        }
     }
 }

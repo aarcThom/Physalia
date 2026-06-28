@@ -35,10 +35,14 @@
 		selected && setupResult && setupResult.provider === selected.id ? setupResult : null
 	);
 
-	// Split the known providers into the already-configured (shown as ready pills) and the rest
-	// (still clickable for their setup guide), keeping providers.ts order for a stable display.
+	// Split the known providers into the already-configured (shown as ready pills, LLM + tool alike)
+	// and the rest (still clickable for their setup guide), keeping providers.ts order. The
+	// unconfigured ones split again into chat-model providers and web-tool keys (Tavily / Jina),
+	// which get their own section so they don't look like a required LLM choice.
 	let configured = $derived(PROVIDERS.filter((p) => configuredProviders.includes(p.id)));
 	let available = $derived(PROVIDERS.filter((p) => !configuredProviders.includes(p.id)));
+	let availableLlm = $derived(available.filter((p) => p.kind !== 'tool'));
+	let availableTools = $derived(available.filter((p) => p.kind === 'tool'));
 </script>
 
 <div class="mx-auto flex w-full max-w-xl flex-col px-4 py-6">
@@ -134,9 +138,11 @@
 					{/each}
 				</div>
 
-				<div class="neu-raised w-full rounded-md p-4 text-sm leading-relaxed">
-					In addition, you can set up these providers. Click on the button for instructions.
-				</div>
+				{#if availableLlm.length > 0}
+					<div class="neu-raised w-full rounded-md p-4 text-sm leading-relaxed">
+						In addition, you can set up these providers. Click on the button for instructions.
+					</div>
+				{/if}
 			{:else}
 				<div class="neu-raised w-full rounded-md p-4 text-sm leading-relaxed">
 					Welcome to Physalia. Let's get you set up. You haven't set up any LLM providers yet, so
@@ -144,9 +150,25 @@
 				</div>
 			{/if}
 
-			{#if available.length > 0}
+			{#if availableLlm.length > 0}
 				<div class="flex w-full flex-wrap gap-3">
-					{#each available as provider (provider.id)}
+					{#each availableLlm as provider (provider.id)}
+						<Button variant="outline" class="h-auto py-2" onclick={() => onselect(provider.id)}>
+							{provider.label}
+						</Button>
+					{/each}
+				</div>
+			{/if}
+
+			{#if availableTools.length > 0}
+				<!-- Web-tool keys (Tavily / Jina): optional, for the Web Search / Read URL tools. -->
+				<div class="neu-raised w-full rounded-md p-4 text-sm leading-relaxed">
+					To use the Web Search and Read URL tools, set up a free Tavily account. (Jina is
+					optional — Read URL works without a key.) Click a button for instructions.
+				</div>
+
+				<div class="flex w-full flex-wrap gap-3">
+					{#each availableTools as provider (provider.id)}
 						<Button variant="outline" class="h-auto py-2" onclick={() => onselect(provider.id)}>
 							{provider.label}
 						</Button>

@@ -64,7 +64,14 @@ public class ChatWindow : Form
             ["openai"] = ("openai_compatible", "openai"),
             ["deepseek"] = ("openai_compatible", "deepseek"),
             ["openrouter"] = ("openai_compatible", "openrouter"),
+            ["tavily"] = ("web_search", "tavily"),
+            ["jina"] = ("web_search", "jina"),
         };
+
+    // Setup-screen ids that are web-tool keys (Web Search / Read URL), not chat-model providers.
+    // They show as configured pills but do NOT satisfy the first-run LLM requirement.
+    private static readonly HashSet<string> ToolProviderIds =
+        new(StringComparer.OrdinalIgnoreCase) { "tavily", "jina" };
 
     private const string MissingHtml =
         "<!doctype html><html><body style='font:13px sans-serif;padding:24px;color:#333'>"
@@ -586,20 +593,22 @@ public class ChatWindow : Form
         // the first probe hasn't landed yet, so assume configured and don't flash setup.
         MaybeProbeProviders();
         IReadOnlyList<string> configuredProviders = _configuredProviders ?? Array.Empty<string>();
-        bool needsSetup = _configuredProviders is { Count: 0 };
+        // First-run setup needs an LLM provider, not merely a web-tool key (Tavily/Jina): show setup
+        // once the probe has landed and no chat-model provider is configured.
+        bool needsSetup = _configuredProviders is not null && !HasLlmProvider();
 
         // Once a provider is known to exist (chat mode, not setup), drop this window's Chatbox
         // onto the canvas if it isn't there yet — so the window is backed by a real component
         // immediately, without waiting for the first message.
         MaybePlaceComponent();
 
-        // Pipeline-wiring readiness: chat needs Recorder -> Reasoner -> Model. Shown as a hint once
-        // a provider exists but the graph isn't fully wired.
+        // Pipeline-wiring readiness: chat needs Recorder -> [compactor…] -> Reasoner -> Model. Shown
+        // as a hint once a provider exists but the graph isn't fully wired.
         bool ready = PromptPipelineView.IsPipelineReady(_component, 0);
         string status = needsSetup ? "Setup mode"
             : busy ? "Working…"
             : recorder is null ? "Choose an option above, or connect a recorder to begin."
-            : !ready ? "Add a Reasoner with a Model to begin."
+            : !ready ? "Add a Reasoner with a Model — directly or through a compactor — to begin."
             : string.Empty;
 
         if (_forcePush || !ReferenceEquals(convo, _lastConversation))
@@ -881,6 +890,12 @@ public class ChatWindow : Form
         });
     }
 
+    // True once the probe has found at least one configured chat-model provider (an LLM), ignoring
+    // web-tool keys (Tavily/Jina). Gates both the first-run setup screen and component placement —
+    // a web-tool key alone is not something to chat with.
+    private bool HasLlmProvider() =>
+        _configuredProviders is { } configured && configured.Any(id => !ToolProviderIds.Contains(id));
+
     // Drops this window's Chatbox onto the canvas, to the right of the window and vertically
     // centred on it, the moment a provider becomes available — but only when the component isn't
     // already on a document. A Chatbox loaded from a saved file or hand-placed by the user is left
@@ -896,9 +911,9 @@ public class ChatWindow : Form
             return; // already bound to a canvas component — leave it where the user/file put it
         }
 
-        if (_configuredProviders is not { Count: > 0 })
+        if (!HasLlmProvider())
         {
-            return; // still probing, or first-run setup: nothing to chat with yet, so don't place
+            return; // still probing, or no LLM yet (a web-tool key alone isn't enough): don't place
         }
 
         GH_Canvas canvas = Instances.ActiveCanvas;

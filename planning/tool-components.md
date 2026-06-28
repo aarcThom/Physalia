@@ -1,0 +1,136 @@
+# Tool Components — Research
+
+> Research deliverable (2026-06-27). Catalog of LLM function-calling tool components worth building
+> for Physalia. Not yet implemented — this is the spec.
+
+## How tools work here
+
+A tool is a `ToolComponentBase` subclass (`src/Physalia.GH/Components/Tools/`). It advertises a
+`ToolDefinition(Name, Description, InputSchemaJson)` on its **Tool** output (collected by `ToolsInUse`
+→ `Reasoner.Tools`); receives dispatched `ToolCallContent` blocks on its **Signal** input from a
+`Router`; implements `ExecuteCall(ToolCallContent)` → `ToolCallResult.Ok(string)` / `.Error(string)`,
+returning one result string per call; and may override `OnSolveTick` to read a per-solve context input
+once (as `ComponentSearch` reads its wired Catalog). Existing: `ComponentSearch` (`search_components`);
+`OutputSnapshot` (signal-driven viewport capture, not a tool). Reusable bridges: `GhJsonBridge`
+(place/validate/resolve graphs), `GhPythonBridge` (drive a Python Script component).
+
+**Key design principle.** Physalia already has a full deterministic build pipeline (Reasoner → Auditor
+→ Transmitter → Receiver) that places whole graphs as the primary output. Tools should therefore be
+mostly **read/sense + targeted action + verify** — how the model gathers grounding *before* it emits
+its structured graph, and inspects *after* — not a second whole-graph builder competing with the
+pipeline. Categories borrowed from Claude Code (Read/Write/Edit/Glob/Grep/Bash/WebSearch) and the
+Rhino/GH MCP servers: sense state → search → act narrowly → run code → inspect after → reference docs.
+
+## Already built or covered by the pipeline — reconsider before building
+
+The model already builds and inspects via existing machinery; a tool is only worth adding when it
+gives the model a capability it has **no other way to get**. Watch these overlaps:
+
+- **`place_graph` ↔ ComponentTransmitter + the whole structured-output pipeline.** The model's primary
+  output already *is* a GhJSON graph: Reasoner → Auditor → **ComponentTransmitter** places it and routes
+  placement errors back. A `place_graph` tool is a second whole-graph builder competing with the
+  pipeline — exactly what the design principle above warns against. Its only non-redundant sliver is
+  tiny *incremental* edits mid-conversation, and even that mostly overlaps. **Demoted from the top set.**
+- **`capture_viewport` ↔ OutputSnapshot.** OutputSnapshot already zooms to the produced geometry,
+  captures the viewport, and emits the image as an inline content block into the loop (Success *and*
+  Fail). The model already sees its result. A tool only adds *on-demand* timing — wrap OutputSnapshot's
+  capture if that's wanted; it's not new capability. **Demoted.**
+- **`run_python` ↔ PyTransmitter** for *building* a Python component (the pipeline path). Genuinely new
+  only as an *ephemeral eval* (compute a hull, count intersections) that returns a value rather than
+  authoring an on-canvas script. Keep that scope, note the overlap, and gate it (arbitrary execution).
+- **`search_components` already exists** (ComponentSearch).
+
+## Catalog (prioritized)
+
+### Priority 1 — sensing (build first; read-only, can't corrupt the doc)
+
+1. **`get_document_summary`** — *low.* Compact inventory of the canvas (component name, nickname,
+   short GUID, category, error/warning counts; optional param names; doc totals + units). The model
+   must see what exists before it builds. Reuses `OnPingDocument().Objects` + `RuntimeMessages`.
+2. **`inspect_component`** — *low.* One component's inputs, outputs, current values, and runtime
+   messages (by instance GUID or nickname). Turns a red component into a self-correctable observation.
+   Reuses `GhPythonBridge`'s value/message readers, generalized to any `IGH_Component`.
+3. **`get_selection`** — *low.* Which GH components / Rhino objects are currently selected — bridges
+   vague human pointing ("make these taller") to concrete GUIDs.
+4. **`query_geometry`** — *medium.* Measure a component output's geometry: bounds, area, length,
+   volume, validity (`IsValidWithLog`), count, centroid. The model's only way to numerically "see"
+   geometry it produced. Pure RhinoCommon over `VolatileData`.
+
+### Priority 2 — action & code (need verify-after; defer mutation to `RhinoApp.Idle`)
+
+5. **`place_graph`** — ⚠️ **overlaps ComponentTransmitter + the pipeline** (see "Already covered").
+   Only build if a clear *incremental-edit* need emerges that the whole-graph pipeline can't serve;
+   otherwise let the pipeline build. If built, it reuses `GhJsonBridge` (`ResolveComponentNames` +
+   `LoadAndPlaceJson`) and needs a wired Catalog input. **Not a first-set tool.**
+6. **`set_parameter`** — *medium.* Drive a slider / panel / boolean on an existing component without
+   rebuilding. Set `PersistentData` / `GH_NumberSlider.SetSliderValue` then `ExpireSolution`. Reject
+   wired inputs with a clear error; only persistent-data params are safely settable.
+7. **`run_python`** — *medium-high; gate behind explicit opt-in.* Execute a RhinoCommon Python snippet
+   and return stdout + result — the universal escape hatch. **Scope it to ephemeral eval** (compute a
+   hull, count intersections, a quick sanity check), *not* authoring on-canvas script components — that
+   is PyTransmitter's job (see "Already covered"). Runs via Rhino's embedded CPython. Arbitrary code
+   execution — gate like agent harnesses gate Bash.
+
+### Priority 3 — knowledge & reference
+
+8. **`search_docs`** — *medium.* Web / RhinoCommon docs lookup. Reuses the `HttpClient` plumbing
+   (`ProtocolProviderBase` / `HttpErrorMapper`). A local RhinoCommon-XML mode is lower-risk + offline;
+   ship that first.
+9. **`read_file`** — *low; path-allow-listed to `Files/`.* Read a bundled reference / skill / schema /
+   preset into context. Claude Code's `Read`, scoped to Physalia's Files tree.
+10. **`calculate`** — *low.* Arithmetic + **unit conversion** via `RhinoMath.UnitScale` against the
+    doc's `ModelUnitSystem` ("12 ft to mm" in a millimeters document). Removes a constant friction point.
+
+### Priority 4 — vision (mostly built; wrap it)
+
+11. **`capture_viewport`** — *medium; most exists.* Let the model request a fresh screenshot and
+    receive it as an inline image observation. `OutputSnapshot` already zooms, captures, bounds to
+    1568 px, and emits an `ImageContent` block; `PhySignal.ContentBlocks` carries images. Caveat:
+    `ToolCallResult` is text-only today — image-returning tools need a richer result shape or a
+    content-block convention.
+
+### Lower priority / future
+`delete_component` / `clear_canvas` (need undo story); `connect`/`disconnect` (subsumed by
+`place_graph`); `list_categories` / `get_component_type_info` (browse catalog by category — reuses
+`ComponentCatalog`); `run_solution` / `expire_component`; `get_rhino_scene` / `create_rhino_object`
+(operate on baked Rhino geometry — a whole second surface).
+
+## Recommended first five
+
+The pipeline already *builds* graphs (Reasoner → Auditor → ComponentTransmitter) and OutputSnapshot
+already shows the result, so the highest-value tools are the **sensing** ones the model has no other
+way to obtain, plus the one *action* the pipeline does **not** cover (tweaking an existing node).
+`place_graph` (overlaps the pipeline) and `capture_viewport` (overlaps OutputSnapshot) are
+deliberately **not** in this set.
+
+1. **`get_document_summary`** — the model must see the canvas. Foundational, pure read.
+2. **`inspect_component`** — read a specific node's values + errors on demand (Observer only routes
+   errors as loop feedback; the model can't *query* a node). Reuses `GhPythonBridge` readers.
+3. **`query_geometry`** — numerically "see" produced geometry (bounds/area/validity); pure RhinoCommon.
+   Nothing else gives the model this.
+4. **`get_selection`** — resolve "make *these* taller" to concrete GUIDs; nothing exposes selection.
+5. **`set_parameter`** — the non-redundant action: nudge an existing slider/panel. The pipeline builds
+   *new* graphs but has no "tweak this" path, so this complements it rather than competing.
+
+Strong next: **`calculate`** (units conversion against the doc unit system), **`read_file`** (bundled
+references, path-allow-listed), then **`run_python`** (ephemeral eval, gated). `search_components`
+already exists. Vision is already in the loop via OutputSnapshot — only wrap it as `capture_viewport`
+if on-demand timing proves necessary (and once `ToolCallResult` can carry an image block).
+
+## Implementation gotchas
+- **Result shape:** `ToolCallResult` is text-only today — image-returning tools need a richer result.
+- **Deferred mutation:** any tool that mutates the doc or solves must defer to `RhinoApp.Idle`
+  (`GhJsonGrasshopper.Put` and `ExpireSolution` both kick `NewSolution`; `OutputSnapshot` sets the pattern).
+- **Context inputs:** tools needing the catalog or files read them in `OnSolveTick` once per solve.
+- **Safety:** `run_python` (and future delete/run-command tools) is arbitrary execution — gate behind
+  explicit opt-in; `read_file` must be path-allow-listed to `Files/`.
+
+## Key files
+`Components/Tools/ToolComponentBase.cs`, `ComponentSearch.cs`, `ToolsInUse.cs`,
+`Components/Regulators/Router.cs`, `Core/Common/ToolDefinition.cs`, `Generation/GhJsonBridge.cs`,
+`Generation/GhPythonBridge.cs`, `Components/Perception/OutputSnapshot.cs`, `Core/Catalog/`,
+`planning/physalia-primitives.md`.
+
+## Sources
+- Claude Code Tools reference (code.claude.com/docs/en/tools-reference).
+- RhinoMCP (jingcheng-chen/rhinomcp); rhino-grasshopper-mcp (dongwoosuk).

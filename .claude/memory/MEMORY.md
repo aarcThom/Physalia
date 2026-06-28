@@ -39,6 +39,15 @@
 - [ClaudeCode warm-process rework](claudecode-warm-process.md) — provider now keeps ONE `claude` CLI process warm per Reasoner (stream-json in/out) instead of cold-starting per call; SDK is a dead end (no .NET, wraps the CLI, needs API key). Builds clean; live-Rhino timing/leak check still TODO. Landed 2026-06-18.
 - [ClaudeCode provider perf](claudecode-provider-perf.md) — the "freezes on real prompts" was extended thinking (fix `MAX_THINKING_TOKENS=0`); warm session ≈ API parity, cold start is native-binary-bound (not flag-bound); `--safe-mode` keeps OAuth, `--bare` breaks it; pipes pinned to no-BOM UTF-8. Measured 2026-06-18.
 
+## Compaction
+- [Conversation compaction](conversation-compaction.md) — sliding/token/anchored window + content prune + LLM summarizer; Core `Physalia.Core/Compaction/` (Reassemble keystone) + GH **Compaction** tab. **Reworked 2026-06-27: Instructions ride the signal; inline forward-path `Recorder → Compactor → Reasoner` (Recorder = signal-only, uncompacted source of truth).** Report: `planning/conversation-compaction.md`. Builds clean.
+- [Signal carrier discipline](signal-carrier-discipline.md) — PhySignal carries exactly Payload + ContentBlocks + Instructions; never add carrier fields for arbitrary types (god-object guard). In CLAUDE.md too.
+
+## Pickers / Models / Prompts (2026-06-27 batch)
+- [Picker GhJSON serialization](picker-ghjson-serialization.md) — Picker selection now round-trips through `.ghjson` via `physalia.pickerValue` extension (native `.gh` already worked); stores only labels, never API-key secrets.
+- [Model Information + minified prompts](model-information-and-minified-prompts.md) — ModelInformation now merges OpenRouter+LiteLLM with id normalization; minified preambles/schemas in `Files/SYSTEM_PROMPTS/` for small models. Research docs: `planning/deterministic-gates.md`, `planning/tool-components.md`, `planning/model-information.md`.
+- [Web search tools](web-search-tools.md) — `web_search` (Tavily) + `read_url` (Jina Reader, keyless) tool components; Core `Physalia.Core/Web/WebTools.cs`; keys via new `web_search` YAML section. Tools block on async HTTP (ToolComponentBase is sync). Research: `planning/web-tools.md`. 2026-06-27, builds clean.
+
 ## v2 Architecture
 Full Core architecture decisions locked 2026-05-03. See [v2-core-architecture.md](v2-core-architecture.md).
 Component-level spec: planning/physalia-primitives.md. API research: planning/api_research.md.

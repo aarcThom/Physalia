@@ -17,8 +17,8 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class AnchoredWindow : CompactionComponentBase
 {
-    private const int InKeepFirst = 1;
-    private const int InKeepLast = 2;
+    private const int InKeepFirst = 0;
+    private const int InKeepLast = 1;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AnchoredWindow"/> class.

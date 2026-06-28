@@ -5,11 +5,15 @@
 > Live-Rhino test pending.
 
 This document covers (1) research into conversation/context compaction strategies for LLM
-agents, and (2) the compaction subsystem implemented for Physalia. The hook already existed:
-the **Recorder** carries an optional `Conversation` override input — _"Replaces the active
-conversation while all messages are preserved in Recorded History"_ — and the primitives spec
-names a `Distiller` (a Reasoner with a summarization instruction). This work fills that hook
-with a family of deterministic Core transforms plus one LLM-backed summarizer.
+agents, and (2) the compaction subsystem implemented for Physalia: a family of deterministic Core
+transforms plus one LLM-backed summarizer (the spec's `Distiller`).
+
+> **Note (architecture reworked 2026-06-27):** compaction is now an **inline forward-path**
+> transform — the Recorder emits a Signal carrying the full Instructions, a compactor sits on
+> `Recorder → Compactor → Reasoner` and re-emits compacted Instructions, and the Recorder stays the
+> uncompacted source of truth. The earlier design (a `Conversation` override input + a wireless
+> loop-back) was removed. Part 2/3 below describe the current model; some Part 1 research framing still
+> references "feed the compacted view back to the Recorder" — read it as the forward-path model.
 
 ---
 
@@ -229,99 +233,89 @@ provider call crosses the boundary, mirroring how `Reasoner` already streams.
 
 ## GH — `src/Physalia.GH/Components/Compaction/` (new "Compaction" ribbon tab)
 
-The compaction components are **routing components** (`RoutingComponentBase<Instructions>`), not plain
-dataflow transforms. This is the fix for the DAG cycle (see Part 3): a direct wire from a Recorder's
-output back to its own `Conversation` input would be an illegal cycle, so the compacted result must
-travel as a **signal** that can be carried wirelessly across the DAG by a Feedback Collector.
+> **Architecture reworked 2026-06-27 (per Thomas): Instructions ride the signal; compaction is an
+> inline forward-path transform.** The Recorder emits a **Signal carrying the full `Instructions`**;
+> a compactor sits inline on `Recorder → Compactor → Reasoner`, consuming that signal and re-emitting
+> one carrying the compacted Instructions. No loop-back, no Conversation override, no
+> wireless-conversation machinery. The Recorder is the uncompacted source of truth (its
+> `ActiveConversation` is always the full log); the compactor only transforms the copy on the signal.
+> The earlier loop-back design (compactor → Feedback Collector → Recorder override) is gone.
 
-They take **`Instructions`** (system prompt + conversation), not a bare conversation. The system prompt
-is **always included** when measuring a token budget but is **never compacted** — only the conversation
-is — and the compacted conversation alone rides back on the signal (the Recorder re-attaches its own
-system prompt). Wire a Recorder's **Instructions** output into the input.
+The compaction components are **routing components** (`RoutingComponentBase<Instructions>`). The signal
+carries the `Instructions` (system prompt + conversation): the system prompt is **always included** when
+measuring a token budget but is **never compacted** — only the conversation is — and the re-emitted
+signal carries `new Instructions(originalSystemPrompt, compactedConversation)`.
 
 `CompactionComponentBase : RoutingComponentBase<Instructions>` owns the shared contract for the
-deterministic four: a typed `Instructions` input (the source, index 0) + the base-owned `Signal`
-trigger (appended last); `TryGetData` reads the source instructions from the typed input (the trigger
-signal just says "go", exactly like the Reasoner ignoring its signal payload and reading Instructions);
+deterministic four: the subclass's own params (index 0+) + the base-owned `Signal` trigger (appended
+last); `TryGetData` reads `signal.Instructions` (the trigger *is* the data — no typed input);
 `PushSolve` is empty (synchronous); `ReadSolve` calls the subclass's `Compact(Instructions)` — which
-compacts `instructions.Conversation` — and returns a success result **carrying the compacted
-conversation on the minted Success Signal**. Outputs are the standard `Success Signal` (0) /
-`Fail Signal` (1).
+compacts `instructions.Conversation` — and returns a success result **carrying the compacted Instructions
+on the minted Success Signal**, wired straight to the Reasoner. Outputs are the standard
+`Success Signal` (0) / `Fail Signal` (1).
 
 | Component | Nick | GUID | Strategy |
 |---|---|---|---|
 | Sliding Window | `Window` | `D731E821-…` | `KeepRecentMessages` (Max Messages) |
-| Token Window | `TokWin` | `82B8ED80-…` | `KeepWithinTokenBudget` (estimator + Max Tokens; system prompt from Instructions, counted but never dropped) |
+| Token Window | `TokWin` | `82B8ED80-…` | `KeepWithinTokenBudget` (estimator + Max Tokens; system prompt counted but never dropped) |
 | Anchored Window | `Anchor` | `ABA68278-…` | `KeepHeadAndTail` (Keep First / Keep Last) |
 | Content Pruner | `Prune` | `EE741363-…` | `Prune` (Drop Images/Tools/Feedback, Max Tool-Result/Text Chars) |
 | Summarizer | `Distill` | `8241DBD1-…` | `SummarizeAsync` (Model + Summary Prompt + Keep Recent) |
 | Token Threshold | `TokGate` | `02342020-…` | auto-trigger gate (Instructions + estimator + Threshold → Signal) |
 
-- **Token Window** rejects the async API-backed estimators (`AsyncMarkerTokenEstimator` — Anthropic
-  / Gemini / LlamaCpp throw on the synchronous `Estimate`) with a clear warning; use **Heuristic** or
-  **Tiktoken**.
-- **Summarizer** is the one async component. It mirrors the Reasoner's async routing pattern
-  (`AutoScheduleRead => false`; the read pass fires from the inference completion callback) rather than
-  inheriting `CompactionComponentBase`. It stamps `config.SessionKey = InstanceGuid` so a warm Claude
-  Code session is per-component, and cancels its task on `RemovedFromDocument`. This is Physalia's
-  concrete **Distiller**.
+- **Token Window** rejects the async API-backed estimators (`AsyncMarkerTokenEstimator`); use
+  **Heuristic** or **Tiktoken**.
+- **Summarizer** is the one async component (`AutoScheduleRead => false`; the read pass fires from the
+  inference completion callback). It stamps `config.SessionKey = InstanceGuid` and cancels on
+  `RemovedFromDocument`. Standalone `RoutingComponentBase<Instructions>` (not `CompactionComponentBase`).
+  Physalia's concrete **Distiller**.
+- **Token Threshold** keeps a typed `Instructions` input; a Recorder's signal feeds it via the
+  `Signal → Instructions` cast (it measures, it doesn't consume).
 
 ### Signal-plumbing changes that make this work
 
-Carrying a whole `Conversation` back to the Recorder required a small, contained extension to the
-signal system (analogous to the existing multimodal `ContentBlocks` extension):
+The signal is the single inter-component wire and now carries the inference context (the carrier
+discipline: `Payload` + `ContentBlocks` + `Instructions`, and nothing more):
 
-- **`PhySignal`** gains an optional `Conversation? Conversation` carrier (a conversation is a sequence
-  of role-tagged turns that neither the string `Payload` nor the flat `ContentBlocks` can represent).
-  `Mint` gains a matching optional parameter.
-- **`StatefulComponentBase.LatchSuccess`** and **`RoutingComponentBase.RoutingResult.Ok`** gain an
-  optional `conversation` that flows onto the minted Success Signal.
-- **`FeedbackCollector`** preserves the conversation across an injected batch (latest wins), alongside
-  the payload-join and content-block concatenation it already did.
-- **`Recorder`**: its `Conversation` input changed from a typed `Param_Conversation` to a **`Signal`
-  input** (so a Feedback Collector can feed it). It is observed and consumed like the other signal
-  inputs; a consumed signal carrying a `Conversation` replaces the active conversation and latches
-  quietly (no outgoing signal, so it never fires a new run). **Recorded History is left untouched** —
-  a compaction is a derived view of the full ground-truth log, not a new record.
+- **`PhySignal`** carries an optional `Instructions` (this replaced the short-lived `Conversation`
+  carrier). `Mint`, `StatefulComponentBase.LatchSuccess`, and `RoutingComponentBase.RoutingResult.Ok`
+  thread an `instructions:` arg onto the minted Success Signal.
+- **`Recorder`** outputs a **Signal only**, minted on a user/feedback/tool-result turn, carrying
+  `new Instructions(systemPrompt, fullConversation)`. Its typed Instructions output and Recorded
+  History output were removed; the Conversation override input and `ApplyConversationOverride` were
+  removed; `FeedbackCollector`'s conversation preservation was reverted.
+- **`Reasoner`** dropped its typed Instructions input and reads `signal.Instructions`.
+- **`GH_Signal.CastTo`** casts a signal to `Instructions`/`Conversation`/text; **`DeconstructSignal`**
+  surfaces an Instructions output; **`TokenInputHelper`** resolves a signal's Instructions — so a
+  signal wire drops into any typed Instructions/Conversation input without manual deconstruction.
 
 ---
 
 # Part 3 — Integration & wiring
 
-## The compaction loop (cycle resolved)
+## The compaction path (no cycle, no loop-back)
 
-The dataflow is: **Recorder `Instructions` → Compactor `Instructions`** (a normal DAG wire) and a
-**trigger `Signal` → Compactor `Signal`**; the compactor compacts the conversation (the system prompt
-is preserved untouched) and emits the compacted conversation on its **Success Signal**, which routes
-**Compactor → Feedback →(grip-link)→ Feedback Collector → Recorder `Conversation`**. The grip-link from
-Feedback to Feedback Collector is wireless — it is *not* a GH wire — so the loop back into the Recorder
-never forms an illegal cycle. This is the same mechanism the existing `Feedback → FeedbackCollector →
-Recorder` correction loop already uses; compaction simply rides it with the conversation on the signal.
-
-The compactor operates on the **active context** (the Recorder's Instructions — what is actually sent to
-the model), not the full log: the Recorder's `Recorded History` remains the untouched ground truth.
-Applying the override latches the Recorder quietly (no user signal → the Reasoner does not re-fire). The
-compactor runs **once per trigger**.
+```
+Prompter ─(Prompt Signal)→ Recorder ─(Signal w/ full Instructions)→ [Compactor] → Reasoner
+                              ▲                                                       │
+                              └──── Feedback ┄┄▶ FeedbackCollector ←─────────────────┘  (response, wireless)
+```
+The forward path `Recorder → Compactor → Reasoner` is plain wires; the only loop back to the Recorder is
+the existing **wireless** response link (`Reasoner → Feedback →(grip-link)→ FeedbackCollector →
+Recorder.Response`), so nothing forms an illegal cycle. The compactor consumes the Recorder's signal,
+compacts the carried Instructions, and re-emits a signal carrying the compacted Instructions to the
+Reasoner. The Recorder keeps the full uncompacted log (the Reasoner's response appends to it); compaction
+only ever transforms the copy on the signal. Without a compactor, `Recorder → Reasoner` directly.
 
 ## Triggering
 
-Because the compactor is signal-driven, it fires only when a `Signal` arrives. Two trigger sources:
-
-- **Manual** — a `Construct Signal` (Button) for on-demand compaction.
-- **Automatic** — the **Token Threshold** gate (`TokenThreshold`, `TokGate`). It estimates the token
-  count of the active context (wire a Recorder's **Instructions** into its Instructions input) with a
-  synchronous estimator and mints a Signal **once each time the count crosses the threshold upward**.
-  Wire its Signal into a compactor's Signal input to compact automatically at, say, ~80% of the
-  model's context window. The fire is edge-triggered (a context sitting over the threshold does not
-  re-fire every solve; the compaction it triggers brings the count back down and re-arms it), and the
-  first solve only baselines — a freshly loaded over-budget component does not auto-fire. It also
-  exposes a `Token Count` readout. Async API-backed estimators are rejected (use Heuristic/Tiktoken),
-  matching the Token Window.
-
-A full auto-compaction loop:
-`Recorder.Instructions → Token Threshold → [Signal] → Compactor.Signal`, with
-`Recorder.Instructions → Compactor.Instructions` and
-`Compactor.Success → Feedback ┄┄▶ Feedback Collector → Recorder.Conversation`.
+A deterministic compactor on the forward path runs **per consumed signal** (every Reasoner-triggering
+turn). To compact only when needed, gate it with the **Token Threshold** (`TokGate`): wire the Recorder's
+Signal into its Instructions input (via the cast); it measures the carried context and mints a Signal on
+the rising edge across a token Threshold (edge-triggered + first-solve baseline so reload/paste/over-budget
+does not auto-fire; re-arms after compaction drops the count). Use its Signal as the compactor's trigger.
+The async **Summarizer** should also self-gate (no-op pass-through under a threshold) so it does not fire
+an LLM call every turn.
 
 ## Deferred (per the research's Tier 2/3)
 

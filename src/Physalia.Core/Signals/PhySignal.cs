@@ -11,6 +11,14 @@ namespace Physalia.Core.Signals;
 /// keyed by <see cref="Sequence"/>. Ordering between events is defined by the sequence,
 /// never by solve timing, so coalesced, delayed, or replayed solves cannot reorder,
 /// duplicate, or drop events.
+///
+/// <para><b>Carrier discipline (do not erode).</b> The signal carries exactly three things:
+/// <see cref="Payload"/> (the text trace / feedback string), <see cref="ContentBlocks"/> (a
+/// richer-than-text user turn, e.g. inline images — the Prompter→Recorder hop), and
+/// <see cref="Instructions"/> (the full inference context — the Recorder→Reasoner hop). These are
+/// the inter-component <em>events</em> the pipeline is built on. Do NOT add further typed carrier
+/// fields: arbitrary data belongs on typed wires/inputs, not bolted onto the signal. Every new field
+/// here makes the signal a god-object and dilutes "the signal is the event".</para>
 /// </summary>
 /// <param name="Sequence">Process-wide monotonic identity; higher = happened later.</param>
 /// <param name="Outcome">Whether the emitting run succeeded or failed.</param>
@@ -36,14 +44,14 @@ public sealed record PhySignal(
     public IReadOnlyList<MessageContent> ContentBlocks { get; init; } = Array.Empty<MessageContent>();
 
     /// <summary>
-    /// Gets a whole compacted conversation carried by the event, when one applies (a compaction
-    /// component routing its result back to a Recorder via a Feedback Collector). Null for the
-    /// common case. Like <see cref="ContentBlocks"/> this is a deliberate extension to the
-    /// payload-only contract: a conversation is a sequence of role-tagged turns that neither the
-    /// string <see cref="Payload"/> nor the flat <see cref="ContentBlocks"/> can represent, yet
-    /// the only path back across the DAG is the signal, so it must ride on it.
+    /// Gets the full inference context (system prompt + conversation) carried by the event, when one
+    /// applies — the Recorder→Reasoner hop, where the trigger signal <em>is</em> the data. Null for
+    /// every other signal (feedback, tool results, manual triggers). A compaction component consumes a
+    /// signal carrying these Instructions and re-emits one carrying the compacted Instructions. The
+    /// conversation is reachable via <c>Instructions.Conversation</c>; the goo casts a signal straight
+    /// to Instructions/Conversation so a typed input can consume it without manual deconstruction.
     /// </summary>
-    public Conversation? Conversation { get; init; }
+    public Instructions? Instructions { get; init; }
 
     /// <summary>
     /// Mints a new signal with the next global sequence number. This is the only way a
@@ -54,12 +62,12 @@ public sealed record PhySignal(
     /// <param name="sourceId">Instance GUID of the emitting component.</param>
     /// <param name="sourceName">Display name of the emitting component.</param>
     /// <param name="contentBlocks">Optional resolved content blocks; null is normalised to empty.</param>
-    /// <param name="conversation">Optional compacted conversation carried by the event; null for the common case.</param>
+    /// <param name="instructions">Optional full inference context carried by the event (Recorder→Reasoner); null otherwise.</param>
     /// <returns>A freshly sequenced signal.</returns>
-    public static PhySignal Mint(SignalOutcome outcome, string? payload, Guid sourceId, string sourceName, IReadOnlyList<MessageContent>? contentBlocks = null, Conversation? conversation = null) =>
+    public static PhySignal Mint(SignalOutcome outcome, string? payload, Guid sourceId, string sourceName, IReadOnlyList<MessageContent>? contentBlocks = null, Instructions? instructions = null) =>
         new(SignalSequencer.Next(), outcome, payload ?? string.Empty, sourceId, sourceName, DateTime.UtcNow)
         {
             ContentBlocks = contentBlocks ?? Array.Empty<MessageContent>(),
-            Conversation = conversation,
+            Instructions = instructions,
         };
 }

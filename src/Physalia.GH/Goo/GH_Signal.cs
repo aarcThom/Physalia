@@ -3,6 +3,7 @@
 
 using GH_IO.Serialization;
 using Grasshopper.Kernel.Types;
+using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Signals;
 
 namespace Physalia.GH.Goo;
@@ -94,6 +95,37 @@ public class GH_Signal : PhyGoo<GH_Signal, PhySignal>
         {
             target = (Q)(object)(Value is not null);
             return true;
+        }
+
+        // A signal carrying full Instructions (the Recorder→Reasoner inference event) casts straight
+        // to Instructions or to its Conversation, so a typed input consumes it without a manual
+        // Deconstruct Signal → Deconstruct Instructions. Null Instructions falls through to the
+        // payload escape hatch below.
+        if (Value?.Instructions is Instructions instructions)
+        {
+            if (typeof(Q).IsAssignableFrom(typeof(GH_Instructions)))
+            {
+                target = (Q)(object)new GH_Instructions(instructions);
+                return true;
+            }
+
+            if (typeof(Q).IsAssignableFrom(typeof(Instructions)))
+            {
+                target = (Q)(object)instructions;
+                return true;
+            }
+
+            if (typeof(Q).IsAssignableFrom(typeof(GH_Conversation)))
+            {
+                target = (Q)(object)new GH_Conversation(instructions.Conversation);
+                return true;
+            }
+
+            if (typeof(Q).IsAssignableFrom(typeof(Conversation)))
+            {
+                target = (Q)(object)instructions.Conversation;
+                return true;
+            }
         }
 
         // The payload escape hatch: a Signal wire plugs straight into any native text

@@ -17,11 +17,11 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class ContentPruner : CompactionComponentBase
 {
-    private const int InDropImages = 1;
-    private const int InDropTools = 2;
-    private const int InDropFeedback = 3;
-    private const int InMaxToolResultChars = 4;
-    private const int InMaxTextChars = 5;
+    private const int InDropImages = 0;
+    private const int InDropTools = 1;
+    private const int InDropFeedback = 2;
+    private const int InMaxToolResultChars = 3;
+    private const int InMaxTextChars = 4;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ContentPruner"/> class.

@@ -271,7 +271,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
             }
             else if (result.Success)
             {
-                LatchSuccess(result.Output, conversation: result.Conversation);
+                LatchSuccess(result.Output, instructions: result.Instructions);
             }
             else
             {
@@ -384,7 +384,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// </summary>
     protected readonly record struct RoutingResult
     {
-        private RoutingResult(bool success, string output, string? message, GH_RuntimeMessageLevel messageLevel, PhySignal? auxSignal, PhySignal? broadcastSignal, Conversation? conversation)
+        private RoutingResult(bool success, string output, string? message, GH_RuntimeMessageLevel messageLevel, PhySignal? auxSignal, PhySignal? broadcastSignal, Instructions? instructions)
         {
             Success = success;
             Output = output;
@@ -392,7 +392,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
             MessageLevel = messageLevel;
             AuxSignal = auxSignal;
             BroadcastSignal = broadcastSignal;
-            Conversation = conversation;
+            Instructions = instructions;
         }
 
         /// <summary>Gets a value indicating whether the run succeeded.</summary>
@@ -425,23 +425,23 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         public bool IsBroadcast => BroadcastSignal is not null;
 
         /// <summary>
-        /// Gets the compacted conversation carried by the minted success signal, or null when the
-        /// result carries only a text payload. Set by compaction components routing their result
-        /// back to a Recorder.
+        /// Gets the full inference context carried by the minted success signal, or null when the
+        /// result carries only a text payload. Set by compaction components re-emitting compacted
+        /// Instructions on the forward path to the Reasoner.
         /// </summary>
-        public Conversation? Conversation { get; }
+        public Instructions? Instructions { get; }
 
         /// <summary>
-        /// Creates a success result carrying the forward-routed result string, optionally with a
-        /// compacted conversation on the minted signal and a runtime message to surface.
+        /// Creates a success result carrying the forward-routed result string, optionally with full
+        /// inference context on the minted signal and a runtime message to surface.
         /// </summary>
         /// <param name="data">The result string carried by the minted success signal.</param>
-        /// <param name="conversation">An optional compacted conversation to carry on the signal.</param>
+        /// <param name="instructions">Optional inference context to carry on the signal (e.g. compacted Instructions).</param>
         /// <param name="message">An optional runtime message to surface.</param>
         /// <param name="level">The level for the runtime message.</param>
         /// <returns>A success <see cref="RoutingResult"/>.</returns>
-        public static RoutingResult Ok(string data, Conversation? conversation = null, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Blank) =>
-            new(true, data, message, level, null, null, conversation);
+        public static RoutingResult Ok(string data, Instructions? instructions = null, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Blank) =>
+            new(true, data, message, level, null, null, instructions);
 
         /// <summary>
         /// Creates a failure result carrying the back-routed feedback string.

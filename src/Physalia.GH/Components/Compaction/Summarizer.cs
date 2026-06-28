@@ -23,19 +23,18 @@ namespace Physalia.GH.Components;
 /// pattern production agents use as their default. Unlike the deterministic windows it preserves the
 /// meaning of dropped turns instead of forgetting them, at the cost of one inference call.
 ///
-/// <para>Routes like the rest of the Compaction family (and like the Reasoner): a trigger
-/// <c>Signal</c> starts the run, the source conversation arrives on the typed input, and the
-/// compacted conversation is emitted on the <b>Success Signal</b>. The call runs asynchronously
-/// (<see cref="AutoScheduleRead"/> is false; the read pass fires from the completion callback). Wire
-/// the Success Signal through a <see cref="Feedback"/> → <see cref="FeedbackCollector"/> link back
-/// to a Recorder's Conversation input, which breaks GH's acyclic constraint.</para>
+/// <para>An inline forward-path compactor (like the deterministic windows, but asynchronous): it
+/// consumes a Recorder's Signal carrying the full Instructions, summarizes the older conversation, and
+/// re-emits a Signal carrying the compacted Instructions on its <b>Success Signal</b>, wired straight
+/// to the Reasoner (<c>Recorder → Summarizer → Reasoner</c>). The call runs asynchronously
+/// (<see cref="AutoScheduleRead"/> is false; the read pass fires from the completion callback). The
+/// system prompt is preserved (never summarized); only the conversation is.</para>
 /// </summary>
 public class Summarizer : RoutingComponentBase<Instructions>
 {
-    private const int InSourceInstructions = 0;
-    private const int InModel = 1;
-    private const int InInstruction = 2;
-    private const int InKeepRecent = 3;
+    private const int InModel = 0;
+    private const int InInstruction = 1;
+    private const int InKeepRecent = 2;
 
     private CompactionResult? _result;
     private string? _error;
@@ -62,7 +61,6 @@ public class Summarizer : RoutingComponentBase<Instructions>
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "The instructions to compact — typically a Recorder's Instructions output. The system prompt is preserved (never summarized); only the conversation is.", GH_ParamAccess.item);
         pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Model configuration for the summarization call, from a Model or Tweaker component.", GH_ParamAccess.item);
         int instructionIdx = pManager.AddTextParameter("Summary Prompt", "SP", "Summarization instruction (system prompt for the compaction call). Optional; a sensible default is used when blank.", GH_ParamAccess.item, string.Empty);
         pManager.AddIntegerParameter("Keep Recent", "K", "How many of the most recent messages to keep verbatim; everything older is summarized into one turn.", GH_ParamAccess.item, 6);
@@ -70,13 +68,13 @@ public class Summarizer : RoutingComponentBase<Instructions>
     }
 
     /// <inheritdoc/>
-    /// <remarks>The trigger signal just says "go"; the conversation to compact comes from the typed input.</remarks>
+    /// <remarks>The Instructions to compact ride on the consumed signal itself (from the Recorder).</remarks>
     protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out Instructions data)
     {
         data = default!;
-        var goo = new GH_Instructions();
-        if (!da.GetData(InSourceInstructions, ref goo) || goo.Value is not Instructions instructions)
+        if (signal.Instructions is not Instructions instructions)
         {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Signal carried no Instructions — wire a Recorder into this input.");
             return false;
         }
 
@@ -129,7 +127,7 @@ public class Summarizer : RoutingComponentBase<Instructions>
         string trace = $"Compacted {_result.OriginalMessageCount} → {_result.RetainedMessageCount} messages";
         return RoutingResult.Ok(
             trace,
-            conversation: _result.Conversation,
+            instructions: new Instructions(data.SystemPrompt, _result.Conversation),
             message: $"{trace} ({_result.DroppedMessageCount} folded into the summary).",
             level: GH_RuntimeMessageLevel.Remark);
     }

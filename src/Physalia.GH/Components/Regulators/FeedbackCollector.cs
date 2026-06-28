@@ -95,11 +95,7 @@ public class FeedbackCollector : StatefulComponentBase
             // payload strings alone would lose it. Concatenate every injected signal's blocks.
             var blocks = _batch.SelectMany(s => s.ContentBlocks).ToList();
 
-            // Preserve a compacted conversation routed through the batch (from a compaction
-            // component): the latest one wins, since each carries the whole replacement history.
-            var conversation = _batch.Select(s => s.Conversation).LastOrDefault(c => c is not null);
-
-            LatchSuccess(joined, emitSignal: true, outcome: outcome, contentBlocks: blocks.Count > 0 ? blocks : null, conversation: conversation);
+            LatchSuccess(joined, emitSignal: true, outcome: outcome, contentBlocks: blocks.Count > 0 ? blocks : null);
             _batch = new List<PhySignal>();
 
             bool more;

@@ -9,24 +9,25 @@ using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Signals;
-using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Maintains the full conversation history as an append-only log.
-/// An optional Conversation override replaces the active conversation (for compaction)
-/// while the Recorded History output preserves every message ever seen.
+/// Maintains the full conversation history as an append-only log and emits it as a single Signal
+/// that <b>carries the full Instructions</b> (system prompt + conversation) for inference — the
+/// trigger and the data are one event. The Recorder is the uncompacted source of truth: a compaction
+/// component sits on the forward path (<c>Recorder → Compactor → Reasoner</c>) and only transforms the
+/// copy on the signal; the Reasoner's response flows back (wirelessly, via Feedback Collector) and
+/// appends to this full log.
 ///
-/// <para>Events arrive on three dedicated Signal inputs — Prompt, Response, Feedback —
-/// so the turn type comes from event identity, never from conversation parity. Signals
-/// are consumed in global sequence order (causal order), which guarantees a response is
-/// recorded before the feedback it provoked even when both arrive in the same solve.
-/// User-side text arriving while the last turn is already a user message merges into
-/// that message, preserving the role alternation providers require. The outgoing Signal
-/// is minted only when a user turn was recorded — assistant turns latch quietly so a
-/// Reasoner wired off this output cannot re-fire itself in an infinite loop.</para>
+/// <para>Events arrive on dedicated Signal inputs — Prompt, Response, Feedback, Tool — so the turn
+/// type comes from event identity, never from conversation parity. Signals are consumed in global
+/// sequence order (causal order), which guarantees a response is recorded before the feedback it
+/// provoked even when both arrive in the same solve. User-side text arriving while the last turn is
+/// already a user message merges into that message, preserving the role alternation providers require.
+/// The outgoing Signal is minted only when a user turn was recorded — assistant turns latch quietly so
+/// a Reasoner wired off this output cannot re-fire itself in an infinite loop.</para>
 /// </summary>
 public class Recorder : StatefulComponentBase
 {
@@ -35,14 +36,10 @@ public class Recorder : StatefulComponentBase
     private const int InResponseSignal = 2;
     private const int InFeedbackSignal = 3;
     private const int InToolSignal = 4;
-    private const int InConversation = 5;
+
+    private const int OutSignal = 0;
 
     private Conversation _conversation = Conversation.Empty;
-    private Conversation _recordedHistory = Conversation.Empty;
-
-    // Latched outputs; null while Empty or Active so the wires are genuinely blank.
-    private Instructions? _latchedInstructions;
-    private Conversation? _latchedHistory;
 
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
@@ -54,14 +51,13 @@ public class Recorder : StatefulComponentBase
         Nothing,
         UserTurn,
         AssistantTurn,
-        CompactionApplied,
     }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Recorder"/> class.
     /// </summary>
     public Recorder()
-        : base("Recorder", "Rec", "Maintains the full conversation history as an append-only log.", "Core")
+        : base("Recorder", "Rec", "Maintains the conversation history and emits it as a Signal carrying the full Instructions for inference.", "Core")
     {
     }
 
@@ -69,9 +65,10 @@ public class Recorder : StatefulComponentBase
     public override Guid ComponentGuid => new Guid("43A02F6D-D97D-4241-B4DD-067D7AE0D75E");
 
     /// <summary>
-    /// Gets the active (post-compaction) conversation, for display only — e.g. Prompter's
-    /// chat panel. Conversation is immutable, so callers cannot corrupt the log, but they
-    /// must never hold the reference across solves (it is replaced on every append).
+    /// Gets the active conversation, for display only — e.g. Prompter's chat panel. Always the full
+    /// uncompacted log (compaction happens downstream, never here). Conversation is immutable, so
+    /// callers cannot corrupt the log, but they must never hold the reference across solves (it is
+    /// replaced on every append).
     /// </summary>
     public Conversation ActiveConversation => _conversation;
 
@@ -86,21 +83,17 @@ public class Recorder : StatefulComponentBase
         pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the Reasoner's Success Signal.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Records feedback as a user turn. Wire one or more Feedback Collectors directly — no OR gate needed.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Tool Signal", "TS", "Records tool turns from a Router (via Feedback Collector): a signal whose content blocks carry tool_use is logged as an assistant turn; one whose blocks carry tool_result is logged as a user turn.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_Signal(), "Conversation", "C", "Optional compacted-conversation signal from a Feedback Collector (fed by a compaction component). Replaces the active conversation; Recorded History keeps the full log. The compaction loop must arrive wirelessly — a direct wire would be an illegal cycle.", GH_ParamAccess.list);
 
         pManager[InPromptSignal].Optional = true;
         pManager[InResponseSignal].Optional = true;
         pManager[InFeedbackSignal].Optional = true;
         pManager[InToolSignal].Optional = true;
-        pManager[InConversation].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Conversation history and system prompt bundled for inference. Latched after each run.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_Signal(), "Signal", "Sig", "Latched signal minted when a user turn was recorded. Assistant turns latch quietly.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_Conversation(), "Recorded History", "H", "Full conversation history including all messages before and after compaction.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Signal", "Sig", "Latched signal minted when a user turn was recorded; it carries the full Instructions (system prompt + conversation) for inference. Wire into a Reasoner (optionally through a compaction component). Casts to Instructions/Conversation/text. Assistant turns latch quietly.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -119,31 +112,23 @@ public class Recorder : StatefulComponentBase
         DA.GetData(InSystemPrompt, ref systemPrompt);
 
         // Observe every solve, even mid-run: events arriving while busy wait, latched on
-        // their wires, and are serviced after the latch. The Conversation input is itself a
-        // Signal input — a compacted conversation arrives wirelessly via a Feedback Collector
-        // (a direct wire back from this Recorder's own output would be an illegal cycle).
-        ObserveSignalInputs(DA, InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal, InConversation);
+        // their wires, and are serviced after the latch.
+        ObserveSignalInputs(DA, InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal);
 
         if (_doLatch)
         {
             // LATCH PASS — runs only from our own scheduled callback, after the visible delay.
             _doLatch = false;
-            _latchedInstructions = new Instructions(systemPrompt, _conversation);
-            _latchedHistory = _recordedHistory;
 
             switch (_pendingOutcome)
             {
                 case AppendOutcome.UserTurn:
-                    LatchSuccess(_pendingUserText);
+                    // The minted signal carries the full Instructions: the trigger IS the data.
+                    LatchSuccess(_pendingUserText, instructions: new Instructions(systemPrompt, _conversation));
                     break;
                 case AppendOutcome.AssistantTurn:
                     // Quiet success: a Reasoner wired off the outgoing signal must not
                     // re-fire after its own response is recorded.
-                    LatchSuccess(string.Empty, emitSignal: false);
-                    break;
-                case AppendOutcome.CompactionApplied:
-                    // Quiet success: replacing the active conversation must not fire a new run.
-                    // The latched Instructions now carry the compacted conversation.
                     LatchSuccess(string.Empty, emitSignal: false);
                     break;
                 default:
@@ -152,14 +137,14 @@ public class Recorder : StatefulComponentBase
                     break;
             }
 
-            if (HasUnconsumedSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal, InConversation))
+            if (HasUnconsumedSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal))
             {
                 // Events arrived mid-run; nothing was dropped. One follow-up solve
                 // services them in sequence order.
                 ScheduleStateSolve(1, () => { });
             }
 
-            EmitOutputs(DA);
+            EmitSignal(DA, OutSignal, SuccessSignal);
             return;
         }
 
@@ -169,7 +154,7 @@ public class Recorder : StatefulComponentBase
             // always minted after the response that provoked it, so even when both land
             // in this one solve the assistant turn is recorded first.
             IReadOnlyList<ConsumedSignal> consumed =
-                ConsumeAllSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal, InConversation);
+                ConsumeAllSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal);
 
             if (consumed.Count > 0)
             {
@@ -183,27 +168,19 @@ public class Recorder : StatefulComponentBase
                 }
 
                 ScheduleStateSolve(SolveDelayMs, () => _doLatch = true);
-                EmitOutputs(DA);
+                EmitSignal(DA, OutSignal, SuccessSignal);
                 return;
             }
         }
 
-        // Idle solve — re-emit the latched outputs.
-        EmitOutputs(DA);
-    }
-
-    /// <inheritdoc/>
-    protected override void ClearStateOutputs()
-    {
-        _latchedInstructions = null;
-        _latchedHistory = null;
+        // Idle solve — re-emit the latched signal.
+        EmitSignal(DA, OutSignal, SuccessSignal);
     }
 
     /// <inheritdoc/>
     protected override void OnCleared()
     {
         _conversation = Conversation.Empty;
-        _recordedHistory = Conversation.Empty;
         _doLatch = false;
         _pendingOutcome = AppendOutcome.Nothing;
         _pendingUserText = string.Empty;
@@ -264,34 +241,6 @@ public class Recorder : StatefulComponentBase
             case InToolSignal:
                 RecordToolSignal(item.Signal);
                 break;
-
-            case InConversation:
-                ApplyConversationOverride(item.Signal);
-                break;
-        }
-    }
-
-    /// <summary>
-    /// Replaces the active conversation with a compacted one carried on a signal (from a
-    /// compaction component, delivered wirelessly via a Feedback Collector). Recorded History —
-    /// the append-only ground-truth log — is left untouched: a compaction is a derived view of
-    /// the history, not a new record, and the full log already holds every original message.
-    /// </summary>
-    /// <param name="signal">The consumed conversation signal.</param>
-    private void ApplyConversationOverride(PhySignal signal)
-    {
-        if (signal.Conversation is not Conversation overrideConversation)
-        {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Conversation signal carried no conversation to apply.");
-            return;
-        }
-
-        _conversation = overrideConversation;
-
-        // Do not downgrade a user turn recorded in the same batch (it must still fire the Reasoner).
-        if (_pendingOutcome == AppendOutcome.Nothing)
-        {
-            _pendingOutcome = AppendOutcome.CompactionApplied;
         }
     }
 
@@ -352,7 +301,6 @@ public class Recorder : StatefulComponentBase
             // Guard only: under sequence ordering an assistant turn cannot legally follow
             // another assistant turn, so a throw here indicates a wiring mistake.
             _conversation = _conversation.Append(message);
-            _recordedHistory = _recordedHistory.Append(message);
 
             if (_pendingOutcome == AppendOutcome.Nothing)
             {
@@ -374,7 +322,6 @@ public class Recorder : StatefulComponentBase
             // Guard only: under sequence ordering an assistant turn cannot legally follow
             // another assistant turn, so a throw here indicates a wiring mistake.
             _conversation = _conversation.Append(message);
-            _recordedHistory = _recordedHistory.Append(message);
 
             // Quiet: recording the model's tool-call request must not fire the outgoing Signal
             // (the Reasoner re-runs only once the tool results are recorded as a user turn).
@@ -396,38 +343,17 @@ public class Recorder : StatefulComponentBase
     {
         try
         {
-            // Applied per conversation: each merges or appends based on its own last role
-            // (they can diverge around compaction absorbs). Merging preserves the strict
-            // role alternation providers require when two user-side events arrive in a row.
-            _conversation = RecordUserInto(_conversation, blocks, isFeedback);
-            _recordedHistory = RecordUserInto(_recordedHistory, blocks, isFeedback);
+            // Merging preserves the strict role alternation providers require when two user-side
+            // events arrive in a row (e.g. a prompt followed by feedback before any assistant turn).
+            _conversation = _conversation.Count > 0 && _conversation.Messages[^1].Role == Role.User
+                ? _conversation.MergeIntoLastUserMessage(blocks)
+                : _conversation.Append(new ConversationMessage(Role.User, blocks) { IsFeedback = isFeedback });
             _pendingOutcome = AppendOutcome.UserTurn;
             _pendingUserText = traceText;
         }
         catch (InvalidOperationException ex)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, ex.Message);
-        }
-    }
-
-    private static Conversation RecordUserInto(Conversation conversation, IReadOnlyList<MessageContent> blocks, bool isFeedback) =>
-        conversation.Count > 0 && conversation.Messages[^1].Role == Role.User
-            ? conversation.MergeIntoLastUserMessage(blocks)
-            : conversation.Append(new ConversationMessage(Role.User, blocks) { IsFeedback = isFeedback });
-
-    private void EmitOutputs(IGH_DataAccess da)
-    {
-        // Skip SetData while unlatched so the outputs are truly empty, not null items.
-        if (_latchedInstructions is not null)
-        {
-            da.SetData(0, new GH_Instructions(_latchedInstructions));
-        }
-
-        EmitSignal(da, 1, SuccessSignal);
-
-        if (_latchedHistory is not null)
-        {
-            da.SetData(2, new GH_Conversation(_latchedHistory));
         }
     }
 

@@ -27,6 +27,14 @@ internal static class TokenInputHelper
 
         if (goo is null) return false;
 
+        // A signal carrying full Instructions (a Recorder→Reasoner event) resolves to those directly,
+        // so the Token Estimator can measure a signal wire without a manual Deconstruct Signal.
+        if (goo is GH_Signal sigGoo && sigGoo.Value?.Instructions is { } signalInstructions)
+        {
+            instructions = signalInstructions;
+            return true;
+        }
+
         if (goo is GH_Instructions instrGoo && instrGoo.Value is not null)
         {
             instructions = instrGoo.Value;

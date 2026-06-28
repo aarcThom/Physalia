@@ -15,7 +15,7 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class SlidingWindow : CompactionComponentBase
 {
-    private const int InMaxMessages = 1;
+    private const int InMaxMessages = 0;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SlidingWindow"/> class.

@@ -87,7 +87,6 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
         pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Model configuration from a Model or Tweaker component.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Conversation history and system prompt from Recorder.", GH_ParamAccess.item);
         _toolsIndex = pManager.AddParameter(new Param_ToolDefinition(), "Tools", "T", "Tool definitions from tool nodes, advertised to the model. Optional; leave unwired for plain inference.", GH_ParamAccess.list);
         pManager[_toolsIndex].Optional = true;
         _cancelIndex = pManager.AddBooleanParameter("Cancel", "X", "Rising edge cancels the active inference call.", GH_ParamAccess.item, false);
@@ -105,15 +104,16 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
 
     /// <inheritdoc/>
     /// <remarks>
-    /// The signal payload (Recorder's user text) is deliberately ignored — the full
-    /// context arrives on the typed Instructions input; the signal just says "go".
+    /// The full inference context rides on the consumed signal itself (the Recorder mints a signal
+    /// carrying Instructions; a compaction component re-emits one carrying compacted Instructions).
+    /// The trigger IS the data — there is no separate Instructions input.
     /// </remarks>
     protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out Instructions data)
     {
         data = default!;
-        var goo = new GH_Instructions();
-        if (!da.GetData(1, ref goo) || goo.Value is not Instructions instructions)
+        if (signal.Instructions is not Instructions instructions)
         {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Signal carried no Instructions — wire a Recorder (optionally through a compaction component) into this input.");
             return false;
         }
 

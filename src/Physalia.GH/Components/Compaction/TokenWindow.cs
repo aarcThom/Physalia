@@ -21,8 +21,8 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class TokenWindow : CompactionComponentBase
 {
-    private const int InEstimator = 1;
-    private const int InMaxTokens = 2;
+    private const int InEstimator = 0;
+    private const int InMaxTokens = 1;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TokenWindow"/> class.

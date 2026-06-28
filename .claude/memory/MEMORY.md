@@ -40,7 +40,8 @@
 - [ClaudeCode provider perf](claudecode-provider-perf.md) — the "freezes on real prompts" was extended thinking (fix `MAX_THINKING_TOKENS=0`); warm session ≈ API parity, cold start is native-binary-bound (not flag-bound); `--safe-mode` keeps OAuth, `--bare` breaks it; pipes pinned to no-BOM UTF-8. Measured 2026-06-18.
 
 ## Compaction
-- [Conversation compaction](conversation-compaction.md) — sliding/token/anchored window + content prune + LLM summarizer; Core `Physalia.Core/Compaction/` (Reassemble keystone) + new GH **Compaction** tab. Fills Recorder's Conversation override. Report: `planning/conversation-compaction.md`. 2026-06-27, builds clean.
+- [Conversation compaction](conversation-compaction.md) — sliding/token/anchored window + content prune + LLM summarizer; Core `Physalia.Core/Compaction/` (Reassemble keystone) + GH **Compaction** tab. **Reworked 2026-06-27: Instructions ride the signal; inline forward-path `Recorder → Compactor → Reasoner` (Recorder = signal-only, uncompacted source of truth).** Report: `planning/conversation-compaction.md`. Builds clean.
+- [Signal carrier discipline](signal-carrier-discipline.md) — PhySignal carries exactly Payload + ContentBlocks + Instructions; never add carrier fields for arbitrary types (god-object guard). In CLAUDE.md too.
 
 ## Pickers / Models / Prompts (2026-06-27 batch)
 - [Picker GhJSON serialization](picker-ghjson-serialization.md) — Picker selection now round-trips through `.ghjson` via `physalia.pickerValue` extension (native `.gh` already worked); stores only labels, never API-key secrets.

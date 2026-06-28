@@ -261,7 +261,7 @@ on the minted Success Signal**, wired straight to the Reasoner. Outputs are the 
 | Anchored Window | `Anchor` | `ABA68278-…` | `KeepHeadAndTail` (Keep First / Keep Last) |
 | Content Pruner | `Prune` | `EE741363-…` | `Prune` (Drop Images/Tools/Feedback, Max Tool-Result/Text Chars) |
 | Summarizer | `Distill` | `8241DBD1-…` | `SummarizeAsync` (Model + Summary Prompt + Keep Recent) |
-| Token Threshold | `TokGate` | `02342020-…` | auto-trigger gate (Instructions + estimator + Threshold → Signal) |
+| Token Threshold | `TokGate` | `02342020-…` | router gate: Signal in → **Under Limit** / **Over Limit** by token budget (re-emits the same Instructions-signal) |
 
 - **Token Window** rejects the async API-backed estimators (`AsyncMarkerTokenEstimator`); use
   **Heuristic** or **Tiktoken**.
@@ -309,13 +309,20 @@ only ever transforms the copy on the signal. Without a compactor, `Recorder → 
 
 ## Triggering
 
-A deterministic compactor on the forward path runs **per consumed signal** (every Reasoner-triggering
-turn). To compact only when needed, gate it with the **Token Threshold** (`TokGate`): wire the Recorder's
-Signal into its Instructions input (via the cast); it measures the carried context and mints a Signal on
-the rising edge across a token Threshold (edge-triggered + first-solve baseline so reload/paste/over-budget
-does not auto-fire; re-arms after compaction drops the count). Use its Signal as the compactor's trigger.
-The async **Summarizer** should also self-gate (no-op pass-through under a threshold) so it does not fire
-an LLM call every turn.
+A compactor placed directly on the path (`Recorder → Compactor → Reasoner`) runs **every turn**. To
+compact only when the context is actually large, gate it with the **Token Threshold** (`TokGate`) — a
+**router**, not a trigger-minter. It consumes the Recorder's Signal, estimates the size of the carried
+Instructions, and re-emits that same signal (Instructions intact) on one of two outputs:
+
+```
+Recorder.Signal → Token Threshold ─ Under Limit ────────────────→ Reasoner
+                                   └ Over Limit → Compactor ─────→ Reasoner
+```
+Both branches carry the Instructions, so **every turn reaches the Reasoner exactly once** (consume-once
+on the Reasoner's Signal input dedupes), and compaction runs only on over-budget turns. Set the Threshold
+to ~80% of the model's context window. Needs a synchronous estimator (Heuristic/Tiktoken). The async
+**Summarizer**, if placed inline without a gate, should self-gate (pass through unchanged under a
+threshold) so it does not fire an LLM call every turn.
 
 ## Deferred (per the research's Tier 2/3)
 

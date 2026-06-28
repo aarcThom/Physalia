@@ -4,6 +4,7 @@
 using System;
 using Grasshopper.Kernel;
 using Physalia.Core.ConvoInstruct;
+using Physalia.Core.Signals;
 using Physalia.Core.Tokens;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
@@ -11,30 +12,35 @@ using Physalia.GH.Parameters;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Auto-trigger gate for compaction: estimates the token count of the active context and mints a
-/// Signal once each time the count crosses a threshold upward. Wire its Signal into a compaction
-/// component's Signal input so compaction fires automatically when the conversation grows past the
-/// budget — the research-recommended "compact at ~70–95% of the window" behaviour — rather than on a
-/// manual button.
+/// Token-budget gate for compaction: routes a Recorder's Signal — which carries the full
+/// <see cref="Instructions"/> — by the estimated size of that context. A signal whose context is at or
+/// under the Threshold passes through the <b>Under Limit</b> output; one that exceeds it passes through
+/// the <b>Over Limit</b> output. The routed signal is the same event (the Instructions ride along), so
+/// each branch can be wired onward without losing context.
 ///
-/// <para>The fire is edge-triggered: it mints a fresh signal only on a below→at/above transition, so
-/// a context that sits over the threshold does not re-fire every solve (and the compaction it
-/// triggers, which brings the count back down, re-arms the gate for the next crossing). The first
-/// solve only baselines the current state — a freshly loaded or pasted over-budget component does not
-/// auto-fire. Needs a synchronous token estimator (Heuristic or Tiktoken); the API-backed estimators
-/// count asynchronously and are rejected.</para>
+/// <para>This is how compaction is gated on the forward path: wire the Recorder's Signal in, send
+/// <b>Under Limit → Reasoner</b> (small context goes straight through) and
+/// <b>Over Limit → Compactor → Reasoner</b> (large context is compacted first). Every turn reaches the
+/// Reasoner exactly once; compaction only runs when the context is actually over budget — the
+/// research-recommended "compact at ~70–95% of the window" behaviour.</para>
+///
+/// <para>Needs a synchronous token estimator (Heuristic or Tiktoken); the API-backed estimators count
+/// asynchronously and are rejected. Routing uses the consume-once intake, so a recompute never
+/// re-routes an already-seen signal.</para>
 /// </summary>
 public class TokenThreshold : StatefulComponentBase
 {
-    private const int InData = 0;
+    private const int InSignal = 0;
     private const int InEstimator = 1;
     private const int InThreshold = 2;
 
-    private const int OutSignal = 0;
-    private const int OutTokenCount = 1;
+    private const int OutUnder = 0;
+    private const int OutOver = 1;
+    private const int OutTokenCount = 2;
 
-    private bool _observed;
-    private bool _wasOver;
+    private PhySignal? _underSignal;
+    private PhySignal? _overSignal;
+    private int _lastTokens;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TokenThreshold"/> class.
@@ -43,7 +49,7 @@ public class TokenThreshold : StatefulComponentBase
         : base(
             "Token Threshold",
             "TokGate",
-            "Fires a Signal each time the estimated token count crosses a threshold upward. Wire to a compaction component's Signal input to auto-trigger compaction.",
+            "Routes a Recorder's Signal by the estimated token size of the Instructions it carries: under the threshold passes through, over the threshold routes to a compactor.",
             "Compaction")
     {
     }
@@ -54,25 +60,31 @@ public class TokenThreshold : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "The instructions to measure — typically a Recorder's Instructions (the live context sent to the model, system prompt included).", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_ITokenEstimator(), "Tokenization Technique", "T", "A synchronous token estimator (Heuristic or Tiktoken) used to measure the context.", GH_ParamAccess.item);
-        pManager.AddIntegerParameter("Threshold", "N", "Fire when the estimated token count reaches this value (e.g. ~80% of the model's context limit).", GH_ParamAccess.item, 8000);
+        pManager.AddParameter(new Param_Signal(), "Signal", "S", "The Recorder's Signal to route, carrying the Instructions to measure.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_ITokenEstimator(), "Tokenization Technique", "T", "A synchronous token estimator (Heuristic or Tiktoken) used to measure the carried context.", GH_ParamAccess.item);
+        pManager.AddIntegerParameter("Threshold", "N", "Token budget: a context at or under this passes Under Limit; over it routes to Over Limit (e.g. ~80% of the model's context limit).", GH_ParamAccess.item, 8000);
+        pManager[InSignal].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Signal", "S", "Latched signal minted once each time the token count crosses the threshold upward. Downstream components consume it exactly once.", GH_ParamAccess.item);
-        pManager.AddIntegerParameter("Token Count", "N", "The current estimated token count of the input.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Under Limit", "U", "Carries the signal (with its Instructions) when its context is at or under the threshold. Wire to a Reasoner. Latched until the next routed signal.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Over Limit", "O", "Carries the signal (with its Instructions) when its context exceeds the threshold. Wire to a compaction component, then on to the Reasoner. Latched until the next routed signal.", GH_ParamAccess.item);
+        pManager.AddIntegerParameter("Token Count", "N", "Estimated token count of the most recently routed context.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
+        // Observe every solve so the consume-once baseline holds and latched outputs are re-emitted.
+        ObserveSignalInputs(DA, InSignal);
+
         var estimatorGoo = new GH_ITokenEstimator();
         if (!DA.GetData(InEstimator, ref estimatorGoo) || estimatorGoo.Value is not ITokenEstimator estimator)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Connect a token estimator (a Tokenization Technique).");
+            EmitRouted(DA);
             return;
         }
 
@@ -81,49 +93,48 @@ public class TokenThreshold : StatefulComponentBase
             AddRuntimeMessage(
                 GH_RuntimeMessageLevel.Warning,
                 "Token Threshold needs a synchronous estimator (Heuristic or Tiktoken). The Anthropic, Gemini, and LlamaCpp estimators count asynchronously and cannot be used here.");
-            return;
-        }
-
-        var instrGoo = new GH_Instructions();
-        if (!DA.GetData(InData, ref instrGoo) || instrGoo.Value is not Instructions instructions)
-        {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Connect a Recorder's Instructions output.");
+            EmitRouted(DA);
             return;
         }
 
         int threshold = 0;
         DA.GetData(InThreshold, ref threshold);
 
-        int tokens = estimator.Estimate(instructions);
-        bool isOver = tokens >= threshold;
-
-        if (!_observed)
+        // Route each newly-arrived signal by the token size of the Instructions it carries.
+        foreach (ConsumedSignal item in ConsumeAllSignals(InSignal))
         {
-            // Baseline: never auto-fire on a fresh, pasted, or reloaded component, even if it
-            // opens already over the threshold.
-            _observed = true;
-        }
-        else if (isOver && !_wasOver)
-        {
-            // Rising edge across the threshold: mint a fresh signal so a downstream compactor fires
-            // exactly once. The payload is a trace only — the compactor reads the conversation from
-            // its own typed input.
-            LatchSuccess($"Token threshold reached: {tokens} ≥ {threshold}");
+            _lastTokens = item.Signal.Instructions is Instructions instructions
+                ? estimator.Estimate(instructions)
+                : 0;
+
+            if (_lastTokens > threshold)
+            {
+                _overSignal = item.Signal;
+            }
+            else
+            {
+                _underSignal = item.Signal;
+            }
         }
 
-        _wasOver = isOver;
-
-        Message = $"{tokens} / {threshold}";
+        Message = $"{_lastTokens} / {threshold}";
         OnDisplayExpired(true);
 
-        EmitSignal(DA, OutSignal, SuccessSignal);
-        DA.SetData(OutTokenCount, tokens);
+        EmitRouted(DA);
+        DA.SetData(OutTokenCount, _lastTokens);
     }
 
     /// <inheritdoc/>
     protected override void OnCleared()
     {
-        _observed = false;
-        _wasOver = false;
+        _underSignal = null;
+        _overSignal = null;
+        _lastTokens = 0;
+    }
+
+    private void EmitRouted(IGH_DataAccess da)
+    {
+        EmitSignal(da, OutUnder, _underSignal);
+        EmitSignal(da, OutOver, _overSignal);
     }
 }

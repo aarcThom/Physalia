@@ -28,7 +28,7 @@ Routing components (Reasoner, Auditor, Transmitter, Schema Translator) layer the
 ## Core Pipeline
 
 ### Composer
-**Role:** Assembles the system prompt from modular parts at runtime from either ***Library*** component or plain string inputs. Accepts discrete inputs — preamble, format instructions (from schema), plugin list, tool descriptions, reference images — and concatenates them into a single instruction passed to Recorder.
+**Role:** Assembles the system prompt from modular parts at runtime from plain string inputs plus a list of **Grounding** values. Accepts discrete inputs — preamble, format instructions (from schema), and grounding context — and concatenates them into a single instruction passed to Recorder. (Images are *not* grounding — they remain a per-turn concern of the Prompter / chat UI.)
 
 **Deterministic.**
 
@@ -37,6 +37,7 @@ Routing components (Reasoner, Auditor, Transmitter, Schema Translator) layer the
 Inputs:
 - `preamble` — string
 - `schema` — string
+- `grounding` — list of `Grounding`, optional (see **Grounding** below)
 - `tool descriptions` — string, optional
 
 
@@ -427,6 +428,14 @@ Inputs:
 
 Outputs:
 - ***VARIES*** - output will depend on specs in file.
+
+### Grounding
+**Role:** A foundational type — a discriminated union of model-grounding context that the Composer folds into the system prompt. Every variant grounds the model the same way: by contributing a labelled section of **text** (so there is no images-as-grounding path — images stay per-turn on the Prompter / chat UI). New grounding kinds are added by writing one record (`Physalia.Core/Grounding/Grounding.cs`) that overrides `ToSystemPromptSection()`; `GroundingComposer.Append` joins the non-empty sections. The GH goo `GH_Grounding` adapts each producer's goo via `CastFrom` (e.g. the Library's `GH_ComponentCatalog` casts straight onto a Grounding input), so producers need no changes.
+
+**Variants:**
+- `ComponentCatalogGrounding` — installed-component names from the **Library** (migrated from Composer's old Component Catalog input).
+- `ClusterGrounding` *(scaffold)* — a Grasshopper cluster (.ghx), produced by the **Cluster Grounding** component. TODO: extract real cluster I/O.
+- `PythonFunctionGrounding` *(scaffold)* — a python function, produced by the **Python Grounding** component. TODO: parse real signature/docstring.
 
 ### Model
 **Role:** A configuration record that carries everything needed to make an authenticated LLM API call — provider, model identifier, API key, and inference parameters. Wired as an input into any LLM-driven component (Reasoner, Router). API key resolution happens inside Model at instantiation from either a registered environment variable or a user-provided YAML file; downstream components receive a fully configured Model and call it without knowing where the key came from. Multiple Model components can exist in the same pipeline, each configured differently, enabling heterogeneous agent pipelines where different components use different providers or models.

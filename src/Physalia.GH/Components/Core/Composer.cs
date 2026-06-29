@@ -6,9 +6,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using Grasshopper.Kernel;
-using Physalia.Core.Catalog;
+using Physalia.Core.Grounding;
 using Physalia.GH.Generation;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
@@ -71,8 +70,8 @@ public class Composer : PhyBase, IPickableValuesSource
     {
         pManager.AddTextParameter("Preamble", "P", "Instruction preamble. Filename from PREAMBLE folder or inline text.", GH_ParamAccess.item, string.Empty);
         pManager.AddTextParameter("Schema", "S", "JSON schema. Filename from SCHEMA folder or inline text.", GH_ParamAccess.item, string.Empty);
-        int catalogIndex = pManager.AddParameter(new Param_ComponentCatalog(), "Component Catalog", "Cat", "Optional installed-component catalog from the Library component; its component names are folded into the system prompt to ground the model.", GH_ParamAccess.item);
-        pManager[catalogIndex].Optional = true;
+        int groundingIndex = pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Optional grounding context (e.g. the Library's component catalog); each grounding's section is folded into the system prompt to ground the model.", GH_ParamAccess.list);
+        pManager[groundingIndex].Optional = true;
     }
 
     /// <inheritdoc/>
@@ -115,36 +114,19 @@ public class Composer : PhyBase, IPickableValuesSource
 
         string systemPrompt = Assemble(resolvedPreamble, resolvedSchema);
 
-        GH_ComponentCatalog? catalogGoo = null;
-        DA.GetData(2, ref catalogGoo);
-        if (catalogGoo?.Value is { Count: > 0 } catalog)
+        var groundingGoos = new List<GH_Grounding>();
+        DA.GetDataList(2, groundingGoos);
+        var groundings = groundingGoos
+            .Where(g => g?.Value is not null)
+            .Select(g => g.Value)
+            .ToList();
+        if (groundings.Count > 0)
         {
-            systemPrompt = AppendCatalog(systemPrompt, catalog);
+            systemPrompt = GroundingComposer.Append(systemPrompt, groundings);
         }
 
         DA.SetData(0, resolvedSchema);
         DA.SetData(1, systemPrompt);
-    }
-
-    /// <summary>
-    /// Appends the available component names to the system prompt so the model favours names
-    /// that actually exist in the user's installation.
-    /// </summary>
-    /// <param name="prompt">The assembled system prompt.</param>
-    /// <param name="catalog">The installed-component catalog.</param>
-    /// <returns>The prompt with an appended palette of component names.</returns>
-    private static string AppendCatalog(string prompt, ComponentCatalog catalog)
-    {
-        var sb = new StringBuilder(prompt);
-        if (prompt.Length > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine();
-        }
-
-        sb.AppendLine("These Grasshopper components are installed and available. Use these exact names where one fits:");
-        sb.Append(string.Join(", ", catalog.ComponentNames));
-        return sb.ToString();
     }
 
     /// <summary>

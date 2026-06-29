@@ -2,16 +2,17 @@
 
   <!--
     Physalia.UI — the standalone chat window front-end (Vite + Svelte 5 + Tailwind +
-    svelte-ai-elements). It builds to a single self-contained HTML file that the Eto
-    WebView host (Physalia.GH/Panels/ChatWindow.cs) loads from Files/UI/chat.html.
+    svelte-ai-elements). It builds to a single self-contained HTML file (dist/index.html)
+    that Physalia.GH embeds as a resource; the Eto WebView host
+    (Physalia.GH/Panels/ChatWindow.cs) extracts it to a temp file at runtime and loads it.
 
     This is an MSBuild wrapper around the npm toolchain — it compiles no C#. The built
-    artifact (Files/UI/chat.html) is GITIGNORED (it is ~3 MB minified and reproducible).
+    artifact (dist/index.html) is GITIGNORED (it is ~3 MB minified and reproducible).
     Physalia.GH takes a build-ordering ProjectReference on this project, so a normal build
-    (VS or `dotnet build`) runs Vite here first and Physalia.GH then stages the fresh
-    chat.html into its bin/<Config>/Files/UI. The Vite step is incremental (skipped when no
-    UI source changed) and can be disabled with -p:BuildUI=false for a Node-free build (the
-    chat window then shows a "UI not found" page).
+    (VS or `dotnet build`) runs Vite here first and Physalia.GH then embeds the fresh
+    dist/index.html into its assembly (see Physalia.GH's EmbedChatHtml target). The Vite step
+    is incremental (skipped when no UI source changed) and can be disabled with
+    -p:BuildUI=false for a Node-free build (the chat window then shows a "UI not found" page).
   -->
 
   <PropertyGroup>
@@ -60,17 +61,15 @@
   </Target>
 
   <!-- Inputs/Outputs make this incremental: npm runs only when a UI source is newer than the
-       generated chat.html (so plain C# rebuilds don't pay the Vite cost). -->
+       generated dist/index.html (so plain C# rebuilds don't pay the Vite cost). The bundle is
+       NOT copied anywhere here — Physalia.GH embeds dist/index.html directly as a resource
+       (see its EmbedChatHtml target), so the canonical output is dist/index.html. -->
   <Target Name="BuildPhysaliaUI" AfterTargets="Build" Condition="'$(BuildUI)' == 'true'"
           Inputs="@(PhysaliaUiInput)"
-          Outputs="$(MSBuildProjectDirectory)\..\..\Files\UI\chat.html">
+          Outputs="$(MSBuildProjectDirectory)\dist\index.html">
     <Message Importance="high" Text="Physalia.UI: building chat window front-end with Vite…" />
     <Exec Command="npm run build" WorkingDirectory="$(MSBuildProjectDirectory)" />
-    <MakeDir Directories="$(MSBuildProjectDirectory)\..\..\Files\UI" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\dist\index.html"
-          DestinationFiles="$(MSBuildProjectDirectory)\..\..\Files\UI\chat.html"
-          OverwriteReadOnlyFiles="true" />
-    <Message Importance="high" Text="Physalia.UI: chat.html refreshed in Files/UI." />
+    <Message Importance="high" Text="Physalia.UI: dist/index.html refreshed (embedded by Physalia.GH)." />
   </Target>
 
 </Project>

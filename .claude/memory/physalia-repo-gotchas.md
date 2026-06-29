@@ -19,9 +19,11 @@ CLAUDE.md has stale paths:
 **Files-folder build pipeline (single source of truth = repo-root `Physalia\Files`):**
 `Physalia.GH.csproj`'s `CopyLibraryFiles` target (`AfterTargets=Build`) includes
 `$(MSBuildProjectDirectory)\..\..\Files\**\*` (= repo-root `Files`) and copies it into
-`$(TargetDir)Files` (= `bin/<Config>/<TFM>/Files`). The UI's `chat.html` reaches bin through
-this same copy (UI target writes repo-root `Files/UI/chat.html` first — see below). There is
-NO longer a `src/Physalia.GH/Files` folder; it was a committed duplicate, removed from git
+`$(TargetDir)Files` (= `bin/<Config>/<TFM>/Files`). `Files` is for USER-ALTERABLE content only
+(presets, system prompts, schemas, API-key config) — it deliberately holds NO compiled plugin
+components. The chat UI bundle does NOT ride this copy: as of 2026-06-29 it is embedded directly
+into the `Physalia.GH` assembly (see chat-UI section below), so there is no `Files/UI/` folder.
+There is also NO `src/Physalia.GH/Files` folder; it was a committed duplicate, removed from git
 2026-06-23 (commits `1e2b7e8` + `32ab1be`). The old "empty-diff EOL noise on
 `src/Physalia.GH/Files/PhySchema.json`" gotcha is gone with it.
 
@@ -35,33 +37,46 @@ NO longer a `src/Physalia.GH/Files` folder; it was a committed duplicate, remove
   `dotnet msbuild <proj> -getProperty:TargetDir` (returns "" on a `TargetFrameworks` project).
   Related: [[trigger-state-machine-status]].
 
-Svelte chat UI build (`src/Physalia.UI`, a no-assembly MSBuild wrapper around Vite that
-emits `Files/UI/chat.html`, gitignored): Visual Studio's fast up-to-date check (FUTDC) skips
-projects with no managed output, so in VS the `BuildPhysaliaUI` target never ran and
-chat.html was never generated/copied to the GH debug folder — while `dotnet build` (no
-FUTDC) worked fine. Fixed 2026-06-22 by adding `<DisableFastUpToDateCheck>true</…>` to
-`Physalia.UI.csproj`, and splitting npm restore into a lockfile-incremental
-`RestorePhysaliaUI` target using `npm ci` (the old `!Exists(node_modules)` guard never
-reinstalled after a dependency bump).
+**Chat UI bundle is EMBEDDED in the assembly (changed 2026-06-29).** `src/Physalia.UI` is a
+no-assembly MSBuild wrapper around Vite; `BuildPhysaliaUI` runs `npm run build` → one
+self-contained `src/Physalia.UI/dist/index.html` (~3.3 MB, gitignored). `Physalia.GH.csproj`'s
+`EmbedChatHtml` target then embeds that file directly as the `Physalia.GH.chat.html` manifest
+resource. At runtime `ChatWindow.TryExtractChatHtml` writes it to
+`%TEMP%/Physalia/chat-<asmVersion>.html` (reused when present + same size) and `LoadUi` loads
+it via `file://`. The bundle no longer touches `Files/` or `CopyLibraryFiles` at all.
+- `EmbedChatHtml` hooks `BeforeTargets="SplitResourcesByCulture"`, NOT `CoreCompile`: it must
+  add the `<EmbeddedResource>` BEFORE resource prep finalizes the list (resource prep is a
+  CoreCompile dependency, so a `CoreCompile` hook is too late — the resource silently won't
+  embed and the `.gha` stays ~0.5 MB instead of ~3.9 MB). The `Exists(dist/index.html)`
+  condition is on the TARGET (not a static item) so the check is deferred until after the UI
+  ProjectReference has built; a static `<EmbeddedResource Condition="Exists()">` evaluates at
+  project-evaluation time (before UI builds on a clean build) and embeds nothing.
+- `-p:BuildUI=false`: dist absent → resource not embedded → `GetManifestResourceStream` null →
+  `ChatWindow` shows the "UI not found" page. Behavior preserved.
 
-**`Physalia.GH.csproj` ALSO needs `<DisableFastUpToDateCheck>true</…>` (added 2026-06-23).**
-Forcing the UI project to build wasn't enough: the bin copy is `Physalia.GH`'s
-`CopyLibraryFiles`, so when only UI source changed (no `.cs` edit) VS's FUTDC deemed GH
-up-to-date and SKIPPED it → CopyLibraryFiles never ran → `bin/.../Files/UI/chat.html` lagged
-ONE build behind (Rhino kept loading the old UI; you had to build twice). VS evaluates GH's
-up-to-date status BEFORE the build, using the stale repo-root chat.html timestamp, while the
-UI ProjectReference regenerates chat.html DURING the build — an inherent one-build lag the
-`UpToDateCheckBuilt` pairing can't close. `dotnet build` CLI never had this (always runs the
-Build target). Mirroring the UI flag on GH makes VS invoke MSBuild every build so
-CopyLibraryFiles always stages the fresh chat.html; CoreCompile stays incremental (Csc still
-skips when no `.cs` changed), so the only added cost is the MSBuild pass.
-**How to apply:** if the chat window shows "UI not found" or stale UI, confirm chat.html
-exists in `Files/UI/` and matches `bin/<Config>/Files/UI/` (sha256). A no-output wrapper
-skipped by VS, OR `Physalia.GH` itself skipped by VS when only UI changed, is the usual cause.
+Visual Studio's fast up-to-date check (FUTDC) skips projects with no managed output, so in VS
+the `BuildPhysaliaUI` target never ran and dist was never regenerated — while `dotnet build`
+(no FUTDC) worked fine. Fixed 2026-06-22 by adding `<DisableFastUpToDateCheck>true</…>` to
+`Physalia.UI.csproj`, and splitting npm restore into a lockfile-incremental `RestorePhysaliaUI`
+target using `npm ci` (the old `!Exists(node_modules)` guard never reinstalled after a
+dependency bump).
 
-**`npm run build` alone does NOT reach `bin`.** It only writes `src/Physalia.UI/dist/index.html`.
-The propagation is MSBuild: the `BuildPhysaliaUI` target copies `dist/index.html` → repo
-`Files/UI/chat.html`, and `Physalia.GH` (ProjectReference) stages that into
-`bin/<Config>/Files/UI/`. So after any UI source edit, run `dotnet build src/Physalia.slnx -c Debug`
-(or build in VS) — not just `npm run build` — or the change is stranded in `dist/` and the
-chat window (loads `chat.html` via `file://`; reopen the window to pick it up) shows the old UI.
+**`Physalia.GH.csproj` ALSO needs `<DisableFastUpToDateCheck>true</…>` (added 2026-06-23, still
+required).** Forcing the UI project to build isn't enough: when only UI source changes (no `.cs`
+edit) VS's FUTDC can deem GH up-to-date and SKIP it → CoreCompile never re-embeds the fresh
+dist → Rhino loads stale UI. (The dynamically-added EmbeddedResource isn't in VS's static FUTDC
+inputs, so VS can't see that dist changed.) Mirroring the flag makes VS invoke MSBuild every
+build; CoreCompile then sees dist/index.html (a CoreCompile input via `@(EmbeddedResource)`) is
+newer than the `.gha` and recompiles. `dotnet build` CLI never had this — verified 2026-06-29
+that touching dist alone triggers a GH recompile + re-embed; CoreCompile stays incremental
+otherwise (skips when neither `.cs` nor dist changed).
+**How to apply:** if the chat window shows "UI not found" or stale UI, run
+`dotnet build src/Physalia.slnx -c Debug` and confirm the `.gha` is ~3.9 MB and its manifest
+includes `Physalia.GH.chat.html` (`[Reflection.Assembly]::LoadFile(...).GetManifestResourceNames()`).
+
+**`npm run build` alone does NOT reach the assembly.** It only writes
+`src/Physalia.UI/dist/index.html`. The propagation is MSBuild: `Physalia.GH` (ProjectReference)
+embeds `dist/index.html` via `EmbedChatHtml`. So after any UI source edit, run
+`dotnet build src/Physalia.slnx -c Debug` (or build in VS) — not just `npm run build` — or the
+change is stranded in `dist/` and the chat window (reopen it to pick up a new build) shows the
+old UI.

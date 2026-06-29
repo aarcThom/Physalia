@@ -160,4 +160,27 @@
 		</ItemGroup>
 	</Target>
 
+	<!-- Embed the built chat UI bundle (Physalia.UI/dist/index.html) directly into this assembly
+	     as Physalia.GH.chat.html. ChatWindow.LoadUi extracts it to a temp file and loads it via
+	     file://. The bundle is a compiled plugin component, so it must NOT live in Files/ (that
+	     folder is reserved for user-alterable content).
+	     This is a TARGET, not a static <EmbeddedResource> item, on purpose: a static item's
+	     Condition="Exists(...)" is evaluated at project-evaluation time, which in a solution
+	     build runs before Physalia.UI's Vite step — so on a clean build dist/index.html doesn't
+	     exist yet and nothing gets embedded. The hook is BeforeTargets="SplitResourcesByCulture"
+	     (the target that reads @(EmbeddedResource) and hands it to the compiler): it runs after
+	     the referenced UI project has built (so dist/index.html exists) but before the resource
+	     list is finalized — hooking CoreCompile instead is too late, since resource prep is a
+	     dependency of CoreCompile and has already run by then. When -p:BuildUI=false,
+	     dist/index.html is absent, nothing is embedded, and ChatWindow falls back to its
+	     "UI not found" page. -->
+	<Target Name="EmbedChatHtml" BeforeTargets="SplitResourcesByCulture"
+	        Condition="Exists('$(MSBuildProjectDirectory)\..\Physalia.UI\dist\index.html')">
+		<Message Importance="high" Text="Physalia.GH: embedding chat UI bundle as Physalia.GH.chat.html…" />
+		<ItemGroup>
+			<EmbeddedResource Include="$(MSBuildProjectDirectory)\..\Physalia.UI\dist\index.html"
+			                  LogicalName="Physalia.GH.chat.html" />
+		</ItemGroup>
+	</Target>
+
 </Project>

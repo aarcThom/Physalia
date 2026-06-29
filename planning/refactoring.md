@@ -891,10 +891,13 @@ Recommendations:
 
 `Physalia.GH.csproj` contains a prebuild target that references `scripts/update_model_info.py`. Verify whether that script exists and whether the target still belongs in the build. If the script is obsolete, remove the target. If it is required, move the script into a tracked location and make failure behavior explicit.
 
-The UI build output is copied into `Files/UI/chat.html`. Keep generated output policy clear:
+The UI build output (`Physalia.UI/dist/index.html`) is embedded into the `Physalia.GH` assembly
+as the `Physalia.GH.chat.html` resource (RESOLVED 2026-06-29 — it was previously copied into
+`Files/UI/chat.html`, which wrongly placed a compiled component in the user-alterable `Files/`
+tree). Generated-output policy is now unambiguous:
 
-- Source lives in `Physalia.UI`.
-- Generated `chat.html` is ignored or intentionally committed, but not ambiguous.
+- Source lives in `Physalia.UI`; the generated `dist/index.html` is gitignored.
+- The bundle ships embedded in the `.gha`, never as a loose file under `Files/`.
 - `dotnet build` behavior should be documented for both local development and release packaging.
 
 ## Phase 9: Standardize Async, Cancellation, And Errors

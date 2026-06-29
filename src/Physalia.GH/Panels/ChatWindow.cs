@@ -24,8 +24,9 @@ namespace Physalia.GH.Panels;
 /// <summary>
 /// Standalone Eto window hosting the Svelte chat UI (Physalia.UI) for a <see
 /// cref="Chatbox"/> component. The UI is a single self-contained HTML file built by
-/// Physalia.UI and shipped at Files/UI/chat.html; it is loaded from disk via file://
-/// (the bundle inlines all JS/CSS, so there are no cross-origin module fetches).
+/// Physalia.UI and embedded in this assembly (Physalia.GH.chat.html); <see cref="LoadUi"/>
+/// extracts it to a temp file and loads it via file:// (the bundle inlines all JS/CSS, so
+/// there are no cross-origin module fetches).
 ///
 ///   JS -> C# : the page stashes the outgoing message as JSON on the window and
 ///              navigates to phbridge://submit; this class cancels that navigation and
@@ -220,22 +221,56 @@ public class ChatWindow : Form
         => CloseFromHost();
 #endif
 
-    // Loads the built Svelte app from disk (file://), or an explanatory page if missing.
+    // Logical name of the chat UI bundle embedded by Physalia.GH's EmbedChatHtml build target.
+    private const string ChatHtmlResource = "Physalia.GH.chat.html";
+
+    // Loads the built Svelte app, or an explanatory page if it isn't embedded.
+    // The bundle is embedded in this assembly (not shipped loose in Files/); we extract it to a
+    // version-keyed temp file and load that via file://. file:// is required because the ~3 MB
+    // bundle exceeds the WebView NavigateToString/LoadHtml size ceiling, and it keeps the load
+    // path identical across WebView2 (Windows) and WKWebView (Mac).
     private void LoadUi()
     {
-        string? assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        string htmlPath = assemblyDir is null
-            ? string.Empty
-            : Path.Combine(assemblyDir, "Files", "UI", "chat.html");
-
-        if (!string.IsNullOrEmpty(htmlPath) && File.Exists(htmlPath))
+        string? tempPath = TryExtractChatHtml();
+        if (tempPath is not null)
         {
-            _webView.Url = new Uri(htmlPath);
+            _webView.Url = new Uri(tempPath);
         }
         else
         {
             _webView.LoadHtml(MissingHtml);
         }
+    }
+
+    // Writes the embedded chat bundle to %TEMP%/Physalia/chat-<version>.html and returns its
+    // path, or null when the resource isn't embedded (e.g. a -p:BuildUI=false build). The file is
+    // version-keyed and reused when already present with the expected size, so we don't rewrite
+    // ~3 MB on every window open.
+    private static string? TryExtractChatHtml()
+    {
+        Assembly assembly = Assembly.GetExecutingAssembly();
+        using Stream? resource = assembly.GetManifestResourceStream(ChatHtmlResource);
+        if (resource is null)
+        {
+            return null;
+        }
+
+        string version = assembly.GetName().Version?.ToString() ?? "0";
+        string dir = Path.Combine(Path.GetTempPath(), "Physalia");
+        string path = Path.Combine(dir, $"chat-{version}.html");
+
+        if (File.Exists(path) && new FileInfo(path).Length == resource.Length)
+        {
+            return path;
+        }
+
+        Directory.CreateDirectory(dir);
+        using (FileStream file = File.Create(path))
+        {
+            resource.CopyTo(file);
+        }
+
+        return path;
     }
 
     // JS->C# bridge: JS navigates to phbridge://submit ; we cancel and handle it instead.

@@ -10,9 +10,11 @@ in a few specifics — those are kept for rationale):
   (`conversation`, `message`, `response`, `chain-of-thought`, `tool`, `prompt-input`, `image`,
   plus their shadcn bases). It's an MSBuild wrapper (compiles no C#); the npm/Vite build runs
   only with `-p:BuildUI=true` (or `npm run build`), so a plain `dotnet build` needs no Node.
-- **Single-file output.** `vite-plugin-singlefile` inlines all JS/CSS into one `index.html` →
-  copied to **`Files/UI/chat.html`** (committed; the existing `CopyLibraryFiles` target ships it
-  next to the `.gha`). Loaded via `file://` — singlefile means no cross-origin module fetches, so
+- **Single-file output.** `vite-plugin-singlefile` inlines all JS/CSS into one `index.html`
+  (`src/Physalia.UI/dist/`), **embedded into the `Physalia.GH` assembly** as the
+  `Physalia.GH.chat.html` manifest resource by the `EmbedChatHtml` target (it is NOT placed in
+  `Files/`, which is reserved for user-alterable content). At runtime `ChatWindow` extracts it to
+  a temp file and loads it via `file://` — singlefile means no cross-origin module fetches, so
   `file://` works and dodges the WebView2 `NavigateToString` size limit.
 - **Bundle trimming (16 MB → 3.4 MB).** streamdown pulls Shiki (all langs), mermaid (+cytoscape)
   and katex by default; singlefile inlines them all. `vite.config.ts` aliases unused Shiki

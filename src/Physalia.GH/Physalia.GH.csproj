@@ -46,9 +46,15 @@
   
   <ItemGroup>
     <PackageReference Include="Grasshopper" Version="8.24.25281.15001" ExcludeAssets="runtime" />
-<PackageReference Include="System.Drawing.Common" Version="7.0.0" />
+    <!-- ExcludeAssets="runtime": Rhino provides System.Drawing on Mac via its own compat layer,
+         so this must NOT be shipped (loose) or merged (type-identity clash) — it stays external.
+         GeneratePathProperty exposes $(PkgSystem_Drawing_Common) so ILRepack can still resolve
+         references to it during the merge even though it never reaches the output dir. -->
+    <PackageReference Include="System.Drawing.Common" Version="7.0.0" ExcludeAssets="runtime" GeneratePathProperty="true" />
     <PackageReference Include="GhJSON.Core" Version="1.0.0" />
     <PackageReference Include="GhJSON.Grasshopper" Version="1.0.0" />
+    <!-- Build-time only: merges the managed dependency DLLs into the .gha (see RepackGha target). -->
+    <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.45" PrivateAssets="all" />
   </ItemGroup>
   
   <ItemGroup>
@@ -181,6 +187,67 @@
 			<EmbeddedResource Include="$(MSBuildProjectDirectory)\..\Physalia.UI\dist\index.html"
 			                  LogicalName="Physalia.GH.chat.html" />
 		</ItemGroup>
+	</Target>
+
+	<!-- Merge the managed dependency DLLs into the single .gha (ILRepack) so the plugin ships as
+	     one self-contained file instead of a .gha + loose DLL folder, and so its copies of
+	     JsonSchema.Net / SharpToken / GhJSON are internalized — isolating them from version
+	     clashes with other plugins in Grasshopper's shared load context.
+	     Every merged dep is pure-managed IL, so the result runs identically on .NET 7 CoreCLR on
+	     Windows and Mac; embedding adds no native/RID risk.
+	     Host-provided assemblies stay EXTERNAL (never merged): Grasshopper (ExcludeAssets=runtime),
+	     System.Drawing.Common (ExcludeAssets=runtime; Rhino supplies it on Mac), and the Rhino SDK
+	     references (Private=False). They don't reach the output dir, but the denylist is a
+	     belt-and-suspenders guard against a stray transitive copy.
+	     Pass -p:RepackGha=false to skip the merge for fast inner-loop builds (loose DLLs remain).
+	     The TargetFramework guard keeps this out of the outer multi-targeting dispatch build,
+	     same reason as CopyLibraryFiles. -->
+	<PropertyGroup>
+		<RepackGha Condition="'$(RepackGha)' == ''">true</RepackGha>
+	</PropertyGroup>
+
+	<Target Name="RepackGha" AfterTargets="Build"
+	        Condition="'$(RepackGha)' == 'true' and '$(TargetFramework)' != ''">
+		<ItemGroup>
+			<!-- Host- / framework-provided assemblies that must remain external references. -->
+			<RepackDenyList Include="System.Drawing.Common" />
+			<RepackDenyList Include="RhinoCommon" />
+			<RepackDenyList Include="Grasshopper" />
+			<RepackDenyList Include="GH_IO" />
+			<RepackDenyList Include="Eto" />
+			<RepackDenyList Include="Rhino.Runtime.Code" />
+			<RepackDenyList Include="RhinoCodePlatform.GH" />
+			<RepackDenyList Include="RhinoCodePlatform.GH1" />
+			<RepackDenyList Include="Microsoft.Web.WebView2.Core" />
+		</ItemGroup>
+		<ItemGroup>
+			<!-- Candidate deps = every DLL in the output dir, minus the denylist. -->
+			<RepackInputDll Include="$(TargetDir)*.dll"
+			                Exclude="@(RepackDenyList->'$(TargetDir)%(Identity).dll')" />
+			<!-- Primary assembly MUST be first: the built .gha leads, deps follow. -->
+			<RepackInput Include="$(TargetPath)" />
+			<RepackInput Include="@(RepackInputDll)" />
+			<!-- Search paths so ILRepack can resolve the external host assemblies referenced by the
+			     merged deps (GhJSON.Grasshopper → Grasshopper/RhinoCommon/GH_IO; GhJSON → System.Drawing).
+			     Derive them from the directories of the actual resolved compile references so the
+			     EXACT versions match — the NuGet Grasshopper (8.24) differs from the installed
+			     Rhino's copy (8.28), so pointing at the Rhino System dir would fail version resolution. -->
+			<RepackLibPath Include="@(ReferencePath->'%(RootDir)%(Directory)')" />
+			<RepackLibPath Include="$(TargetDir)" />
+		</ItemGroup>
+		<Message Importance="high"
+		         Text="Physalia.GH: ILRepack merging [@(RepackInputDll->'%(Filename)', ', ')] into $(TargetFileName)" />
+		<ILRepack
+			Parallel="true"
+			Internalize="true"
+			InputAssemblies="@(RepackInput)"
+			LibraryPath="@(RepackLibPath)"
+			TargetKind="Dll"
+			OutputFile="$(TargetPath)" />
+		<!-- Remove the now-merged loose DLLs (and their sidecars) from the output dir. -->
+		<Delete Files="@(RepackInputDll)" />
+		<Delete Files="@(RepackInputDll->'%(RootDir)%(Directory)%(Filename).pdb')" />
+		<Delete Files="@(RepackInputDll->'%(RootDir)%(Directory)%(Filename).xml')" />
 	</Target>
 
 </Project>

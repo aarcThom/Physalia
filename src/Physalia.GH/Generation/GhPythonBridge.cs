@@ -133,16 +133,243 @@ public static class GhPythonBridge
     /// <param name="obj">The GH Python Script component.</param>
     /// <param name="specs">Typed parameter specs for the new input parameters.</param>
     public static void SetInputs(IGH_DocumentObject obj, IEnumerable<GhParamSpec> specs)
-        => UpdateParams(obj, "UpdateInputParameters", specs);
+        => UpdateParams(obj, "UpdateInputParameters", specs, typed: true);
 
     /// <summary>
-    /// Replaces all output parameters on the component with typed parameters built from
-    /// <paramref name="specs"/>.
+    /// Replaces all output parameters on the component with parameters built from
+    /// <paramref name="specs"/>. Outputs are deliberately left untyped (<c>ParamType.Any</c>),
+    /// only their access is honoured. A concretely-typed output param (e.g. GeometryBase) that
+    /// the script hands a Python list throws a fatal <c>ParamConvertException</c> whenever the
+    /// access is Item — and on the first push of a freshly generated script the RhinoCode engine
+    /// forces Item access via auto-declaration (no compiled instance yet), clobbering any
+    /// promoted List access. An untyped output is a <c>Param_GenericObject</c>, so it wraps
+    /// whatever Python returns (a clean list under List access, a single generic goo under Item)
+    /// and can never fail conversion. The access promotion still applies, producing a clean list
+    /// once the access sticks.
     /// </summary>
     /// <param name="obj">The GH Python Script component.</param>
-    /// <param name="specs">Typed parameter specs for the new output parameters.</param>
+    /// <param name="specs">Parameter specs for the new output parameters; type hints are ignored.</param>
     public static void SetOutputs(IGH_DocumentObject obj, IEnumerable<GhParamSpec> specs)
-        => UpdateParams(obj, "UpdateOutputParameters", specs);
+        => UpdateParams(obj, "UpdateOutputParameters", specs, typed: false);
+
+    /// <summary>
+    /// Turns on output marshalling for the component (the engine's <c>MarshOutputs</c> flag, the
+    /// inverse of the editor's "Avoid Marshalling Outputs" menu item), so Python output values are
+    /// converted to GH-native data before assignment.
+    /// <para>This is what actually flattens a list output. The engine assigns an output as a list
+    /// (<c>SetDataList</c>) only when the captured value is a .NET enumerable; with marshalling off it
+    /// stores the raw Python object, which GH wraps as a single opaque <c>GH_ObjectWrapper&lt;PyObject&gt;</c>
+    /// (one item, never flattened) regardless of access or type hint. The flag defaults on for a
+    /// hand-made component but is copied from the script when code is set, so a pushed script can land
+    /// with it off. Forcing it on makes the engine marshal a Python list to a .NET list, which the GH
+    /// layer then expands into individual items.</para>
+    /// </summary>
+    /// <param name="obj">The GH Python Script component.</param>
+    public static void EnableOutputMarshalling(IGH_DocumentObject obj)
+    {
+        for (Type? t = obj.GetType(); t != null; t = t.BaseType)
+        {
+            PropertyInfo? prop = t.GetProperty("MarshOutputs",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (prop?.CanWrite == true)
+            {
+                prop.SetValue(obj, true);
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pins the named output parameters to the "No Type Hint" converter, undoing the type hint the
+    /// engine installs on a freshly built Python output.
+    /// <para>An LLM output handed a Python value (especially a list) must use No Type Hint: the
+    /// default "ghdoc Object" converter wraps whatever Python returns as a single opaque
+    /// <c>GH_ObjectWrapper&lt;PyObject&gt;</c> — even under List access — so a list never flattens and
+    /// downstream conversion fails. <c>SetOutputs</c> pushes <c>ParamType.Any</c>, which resolves to
+    /// the No-Type-Hint (Goo) converter, but the engine's <c>VariableParameterMaintenance</c> then
+    /// swaps any Goo converter on a Python param for the user's configured Default Python Hint (often
+    /// "ghdoc Object"). This re-pins No Type Hint <em>after</em> that swap, through the same path the
+    /// editor's hint menu uses (the <c>IScriptParameter.Converter</c> setter, which re-stamps via
+    /// <c>ParamsApply</c> and does not re-run the converter swap), so it sticks. Setting the converter
+    /// to null is how the engine itself denotes No Type Hint — it coerces to the Goo converter.</para>
+    /// </summary>
+    /// <param name="obj">The GH Python Script component.</param>
+    /// <param name="names">Variable names of the outputs to pin to No Type Hint.</param>
+    public static void SetOutputsNoTypeHint(IGH_DocumentObject obj, IEnumerable<string> names)
+    {
+        if (obj is not IGH_Component component)
+            return;
+
+        var target = new HashSet<string>(names, StringComparer.Ordinal);
+        foreach (IGH_Param param in component.Params.Output)
+        {
+            if (param is IScriptParameter scriptParam && target.Contains(scriptParam.VariableName))
+                SetConverterToNoTypeHint(param);
+        }
+    }
+
+    /// <summary>
+    /// Re-applies the declared access to existing output parameters in place, mirroring the
+    /// editor's right-click "List/Tree Access" path: it flips each matching parameter's
+    /// <c>Access</c> and re-applies the script signature via <c>IScriptObject.ParamsApply</c>,
+    /// without removing or re-registering any parameter.
+    /// <para>This exists because the GH Python Script component auto-declares its parameters
+    /// item-access whenever it has no compiled instance, which is the case on the first push of
+    /// every freshly generated script — silently overriding the access set by <see cref="SetOutputs"/>.
+    /// Restructuring the parameter set (as <c>UpdateOutputParameters</c> does) re-invalidates the
+    /// instance and re-triggers that clobber, but an in-place access change after the component has
+    /// solved once leaves the instance intact, so the engine honours the explicit access. Call this
+    /// only once the target has computed (an instance exists), then expire it to re-solve.</para>
+    /// </summary>
+    /// <param name="obj">The GH Python Script component.</param>
+    /// <param name="accessByName">Map of output variable name to the access to apply.</param>
+    public static void ApplyOutputAccess(IGH_DocumentObject obj, IReadOnlyDictionary<string, GhScriptParamAccess> accessByName)
+        => ApplyParamAccess(obj, input: false, accessByName);
+
+    /// <summary>
+    /// In-place access re-apply for input parameters; see <see cref="ApplyOutputAccess"/>.
+    /// </summary>
+    /// <param name="obj">The GH Python Script component.</param>
+    /// <param name="accessByName">Map of input variable name to the access to apply.</param>
+    public static void ApplyInputAccess(IGH_DocumentObject obj, IReadOnlyDictionary<string, GhScriptParamAccess> accessByName)
+        => ApplyParamAccess(obj, input: true, accessByName);
+
+    /// <summary>
+    /// Returns one ground-truth diagnostic line per output parameter, describing the access GH
+    /// will marshal with, the bound type-hint converter, and the actual shape of the volatile data
+    /// produced by the last solve. This exists to settle, from the live component rather than by
+    /// theory, why a list-valued output may still arrive wrapped: it shows whether the declared List
+    /// access actually stuck (<c>access=list</c> vs reset to <c>item</c>), whether the converter is
+    /// the wrapping "ghdoc" goo converter or a no-hint one, and whether the data is a single wrapped
+    /// object (<c>items=1, first=GH_ObjectWrapper&lt;…[n]&gt;</c>) or a genuine flattened list
+    /// (<c>items=n</c>).
+    /// </summary>
+    /// <param name="obj">The GH Python Script component.</param>
+    /// <returns>One diagnostic string per output parameter.</returns>
+    public static IReadOnlyList<string> GetOutputDiagnostics(IGH_DocumentObject obj)
+    {
+        if (obj is not IGH_Component component)
+            return Array.Empty<string>();
+
+        var lines = new List<string>(component.Params.Output.Count);
+        foreach (IGH_Param param in component.Params.Output)
+        {
+            var data = param.VolatileData;
+            int branches = data.PathCount;
+            int items = 0;
+            string first = "(empty)";
+            foreach (var goo in data.AllData(true))
+            {
+                if (items == 0)
+                    first = DescribeGoo(goo);
+                items++;
+            }
+
+            lines.Add(
+                $"{param.Name}: access={param.Access}, conv={ReadConverter(param)}, " +
+                $"branches={branches}, items={items}, first={first}");
+        }
+
+        return lines;
+    }
+
+    /// <summary>
+    /// Reads the access and auto-declare flag of each parameter in the component's <em>compiled</em>
+    /// output signature (the engine's <c>Code.Outputs</c>), which is what actually drives marshalling
+    /// — distinct from the GH parameter's <c>Access</c> field that <see cref="GetOutputDiagnostics"/>
+    /// reports. When a list arrives wrapped despite the GH param showing List access, this reveals
+    /// whether the compiled signature is still <c>Item</c> with <c>autoDeclare=true</c> (the auto
+    /// declaration overriding the declared access). Reached entirely by reflection through
+    /// <c>Context → Script → GetCode() → Outputs</c>, since those types are not referenced at compile
+    /// time; returns a single explanatory entry if the signature cannot be read.
+    /// </summary>
+    /// <param name="obj">The GH Python Script component.</param>
+    /// <returns>One <c>"name: access=…, autoDeclare=…"</c> string per compiled output parameter.</returns>
+    public static IReadOnlyList<string> GetCompiledOutputSignature(IGH_DocumentObject obj)
+    {
+        try
+        {
+            var lines = new List<string>();
+            foreach (object param in GetCompiledOutputParams(obj))
+            {
+                string name = GetMember(param, "Name")?.ToString() ?? "?";
+                string access = GetMember(param, "Access")?.ToString() ?? "?";
+                string autoDeclare = GetMember(param, "AutoDeclare")?.ToString() ?? "?";
+                lines.Add($"{name}: access={access}, autoDeclare={autoDeclare}");
+            }
+
+            return lines.Count > 0 ? lines : new[] { "(no compiled outputs)" };
+        }
+        catch (Exception ex)
+        {
+            return new[] { $"(compiled signature unreadable: {ex.GetType().Name})" };
+        }
+    }
+
+    /// <summary>
+    /// Clears the auto-declare flag on the named parameters of the compiled output signature, forcing
+    /// the engine to honour their declared access and converter instead of re-deriving them from the
+    /// code.
+    /// <para>This is the final piece of the list-output fix. The engine sets <c>AutoDeclare=true</c> on
+    /// every param whenever <c>Script.GetInstanceInfo().HasInstance</c> is false — which it remains
+    /// through the corrective access re-stamp — and an auto-declared output marshals a Python list as a
+    /// single wrapped object regardless of the (correctly set) List access. Clearing the flag directly
+    /// on the live compiled params after the access re-stamp reproduces the end state of the editor's
+    /// manual "List Access" (access=List, autoDeclare=false), so the list flattens. Call after
+    /// <see cref="ApplyOutputAccess"/> and before expiring; the marshalling solve does not rebuild the
+    /// signature, so the cleared flag survives to drive marshalling.</para>
+    /// </summary>
+    /// <param name="obj">The GH Python Script component.</param>
+    /// <param name="names">Variable names of the outputs whose auto-declare flag to clear.</param>
+    public static void ClearOutputAutoDeclare(IGH_DocumentObject obj, IEnumerable<string> names)
+    {
+        var target = new HashSet<string>(names, StringComparer.Ordinal);
+        foreach (object param in GetCompiledOutputParams(obj))
+        {
+            string? name = GetMember(param, "Name")?.ToString();
+            if (name is null || !target.Contains(name))
+                continue;
+
+            for (Type? t = param.GetType(); t != null; t = t.BaseType)
+            {
+                PropertyInfo? prop = t.GetProperty("AutoDeclare",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (prop?.CanWrite == true)
+                {
+                    prop.SetValue(param, false);
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Walks the RhinoCode object graph (<c>Context → Script → GetCode() → Outputs</c>) by reflection
+    /// and returns the live parameters of the compiled output signature. Returns an empty sequence if
+    /// any link is missing.
+    /// </summary>
+    /// <param name="obj">The GH Python Script component.</param>
+    /// <returns>The compiled output parameter objects.</returns>
+    private static IEnumerable<object> GetCompiledOutputParams(IGH_DocumentObject obj)
+    {
+        object? context = GetMember(obj, "Context");
+        object? script = context is null ? null : GetMember(context, "Script");
+        object? code = script?.GetType()
+            .GetMethod("GetCode", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, Type.EmptyTypes)
+            ?.Invoke(script, null);
+
+        if (code is null || GetMember(code, "Outputs") is not System.Collections.IEnumerable outputs)
+            return Array.Empty<object>();
+
+        var result = new List<object>();
+        foreach (object? param in outputs)
+        {
+            if (param != null)
+                result.Add(param);
+        }
+
+        return result;
+    }
 
     /// <summary>
     /// Returns the current volatile data of every GH input parameter on the component
@@ -195,11 +422,11 @@ public static class GhPythonBridge
         InvokeUpdate(obj, methodName, sc.LanguageSpec, specs);
     }
 
-    private static void UpdateParams(IGH_DocumentObject obj, string methodName, IEnumerable<GhParamSpec> paramSpecs)
+    private static void UpdateParams(IGH_DocumentObject obj, string methodName, IEnumerable<GhParamSpec> paramSpecs, bool typed)
     {
         var sc = Cast(obj);
         var specs = paramSpecs.Select(p =>
-            new ScriptParamSpec(p.Name, MapParamType(p.TypeHint), p.Name, string.Empty, MapScriptAccess(p.Access)));
+            new ScriptParamSpec(p.Name, typed ? MapParamType(p.TypeHint) : ParamType.Any, p.Name, string.Empty, MapScriptAccess(p.Access)));
 
         InvokeUpdate(obj, methodName, sc.LanguageSpec, specs);
     }
@@ -241,6 +468,174 @@ public static class GhPythonBridge
         GhScriptParamAccess.Tree => ScriptParamAccess.Tree,
         _ => ScriptParamAccess.Item,
     };
+
+    private static void ApplyParamAccess(IGH_DocumentObject obj, bool input, IReadOnlyDictionary<string, GhScriptParamAccess> accessByName)
+    {
+        if (obj is not IGH_Component component || accessByName is null || accessByName.Count == 0)
+            return;
+
+        var paramList = input ? component.Params.Input : component.Params.Output;
+        bool applied = false;
+        foreach (IGH_Param param in paramList)
+        {
+            if (param is IScriptParameter scriptParam
+                && accessByName.TryGetValue(scriptParam.VariableName, out GhScriptParamAccess access))
+            {
+                param.Access = MapToGhParamAccess(access);
+                applied = true;
+            }
+        }
+
+        // ParamsApply re-stamps the script signature from the parameters. With an instance now
+        // present (the target has solved once) GetContextOutputs runs with AutoDeclare=false, so the
+        // engine honours the declared access instead of auto-declaring Item.
+        //
+        // This MUST fire even when no Access value changed. The first-push clobber does not corrupt
+        // param.Access — SetOutputs already wrote the intended List access onto the param. The clobber
+        // lives in the runtime ScriptParam's AutoDeclare flag (set true while there is no instance),
+        // which silently overrides the declared access at solve time. So at this point param.Access is
+        // already List and a value-change guard would never trigger; the corrective re-stamp is the
+        // whole point of this pass, so it runs whenever a targeted param is present.
+        //
+        // IScriptObject is an explicitly-implemented interface in a transitive RhinoCode assembly not
+        // referenced at compile time, so it is reached by interface name via reflection.
+        if (applied)
+            InvokeParamsApply(obj);
+    }
+
+    /// <summary>
+    /// Sets a script parameter's type-hint converter to "No Type Hint" by assigning null through the
+    /// explicitly-implemented <c>IScriptParameter.Converter</c> setter (reached by interface name via
+    /// reflection, since its declaring assembly is not referenced at compile time). The setter coerces
+    /// null to the Goo converter — the engine's representation of No Type Hint — and re-stamps the
+    /// script signature without re-running the converter swap, so the hint sticks across the re-solve.
+    /// </summary>
+    /// <param name="param">The script output parameter to re-hint.</param>
+    private static void SetConverterToNoTypeHint(IGH_Param param)
+    {
+        Type? scriptParamInterface = Array.Find(
+            param.GetType().GetInterfaces(), i => i.Name == "IScriptParameter");
+
+        scriptParamInterface?.GetProperty("Converter")?.SetValue(param, null);
+    }
+
+    /// <summary>
+    /// Reads a public or non-public instance property or field by name off an object, searching the
+    /// type hierarchy. Returns null if not found or on any access error. Used to walk the RhinoCode
+    /// object graph (Context → Script → Outputs → param) reflectively, since those types are not
+    /// referenced at compile time.
+    /// </summary>
+    /// <param name="instance">The object to read from; may be null.</param>
+    /// <param name="memberName">The property or field name.</param>
+    /// <returns>The member value, or null.</returns>
+    private static object? GetMember(object? instance, string memberName)
+    {
+        if (instance is null)
+            return null;
+
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+        for (Type? t = instance.GetType(); t != null; t = t.BaseType)
+        {
+            PropertyInfo? prop = t.GetProperty(memberName, flags);
+            if (prop != null)
+                return prop.GetValue(instance);
+
+            FieldInfo? field = t.GetField(memberName, flags);
+            if (field != null)
+                return field.GetValue(instance);
+        }
+
+        return null;
+    }
+
+    private static void InvokeParamsApply(IGH_DocumentObject obj)
+    {
+        Type? scriptObjectInterface = Array.Find(
+            obj.GetType().GetInterfaces(), i => i.Name == "IScriptObject");
+
+        scriptObjectInterface?.GetMethod("ParamsApply", Type.EmptyTypes)?.Invoke(obj, null);
+    }
+
+    private static GH_ParamAccess MapToGhParamAccess(GhScriptParamAccess access) => access switch
+    {
+        GhScriptParamAccess.List => GH_ParamAccess.list,
+        GhScriptParamAccess.Tree => GH_ParamAccess.tree,
+        _ => GH_ParamAccess.item,
+    };
+
+    /// <summary>
+    /// Describes a single volatile-data goo for the output diagnostic: its goo type and, when it
+    /// wraps a value, the wrapped runtime type — annotated with an element count when the wrapped
+    /// value is itself an enumerable (the signature of a list smuggled out under item access).
+    /// </summary>
+    /// <param name="goo">The goo to describe; may be null.</param>
+    /// <returns>A short type description, e.g. <c>GH_ObjectWrapper&lt;PythonList[42]&gt;</c>.</returns>
+    private static string DescribeGoo(Grasshopper.Kernel.Types.IGH_Goo? goo)
+    {
+        if (goo is null)
+            return "null";
+
+        string gooType = goo.GetType().Name;
+
+        object? inner;
+        try
+        {
+            inner = goo.ScriptVariable();
+        }
+        catch
+        {
+            return gooType;
+        }
+
+        if (inner is null)
+            return gooType;
+
+        string innerType = inner.GetType().Name;
+        if (inner is System.Collections.IEnumerable enumerable && inner is not string)
+        {
+            int count = 0;
+            foreach (object? _ in enumerable)
+                count++;
+            return $"{gooType}<{innerType}[{count}]>";
+        }
+
+        return $"{gooType}<{innerType}>";
+    }
+
+    /// <summary>
+    /// Reads the bound type-hint converter off a script parameter via reflection (its
+    /// <c>IScriptParameter.Converter</c> and that converter's <c>Id.Name</c> / <c>TargetType</c>),
+    /// so the assembly that defines <c>IParamValueConverter</c> need not be referenced at compile
+    /// time. Returns a short descriptor or a reason it could not be read.
+    /// </summary>
+    /// <param name="param">The output parameter.</param>
+    /// <returns>A converter descriptor, e.g. <c>ghdoc -&gt; object</c>, or <c>(none)</c>.</returns>
+    private static string ReadConverter(IGH_Param param)
+    {
+        if (param is not IScriptParameter)
+            return "(none)";
+
+        try
+        {
+            // Converter is an explicitly-implemented IScriptParameter member, so it must be read
+            // through the interface's property (an explicit impl is private under a mangled name on
+            // the concrete type and would not be found there).
+            Type? iface = Array.Find(param.GetType().GetInterfaces(), i => i.Name == "IScriptParameter");
+            object? converter = iface?.GetProperty("Converter")?.GetValue(param);
+            if (converter is null)
+                return "null";
+
+            object? id = converter.GetType().GetProperty("Id")?.GetValue(converter);
+            string? name = id?.GetType().GetProperty("Name")?.GetValue(id)?.ToString();
+            object? targetType = converter.GetType().GetProperty("TargetType")?.GetValue(converter);
+
+            return $"{name ?? converter.GetType().Name} -> {targetType}";
+        }
+        catch
+        {
+            return "(unreadable)";
+        }
+    }
 
     private static IReadOnlyList<string> ReadParamValues(IGH_DocumentObject obj, bool input)
     {

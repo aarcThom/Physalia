@@ -12,7 +12,7 @@
     "Reference each input by its name as a variable inside code; assign each output by its name as a variable. An output you never assign is null on the canvas.",
     "Do not use print to return results — print output goes only to the component's separate 'out' channel. Every result must be assigned to a declared output variable.",
     "Every input/output name must be a valid Python identifier and unique within its own list.",
-    "A typed input arrives already converted to that Rhino type (e.g. type 'Point' gives a Rhino.Geometry.Point3d). Omit type for an untyped (any) parameter; use 'Geometry' or 'Text' when unsure.",
+    "A typed input arrives already converted to that Rhino type (e.g. type 'Point' gives a Rhino.Geometry.Point3d). Omit type for an untyped (any) input; use 'Geometry' or 'Text' when unsure. Outputs take no type — declare only name and access; an output's Grasshopper type is taken from whatever value the code assigns it.",
     "access is 'item' (single value), 'list' (a Python list), or 'tree' (the full data tree). An output's access MUST match the value the code assigns it: if the code assigns a Python list to an output, that output's access must be 'list' — an 'item' output given a list is wrapped as one unreadable object on the canvas. When unsure for an output, prefer 'list'.",
     "Inputs left unconnected on the canvas are not errors — write code that tolerates missing or empty values for the parameters you declare."
   ],
@@ -33,18 +33,18 @@
       "type": "array",
       "description": "Input parameters to create on the component. One entry per script variable read.",
       "default": [],
-      "items": { "$ref": "#/$defs/param" }
+      "items": { "$ref": "#/$defs/inputParam" }
     },
     "outputs": {
       "type": "array",
-      "description": "Output parameters to create on the component. One entry per script variable assigned.",
+      "description": "Output parameters to create on the component. One entry per script variable assigned. Outputs are untyped — name and access only.",
       "default": [],
-      "items": { "$ref": "#/$defs/param" }
+      "items": { "$ref": "#/$defs/outputParam" }
     }
   },
 
   "$defs": {
-    "param": {
+    "inputParam": {
       "type": "object",
       "required": ["name"],
       "additionalProperties": false,
@@ -56,7 +56,7 @@
         },
         "type": {
           "type": "string",
-          "description": "Physalia type hint for the parameter.",
+          "description": "Physalia type hint for the input.",
           "enum": [
             "Number", "Integer", "Boolean", "Text",
             "Point", "Vector", "Plane", "Line", "Circle", "Arc",
@@ -67,6 +67,24 @@
         "access": {
           "type": "string",
           "description": "Data access mode.",
+          "enum": ["item", "list", "tree"],
+          "default": "item"
+        }
+      }
+    },
+    "outputParam": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Variable name used inside the script. Must be a valid Python identifier.",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "access": {
+          "type": "string",
+          "description": "Data access mode. Must match the value the code assigns: 'list' when the code assigns a Python list.",
           "enum": ["item", "list", "tree"],
           "default": "item"
         }
@@ -83,7 +101,7 @@
         { "name": "radius", "type": "Number", "access": "item" }
       ],
       "outputs": [
-        { "name": "spheres", "type": "Geometry", "access": "list" }
+        { "name": "spheres", "access": "list" }
       ]
     }
   ]

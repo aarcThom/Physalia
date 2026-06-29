@@ -50,7 +50,7 @@
 - [Picker GhJSON serialization](picker-ghjson-serialization.md) — Picker selection now round-trips through `.ghjson` via `physalia.pickerValue` extension (native `.gh` already worked); stores only labels, never API-key secrets.
 - [Model Information + minified prompts](model-information-and-minified-prompts.md) — ModelInformation now merges OpenRouter+LiteLLM with id normalization; minified preambles/schemas in `Files/SYSTEM_PROMPTS/` for small models. Research docs: `planning/deterministic-gates.md`, `planning/tool-components.md`, `planning/model-information.md`.
 - [Web search tools](web-search-tools.md) — `web_search` (Tavily) + `read_url` (Jina Reader, keyless) tool components; Core `Physalia.Core/Web/WebTools.cs`; keys via new `web_search` YAML section. Tools block on async HTTP (ToolComponentBase is sync). Research: `planning/web-tools.md`. 2026-06-27, builds clean.
-- [Python output list access](python-output-list-access.md) — fix for LLM Python components emitting unreadable lists: deterministic item→list output-access promotion (`PythonOutputAccessInference` + `PyTransmitter.PromoteListOutputs`) + emphatic preamble/schema rule. 2026-06-28, builds clean, live test pending.
+- [Python output list access](python-output-list-access.md) — LLM Python outputs wrap lists as one unreadable goo. Root cause (2026-06-29): RhinoCode forces `AutoDeclare=!HasInstance`→Item on first push of fresh scripts. Tried Any-type (killed fatal crash), alias inference, in-place `ParamsApply` re-apply — STILL BROKEN. Next: force true "No Type Hint" converter + diagnostic read-back.
 
 ## v2 Architecture
 Full Core architecture decisions locked 2026-05-03. See [v2-core-architecture.md](v2-core-architecture.md).

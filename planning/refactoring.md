@@ -7,7 +7,7 @@
 > plan at `.claude/plans/review-refactoring-md-under-planning-imperative-squid.md`.
 >
 > **Done (Tier 1):**
-> - Phase 0 partial: new `tests/Physalia.Core.Tests` (xUnit, net7.0) wired into `src/Physalia.slnx`;
+> - Phase 0 partial: new `src/Physalia.Core.Tests` (xUnit, net7.0) wired into `src/Physalia.slnx`;
 >   tests for Conversation, PromptImageResolver, JsonExtractor, SchemaValidator, CompactionInvariants,
 >   PythonOutputAccessInference, SignalSequencer; provider streaming golden fixtures (Anthropic/OpenAI/
 >   Gemini) driven through the real `ParseSseStreamAsync` via a `MemoryStream` (no HTTP).

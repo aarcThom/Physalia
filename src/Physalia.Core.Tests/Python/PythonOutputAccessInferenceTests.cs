@@ -67,4 +67,48 @@ public class PythonOutputAccessInferenceTests
     {
         Assert.Empty(PythonOutputAccessInference.InferListVariables(string.Empty, new[] { "pts" }));
     }
+
+    [Fact]
+    public void InferListVariables_ResolvesSimpleAliasToList()
+    {
+        // The exact failing shape: a list is built on one variable, then aliased to the output.
+        const string code = "curves = []\ncurves.append(c)\nface = curves";
+        Assert.True(Infers(code, "face"));
+    }
+
+    [Fact]
+    public void InferListVariables_ResolvesAliasChainToList()
+    {
+        const string code = "curves = []\ncurves.append(c)\nmid = curves\nface = mid";
+        Assert.True(Infers(code, "face"));
+    }
+
+    [Fact]
+    public void InferListVariables_AliasToNonListStaysFalse()
+    {
+        const string code = "value = compute_single()\nout = value";
+        Assert.False(Infers(code, "out"));
+    }
+
+    [Fact]
+    public void InferListVariables_AliasWithTrailingCommentResolves()
+    {
+        const string code = "curves = [1, 2]\nface = curves  # the face outline";
+        Assert.True(Infers(code, "face"));
+    }
+
+    [Fact]
+    public void InferListVariables_AliasCycleDoesNotLoop()
+    {
+        // Degenerate mutual aliasing must terminate and report no list.
+        const string code = "a = b\nb = a";
+        Assert.False(Infers(code, "a"));
+    }
+
+    [Fact]
+    public void InferListVariables_DoesNotTreatCallOrIndexAsAlias()
+    {
+        Assert.False(Infers("curves = [1]\nface = build(curves)", "face"));
+        Assert.False(Infers("curves = [1]\nface = curves[0]", "face"));
+    }
 }

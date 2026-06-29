@@ -30,8 +30,21 @@ namespace Physalia.GH.Components.GhPython;
 /// </summary>
 public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
 {
+    // Index of the Remark output, appended after the base-owned Success(0)/Fail(1) signals.
+    private const int OutRemark = 2;
+
     private Guid _linkedGuid = Guid.Empty;
     private string? _pushError;
+
+    // Parsed params from the current push, retained so they can be re-applied once the target
+    // has solved (see ReapplyAccessIfNeeded) to defeat the first-push access clobber.
+    private List<GhParamSpec> _inputs = new();
+    private List<GhParamSpec> _outputs = new();
+    private bool _accessReapplied;
+
+    // Live output diagnostic of the linked target, produced on the read pass and re-set every solve
+    // (the base does not manage non-signal outputs) so it persists on the Remark output wire.
+    private string _diagnostic = string.Empty;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PyTransmitter"/> class.
@@ -57,6 +70,31 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
     public override void CreateAttributes()
     {
         m_attributes = new PyTransmitterAttrib(this);
+    }
+
+    /// <summary>
+    /// Adds the Remark output after the base's Success/Fail signals. It carries the live output
+    /// diagnostic of the linked target (access, type-hint converter, and volatile-data shape per
+    /// output parameter) as plain text, so the list-access behaviour can be inspected on a wire.
+    /// </summary>
+    /// <param name="pManager">The output parameter manager.</param>
+    protected override void RegisterAdditionalOutputs(GH_OutputParamManager pManager)
+    {
+        pManager.AddTextParameter(
+            "Remark",
+            "R",
+            "Live diagnostic of the linked Python component's outputs after the last solve: per output, the marshalled access, the bound type-hint converter, and the volatile-data shape (a list smuggled out under item access shows as a single wrapped object).",
+            GH_ParamAccess.item);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The routing base only manages the signal outputs, so the Remark output is set here every
+    /// solve from the retained diagnostic to keep its wire populated on idle re-solves.
+    /// </remarks>
+    protected override void OnSolveTick(IGH_DataAccess da)
+    {
+        da.SetData(OutRemark, _diagnostic);
     }
 
     /// <summary>
@@ -133,6 +171,10 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
     protected override void PushSolve(string data, IGH_DataAccess da)
     {
         _pushError = null;
+        _accessReapplied = false;
+        _diagnostic = string.Empty;
+        _inputs = new List<GhParamSpec>();
+        _outputs = new List<GhParamSpec>();
 
         if (!TryParse(data, out string code, out List<GhParamSpec> inputs, out List<GhParamSpec> outputs, out string parseError))
         {
@@ -147,11 +189,26 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
             return;
         }
 
+        _inputs = inputs;
+        _outputs = outputs;
+
         GhPythonBridge.SetScript(target, code);
         if (inputs.Count > 0)
             GhPythonBridge.SetInputs(target, inputs);
         if (outputs.Count > 0)
+        {
             GhPythonBridge.SetOutputs(target, outputs);
+
+            // Pin outputs to No Type Hint: SetOutputs leaves them on the engine's Default Python Hint
+            // (often "ghdoc Object"), which wraps any Python value — a list especially — as one opaque
+            // goo even under List access. No Type Hint lets a list flatten under List access.
+            GhPythonBridge.SetOutputsNoTypeHint(target, outputs.Select(o => o.Name));
+        }
+
+        // Turn marshalling on so Python list outputs are converted to a .NET list and the engine
+        // expands them into individual items. With marshalling off (which a pushed script can land in)
+        // the raw Python object is wrapped as one opaque goo, the core symptom of this whole fix.
+        GhPythonBridge.EnableOutputMarshalling(target);
 
         GhPythonBridge.Expire(target);
     }
@@ -169,7 +226,54 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
             return true;
 
         IGH_DocumentObject? target = ResolveTarget(out _);
-        return target is null || GhPythonBridge.HasComputed(target);
+        if (target is null)
+            return true;
+
+        if (!GhPythonBridge.HasComputed(target))
+            return false;
+
+        // First-push access clobber: the GH Python Script component auto-declares its
+        // parameters item-access whenever it has no compiled instance yet, which is the case on
+        // the first push of every freshly generated script. That silently overrides the list/tree
+        // access set by SetOutputs, so a Python list assigned to an output is wrapped as one
+        // opaque object on the canvas (the wire then fails "Goo to Curve" downstream). Now that
+        // the target has solved once an instance exists, so re-applying the access *in place*
+        // (without restructuring the parameter set, which would re-invalidate the instance and
+        // re-trigger the clobber) makes the engine honour it. Re-solve once so it takes effect.
+        if (!_accessReapplied && NeedsAccessReapply())
+        {
+            GhPythonBridge.ApplyInputAccess(target, BuildAccessMap(_inputs));
+            GhPythonBridge.ApplyOutputAccess(target, BuildAccessMap(_outputs));
+            GhPythonBridge.Expire(target);
+            _accessReapplied = true;
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether any pushed parameter declares non-item (list or tree) access, which is the access
+    /// the first-push clobber resets to item and which therefore needs the corrective re-apply.
+    /// Item-only components solve correctly on the first push and skip the extra solve.
+    /// </summary>
+    /// <returns>true if a re-apply pass is warranted.</returns>
+    private bool NeedsAccessReapply()
+        => _outputs.Exists(o => o.Access != GhScriptParamAccess.Item)
+           || _inputs.Exists(i => i.Access != GhScriptParamAccess.Item);
+
+    /// <summary>
+    /// Builds a variable-name to access map from the parsed specs, for the in-place access re-apply.
+    /// </summary>
+    /// <param name="specs">The parsed parameter specs.</param>
+    /// <returns>A map of variable name to declared access.</returns>
+    private static Dictionary<string, GhScriptParamAccess> BuildAccessMap(IReadOnlyList<GhParamSpec> specs)
+    {
+        var map = new Dictionary<string, GhScriptParamAccess>(StringComparer.Ordinal);
+        foreach (GhParamSpec spec in specs)
+            map[spec.Name] = spec.Access;
+
+        return map;
     }
 
     /// <inheritdoc/>
@@ -191,9 +295,42 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
             .Where(message => !IsInputConnectionError(message, target))
             .ToList();
 
+        // Capture the live output state and publish it on the Remark output this solve (the base
+        // does not touch non-signal outputs). OnSolveTick re-sets it on subsequent solves.
+        _diagnostic = BuildOutputDiagnostic(target);
+        da.SetData(OutRemark, _diagnostic);
+
         return realErrors.Count > 0
             ? RoutingResult.Fail(BuildFeedback(realErrors), "Target Python reported errors.", GH_RuntimeMessageLevel.Warning)
             : RoutingResult.Ok(_linkedGuid.ToString());
+    }
+
+    /// <summary>
+    /// Builds a ground-truth diagnostic of the linked target's output parameters (live access, bound
+    /// converter, and the shape of the last solve's volatile data), used to settle why a list-valued
+    /// output may still arrive wrapped. Empty when the target has no outputs.
+    /// </summary>
+    /// <param name="target">The linked Python Script component.</param>
+    /// <returns>A multi-line diagnostic string, or the empty string.</returns>
+    private static string BuildOutputDiagnostic(IGH_DocumentObject target)
+    {
+        IReadOnlyList<string> outputs = GhPythonBridge.GetOutputDiagnostics(target);
+        if (outputs.Count == 0)
+            return string.Empty;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("Output diagnostic (live target state after re-solve):");
+        foreach (string line in outputs)
+            sb.AppendLine($"  {line}");
+
+        // The GH param's access (above) is what we set; the compiled signature's access + autoDeclare
+        // (below) is what actually drives marshalling. A list wrapped despite access=list shows here as
+        // access=Item, autoDeclare=True.
+        sb.AppendLine("Compiled output signature (drives marshalling):");
+        foreach (string line in GhPythonBridge.GetCompiledOutputSignature(target))
+            sb.AppendLine($"  {line}");
+
+        return sb.ToString().TrimEnd();
     }
 
     /// <inheritdoc/>

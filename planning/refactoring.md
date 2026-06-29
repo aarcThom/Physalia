@@ -1,5 +1,33 @@
 # Physalia Refactoring Plan
 
+> **Implementation status (2026-06-29).** This document is the full 12-phase review. We scoped it into
+> **Tier 1** (high-ROI, low-risk, behavior-preserving) and **Tier 2** (deferred structural churn).
+> **Tier 1 is implemented in the working tree** (built clean, 96 Core unit tests green) but **not yet
+> committed** and **not yet Rhino-verified**. Detail in memory `tier1-refactoring.md`; approved Tier-1
+> plan at `.claude/plans/review-refactoring-md-under-planning-imperative-squid.md`.
+>
+> **Done (Tier 1):**
+> - Phase 0 partial: new `tests/Physalia.Core.Tests` (xUnit, net7.0) wired into `src/Physalia.slnx`;
+>   tests for Conversation, PromptImageResolver, JsonExtractor, SchemaValidator, CompactionInvariants,
+>   PythonOutputAccessInference, SignalSequencer; provider streaming golden fixtures (Anthropic/OpenAI/
+>   Gemini) driven through the real `ParseSseStreamAsync` via a `MemoryStream` (no HTTP).
+> - Cleanups: removed the dead `update_model_info.py` PreBuild target and the unimplemented Composer
+>   `.composer` menu items.
+> - Phase 1 (token estimator only): `ITokenEstimator` is now a method-less marker root; new
+>   `ISyncTokenEstimator` (carries `Estimate`) + `IAsyncTokenEstimator` (marker); `AsyncMarkerTokenEstimator`
+>   deleted. Synchronous misuse of an API-backed estimator is now a compile error, not a runtime throw.
+> - Phase 4 (the three extractions): `ConversationRecorder` (Core/Recording), `ToolDispatchRound` and
+>   `ToolBatchRunner` (Core/Tools). The GH components (`Recorder`, `Router`, `ToolComponentBase`) now
+>   delegate; their solve/latch/async lifecycle stayed in place.
+>
+> **Deferred (Tier 2, not started):** the 4-assembly split (Phase 1 packaging, Phase 2 DTOs), splitting
+> `ChatWindow` (Phase 5), `GhJsonBridge` (Phase 6), the Svelte restructure (Phase 7), and Goo/Parameter
+> boilerplate (Phase 10). For Core side-effect testability, the agreed approach is to **inject interfaces
+> into the existing classes, not create new assemblies**.
+>
+> **Still required before Tier 1 is "done":** the live-Rhino sanity run in the Verification section for
+> the six modified GH components.
+
 ## Scope Reviewed
 
 This review covered the tracked source and project files in:

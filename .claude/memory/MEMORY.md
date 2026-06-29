@@ -10,6 +10,9 @@
 - Never run git commit. When asked for a commit message, write it out as text only.
 - [Commit/PR messages output-only](commit-and-pr-messages-output-only.md) — when asked for a commit message or PR description, print it in chat only; never run `git commit`/`push`/`gh` — the user runs the git action themselves (holds even when they say "we'll just commit to main").
 
+## Refactoring
+- [Tier-1 refactoring](tier1-refactoring.md) — done in working tree 2026-06-29 (not committed): new `tests/Physalia.Core.Tests` (xUnit, 96 green), provider stream fixtures, token-estimator interface split (ISync/IAsync markers, no runtime-throw), and pure-policy extractions ConversationRecorder/ToolDispatchRound/ToolBatchRunner. GH components still need a Rhino sanity run. Tier-2 (assembly split, DTOs, ChatWindow/GhJsonBridge decomposition) deferred. Plan in `planning/refactoring.md`.
+
 ## Project
 - Grasshopper AI plugin for Rhino (Physalia). Pair-programmer role + working dir: see CLAUDE.md.
 - [Chat widget](chat-widget.md) — bottom-right GH canvas widget (above the compass) that opens the chat window; find-or-creates a Chatbox; setup-state detection via IsPipelineReady. Windows-only for now.

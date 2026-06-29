@@ -1,0 +1,27 @@
+---
+name: tier1-refactoring
+description: "Status of the Tier-1 refactoring work (tests + pure-policy extractions + token-estimator interface split) driven by planning/refactoring.md; what's done, deferred, and still needs Rhino verification."
+metadata: 
+  node_type: memory
+  type: project
+  originSessionId: 5c62bb8a-743f-4ba1-a351-48d25b9120cd
+---
+
+Acting on `planning/refactoring.md` (a 12-phase review of the codebase). We scoped it into **Tier 1** (high-ROI, low-risk, behavior-preserving) and **Tier 2** (deferred structural churn). The approved Tier-1 plan lives at `C:\Users\rober\.claude\plans\review-refactoring-md-under-planning-imperative-squid.md`. Tier-1 is **fully implemented in the working tree as of 2026-06-29** — built clean, 96 Core unit tests green — but **not committed** (a commit message was drafted output-only per [[commit-and-pr-messages-output-only]]; the user runs git themselves).
+
+## Done (Tier 1, items 1–6)
+- **Item 1 cleanups:** removed the dead `PreBuild` target in `Physalia.GH.csproj` (it ran a nonexistent `scripts/update_model_info.py`; nothing consumed `model_info.json`). Removed the unimplemented "Save/Append .composer" menu items + handlers from `Composer.cs`.
+- **Item 2 test scaffolding:** new `tests/Physalia.Core.Tests/` (xUnit, net7.0, references Core only), wired into `src/Physalia.slnx`. Run with `dotnet test src/Physalia.slnx` or `dotnet test tests/Physalia.Core.Tests/Physalia.Core.Tests.csproj`. (No `Directory.Build.props`/StyleCop in this repo — "StyleCop enforced" in CLAUDE.md is IDE-only.)
+- **Item 3 pure-Core tests:** Conversation, PromptImageResolver, JsonExtractor, SchemaValidator, CompactionInvariants.Reassemble, PythonOutputAccessInference, SignalSequencer.
+- **Item 4 provider streaming fixtures (highest ROI):** Anthropic/OpenAI/Gemini `ParseSseStreamAsync` driven through the REAL parser via a `MemoryStream` of fixture SSE and a tiny test subclass that exposes the protected method — no HTTP, no DTO rewrite. Covers text deltas, tool-call partial-arg joining, multiple-tool separation, malformed→domain `LlmError`. (Gemini's parser has no tool-call extraction — not tested there.)
+- **Item 6 token-estimator interface split (removes the runtime-throw):** `ITokenEstimator` is now an **empty marker root** (keeps the single `GH_ITokenEstimator` wire); new `ISyncTokenEstimator` (carries `Estimate(Instructions)`) and `IAsyncTokenEstimator` (empty marker). Deleted the throwing `AsyncMarkerTokenEstimator`. Heuristic/Tiktoken → `ISyncTokenEstimator`; Anthropic/Gemini/LlamaCpp → `IAsyncTokenEstimator`. `ConversationCompactor.KeepWithinTokenBudget` now takes `ISyncTokenEstimator`; `TokenWindow`/`TokenThreshold` guards became `is not ISyncTokenEstimator`; `TokenEstimator` GH default case routes via `ISyncTokenEstimator`. Misuse is now a compile error, not a runtime `NotImplementedException`. (The plan's idealized two-method-interface sketch didn't fit — the async ones are config-bound markers whose real counting stays in `AsyncTokenEstimation`.)
+- **Item 5 pure-policy extractions (logic lifted verbatim; GH components delegate, behavior unchanged):**
+  - `Physalia.Core/Recording/ConversationRecorder.cs` — `Record(current, events)` → new conversation + outcome (Nothing/UserTurn/AssistantTurn) + trace text + warnings. Types: `RecordedTurnKind`, `RecordOutcome`, `RecordEvent`, `RecordResult`. `Recorder.cs` maps its 4 Signal inputs → `RecordedTurnKind` via `TryMapKind` and delegates; state machine / latch / scheduling / `AddRuntimeMessage` stay in the component.
+  - `Physalia.Core/Tools/ToolDispatchRound.cs` — `Plan(calls, availableOutputNames)` (grouping, synthetic errors for unmatched tools, pending-id set, payload join) + `CombineResults(results)`. Types: `ToolDispatchGroup`, `ToolDispatchPlan`. `Router.cs` supplies output nicknames, mints signals from the plan; cross-solve latching stays in the component. `FindToolOutput` deleted.
+  - `Physalia.Core/Tools/ToolBatchRunner.cs` — `Run` (sync) + `RunAsync` (returns null on cancel) enforcing one `ToolResultContent` per call + per-call/whole-batch error handling. Types: `ToolCallOutcome`, `ToolBatchResult`. `ToolComponentBase` keeps its `ExecuteCall`/`ExecuteCallAsync` hooks, `Task.Run`/`_cts`/`_doEmit` lifecycle, and signal minting; adapts its nested `ToolCallResult` ↔ Core `ToolCallOutcome`.
+
+## NOT yet verified
+The 6 modified GH components (`Recorder`, `Router`, `ToolComponentBase`, `TokenEstimator`, `TokenWindow`, `TokenThreshold`) compile and their decision logic is unit-tested in Core, but have **not been exercised in Rhino**. Before calling Tier 1 fully done, do the live-Rhino sanity run from the plan's verification section: open chat, send a prompt, stream a response, run a single + multi-tool call through the Router, and a Token Window/Threshold with each estimator type.
+
+## Deferred (Tier 2 — NOT started; only do when a concrete pain motivates it)
+4-assembly split (`Physalia.Providers` + `Physalia.Infrastructure`), provider `JsonObject`→typed-DTO conversion, full `ChatWindow`/`GhJsonBridge`/`App.svelte` decomposition, Goo/Parameter boilerplate reduction. For Core side-effect testability (`Api`/`ModelList`/`WebTools`/`ClaudeCode`), the agreed approach is **inject interfaces into the existing classes, NOT create new assemblies**. See `planning/refactoring.md` for the full menu and the "review-of-the-review" rationale (notably the strong Anti-Goals section).

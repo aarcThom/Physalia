@@ -10,6 +10,7 @@ using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Signals;
+using Physalia.Core.Tools;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -230,50 +231,27 @@ public abstract class ToolComponentBase : StatefulComponentBase
         _cts = new CancellationTokenSource();
         CancellationToken ct = _cts.Token;
 
-        // The try/catch must cover the whole body: an uncaught throw is an unobserved task exception —
-        // the latch would never fire and the component would hang busy with the Router's id unanswered.
+        // The runner owns the one-result-per-call contract and the per-call/whole-batch error handling;
+        // it returns null when cancelled so the latch never fires for an abandoned batch (which would
+        // otherwise hang busy with the Router's id unanswered).
         Task.Run(async () =>
         {
-            var resultBlocks = new List<MessageContent>(calls.Count);
-            var resultTexts = new List<string>(calls.Count);
-
-            try
-            {
-                foreach (ToolCallContent call in calls)
+            ToolBatchResult? batch = await ToolBatchRunner.RunAsync(
+                calls,
+                async (call, token) =>
                 {
-                    ToolCallResult result;
-                    try
-                    {
-                        result = await ExecuteCallAsync(call, ct).ConfigureAwait(false);
-                    }
-                    catch (Exception ex) when (!ct.IsCancellationRequested)
-                    {
-                        result = ToolCallResult.Error(ex.Message);
-                    }
+                    ToolCallResult result = await ExecuteCallAsync(call, token).ConfigureAwait(false);
+                    return new ToolCallOutcome(result.Content, result.IsError);
+                },
+                ct).ConfigureAwait(false);
 
-                    resultBlocks.Add(new ToolResultContent(call.Id, result.Content, result.IsError));
-                    resultTexts.Add(result.Content);
-                }
-            }
-            catch (Exception ex)
-            {
-                if (ct.IsCancellationRequested)
-                {
-                    return;
-                }
-
-                // Answer every dispatched id with an error so the Router round still completes.
-                resultBlocks = calls.Select(c => (MessageContent)new ToolResultContent(c.Id, ex.Message, true)).ToList();
-                resultTexts = new List<string> { ex.Message };
-            }
-
-            if (ct.IsCancellationRequested)
+            if (batch is null)
             {
                 return;
             }
 
-            _pendingResultBlocks = resultBlocks;
-            _pendingPayload = string.Join(Environment.NewLine, resultTexts);
+            _pendingResultBlocks = batch.Blocks;
+            _pendingPayload = batch.Payload;
             ScheduleStateSolve(1, () => _doEmit = true);
         }, ct);
     }
@@ -287,19 +265,17 @@ public abstract class ToolComponentBase : StatefulComponentBase
             return;
         }
 
-        // One result block per call (keyed by call id) in a single result signal — the Router needs
-        // every dispatched id answered to complete the round.
-        var resultBlocks = new List<MessageContent>();
-        var resultTexts = new List<string>();
-        foreach (ToolCallContent call in calls)
-        {
-            ToolCallResult result = ExecuteCall(call);
-            resultBlocks.Add(new ToolResultContent(call.Id, result.Content, result.IsError));
-            resultTexts.Add(result.Content);
-        }
+        // The runner enforces one result block per call (keyed by call id) in a single result signal —
+        // the Router needs every dispatched id answered to complete the round.
+        ToolBatchResult batch = ToolBatchRunner.Run(
+            calls,
+            call =>
+            {
+                ToolCallResult result = ExecuteCall(call);
+                return new ToolCallOutcome(result.Content, result.IsError);
+            });
 
-        string payload = string.Join(Environment.NewLine, resultTexts);
-        _resultSignal = PhySignal.Mint(SignalOutcome.Success, payload, InstanceGuid, Name, resultBlocks);
+        _resultSignal = PhySignal.Mint(SignalOutcome.Success, batch.Payload, InstanceGuid, Name, batch.Blocks);
     }
 
     /// <summary>

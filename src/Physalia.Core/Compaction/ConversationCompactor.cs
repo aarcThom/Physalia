@@ -51,13 +51,13 @@ public static class ConversationCompactor
     /// </summary>
     /// <param name="conversation">The conversation to compact.</param>
     /// <param name="systemPrompt">The system prompt counted against the budget.</param>
-    /// <param name="estimator">The token estimator (a synchronous one such as the heuristic or tiktoken).</param>
+    /// <param name="estimator">The synchronous token estimator (e.g. the heuristic or tiktoken).</param>
     /// <param name="maxTokens">The token budget the result must fit within.</param>
     /// <returns>The compacted conversation and its statistics.</returns>
     public static CompactionResult KeepWithinTokenBudget(
         Conversation conversation,
         string systemPrompt,
-        ITokenEstimator estimator,
+        ISyncTokenEstimator estimator,
         int maxTokens)
     {
         ArgumentNullException.ThrowIfNull(conversation);

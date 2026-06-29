@@ -199,8 +199,14 @@ public class TokenEstimator : PhyBase, IPickableValuesSource
                     "Counting tokens via llama-server...");
                 break;
 
+            case ISyncTokenEstimator sync:
+                DA.SetData(0, sync.Estimate(instructions));
+                break;
+
             default:
-                DA.SetData(0, estimator.Estimate(instructions));
+                AddRuntimeMessage(
+                    GH_RuntimeMessageLevel.Warning,
+                    "This estimator cannot be counted synchronously and has no API-backed counter wired here.");
                 break;
         }
     }

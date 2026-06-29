@@ -131,11 +131,6 @@
 	  <None Remove="Resources\emoji\*.png" />
 	  <EmbeddedResource Include="Resources\emoji\*.png" />
 	</ItemGroup>
-    
-	<!-- The python script that populated the model .json-->
-	<Target Name="PreBuild" BeforeTargets="PreBuildEvent">
-		<Exec Command="python &quot;$(SolutionDir)scripts\update_model_info.py&quot; &quot;$(TargetDir)model_info.json&quot;" ContinueOnError="WarnAndContinue" />
-	</Target>
 
 	<!-- Copy the Files folder (skills, schemas, clusters, receivers, API keys) to the output directory.
 	     UpToDateCheckBuilt (with Original=) pairs each copied output back to its source so the VS

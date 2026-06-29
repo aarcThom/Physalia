@@ -17,7 +17,7 @@ namespace Physalia.Core.Tokens;
 /// The underlying <see cref="GptEncoding"/> instance is thread-safe and should be
 /// cached and reused rather than recreated per call.
 /// </remarks>
-public sealed class TiktokenEstimator : ITokenEstimator
+public sealed class TiktokenEstimator : ISyncTokenEstimator
 {
     private readonly GptEncoding _encoding;
 

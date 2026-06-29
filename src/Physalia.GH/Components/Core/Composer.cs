@@ -7,7 +7,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using System.Windows.Forms;
 using Grasshopper.Kernel;
 using Physalia.Core.Catalog;
 using Physalia.GH.Generation;
@@ -97,15 +96,6 @@ public class Composer : PhyBase, IPickableValuesSource
 
         if (Params.Input[1].SourceCount == 0)
             ComponentHelpers.PickerAdd(this, document, 1, xOffset: -300f, yOffset: 15f);
-    }
-
-    /// <inheritdoc/>
-    public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
-    {
-        base.AppendAdditionalMenuItems(menu);
-        Menu_AppendSeparator(menu);
-        Menu_AppendItem(menu, "Save new .composer", OnSaveComposer);
-        Menu_AppendItem(menu, "Append to .composer", OnAppendComposer);
     }
 
     /// <inheritdoc/>
@@ -261,15 +251,4 @@ public class Composer : PhyBase, IPickableValuesSource
             || string.Equals(ext, ".yml", StringComparison.OrdinalIgnoreCase);
     }
 
-    private void OnSaveComposer(object? sender, EventArgs e)
-    {
-        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Save new .composer is not yet implemented.");
-        ExpireSolution(true);
-    }
-
-    private void OnAppendComposer(object? sender, EventArgs e)
-    {
-        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Append to .composer is not yet implemented.");
-        ExpireSolution(true);
-    }
 }

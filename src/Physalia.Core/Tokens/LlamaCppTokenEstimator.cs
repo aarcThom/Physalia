@@ -5,11 +5,9 @@ namespace Physalia.Core.Tokens;
 
 /// <summary>
 /// Marker type identifying the llama.cpp <c>/tokenize</c> token-counting strategy. Exact counts
-/// are produced asynchronously via <see cref="AsyncTokenEstimation.CountLlamaCppAsync"/>; see
-/// <see cref="AsyncMarkerTokenEstimator"/> for why the synchronous path throws.
+/// are produced asynchronously via <see cref="AsyncTokenEstimation.CountLlamaCppAsync"/>; the type
+/// carries no synchronous <c>Estimate</c> (see <see cref="IAsyncTokenEstimator"/>).
 /// </summary>
-public sealed class LlamaCppTokenEstimator : AsyncMarkerTokenEstimator
+public sealed class LlamaCppTokenEstimator : IAsyncTokenEstimator
 {
-    /// <inheritdoc/>
-    protected override string AsyncMethodName => nameof(AsyncTokenEstimation.CountLlamaCppAsync);
 }

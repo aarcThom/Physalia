@@ -5,11 +5,9 @@ namespace Physalia.Core.Tokens;
 
 /// <summary>
 /// Marker type identifying the Anthropic API token-counting strategy. Exact counts are produced
-/// asynchronously via <see cref="AsyncTokenEstimation.CountAnthropicAsync"/>; see
-/// <see cref="AsyncMarkerTokenEstimator"/> for why the synchronous path throws.
+/// asynchronously via <see cref="AsyncTokenEstimation.CountAnthropicAsync"/>; the type carries no
+/// synchronous <c>Estimate</c> (see <see cref="IAsyncTokenEstimator"/>).
 /// </summary>
-public sealed class AnthropicTokenEstimator : AsyncMarkerTokenEstimator
+public sealed class AnthropicTokenEstimator : IAsyncTokenEstimator
 {
-    /// <inheritdoc/>
-    protected override string AsyncMethodName => nameof(AsyncTokenEstimation.CountAnthropicAsync);
 }

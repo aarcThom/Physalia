@@ -5,11 +5,9 @@ namespace Physalia.Core.Tokens;
 
 /// <summary>
 /// Marker type identifying the Gemini API token-counting strategy. Exact counts are produced
-/// asynchronously via <see cref="AsyncTokenEstimation.CountGeminiAsync"/>; see
-/// <see cref="AsyncMarkerTokenEstimator"/> for why the synchronous path throws.
+/// asynchronously via <see cref="AsyncTokenEstimation.CountGeminiAsync"/>; the type carries no
+/// synchronous <c>Estimate</c> (see <see cref="IAsyncTokenEstimator"/>).
 /// </summary>
-public sealed class GeminiTokenEstimator : AsyncMarkerTokenEstimator
+public sealed class GeminiTokenEstimator : IAsyncTokenEstimator
 {
-    /// <inheritdoc/>
-    protected override string AsyncMethodName => nameof(AsyncTokenEstimation.CountGeminiAsync);
 }

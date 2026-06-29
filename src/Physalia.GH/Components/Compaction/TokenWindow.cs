@@ -59,13 +59,13 @@ public class TokenWindow : CompactionComponentBase
     protected override CompactionResult? Compact(Instructions instructions, IGH_DataAccess da)
     {
         var estimatorGoo = new GH_ITokenEstimator();
-        if (!da.GetData(InEstimator, ref estimatorGoo) || estimatorGoo.Value is not ITokenEstimator estimator)
+        if (!da.GetData(InEstimator, ref estimatorGoo) || estimatorGoo.Value is null)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Connect a token estimator (a Tokenization Technique).");
             return null;
         }
 
-        if (estimator is AsyncMarkerTokenEstimator)
+        if (estimatorGoo.Value is not ISyncTokenEstimator estimator)
         {
             AddRuntimeMessage(
                 GH_RuntimeMessageLevel.Warning,

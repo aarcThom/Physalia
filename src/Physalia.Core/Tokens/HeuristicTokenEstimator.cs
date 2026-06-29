@@ -11,7 +11,7 @@ namespace Physalia.Core.Tokens;
 /// Safe to use for any provider when exact counts are not required.
 /// Overhead constants are documented on <see cref="TokenEstimationHelpers"/>.
 /// </summary>
-public sealed class HeuristicTokenEstimator : ITokenEstimator
+public sealed class HeuristicTokenEstimator : ISyncTokenEstimator
 {
     private const int CharsPerToken = 4;
 

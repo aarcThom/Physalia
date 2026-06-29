@@ -81,14 +81,14 @@ public class TokenThreshold : StatefulComponentBase
         ObserveSignalInputs(DA, InSignal);
 
         var estimatorGoo = new GH_ITokenEstimator();
-        if (!DA.GetData(InEstimator, ref estimatorGoo) || estimatorGoo.Value is not ITokenEstimator estimator)
+        if (!DA.GetData(InEstimator, ref estimatorGoo) || estimatorGoo.Value is null)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Connect a token estimator (a Tokenization Technique).");
             EmitRouted(DA);
             return;
         }
 
-        if (estimator is AsyncMarkerTokenEstimator)
+        if (estimatorGoo.Value is not ISyncTokenEstimator estimator)
         {
             AddRuntimeMessage(
                 GH_RuntimeMessageLevel.Warning,

@@ -6,9 +6,9 @@ using System.Collections.Generic;
 using System.Linq;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Types;
-using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Signals;
+using Physalia.Core.Tools;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -224,44 +224,32 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
         // request is logged before any result.
         _feedbackSignal = PhySignal.Mint(SignalOutcome.Success, signal.Payload, InstanceGuid, Name, signal.ContentBlocks);
 
-        // Group calls by their target output. The model may call the SAME tool several times in one
-        // turn (parallel tool use); a single output carries only one latched signal, so all calls to
-        // one tool ride together as one dispatched signal and the tool node returns a result per call.
-        var grouped = new Dictionary<int, List<ToolCallContent>>();
-        foreach (ToolCallContent call in calls)
+        // The pure policy decides grouping (parallel calls to one tool ride together as one dispatch),
+        // synthetic errors for unmatched calls, and the awaited id set. Names exclude the Feedback output.
+        var availableNames = new List<string>(FeedbackIndex);
+        for (int i = 0; i < FeedbackIndex; i++)
         {
-            int outputIndex = FindToolOutput(call.Name);
-            if (outputIndex < 0)
-            {
-                AddRuntimeMessage(
-                    GH_RuntimeMessageLevel.Warning,
-                    $"No output is named \"{call.Name}\" — wire an output into that tool node, or the call is answered with an error.");
-
-                // The provider requires a tool_result for EVERY tool_use; answer the undispatchable
-                // call with an error result so the round can still complete with a valid pairing.
-                _collectedResults.Add(new ToolResultContent(
-                    call.Id,
-                    $"No tool node is wired for \"{call.Name}\".",
-                    IsError: true));
-                continue;
-            }
-
-            _pendingToolUseIds.Add(call.Id);
-            if (!grouped.TryGetValue(outputIndex, out List<ToolCallContent>? group))
-            {
-                group = new List<ToolCallContent>();
-                grouped[outputIndex] = group;
-            }
-
-            group.Add(call);
+            availableNames.Add(Params.Output[i].NickName);
         }
 
-        foreach (KeyValuePair<int, List<ToolCallContent>> entry in grouped)
+        ToolDispatchPlan plan = ToolDispatchRound.Plan(calls, availableNames);
+
+        foreach (string warning in plan.Warnings)
         {
-            string nick = Params.Output[entry.Key].NickName;
-            var blocks = entry.Value.Cast<MessageContent>().ToList();
-            string payload = string.Join(Environment.NewLine, entry.Value.Select(c => c.InputJson));
-            _dispatched[nick] = PhySignal.Mint(SignalOutcome.Success, payload, InstanceGuid, Name, blocks);
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, warning);
+        }
+
+        foreach (string id in plan.PendingToolUseIds)
+        {
+            _pendingToolUseIds.Add(id);
+        }
+
+        _collectedResults.AddRange(plan.SyntheticErrorResults);
+
+        foreach (ToolDispatchGroup group in plan.Groups)
+        {
+            var blocks = group.Calls.Cast<MessageContent>().ToList();
+            _dispatched[group.OutputName] = PhySignal.Mint(SignalOutcome.Success, group.Payload, InstanceGuid, Name, blocks);
         }
     }
 
@@ -285,26 +273,10 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
         // One combined signal carrying every tool_result — recorded as the single user turn the
         // provider requires after the assistant tool_use turn, firing the Reasoner exactly once.
         _awaitingResults = false;
-        var blocks = _collectedResults.Cast<MessageContent>().ToList();
-        string payload = string.Join(
-            Environment.NewLine,
-            _collectedResults.Select(r => r.Content).Where(StringHelpers.IsNonBlank));
+        (IReadOnlyList<MessageContent> blocks, string payload) = ToolDispatchRound.CombineResults(_collectedResults);
 
         _feedbackSignal = PhySignal.Mint(SignalOutcome.Success, payload, InstanceGuid, Name, blocks);
         _collectedResults.Clear();
-    }
-
-    private int FindToolOutput(string toolName)
-    {
-        for (int i = 0; i < FeedbackIndex; i++)
-        {
-            if (string.Equals(Params.Output[i].NickName, toolName, StringComparison.OrdinalIgnoreCase))
-            {
-                return i;
-            }
-        }
-
-        return -1;
     }
 
     private void Emit(IGH_DataAccess da)

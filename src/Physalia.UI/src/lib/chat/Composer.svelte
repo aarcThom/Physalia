@@ -11,6 +11,7 @@
 	import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
 	import XIcon from '@lucide/svelte/icons/x';
+	import LayersIcon from '@lucide/svelte/icons/layers';
 	import { stripDataUrl, type SubmitMessage } from '$lib/bridge';
 
 	interface Props {
@@ -23,13 +24,25 @@
 		disabled?: boolean;
 		/** When set, the box captures an API key for this provider instead of sending a message. */
 		apiKeyProvider?: { id: string; label: string } | null;
+		/** True when a component-catalog grounding is wired — enables the grounding button. */
+		groundingWired?: boolean;
 		onsend: (message: SubmitMessage) => void;
 		/** Called with the pasted API key when in apiKeyProvider mode. */
 		onsavekey?: (providerId: string, key: string) => void;
+		/** Opens the grounding selection panel. */
+		ongrounding?: () => void;
 	}
 
-	let { disconnected, busy, disabled = false, apiKeyProvider = null, onsend, onsavekey }: Props =
-		$props();
+	let {
+		disconnected,
+		busy,
+		disabled = false,
+		apiKeyProvider = null,
+		groundingWired = false,
+		onsend,
+		onsavekey,
+		ongrounding
+	}: Props = $props();
 
 	interface PendingImage {
 		id: number;
@@ -274,15 +287,29 @@
 {/if}
 
 <div class="neu-well flex items-end gap-1.5 rounded-xl p-2">
-	<Button
-		variant="ghost"
-		size="icon"
-		onclick={openPicker}
-		disabled={inert || !!apiKeyProvider}
-		title="Add image"
-	>
-		<ImagePlusIcon />
-	</Button>
+	<div class="flex flex-col gap-1.5">
+		<Button
+			variant="ghost"
+			size="icon"
+			onclick={() => ongrounding?.()}
+			disabled={inert || !!apiKeyProvider || !groundingWired}
+			title={groundingWired
+				? 'Grounding — choose which components are available'
+				: 'Grounding — wire a Library into the Recorder to enable'}
+		>
+			<LayersIcon />
+		</Button>
+
+		<Button
+			variant="ghost"
+			size="icon"
+			onclick={openPicker}
+			disabled={inert || !!apiKeyProvider}
+			title="Add image"
+		>
+			<ImagePlusIcon />
+		</Button>
+	</div>
 
 	<Textarea
 		bind:ref={textareaRef}

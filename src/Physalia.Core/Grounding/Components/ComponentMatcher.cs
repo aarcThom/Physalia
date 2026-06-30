@@ -7,7 +7,7 @@ using System;
 using System.Linq;
 using System.Text.RegularExpressions;
 
-namespace Physalia.Core.Catalog;
+namespace Physalia.Core.Grounding.Components;
 
 /// <summary>
 /// Resolves a free-text component name (as an LLM might write it) to a real installed

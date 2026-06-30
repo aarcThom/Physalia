@@ -7,7 +7,7 @@ using System.Linq;
 using System.Windows.Forms;
 using Grasshopper;
 using Grasshopper.Kernel;
-using Physalia.Core.Catalog;
+using Physalia.Core.Grounding.Components;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 

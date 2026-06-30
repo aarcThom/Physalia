@@ -17,6 +17,8 @@ using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Physalia.Core.Config;
 using Physalia.Core.ConvoInstruct;
+using Physalia.Core.Grounding;
+using Physalia.Core.Grounding.Components;
 using Physalia.GH.Components;
 
 namespace Physalia.GH.Panels;
@@ -102,6 +104,7 @@ public class ChatWindow : Form
     private string? _lastChatboxes;
     private bool? _lastCollapsed;
     private int? _lastHarnessCount;
+    private string? _lastGroundingSignature;
 
     // Set on a Chatbox switch: forces the next Tick to push history/stream/state unconditionally,
     // even when the newly viewed component's values equal the reset caches (e.g. a fresh component
@@ -322,7 +325,45 @@ public class ChatWindow : Form
             case "togglecollapse":
                 _component.ToggleCollapse();
                 break;
+            case "setgrounding":
+                HandleSetGrounding(uri);
+                break;
         }
+    }
+
+    // Applies a grounding selection from the window to the wired Recorder. The payload is JSON
+    // {all:bool, leaves:[[category,subCategory],...]} passed in the ?sel= query. all:true (or a
+    // missing payload) clears the selection back to null = include everything.
+    private void HandleSetGrounding(Uri uri)
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return;
+        }
+
+        string raw = GetQueryValue(uri.Query, "sel");
+        GroundingSelection? selection = null;
+        if (!string.IsNullOrEmpty(raw))
+        {
+            try
+            {
+                GroundingSelectionPayload? payload = JsonSerializer.Deserialize<GroundingSelectionPayload>(raw, ReadOpts);
+                if (payload is not null && !payload.All)
+                {
+                    IEnumerable<(string, string)> leaves = (payload.Leaves ?? new List<List<string>>())
+                        .Where(l => l is { Count: >= 2 })
+                        .Select(l => (l[0] ?? string.Empty, l[1] ?? string.Empty));
+                    selection = GroundingSelection.FromLeaves(leaves);
+                }
+            }
+            catch (JsonException)
+            {
+                return;
+            }
+        }
+
+        recorder.SetGroundingSelection(selection);
     }
 
     // Opens an external setup link (http/https only) in the user's default browser. The chat runs
@@ -668,9 +709,36 @@ public class ChatWindow : Form
         bool collapsed = _component.Group.Collapsed;
         int harnessCount = _component.Group.Count;
 
+        // Grounding state for the window's grounding panel: whether a component catalog is wired
+        // (greys the icon when not), the available tab → panels tree, and the current selection
+        // (null = include everything). The selection's flat leaves are regrouped to the tree's shape.
+        bool groundingWired = recorder?.HasComponentGrounding == true;
+        var groundingTree = (recorder?.AvailableGroundingTree ?? Array.Empty<CatalogCategory>())
+            .Select(c => new { category = c.Category, subCategories = c.SubCategories })
+            .ToList();
+        object? groundingSelection = null;
+        if (recorder?.GroundingSelectionOrNull is { } sel)
+        {
+            groundingSelection = sel.Leaves
+                .GroupBy(l => l.Category, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new
+                {
+                    category = g.Key,
+                    subCategories = g.Select(l => l.SubCategory)
+                        .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                        .ToList(),
+                })
+                .ToList();
+        }
+
+        string groundingSignature = JsonSerializer.Serialize(
+            new { groundingWired, groundingTree, groundingSelection }, WriteOpts);
+
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
-            || collapsed != _lastCollapsed || harnessCount != _lastHarnessCount)
+            || collapsed != _lastCollapsed || harnessCount != _lastHarnessCount
+            || groundingSignature != _lastGroundingSignature)
         {
             _lastConnected = connected;
             _lastBusy = busy;
@@ -680,8 +748,9 @@ public class ChatWindow : Form
             _lastConfigured = configuredJson;
             _lastCollapsed = collapsed;
             _lastHarnessCount = harnessCount;
+            _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 
@@ -879,6 +948,7 @@ public class ChatWindow : Form
         _lastNeedsSetup = null;
         _lastStatus = null;
         _lastConfigured = null;
+        _lastGroundingSignature = null;
         _forcePush = true;
     }
 
@@ -1455,4 +1525,8 @@ public class ChatWindow : Form
     private sealed record SubmitImage(string Base64, string MediaType, string Filename);
 
     private sealed record SubmitMessage(string Text, List<SubmitImage>? Images);
+
+    // Grounding selection pushed from the window: all=true clears to include-everything; otherwise
+    // leaves is a list of [category, subCategory] pairs to include.
+    private sealed record GroundingSelectionPayload(bool All, List<List<string>>? Leaves);
 }

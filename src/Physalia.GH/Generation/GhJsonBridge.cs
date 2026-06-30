@@ -13,7 +13,8 @@ using GhJSON.Grasshopper;
 using GhJSON.Grasshopper.PutOperations;
 using Grasshopper.Kernel;
 using Newtonsoft.Json;
-using Physalia.Core.Catalog;
+using Physalia.Core.Grounding;
+using Physalia.Core.Grounding.Components;
 using Physalia.GH.Components;
 using Physalia.GH.Components.Utility;
 
@@ -57,6 +58,12 @@ internal static class GhJsonBridge
     // extensions as an opaque pass-through, so this round-trips untouched.
     private const string PickerValueExtensionKey = "physalia.pickerValue";
 
+    // componentState.extensions key under which a Recorder's grounding selection is stored, so a
+    // preset carries which component-catalog tabs/panels are folded into the system prompt. Absent =
+    // null selection = include everything (the default), matching the Picker's "skip when no
+    // selection". Stored as benign labels (tab/panel names) — never a secret.
+    private const string GroundingSelectionExtensionKey = "physalia.groundingSelection";
+
     /// <summary>
     /// Exports the Grasshopper objects identified by <paramref name="guids"/> to a
     /// <c>.ghjson</c> file at <paramref name="path"/>.
@@ -79,6 +86,10 @@ internal static class GhJsonBridge
         // The Picker's selected value lives in its native Write/Read blob, which GhJSON does not
         // capture; persist it into the component's extensions so the selection survives the round-trip.
         InjectPickerValues(doc);
+
+        // A Recorder's grounding selection lives in its native Write/Read blob too; persist it so a
+        // preset carries the chosen tabs/panels.
+        InjectGroundingSelection(doc);
 
         // Metadata has a private setter, so a user comment is injected by rebuilding the document
         // (the component objects were mutated in place above, so they carry over).
@@ -176,6 +187,41 @@ internal static class GhJsonBridge
             component.ComponentState ??= new GhJsonComponentState();
             component.ComponentState.Extensions ??= new Dictionary<string, object>();
             component.ComponentState.Extensions[PickerValueExtensionKey] = picker.SelectedValue;
+        }
+    }
+
+    /// <summary>
+    /// Records each exported <see cref="Recorder"/>'s grounding selection under
+    /// <see cref="GroundingSelectionExtensionKey"/> in its state extensions, so a preset carries which
+    /// component-catalog tabs/panels are folded into the system prompt. Recorders with the default
+    /// (null = include everything) selection are skipped, so an absent extension restores as null.
+    /// </summary>
+    /// <param name="doc">The freshly captured document to annotate in place.</param>
+    private static void InjectGroundingSelection(GhJsonDocument doc)
+    {
+        GH_Document? live = Grasshopper.Instances.ActiveCanvas?.Document;
+        if (live is null)
+        {
+            return;
+        }
+
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.InstanceGuid is not Guid guid
+                || live.FindObject(guid, false) is not Recorder recorder
+                || recorder.GroundingSelectionOrNull is not { } selection)
+            {
+                continue;
+            }
+
+            var leaves = selection.Leaves
+                .Select(leaf => new GroundingLeaf { Category = leaf.Category, SubCategory = leaf.SubCategory })
+                .ToList();
+
+            component.ComponentState ??= new GhJsonComponentState();
+            component.ComponentState.Extensions ??= new Dictionary<string, object>();
+            component.ComponentState.Extensions[GroundingSelectionExtensionKey] =
+                new GroundingSelectionExtension { Leaves = leaves };
         }
     }
 
@@ -547,12 +593,13 @@ internal static class GhJsonBridge
 
             RestoreFeedbackLinks(doc, result);
             bool pickersRestored = RestorePickerValues(doc, result);
+            bool groundingRestored = RestoreGroundingSelection(doc, result);
             afterPlace?.Invoke(result);
 
             // Params and wires were changed after Put's own solution, so re-solve the now-expired
             // components (and their downstream) to bring recreated variable params and restored
-            // Picker selections live.
-            if (reconciled.Count > 0 || pickersRestored)
+            // Picker/grounding selections live.
+            if (reconciled.Count > 0 || pickersRestored || groundingRestored)
             {
                 result.PlacedObjects.FirstOrDefault()?.OnPingDocument()?.NewSolution(false);
             }
@@ -861,6 +908,58 @@ internal static class GhJsonBridge
     }
 
     /// <summary>
+    /// Restores each placed <see cref="Recorder"/>'s grounding selection from the
+    /// <see cref="GroundingSelectionExtensionKey"/> extension written by
+    /// <see cref="InjectGroundingSelection"/>. The component id is remapped to the newly-placed
+    /// object's InstanceGuid via <see cref="PutResult.IdToGuidMapping"/>. Returns whether any
+    /// selection was restored, so the caller can trigger a re-solve.
+    /// </summary>
+    /// <param name="doc">The placed document (post-Fix, so ids match the Put mapping).</param>
+    /// <param name="result">The Put result carrying the id-to-guid mapping and placed objects.</param>
+    /// <returns>true when at least one grounding selection was restored.</returns>
+    private static bool RestoreGroundingSelection(GhJsonDocument doc, PutResult result)
+    {
+        bool restored = false;
+
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.Id is not int id
+                || component.ComponentState?.Extensions is not { } extensions
+                || !extensions.TryGetValue(GroundingSelectionExtensionKey, out object? raw))
+            {
+                continue;
+            }
+
+            GroundingSelectionExtension? ext;
+            try
+            {
+                // The extension round-trips as a Newtonsoft token; re-serialise to read it back typed.
+                ext = JsonConvert.DeserializeObject<GroundingSelectionExtension>(JsonConvert.SerializeObject(raw));
+            }
+            catch (Newtonsoft.Json.JsonException)
+            {
+                continue;
+            }
+
+            if (ext?.Leaves is null
+                || !result.IdToGuidMapping.TryGetValue(id, out Guid guid)
+                || result.PlacedObjects.FirstOrDefault(o => o.InstanceGuid == guid) is not Recorder recorder)
+            {
+                continue;
+            }
+
+            var leaves = ext.Leaves
+                .Where(l => l is not null)
+                .Select(l => (l.Category ?? string.Empty, l.SubCategory ?? string.Empty));
+
+            recorder.SetGroundingSelection(GroundingSelection.FromLeaves(leaves));
+            restored = true;
+        }
+
+        return restored;
+    }
+
+    /// <summary>
     /// Removes abbreviated <c>nickName</c> entries from all parameter settings in a document so
     /// that the exported JSON contains only the full <c>parameterName</c> values.
     /// </summary>
@@ -903,5 +1002,36 @@ internal static class GhJsonBridge
         /// </summary>
         [JsonProperty("collectorIds")]
         public List<int>? CollectorIds { get; set; }
+    }
+
+    /// <summary>
+    /// Serialised shape of a Recorder's grounding selection, stored under
+    /// <see cref="GroundingSelectionExtensionKey"/> in the component's state extensions.
+    /// </summary>
+    private sealed class GroundingSelectionExtension
+    {
+        /// <summary>
+        /// Gets or sets the included <c>(Category, SubCategory)</c> leaves.
+        /// </summary>
+        [JsonProperty("leaves")]
+        public List<GroundingLeaf>? Leaves { get; set; }
+    }
+
+    /// <summary>
+    /// One included tab/panel leaf of a <see cref="GroundingSelectionExtension"/>.
+    /// </summary>
+    private sealed class GroundingLeaf
+    {
+        /// <summary>
+        /// Gets or sets the tab (category) name.
+        /// </summary>
+        [JsonProperty("category")]
+        public string? Category { get; set; }
+
+        /// <summary>
+        /// Gets or sets the panel (sub-category) name.
+        /// </summary>
+        [JsonProperty("subCategory")]
+        public string? SubCategory { get; set; }
     }
 }

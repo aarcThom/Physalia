@@ -3,10 +3,15 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows.Forms;
+using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.ConvoInstruct;
+using Physalia.Core.Grounding;
+using Physalia.Core.Grounding.Components;
 using Physalia.Core.Recording;
+using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
@@ -30,14 +35,25 @@ namespace Physalia.GH.Components;
 public class Recorder : StatefulComponentBase
 {
     private const int InSystemPrompt = 0;
-    private const int InPromptSignal = 1;
-    private const int InResponseSignal = 2;
-    private const int InFeedbackSignal = 3;
-    private const int InToolSignal = 4;
+    private const int InGrounding = 1;
+    private const int InPromptSignal = 2;
+    private const int InResponseSignal = 3;
+    private const int InFeedbackSignal = 4;
+    private const int InToolSignal = 5;
 
     private const int OutSignal = 0;
 
     private Conversation _conversation = Conversation.Empty;
+
+    // Grounding settings. Null = include everything (default for a never-configured Recorder);
+    // a non-null selection narrows which component-catalog tabs/panels are folded into the prompt.
+    // This is configuration, NOT conversation state — it survives Clear and is serialized.
+    private GroundingSelection? _selection;
+
+    // Caches of the live grounding wired in this solve, for the prompt build and for the chat UI to
+    // read. _liveCatalog is the merged catalog across all wired ComponentCatalogGroundings.
+    private IReadOnlyList<Grounding> _liveGroundings = Array.Empty<Grounding>();
+    private ComponentCatalog? _liveCatalog;
 
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
@@ -63,13 +79,44 @@ public class Recorder : StatefulComponentBase
     /// </summary>
     public Conversation ActiveConversation => _conversation;
 
+    /// <summary>
+    /// Gets the two-level tree (tab → panels) of the component catalog(s) wired into the Grounding
+    /// input, merged across all of them. Empty when no component-catalog grounding is wired. For the
+    /// chat UI's grounding selector — updated every solve.
+    /// </summary>
+    public IReadOnlyList<CatalogCategory> AvailableGroundingTree =>
+        _liveCatalog?.CategoryTree ?? Array.Empty<CatalogCategory>();
+
+    /// <summary>
+    /// Gets a value indicating whether any component-catalog grounding is currently wired (so the
+    /// chat UI can enable/grey its grounding affordance).
+    /// </summary>
+    public bool HasComponentGrounding => _liveCatalog is not null;
+
+    /// <summary>
+    /// Gets the current grounding selection, or <see langword="null"/> for the default (include all).
+    /// </summary>
+    public GroundingSelection? GroundingSelectionOrNull => _selection;
+
     /// <inheritdoc/>
     protected override string ClearMenuText => "Clear Conversation";
+
+    /// <summary>
+    /// Sets the grounding selection (null = include everything) and re-solves so the change takes
+    /// effect on the next minted Instructions. Called from the chat window on the UI thread.
+    /// </summary>
+    /// <param name="selection">The new selection, or null to include everything.</param>
+    public void SetGroundingSelection(GroundingSelection? selection)
+    {
+        _selection = selection;
+        ExpireSolution(true);
+    }
 
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter("System Prompt", "S", "System prompt from Composer.", GH_ParamAccess.item, string.Empty);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Optional grounding context (e.g. the Library's component catalog); each grounding's section is folded into the system prompt. Narrow what is included via the chat window's grounding panel.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn; the signal payload is the prompt text. Use Construct Signal to combine a text payload with a manual trigger.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the Reasoner's Success Signal.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Records feedback as a user turn. Wire one or more Feedback Collectors directly — no OR gate needed.", GH_ParamAccess.list);
@@ -79,6 +126,7 @@ public class Recorder : StatefulComponentBase
         pManager[InResponseSignal].Optional = true;
         pManager[InFeedbackSignal].Optional = true;
         pManager[InToolSignal].Optional = true;
+        pManager[InGrounding].Optional = true;
     }
 
     /// <inheritdoc/>
@@ -102,6 +150,10 @@ public class Recorder : StatefulComponentBase
 
         DA.GetData(InSystemPrompt, ref systemPrompt);
 
+        // Read the wired grounding every solve so the latch (and the chat UI's tree) sees the live
+        // catalog. Cheap: this is just projecting goo references already on the wire.
+        ReadGroundingInputs(DA);
+
         // Observe every solve, even mid-run: events arriving while busy wait, latched on
         // their wires, and are serviced after the latch.
         ObserveSignalInputs(DA, InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal);
@@ -115,7 +167,7 @@ public class Recorder : StatefulComponentBase
             {
                 case RecordOutcome.UserTurn:
                     // The minted signal carries the full Instructions: the trigger IS the data.
-                    LatchSuccess(_pendingUserText, instructions: new Instructions(systemPrompt, _conversation));
+                    LatchSuccess(_pendingUserText, instructions: new Instructions(BuildGroundedSystemPrompt(systemPrompt), _conversation));
                     break;
                 case RecordOutcome.AssistantTurn:
                     // Quiet success: a Reasoner wired off the outgoing signal must not
@@ -181,12 +233,97 @@ public class Recorder : StatefulComponentBase
     }
 
     /// <inheritdoc/>
+    public override bool Write(GH_IWriter writer)
+    {
+        // The null-vs-non-null distinction is load-bearing (null = include all), so persist it
+        // explicitly with a flag rather than inferring it from an empty leaf list.
+        writer.SetBoolean("GroundingSelectionSet", _selection is not null);
+        if (_selection is not null)
+        {
+            IReadOnlyList<(string Category, string SubCategory)> leaves = _selection.Leaves;
+            writer.SetInt32("GroundingLeafCount", leaves.Count);
+            for (int i = 0; i < leaves.Count; i++)
+            {
+                writer.SetString("GroundingLeafCategory", i, leaves[i].Category);
+                writer.SetString("GroundingLeafSubCategory", i, leaves[i].SubCategory);
+            }
+        }
+
+        return base.Write(writer);
+    }
+
+    /// <inheritdoc/>
+    public override bool Read(GH_IReader reader)
+    {
+        if (reader.ItemExists("GroundingSelectionSet") && reader.GetBoolean("GroundingSelectionSet"))
+        {
+            int count = reader.ItemExists("GroundingLeafCount") ? reader.GetInt32("GroundingLeafCount") : 0;
+            var leaves = new List<(string, string)>(count);
+            for (int i = 0; i < count; i++)
+            {
+                string category = reader.GetString("GroundingLeafCategory", i);
+                string subCategory = reader.GetString("GroundingLeafSubCategory", i);
+                leaves.Add((category, subCategory));
+            }
+
+            _selection = GroundingSelection.FromLeaves(leaves);
+        }
+        else
+        {
+            _selection = null;
+        }
+
+        return base.Read(reader);
+    }
+
+    /// <inheritdoc/>
     protected override void OnCleared()
     {
+        // Conversation state resets; the grounding selection (_selection) is configuration, not
+        // conversation, so it is deliberately left intact across Clear.
         _conversation = Conversation.Empty;
         _doLatch = false;
         _pendingOutcome = RecordOutcome.Nothing;
         _pendingUserText = string.Empty;
+    }
+
+    // Reads the Grounding input and caches it for the latch and the chat UI. The live catalog is the
+    // merged entries of every wired ComponentCatalogGrounding, so a UI tree can offer all tabs/panels.
+    private void ReadGroundingInputs(IGH_DataAccess da)
+    {
+        var goos = new List<GH_Grounding>();
+        da.GetDataList(InGrounding, goos);
+
+        _liveGroundings = goos
+            .Where(g => g?.Value is not null)
+            .Select(g => g.Value)
+            .ToList();
+
+        var mergedEntries = _liveGroundings
+            .OfType<ComponentCatalogGrounding>()
+            .Where(g => g.Catalog is not null)
+            .SelectMany(g => g.Catalog.Entries)
+            .ToList();
+
+        _liveCatalog = mergedEntries.Count > 0 ? new ComponentCatalog(mergedEntries) : null;
+    }
+
+    // Folds the wired groundings into the system prompt, applying the selection only to
+    // component-catalog groundings (other kinds pass through untouched).
+    private string BuildGroundedSystemPrompt(string systemPrompt)
+    {
+        if (_liveGroundings.Count == 0)
+        {
+            return systemPrompt;
+        }
+
+        var mapped = _liveGroundings
+            .Select(g => g is ComponentCatalogGrounding cc
+                ? new ComponentCatalogGrounding(cc.Catalog.Filtered(_selection))
+                : g)
+            .ToList();
+
+        return GroundingComposer.Append(systemPrompt, mapped);
     }
 
     // Maps a Signal input index to the turn kind it designates. Turn type comes from input

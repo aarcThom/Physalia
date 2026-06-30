@@ -58,6 +58,25 @@ export interface UiState {
 	collapsed: boolean;
 	/** How many components are in the viewed Chatbox's harness group (0 = nothing to collapse). */
 	harnessCount: number;
+	/** True when a component-catalog grounding is wired into the Recorder (greys the grounding icon when false). */
+	groundingWired: boolean;
+	/** The available component tabs and their panels, for the grounding selector. */
+	groundingTree: GroundingCategory[];
+	/** The current grounding selection (included tabs/panels), or null = include everything (default). */
+	groundingSelection: GroundingCategory[] | null;
+}
+
+/** One tab (category) and its panels (sub-categories) in the grounding selector. */
+export interface GroundingCategory {
+	category: string;
+	subCategories: string[];
+}
+
+/** Grounding selection sent back to the host. all=true clears to include-everything (null). */
+export interface GroundingSelectionPayload {
+	all: boolean;
+	/** Included [category, subCategory] leaf pairs. Ignored when all is true. */
+	leaves: [string, string][];
 }
 
 /** Outcome of a save-API-key request, pushed back by the host after it writes the config. */

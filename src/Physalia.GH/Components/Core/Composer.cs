@@ -7,10 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using Grasshopper.Kernel;
-using Physalia.Core.Grounding;
 using Physalia.GH.Generation;
-using Physalia.GH.Goo;
-using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
 
@@ -70,8 +67,6 @@ public class Composer : PhyBase, IPickableValuesSource
     {
         pManager.AddTextParameter("Preamble", "P", "Instruction preamble. Filename from PREAMBLE folder or inline text.", GH_ParamAccess.item, string.Empty);
         pManager.AddTextParameter("Schema", "S", "JSON schema. Filename from SCHEMA folder or inline text.", GH_ParamAccess.item, string.Empty);
-        int groundingIndex = pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Optional grounding context (e.g. the Library's component catalog); each grounding's section is folded into the system prompt to ground the model.", GH_ParamAccess.list);
-        pManager[groundingIndex].Optional = true;
     }
 
     /// <inheritdoc/>
@@ -113,17 +108,6 @@ public class Composer : PhyBase, IPickableValuesSource
         string resolvedSchema = Resolve(schema, SubfolderSchema);
 
         string systemPrompt = Assemble(resolvedPreamble, resolvedSchema);
-
-        var groundingGoos = new List<GH_Grounding>();
-        DA.GetDataList(2, groundingGoos);
-        var groundings = groundingGoos
-            .Where(g => g?.Value is not null)
-            .Select(g => g.Value)
-            .ToList();
-        if (groundings.Count > 0)
-        {
-            systemPrompt = GroundingComposer.Append(systemPrompt, groundings);
-        }
 
         DA.SetData(0, resolvedSchema);
         DA.SetData(1, systemPrompt);

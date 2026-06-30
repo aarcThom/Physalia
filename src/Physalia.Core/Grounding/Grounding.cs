@@ -4,7 +4,7 @@
 #nullable enable
 
 using System;
-using Physalia.Core.Catalog;
+using Physalia.Core.Grounding.Components;
 
 namespace Physalia.Core.Grounding;
 

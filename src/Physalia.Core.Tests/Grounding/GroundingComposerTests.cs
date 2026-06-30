@@ -3,8 +3,8 @@
 
 using System;
 using System.Collections.Generic;
-using Physalia.Core.Catalog;
 using Physalia.Core.Grounding;
+using Physalia.Core.Grounding.Components;
 using Xunit;
 
 namespace Physalia.Core.Tests.Grounding;

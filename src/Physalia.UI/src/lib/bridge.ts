@@ -70,6 +70,14 @@ export interface UiState {
 	availableClusters: ClusterInfo[];
 	/** The current cluster selection (included cluster names), or null = include everything (default). */
 	clusterSelection: string[] | null;
+	/** True when a document-units grounding is wired into the Recorder (shows the Document Units pill). */
+	unitsWired: boolean;
+	/** The active Rhino document's current unit system (what the model gets unless overridden). */
+	documentUnits: string;
+	/** The current document-units override, or null = use the live document units (default). */
+	unitsOverride: string | null;
+	/** Unit-system choices for the Document Units dropdown (includes the current doc value + any override). */
+	unitOptions: string[];
 }
 
 /** One tab (category) and its panels (sub-categories) in the grounding selector. */
@@ -98,6 +106,13 @@ export interface ClusterSelectionPayload {
 	all: boolean;
 	/** Included cluster names. Ignored when all is true. */
 	names: string[];
+}
+
+/** Document-units override sent back to the host. reset=true clears to the live document units. */
+export interface UnitsOverridePayload {
+	reset: boolean;
+	/** The override unit text. Ignored when reset is true. */
+	units: string;
 }
 
 /** Outcome of a save-API-key request, pushed back by the host after it writes the config. */

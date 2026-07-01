@@ -53,6 +53,15 @@ public class ChatWindow : Form
     // packets to the default endpoint are dropped (a refused connection fails fast on its own).
     private static readonly HttpClient ProbeClient = new() { Timeout = TimeSpan.FromSeconds(2) };
 
+    // Common Rhino unit-system names offered in the grounding window's Document Units dropdown. These
+    // match Rhino.UnitSystem.ToString() so an override reads like the live document value. The live
+    // document units (and any current override) are merged in at push time, so uncommon systems still
+    // appear when in use.
+    private static readonly string[] UnitOptions =
+    {
+        "Millimeters", "Centimeters", "Meters", "Kilometers", "Inches", "Feet", "Yards", "Miles",
+    };
+
     // How often the setup probe re-runs once a result is known, so the setup state clears within a
     // few seconds of the user adding a key / starting a local server (and reappears if removed).
     private static readonly TimeSpan ProviderProbeInterval = TimeSpan.FromSeconds(4);
@@ -332,6 +341,9 @@ public class ChatWindow : Form
             case "setclusters":
                 HandleSetClusters(uri);
                 break;
+            case "setunits":
+                HandleSetUnits(uri);
+                break;
         }
     }
 
@@ -400,6 +412,38 @@ public class ChatWindow : Form
         }
 
         recorder.SetClusterSelection(selection);
+    }
+
+    // Applies a document-units override from the window to the wired Recorder. The payload is JSON
+    // {reset:bool, units:string} passed in the ?sel= query. reset:true (or a missing payload) clears
+    // the override back to null = use the live document units. The document itself is never changed.
+    private void HandleSetUnits(Uri uri)
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return;
+        }
+
+        string raw = GetQueryValue(uri.Query, "sel");
+        string? units = null;
+        if (!string.IsNullOrEmpty(raw))
+        {
+            try
+            {
+                UnitsOverridePayload? payload = JsonSerializer.Deserialize<UnitsOverridePayload>(raw, ReadOpts);
+                if (payload is not null && !payload.Reset)
+                {
+                    units = payload.Units;
+                }
+            }
+            catch (JsonException)
+            {
+                return;
+            }
+        }
+
+        recorder.SetUnitsOverride(units);
     }
 
     // The names of the clusters currently exposed to the model (the chat-selected subset, or all when
@@ -807,8 +851,20 @@ public class ChatWindow : Form
             clusterSelection = csel.Names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
+        // Document-units grounding state: whether a units grounding is wired, the live document units,
+        // the current override (null = use the document units), and the unit choices for the dropdown.
+        // The live document value is always present in the options so the dropdown can show it.
+        bool unitsWired = recorder?.HasUnitsGrounding == true;
+        string documentUnits = recorder?.DocumentUnits ?? string.Empty;
+        string? unitsOverride = recorder?.UnitsOverrideOrNull;
+        var unitOptions = UnitOptions
+            .Concat(new[] { documentUnits, unitsOverride ?? string.Empty })
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection }, WriteOpts);
+            new { groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -825,7 +881,7 @@ public class ChatWindow : Form
             _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 
@@ -1608,4 +1664,8 @@ public class ChatWindow : Form
     // Cluster selection pushed from the window: all=true clears to include-everything; otherwise
     // names is the list of cluster names to include.
     private sealed record ClusterSelectionPayload(bool All, List<string>? Names);
+
+    // Document-units override pushed from the window: reset=true clears to the live document units;
+    // otherwise units is the override text handed to the model.
+    private sealed record UnitsOverridePayload(bool Reset, string? Units);
 }

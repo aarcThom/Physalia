@@ -97,6 +97,28 @@ public sealed record ClusterCatalogGrounding(ClusterCatalog Catalog) : Grounding
 }
 
 /// <summary>
+/// Grounds the model with the unit system of the active Rhino/Grasshopper document, so numeric
+/// values and geometry it produces match the document's units. The <see cref="Units"/> string is the
+/// text handed to the model — either the live document units or a user-chosen override; the override
+/// never changes the document itself.
+/// </summary>
+/// <param name="Units">The unit-system display name (e.g. <c>Millimeters</c>, <c>Inches</c>).</param>
+public sealed record DocumentUnitsGrounding(string Units) : Grounding
+{
+    /// <inheritdoc/>
+    public override string ToSystemPromptSection()
+    {
+        if (string.IsNullOrWhiteSpace(Units))
+        {
+            return string.Empty;
+        }
+
+        return $"The active Rhino/Grasshopper document uses these units: {Units.Trim()}. "
+            + "Produce geometry and numeric values consistent with this unit system.";
+    }
+}
+
+/// <summary>
 /// Grounds the model with a python function available for use.
 /// </summary>
 /// <param name="Signature">The function signature (e.g. <c>def foo(a, b) -> float</c>).</param>

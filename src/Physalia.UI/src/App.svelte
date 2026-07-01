@@ -37,7 +37,8 @@
 		UiChatbox,
 		UiMessage,
 		UiPreset,
-		UiState
+		UiState,
+		UnitsOverridePayload
 	} from '$lib/bridge';
 
 	const BRIDGE_SCHEME = 'phbridge';
@@ -66,6 +67,17 @@
 	let clustersWired = $state(false);
 	let availableClusters = $state<ClusterInfo[]>([]);
 	let clusterSelection = $state<string[] | null>(null);
+
+	// Document-units grounding state: whether a units grounding is wired, the live document units, the
+	// current override (null = use the document units), and the dropdown choices.
+	let unitsWired = $state(false);
+	let documentUnits = $state('');
+	let unitsOverride = $state<string | null>(null);
+	let unitOptions = $state<string[]>([]);
+
+	// The grounding button opens the panel whenever any grounding kind is wired (components, clusters,
+	// or document units), not just a component catalog.
+	let groundingAvailable = $derived(groundingWired || clustersWired || unitsWired);
 
 	// The cluster names currently exposed to the model (selection applied), for the "/c/" autocomplete.
 	let includedClusterNames = $derived(
@@ -124,6 +136,10 @@
 				clustersWired = next.clustersWired ?? false;
 				availableClusters = next.availableClusters ?? [];
 				clusterSelection = next.clusterSelection ?? null;
+				unitsWired = next.unitsWired ?? false;
+				documentUnits = next.documentUnits ?? '';
+				unitsOverride = next.unitsOverride ?? null;
+				unitOptions = next.unitOptions ?? [];
 			},
 			setSetupResult: (result) => {
 				setupResult = result;
@@ -223,6 +239,12 @@
 	function setClusters(payload: ClusterSelectionPayload) {
 		const json = JSON.stringify(payload);
 		window.location.href = `${BRIDGE_SCHEME}://setclusters?sel=${encodeURIComponent(json)}`;
+	}
+
+	// Apply a document-units override to the wired Recorder. reset=true returns to the live doc units.
+	function setUnits(payload: UnitsOverridePayload) {
+		const json = JSON.stringify(payload);
+		window.location.href = `${BRIDGE_SCHEME}://setunits?sel=${encodeURIComponent(json)}`;
 	}
 
 	// Hand a pasted API key to the host, which writes it to API_KEY_CONFIG.YAML and reports back
@@ -378,8 +400,13 @@
 					selection={groundingSelection}
 					clusters={availableClusters}
 					clusterSelection={clusterSelection}
+					{unitsWired}
+					{documentUnits}
+					{unitsOverride}
+					{unitOptions}
 					onapply={setGrounding}
 					onapplyclusters={setClusters}
+					onapplyunits={setUnits}
 					onclose={closePanel}
 				/>
 			{:else if panel === 'manualdef'}
@@ -443,7 +470,7 @@
 			{busy}
 			disabled={showSetup}
 			apiKeyProvider={keyProvider}
-			{groundingWired}
+			groundingWired={groundingAvailable}
 			clusterNames={includedClusterNames}
 			onsend={send}
 			onsavekey={saveKey}

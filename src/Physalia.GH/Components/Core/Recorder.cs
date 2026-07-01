@@ -56,12 +56,20 @@ public class Recorder : StatefulComponentBase
     // the prompt. Configuration, not conversation state — survives Clear and is serialized.
     private ClusterSelection? _clusterSelection;
 
+    // Document-units override. Null = use the live document units carried by the wired
+    // DocumentUnitsGrounding (default); a non-null value is the unit text handed to the model instead
+    // (the document itself is never changed). Configuration, not conversation state — survives Clear
+    // and is serialized.
+    private string? _unitsOverride;
+
     // Caches of the live grounding wired in this solve, for the prompt build and for the chat UI to
     // read. _liveCatalog is the merged catalog across all wired ComponentCatalogGroundings;
-    // _liveClusterCatalog is the same for ClusterCatalogGroundings.
+    // _liveClusterCatalog is the same for ClusterCatalogGroundings; _liveUnitsGrounding is the wired
+    // DocumentUnitsGrounding (last one wins if several are wired).
     private IReadOnlyList<Grounding> _liveGroundings = Array.Empty<Grounding>();
     private ComponentCatalog? _liveCatalog;
     private ClusterCatalog? _liveClusterCatalog;
+    private DocumentUnitsGrounding? _liveUnitsGrounding;
 
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
@@ -125,6 +133,25 @@ public class Recorder : StatefulComponentBase
     /// </summary>
     public ClusterSelection? ClusterSelectionOrNull => _clusterSelection;
 
+    /// <summary>
+    /// Gets a value indicating whether a document-units grounding is currently wired (so the chat UI
+    /// can show/hide its Document Units affordance).
+    /// </summary>
+    public bool HasUnitsGrounding => _liveUnitsGrounding is not null;
+
+    /// <summary>
+    /// Gets the live document units carried by the wired grounding — what the model receives by
+    /// default, and what the chat UI shows as the document's current units. Empty when no units
+    /// grounding is wired.
+    /// </summary>
+    public string DocumentUnits => _liveUnitsGrounding?.Units ?? string.Empty;
+
+    /// <summary>
+    /// Gets the current document-units override, or <see langword="null"/> when the live document
+    /// units are used (the default).
+    /// </summary>
+    public string? UnitsOverrideOrNull => _unitsOverride;
+
     /// <inheritdoc/>
     protected override string ClearMenuText => "Clear Conversation";
 
@@ -148,6 +175,18 @@ public class Recorder : StatefulComponentBase
     public void SetClusterSelection(ClusterSelection? selection)
     {
         _clusterSelection = selection;
+        ExpireSolution(true);
+    }
+
+    /// <summary>
+    /// Sets the document-units override (null = use the live document units) and re-solves so the
+    /// change takes effect on the next minted Instructions. The document itself is never modified.
+    /// Called from the chat window on the UI thread.
+    /// </summary>
+    /// <param name="units">The override unit text, or null to use the live document units.</param>
+    public void SetUnitsOverride(string? units)
+    {
+        _unitsOverride = string.IsNullOrWhiteSpace(units) ? null : units;
         ExpireSolution(true);
     }
 
@@ -300,6 +339,13 @@ public class Recorder : StatefulComponentBase
             }
         }
 
+        // Document-units override, persisted with the same null-vs-set flag discipline.
+        writer.SetBoolean("UnitsOverrideSet", _unitsOverride is not null);
+        if (_unitsOverride is not null)
+        {
+            writer.SetString("UnitsOverride", _unitsOverride);
+        }
+
         return base.Write(writer);
     }
 
@@ -338,6 +384,15 @@ public class Recorder : StatefulComponentBase
         else
         {
             _clusterSelection = null;
+        }
+
+        if (reader.ItemExists("UnitsOverrideSet") && reader.GetBoolean("UnitsOverrideSet"))
+        {
+            _unitsOverride = reader.ItemExists("UnitsOverride") ? reader.GetString("UnitsOverride") : null;
+        }
+        else
+        {
+            _unitsOverride = null;
         }
 
         return base.Read(reader);
@@ -381,6 +436,9 @@ public class Recorder : StatefulComponentBase
             .ToList();
 
         _liveClusterCatalog = mergedClusters.Count > 0 ? new ClusterCatalog(mergedClusters) : null;
+
+        // A document-units grounding carries a single value; if several are wired, the last one wins.
+        _liveUnitsGrounding = _liveGroundings.OfType<DocumentUnitsGrounding>().LastOrDefault();
     }
 
     // Folds the wired groundings into the system prompt, applying the component selection to
@@ -398,6 +456,7 @@ public class Recorder : StatefulComponentBase
             {
                 ComponentCatalogGrounding cc => new ComponentCatalogGrounding(cc.Catalog.Filtered(_selection)),
                 ClusterCatalogGrounding cl => new ClusterCatalogGrounding(cl.Catalog.Filtered(_clusterSelection)),
+                DocumentUnitsGrounding du => _unitsOverride is { } ov ? new DocumentUnitsGrounding(ov) : du,
                 _ => g,
             })
             .ToList();

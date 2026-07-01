@@ -25,7 +25,7 @@
 		disabled?: boolean;
 		/** When set, the box captures an API key for this provider instead of sending a message. */
 		apiKeyProvider?: { id: string; label: string } | null;
-		/** True when a component-catalog grounding is wired — enables the grounding button. */
+		/** True when any grounding (components, clusters, or document units) is wired — enables the grounding button. */
 		groundingWired?: boolean;
 		/** Names of clusters the model may use, for the "/c/" reference autocomplete. */
 		clusterNames?: string[];
@@ -428,8 +428,8 @@
 			onclick={() => ongrounding?.()}
 			disabled={inert || !!apiKeyProvider || !groundingWired}
 			title={groundingWired
-				? 'Grounding — choose which components are available'
-				: 'Grounding — wire a Library into the Recorder to enable'}
+				? 'Grounding — choose what context is available to the model'
+				: 'Grounding — wire a grounding (Library, Cluster, or Document Units) into the Recorder to enable'}
 		>
 			<LayersIcon />
 		</Button>

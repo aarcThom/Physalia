@@ -8,6 +8,12 @@
 	// explicit set (everything minus the toggled leaf) and sends it back; "Reset to all" returns to
 	// the null/include-everything default.
 	import { Button } from '$lib/components/ui/button/index.js';
+	import {
+		DropdownMenu,
+		DropdownMenuTrigger,
+		DropdownMenuContent,
+		DropdownMenuItem
+	} from '$lib/components/ui/dropdown-menu/index.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -16,12 +22,14 @@
 	import SquareCheckIcon from '@lucide/svelte/icons/square-check';
 	import SquareMinusIcon from '@lucide/svelte/icons/square-minus';
 	import BoxIcon from '@lucide/svelte/icons/box';
+	import RulerIcon from '@lucide/svelte/icons/ruler';
 	import HappyFace from '$lib/chat/HappyFace.svelte';
 	import type {
 		ClusterInfo,
 		ClusterSelectionPayload,
 		GroundingCategory,
-		GroundingSelectionPayload
+		GroundingSelectionPayload,
+		UnitsOverridePayload
 	} from '$lib/bridge';
 
 	interface Props {
@@ -33,19 +41,41 @@
 		clusters: ClusterInfo[];
 		/** Current included cluster names, or null = include everything (default). */
 		clusterSelection: string[] | null;
+		/** True when a document-units grounding is wired (shows the Document Units pill). */
+		unitsWired: boolean;
+		/** The active Rhino document's current unit system. */
+		documentUnits: string;
+		/** Current units override, or null = use the live document units (default). */
+		unitsOverride: string | null;
+		/** Unit-system choices for the dropdown (includes the current doc value + any override). */
+		unitOptions: string[];
 		/** Applies a new component selection (host action). all=true returns to include-everything. */
 		onapply: (payload: GroundingSelectionPayload) => void;
 		/** Applies a new cluster selection (host action). all=true returns to include-everything. */
 		onapplyclusters: (payload: ClusterSelectionPayload) => void;
+		/** Applies a document-units override (host action). reset=true returns to the live doc units. */
+		onapplyunits: (payload: UnitsOverridePayload) => void;
 		/** Returns to the chat view. */
 		onclose: () => void;
 	}
 
-	let { tree, selection, clusters, clusterSelection, onapply, onapplyclusters, onclose }: Props =
-		$props();
+	let {
+		tree,
+		selection,
+		clusters,
+		clusterSelection,
+		unitsWired,
+		documentUnits,
+		unitsOverride,
+		unitOptions,
+		onapply,
+		onapplyclusters,
+		onapplyunits,
+		onclose
+	}: Props = $props();
 
 	// Two-level page: the kind pills, then a chosen kind's detail.
-	let view = $state<'kinds' | 'components' | 'clusters'>('kinds');
+	let view = $state<'kinds' | 'components' | 'clusters' | 'units'>('kinds');
 
 	// Unit Separator (U+001F) packs a (category, subCategory) pair into one Set key. It is guaranteed
 	// absent from any Grasshopper tab/panel name, so splitting the key back is unambiguous. A space
@@ -185,6 +215,23 @@
 	function clusterSignature(cluster: ClusterInfo): string {
 		return `(in: ${cluster.inputs.join(', ') || '—'}) → (out: ${cluster.outputs.join(', ') || '—'})`;
 	}
+
+	// Document units: the value shown to the model is the override when set, else the live document
+	// units. Selecting the document's own value clears the override so it keeps tracking the document;
+	// any other choice overrides the text handed to the model (never the document itself).
+	let effectiveUnits = $derived(unitsOverride ?? documentUnits);
+
+	function selectUnit(units: string) {
+		if (units === documentUnits) {
+			onapplyunits({ reset: true, units: '' });
+		} else {
+			onapplyunits({ reset: false, units });
+		}
+	}
+
+	function resetUnits() {
+		onapplyunits({ reset: true, units: '' });
+	}
 </script>
 
 <div class="mx-auto flex w-full max-w-xl flex-col px-4 py-6">
@@ -202,7 +249,7 @@
 			below to refine what's included.
 		</p>
 
-		{#if tree.length > 0 || clusters.length > 0}
+		{#if tree.length > 0 || clusters.length > 0 || unitsWired}
 			<div class="mt-4 flex flex-col gap-2">
 				{#if tree.length > 0}
 					<Button
@@ -227,6 +274,19 @@
 						<span class="flex-1">Clusters</span>
 						<span class="text-muted-foreground text-xs">
 							{allClustersIncluded ? 'All included' : `${includedClusters.size} of ${clusters.length}`}
+						</span>
+					</Button>
+				{/if}
+				{#if unitsWired}
+					<Button
+						variant="outline"
+						class="h-auto w-full justify-start gap-2 py-2.5 text-left"
+						onclick={() => (view = 'units')}
+					>
+						<RulerIcon class="size-4 shrink-0" />
+						<span class="flex-1">Document Units</span>
+						<span class="text-muted-foreground text-xs">
+							{effectiveUnits || 'None'}{unitsOverride !== null ? ' (overridden)' : ''}
 						</span>
 					</Button>
 				{/if}
@@ -314,7 +374,7 @@
 				</div>
 			{/each}
 		</div>
-	{:else}
+	{:else if view === 'clusters'}
 		<div class="mb-4 flex items-center justify-between">
 			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
 				<ArrowLeftIcon class="size-4" />
@@ -354,6 +414,57 @@
 					</span>
 				</button>
 			{/each}
+		</div>
+	{:else}
+		<div class="mb-4 flex items-center justify-between">
+			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+				<ArrowLeftIcon class="size-4" />
+				Grounding
+			</Button>
+			<Button variant="ghost" size="sm" onclick={resetUnits} disabled={unitsOverride === null}>
+				Reset to document
+			</Button>
+		</div>
+
+		<h2 class="text-lg font-semibold">Document Units</h2>
+		<p class="text-muted-foreground mt-1 text-sm">
+			The model is told the document's unit system so its numbers and geometry match. Override the
+			value below to send different units to the model — this never changes the Rhino document.
+		</p>
+
+		<div class="mt-4 flex flex-col gap-3">
+			<div class="text-sm">
+				<span class="text-muted-foreground">Document units:</span>
+				<span class="font-medium">{documentUnits || 'None'}</span>
+			</div>
+
+			<DropdownMenu>
+				<DropdownMenuTrigger>
+					{#snippet child({ props })}
+						<Button variant="outline" class="w-full justify-between gap-2" {...props}>
+							<span>{effectiveUnits || 'None'}</span>
+							<ChevronDownIcon class="size-4 shrink-0" />
+						</Button>
+					{/snippet}
+				</DropdownMenuTrigger>
+				<DropdownMenuContent class="w-[--bits-dropdown-menu-anchor-width]">
+					{#each unitOptions as option (option)}
+						<DropdownMenuItem onSelect={() => selectUnit(option)}>
+							<span class="flex-1">{option}</span>
+							{#if option === documentUnits}
+								<span class="text-muted-foreground text-xs">document</span>
+							{/if}
+						</DropdownMenuItem>
+					{/each}
+				</DropdownMenuContent>
+			</DropdownMenu>
+
+			{#if unitsOverride !== null}
+				<p class="text-muted-foreground text-xs">
+					Overriding the document's units ({documentUnits || 'None'}) with
+					<span class="font-medium">{unitsOverride}</span> for the model only.
+				</p>
+			{/if}
 		</div>
 	{/if}
 </div>

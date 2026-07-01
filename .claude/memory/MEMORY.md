@@ -52,6 +52,7 @@
 - [Web search tools](web-search-tools.md) — `web_search` (Tavily) + `read_url` (Jina Reader, keyless) tool components; Core `Physalia.Core/Web/WebTools.cs`; keys via new `web_search` YAML section. Tools block on async HTTP (ToolComponentBase is sync). Research: `planning/web-tools.md`. 2026-06-27, builds clean.
 - [Python output list access](python-output-list-access.md) — LLM Python outputs wrap lists as one unreadable goo. Root cause (2026-06-29): RhinoCode forces `AutoDeclare=!HasInstance`→Item on first push of fresh scripts. Tried Any-type (killed fatal crash), alias inference, in-place `ParamsApply` re-apply — STILL BROKEN. Next: force true "No Type Hint" converter + diagnostic read-back.
 - [Grounding on Recorder](grounding-on-recorder.md) — grounding moved Composer→Recorder + chat-UI two-level tab/panel selector; opt-in nullable selection serialized on Recorder (native `.gh` + `physalia.groundingSelection` ghjson ext). 2026-06-29, builds clean, live test pending.
+- [Document Units grounding](document-units-grounding.md) — 4th grounding kind: wired DocumentUnitsGrounder + chat pill with a units override dropdown (text-to-LLM only, never changes the doc). 2026-06-30, builds+tests clean, live test pending.
 
 ## v2 Architecture
 Full Core architecture decisions locked 2026-05-03. See [v2-core-architecture.md](v2-core-architecture.md).

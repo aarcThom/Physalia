@@ -1,0 +1,6 @@
+[
+  {
+    "file": "ExampleCluster.ghcluster",
+    "description": "What this cluster does and when the model should reach for it. The cluster's input/output parameters are read automatically from the file, so describe intent here, not the signature."
+  }
+]

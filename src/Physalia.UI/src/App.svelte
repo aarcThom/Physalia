@@ -28,6 +28,8 @@
 	import { getProvider } from '$lib/chat/providers';
 	import { cn } from '$lib/utils';
 	import type {
+		ClusterInfo,
+		ClusterSelectionPayload,
 		GroundingCategory,
 		GroundingSelectionPayload,
 		SetupResult,
@@ -58,6 +60,19 @@
 	let groundingWired = $state(false);
 	let groundingTree = $state<GroundingCategory[]>([]);
 	let groundingSelection = $state<GroundingCategory[] | null>(null);
+
+	// Cluster grounding state: whether a cluster grounding is wired, the available clusters (from
+	// Files/CLUSTERS), and the current selection (null = include everything).
+	let clustersWired = $state(false);
+	let availableClusters = $state<ClusterInfo[]>([]);
+	let clusterSelection = $state<string[] | null>(null);
+
+	// The cluster names currently exposed to the model (selection applied), for the "/c/" autocomplete.
+	let includedClusterNames = $derived(
+		availableClusters
+			.map((c) => c.name)
+			.filter((n) => clusterSelection === null || clusterSelection.includes(n))
+	);
 
 	// Setup screen state. `needsSetup` (from the host) forces it when no provider is configured;
 	// `manualSetup` lets the user open it from the header dropdown to add another provider later.
@@ -106,6 +121,9 @@
 				groundingWired = next.groundingWired ?? false;
 				groundingTree = next.groundingTree ?? [];
 				groundingSelection = next.groundingSelection ?? null;
+				clustersWired = next.clustersWired ?? false;
+				availableClusters = next.availableClusters ?? [];
+				clusterSelection = next.clusterSelection ?? null;
 			},
 			setSetupResult: (result) => {
 				setupResult = result;
@@ -199,6 +217,12 @@
 	function setGrounding(payload: GroundingSelectionPayload) {
 		const json = JSON.stringify(payload);
 		window.location.href = `${BRIDGE_SCHEME}://setgrounding?sel=${encodeURIComponent(json)}`;
+	}
+
+	// Apply a cluster selection to the wired Recorder. all=true returns to include-everything.
+	function setClusters(payload: ClusterSelectionPayload) {
+		const json = JSON.stringify(payload);
+		window.location.href = `${BRIDGE_SCHEME}://setclusters?sel=${encodeURIComponent(json)}`;
 	}
 
 	// Hand a pasted API key to the host, which writes it to API_KEY_CONFIG.YAML and reports back
@@ -352,7 +376,10 @@
 				<Grounding
 					tree={groundingTree}
 					selection={groundingSelection}
+					clusters={availableClusters}
+					clusterSelection={clusterSelection}
 					onapply={setGrounding}
+					onapplyclusters={setClusters}
 					onclose={closePanel}
 				/>
 			{:else if panel === 'manualdef'}
@@ -417,6 +444,7 @@
 			disabled={showSetup}
 			apiKeyProvider={keyProvider}
 			{groundingWired}
+			clusterNames={includedClusterNames}
 			onsend={send}
 			onsavekey={saveKey}
 			ongrounding={() => openPanel('grounding')}

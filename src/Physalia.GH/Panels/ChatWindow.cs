@@ -18,6 +18,7 @@ using Grasshopper.Kernel;
 using Physalia.Core.Config;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Grounding;
+using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
 using Physalia.GH.Components;
 
@@ -328,6 +329,9 @@ public class ChatWindow : Form
             case "setgrounding":
                 HandleSetGrounding(uri);
                 break;
+            case "setclusters":
+                HandleSetClusters(uri);
+                break;
         }
     }
 
@@ -365,6 +369,57 @@ public class ChatWindow : Form
 
         recorder.SetGroundingSelection(selection);
     }
+
+    // Applies a cluster selection from the window to the wired Recorder. The payload is JSON
+    // {all:bool, names:[...]} passed in the ?sel= query. all:true (or a missing payload) clears the
+    // selection back to null = include every available cluster.
+    private void HandleSetClusters(Uri uri)
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return;
+        }
+
+        string raw = GetQueryValue(uri.Query, "sel");
+        ClusterSelection? selection = null;
+        if (!string.IsNullOrEmpty(raw))
+        {
+            try
+            {
+                ClusterSelectionPayload? payload = JsonSerializer.Deserialize<ClusterSelectionPayload>(raw, ReadOpts);
+                if (payload is not null && !payload.All)
+                {
+                    selection = ClusterSelection.FromNames(payload.Names ?? new List<string>());
+                }
+            }
+            catch (JsonException)
+            {
+                return;
+            }
+        }
+
+        recorder.SetClusterSelection(selection);
+    }
+
+    // The names of the clusters currently exposed to the model (the chat-selected subset, or all when
+    // no selection is set). Used to normalize "/c/<name>" prompt tokens at submit time.
+    private IReadOnlyCollection<string> IncludedClusterNames()
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        IEnumerable<string> names = recorder.AvailableClusters.Select(c => c.Name);
+        ClusterSelection? selection = recorder.ClusterSelectionOrNull;
+        return (selection is null ? names : names.Where(selection.Includes)).ToList();
+    }
+
+    // Rewrites "/c/<clustername>" references in submitted prompt text into a clear cluster mention.
+    private string NormalizeClusterRefs(string text) =>
+        PromptClusterResolver.Normalize(text, IncludedClusterNames());
 
     // Opens an external setup link (http/https only) in the user's default browser. The chat runs
     // from file://, so an in-page navigation would replace it — links route here instead.
@@ -469,7 +524,7 @@ public class ChatWindow : Form
             string text = GetQueryValue(query, "text");
             if (!string.IsNullOrEmpty(text))
             {
-                _component.SubmitFromWindow(text);
+                _component.SubmitFromWindow(NormalizeClusterRefs(text));
             }
 
             return;
@@ -553,7 +608,7 @@ public class ChatWindow : Form
             return;
         }
 
-        string msgText = message.Text ?? string.Empty;
+        string msgText = NormalizeClusterRefs(message.Text ?? string.Empty);
         IReadOnlyList<SubmitImage> images = message.Images ?? (IReadOnlyList<SubmitImage>)Array.Empty<SubmitImage>();
 
         var blocks = new List<MessageContent>();
@@ -732,8 +787,28 @@ public class ChatWindow : Form
                 .ToList();
         }
 
+        // Cluster grounding state for the window's cluster selector and the "/c/" autocomplete: whether
+        // any cluster grounding is wired, the available clusters (name + I/O + description), and the
+        // current selection (null = include everything).
+        bool clustersWired = recorder?.HasClusterGrounding == true;
+        var availableClusters = (recorder?.AvailableClusters ?? Array.Empty<ClusterEntry>())
+            .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(c => new
+            {
+                name = c.Name,
+                description = c.Description,
+                inputs = c.Inputs.Select(p => p.Name).ToList(),
+                outputs = c.Outputs.Select(p => p.Name).ToList(),
+            })
+            .ToList();
+        object? clusterSelection = null;
+        if (recorder?.ClusterSelectionOrNull is { } csel)
+        {
+            clusterSelection = csel.Names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, groundingTree, groundingSelection }, WriteOpts);
+            new { groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection }, WriteOpts);
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -750,7 +825,7 @@ public class ChatWindow : Form
             _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 
@@ -1529,4 +1604,8 @@ public class ChatWindow : Form
     // Grounding selection pushed from the window: all=true clears to include-everything; otherwise
     // leaves is a list of [category, subCategory] pairs to include.
     private sealed record GroundingSelectionPayload(bool All, List<List<string>>? Leaves);
+
+    // Cluster selection pushed from the window: all=true clears to include-everything; otherwise
+    // names is the list of cluster names to include.
+    private sealed record ClusterSelectionPayload(bool All, List<string>? Names);
 }

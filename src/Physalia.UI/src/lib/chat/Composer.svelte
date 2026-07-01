@@ -12,6 +12,7 @@
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
 	import XIcon from '@lucide/svelte/icons/x';
 	import LayersIcon from '@lucide/svelte/icons/layers';
+	import BoxIcon from '@lucide/svelte/icons/box';
 	import { stripDataUrl, type SubmitMessage } from '$lib/bridge';
 
 	interface Props {
@@ -26,6 +27,8 @@
 		apiKeyProvider?: { id: string; label: string } | null;
 		/** True when a component-catalog grounding is wired — enables the grounding button. */
 		groundingWired?: boolean;
+		/** Names of clusters the model may use, for the "/c/" reference autocomplete. */
+		clusterNames?: string[];
 		onsend: (message: SubmitMessage) => void;
 		/** Called with the pasted API key when in apiKeyProvider mode. */
 		onsavekey?: (providerId: string, key: string) => void;
@@ -39,6 +42,7 @@
 		disabled = false,
 		apiKeyProvider = null,
 		groundingWired = false,
+		clusterNames = [],
 		onsend,
 		onsavekey,
 		ongrounding
@@ -143,6 +147,97 @@
 		}
 	}
 
+	// "/c/<clustername>" reference autocomplete. The menu opens while the user is typing a "/c/" token
+	// (at a word boundary) and offers the cluster names the model may use; only these can be inserted,
+	// so a token always names a real, included cluster. The server normalizes the token on submit.
+	let clusterMenuOpen = $state(false);
+	let clusterMatches = $state<string[]>([]);
+	let clusterActiveIndex = $state(0);
+	// Text range [start, end) of the "/c/<query>" being typed, replaced when a name is chosen.
+	let clusterTokenStart = 0;
+	let clusterTokenEnd = 0;
+
+	// Recomputes the autocomplete menu from the text before the caret. A "/c/" at the start or after
+	// whitespace, followed by any non-newline text, is the active query; matches are cluster names
+	// that start with it (case-insensitive). No match (or no clusters) closes the menu.
+	function syncClusterMenu() {
+		let el = textareaRef;
+		if (!el || clusterNames.length === 0) {
+			clusterMenuOpen = false;
+			return;
+		}
+
+		let caret = el.selectionStart ?? text.length;
+		let before = text.slice(0, caret);
+		let m = before.match(/(?:^|\s)\/c\/([^\n]*)$/);
+		if (!m) {
+			clusterMenuOpen = false;
+			return;
+		}
+
+		let query = m[1];
+		let matches = clusterNames.filter((n) => n.toLowerCase().startsWith(query.toLowerCase()));
+		if (matches.length === 0) {
+			clusterMenuOpen = false;
+			return;
+		}
+
+		clusterMatches = matches;
+		clusterActiveIndex = 0;
+		clusterTokenStart = caret - query.length - 3; // back over "/c/" + the query
+		clusterTokenEnd = caret;
+		clusterMenuOpen = true;
+	}
+
+	// Replaces the in-progress "/c/<query>" with "/c/<name>" (kept as a token so the host resolves it),
+	// adds a trailing space, and restores the caret after it.
+	async function acceptCluster(name: string) {
+		let token = `/c/${name}`;
+		let after = text.slice(clusterTokenEnd);
+		let trail = after.length === 0 || !/^\s/.test(after) ? ' ' : '';
+		text = text.slice(0, clusterTokenStart) + token + trail + after;
+		let caret = clusterTokenStart + token.length + trail.length;
+		clusterMenuOpen = false;
+
+		await tick();
+		let el = textareaRef;
+		if (el) {
+			el.focus();
+			el.selectionStart = el.selectionEnd = caret;
+		}
+	}
+
+	// Menu keyboard navigation; returns true when the key was consumed (so the caller skips its own
+	// Enter-to-send / newline handling).
+	function handleClusterMenuKey(e: KeyboardEvent): boolean {
+		if (!clusterMenuOpen || clusterMatches.length === 0) {
+			return false;
+		}
+
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			clusterActiveIndex = (clusterActiveIndex + 1) % clusterMatches.length;
+			return true;
+		}
+		if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			clusterActiveIndex = (clusterActiveIndex - 1 + clusterMatches.length) % clusterMatches.length;
+			return true;
+		}
+		if (e.key === 'Enter' || e.key === 'Tab') {
+			e.preventDefault();
+			void acceptCluster(clusterMatches[clusterActiveIndex]);
+			return true;
+		}
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			clusterMenuOpen = false;
+			return true;
+		}
+
+		return false;
+	}
+
 	async function addImages(files: FileList | File[] | null | undefined) {
 		if (!files) {
 			return;
@@ -207,6 +302,7 @@
 			return;
 		}
 
+		clusterMenuOpen = false;
 		let sentText = tidy(text.replace(TOKEN, '')).trim();
 		let images = pending.map((p) => ({
 			base64: p.base64,
@@ -224,11 +320,25 @@
 	}
 
 	function onKeyDown(e: KeyboardEvent) {
+		// The cluster autocomplete menu owns arrows/Enter/Tab/Escape while it is open.
+		if (handleClusterMenuKey(e)) {
+			return;
+		}
+
 		// Don't submit mid-IME-composition; Shift+Enter inserts a newline.
 		if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
 			e.preventDefault();
 			submit();
 		}
+	}
+
+	// Recompute the menu after the caret/text may have changed. keyup covers typing and caret moves;
+	// the menu-navigation keys are handled in keydown (and consumed), so they don't reach here.
+	function onKeyUp(e: KeyboardEvent) {
+		if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Escape') {
+			return;
+		}
+		syncClusterMenu();
 	}
 
 	function onPaste(e: ClipboardEvent) {
@@ -286,8 +396,32 @@
 	</div>
 {/if}
 
-<div class="neu-well flex items-end gap-1.5 rounded-xl p-2">
-	<div class="flex flex-col gap-1.5">
+<div class="relative">
+	{#if clusterMenuOpen}
+		<div
+			class="neu-raised absolute bottom-full left-0 z-10 mb-1.5 max-h-56 w-full overflow-y-auto rounded-lg p-1"
+		>
+			{#each clusterMatches as name, i (name)}
+				<button
+					type="button"
+					class={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm ${
+						i === clusterActiveIndex ? 'bg-muted-foreground/15' : 'hover:bg-muted-foreground/10'
+					}`}
+					onmousedown={(e) => {
+						e.preventDefault();
+						void acceptCluster(name);
+					}}
+				>
+					<BoxIcon class="text-muted-foreground size-3.5 shrink-0" />
+					<span class="flex-1 truncate">{name}</span>
+					<span class="text-muted-foreground/70 font-mono text-xs">/c/</span>
+				</button>
+			{/each}
+		</div>
+	{/if}
+
+	<div class="neu-well flex items-end gap-1.5 rounded-xl p-2">
+		<div class="flex flex-col gap-1.5">
 		<Button
 			variant="ghost"
 			size="icon"
@@ -317,6 +451,8 @@
 		{placeholder}
 		disabled={inert}
 		onkeydown={onKeyDown}
+		onkeyup={onKeyUp}
+		onclick={syncClusterMenu}
 		onpaste={onPaste}
 		class="max-h-56 min-h-16 flex-1 resize-none border-none bg-transparent p-2 text-base md:text-base shadow-none focus-visible:ring-0 disabled:bg-transparent disabled:opacity-100 dark:bg-transparent"
 	/>
@@ -324,6 +460,7 @@
 	<Button size="icon" onclick={submit} disabled={inert} title="Send">
 		<ArrowUpIcon />
 	</Button>
+	</div>
 </div>
 
 <input

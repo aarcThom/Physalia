@@ -15,24 +15,37 @@
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import SquareCheckIcon from '@lucide/svelte/icons/square-check';
 	import SquareMinusIcon from '@lucide/svelte/icons/square-minus';
+	import BoxIcon from '@lucide/svelte/icons/box';
 	import HappyFace from '$lib/chat/HappyFace.svelte';
-	import type { GroundingCategory, GroundingSelectionPayload } from '$lib/bridge';
+	import type {
+		ClusterInfo,
+		ClusterSelectionPayload,
+		GroundingCategory,
+		GroundingSelectionPayload
+	} from '$lib/bridge';
 
 	interface Props {
 		/** Available tabs (categories) and their panels (sub-categories). */
 		tree: GroundingCategory[];
 		/** Current included tabs/panels, or null = include everything (default). */
 		selection: GroundingCategory[] | null;
-		/** Applies a new selection (host action). all=true returns to include-everything. */
+		/** Available clusters (from Files/CLUSTERS). */
+		clusters: ClusterInfo[];
+		/** Current included cluster names, or null = include everything (default). */
+		clusterSelection: string[] | null;
+		/** Applies a new component selection (host action). all=true returns to include-everything. */
 		onapply: (payload: GroundingSelectionPayload) => void;
+		/** Applies a new cluster selection (host action). all=true returns to include-everything. */
+		onapplyclusters: (payload: ClusterSelectionPayload) => void;
 		/** Returns to the chat view. */
 		onclose: () => void;
 	}
 
-	let { tree, selection, onapply, onclose }: Props = $props();
+	let { tree, selection, clusters, clusterSelection, onapply, onapplyclusters, onclose }: Props =
+		$props();
 
-	// Two-level page: the kind pills, then a chosen kind's detail. Only "components" exists today.
-	let view = $state<'kinds' | 'components'>('kinds');
+	// Two-level page: the kind pills, then a chosen kind's detail.
+	let view = $state<'kinds' | 'components' | 'clusters'>('kinds');
 
 	// Unit Separator (U+001F) packs a (category, subCategory) pair into one Set key. It is guaranteed
 	// absent from any Grasshopper tab/panel name, so splitting the key back is unambiguous. A space
@@ -138,6 +151,40 @@
 		tree.length > 0 && tree.every((cat) => categoryState(cat) === 'all')
 	);
 	let includedCount = $derived(included.size);
+
+	// Cluster selection: a flat set of included cluster names, the local source of truth. Initialised
+	// once from props (null selection = everything), then local edits drive the host. As with the
+	// component tree, we deliberately do not re-sync from props while the panel is open.
+	function initialIncludedClusters(): Set<string> {
+		return new Set(clusterSelection ?? clusters.map((c) => c.name));
+	}
+
+	let includedClusters = $state(initialIncludedClusters());
+
+	function toggleCluster(name: string) {
+		const next = new Set(includedClusters);
+		if (next.has(name)) {
+			next.delete(name);
+		} else {
+			next.add(name);
+		}
+		includedClusters = next;
+		onapplyclusters({ all: false, names: [...next] });
+	}
+
+	// Restore the include-everything default: re-check every cluster locally and clear the selection.
+	function resetAllClusters() {
+		includedClusters = new Set(clusters.map((c) => c.name));
+		onapplyclusters({ all: true, names: [] });
+	}
+
+	let allClustersIncluded = $derived(
+		clusters.length > 0 && clusters.every((c) => includedClusters.has(c.name))
+	);
+
+	function clusterSignature(cluster: ClusterInfo): string {
+		return `(in: ${cluster.inputs.join(', ') || '—'}) → (out: ${cluster.outputs.join(', ') || '—'})`;
+	}
 </script>
 
 <div class="mx-auto flex w-full max-w-xl flex-col px-4 py-6">
@@ -155,30 +202,46 @@
 			below to refine what's included.
 		</p>
 
-		{#if tree.length > 0}
+		{#if tree.length > 0 || clusters.length > 0}
 			<div class="mt-4 flex flex-col gap-2">
-				<Button
-					variant="outline"
-					class="h-auto w-full justify-start gap-2 py-2.5 text-left"
-					onclick={() => (view = 'components')}
-				>
-					<LayersIcon class="size-4 shrink-0" />
-					<span class="flex-1">Components</span>
-					<span class="text-muted-foreground text-xs">
-						{allIncluded ? 'All included' : `${includedCount} panel(s)`}
-					</span>
-				</Button>
+				{#if tree.length > 0}
+					<Button
+						variant="outline"
+						class="h-auto w-full justify-start gap-2 py-2.5 text-left"
+						onclick={() => (view = 'components')}
+					>
+						<LayersIcon class="size-4 shrink-0" />
+						<span class="flex-1">Components</span>
+						<span class="text-muted-foreground text-xs">
+							{allIncluded ? 'All included' : `${includedCount} panel(s)`}
+						</span>
+					</Button>
+				{/if}
+				{#if clusters.length > 0}
+					<Button
+						variant="outline"
+						class="h-auto w-full justify-start gap-2 py-2.5 text-left"
+						onclick={() => (view = 'clusters')}
+					>
+						<BoxIcon class="size-4 shrink-0" />
+						<span class="flex-1">Clusters</span>
+						<span class="text-muted-foreground text-xs">
+							{allClustersIncluded ? 'All included' : `${includedClusters.size} of ${clusters.length}`}
+						</span>
+					</Button>
+				{/if}
 			</div>
 		{:else}
 			<div class="mt-6 flex flex-col items-center gap-4">
 				<HappyFace />
 				<p class="text-muted-foreground text-center text-sm">
-					No grounding wired. Connect a <strong>Library</strong> (component catalog) to the
-					Recorder's Grounding input to choose which components are available.
+					No grounding wired. Connect a <strong>Library</strong> (component catalog) or a
+					<strong>Cluster Grounding</strong> to the Recorder's Grounding input to choose what's
+					available.
 				</p>
 			</div>
 		{/if}
-	{:else}
+	{:else if view === 'components'}
 		<div class="mb-4 flex items-center justify-between">
 			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
 				<ArrowLeftIcon class="size-4" />
@@ -249,6 +312,47 @@
 						</div>
 					{/if}
 				</div>
+			{/each}
+		</div>
+	{:else}
+		<div class="mb-4 flex items-center justify-between">
+			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+				<ArrowLeftIcon class="size-4" />
+				Grounding
+			</Button>
+			<Button variant="ghost" size="sm" onclick={resetAllClusters} disabled={allClustersIncluded}>
+				Reset to all
+			</Button>
+		</div>
+
+		<h2 class="text-lg font-semibold">Clusters</h2>
+		<p class="text-muted-foreground mt-1 text-sm">
+			Choose which Grasshopper clusters the model may use. Everything is included by default.
+		</p>
+
+		<div class="mt-4 flex flex-col gap-1">
+			{#each clusters as cluster (cluster.name)}
+				{@const on = includedClusters.has(cluster.name)}
+				<button
+					type="button"
+					class="hover:bg-muted-foreground/10 flex items-start gap-2 rounded px-2 py-1.5 text-left text-sm"
+					onclick={() => toggleCluster(cluster.name)}
+				>
+					{#if on}
+						<SquareCheckIcon class="text-foreground/80 mt-0.5 size-4 shrink-0" />
+					{:else}
+						<SquareIcon class="text-muted-foreground mt-0.5 size-4 shrink-0" />
+					{/if}
+					<span class="flex min-w-0 flex-col">
+						<span class="font-medium">{cluster.name}</span>
+						{#if cluster.description}
+							<span class="text-muted-foreground text-xs">{cluster.description}</span>
+						{/if}
+						<span class="text-muted-foreground/80 font-mono text-xs">
+							{clusterSignature(cluster)}
+						</span>
+					</span>
+				</button>
 			{/each}
 		</div>
 	{/if}

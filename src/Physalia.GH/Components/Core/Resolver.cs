@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Text;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
+using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
 using Physalia.Core.Signals;
 using Physalia.GH.Generation;
@@ -62,17 +63,21 @@ public class Resolver : RoutingComponentBase<string>
     {
         GH_ComponentCatalog? catalogGoo = null;
         da.GetData(0, ref catalogGoo);
-        ComponentCatalog? catalog = catalogGoo?.Value;
+        ComponentCatalog catalog = catalogGoo?.Value ?? new ComponentCatalog(Array.Empty<CatalogEntry>());
 
-        if (catalog is null || catalog.Count == 0)
+        // Clusters resolve against every file in Files/CLUSTERS (not just the chat-selected ones), so a
+        // hand-authored graph referencing any installed cluster still places.
+        ClusterCatalog clusters = ClusterCatalogProvider.GetCatalog();
+
+        if (catalog.Count == 0 && clusters.Count == 0)
         {
-            // No catalog wired — pass the graph through unchanged.
+            // Nothing to resolve against — pass the graph through unchanged.
             return RoutingResult.Ok(data);
         }
 
         try
         {
-            (string resolved, IReadOnlyList<string> unresolved) = GhJsonBridge.ResolveComponentNames(data, catalog);
+            (string resolved, IReadOnlyList<string> unresolved) = GhJsonBridge.ResolveComponentNames(data, catalog, clusters);
 
             return unresolved.Count == 0
                 ? RoutingResult.Ok(resolved)

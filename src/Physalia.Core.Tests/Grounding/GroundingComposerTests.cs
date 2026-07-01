@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using Physalia.Core.Grounding;
+using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
 using Xunit;
 
@@ -59,8 +60,8 @@ public class GroundingComposerTests
     {
         var groundings = new List<Core.Grounding.Grounding>
         {
-            new ComponentCatalogGrounding(Catalog()),       // empty catalog -> no section
-            new ClusterGrounding(string.Empty, "ignored"),  // no name -> no section
+            new ComponentCatalogGrounding(Catalog()),                         // empty catalog -> no section
+            new ClusterCatalogGrounding(new ClusterCatalog(Array.Empty<ClusterEntry>())), // empty -> no section
         };
 
         string result = GroundingComposer.Append("BASE", groundings);

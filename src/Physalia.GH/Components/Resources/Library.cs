@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
+using GH_IO.Serialization;
 using Grasshopper;
 using Grasshopper.Kernel;
 using Physalia.Core.Grounding.Components;
@@ -23,6 +24,12 @@ namespace Physalia.GH.Components;
 public class Library : PhyBase
 {
     private ComponentCatalog? _catalog;
+
+    // Legacy (hidden-exposure) components are kept registered by Grasshopper for backward
+    // compatibility but do not appear in the ribbon — e.g. an old colour "Multiplication" that
+    // collides by name with the current one and confuses the model. Excluded by default; a
+    // right-click toggle brings them back. Persisted, since it is configuration.
+    private bool _includeLegacy;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Library"/> class.
@@ -53,22 +60,44 @@ public class Library : PhyBase
         base.AppendAdditionalMenuItems(menu);
         Menu_AppendSeparator(menu);
         Menu_AppendItem(menu, "Refresh catalog", OnRefresh);
+        Menu_AppendItem(
+            menu,
+            "Include legacy (hidden) components",
+            OnToggleLegacy,
+            enabled: true,
+            @checked: _includeLegacy);
+    }
+
+    /// <inheritdoc/>
+    public override bool Write(GH_IWriter writer)
+    {
+        writer.SetBoolean("IncludeLegacy", _includeLegacy);
+        return base.Write(writer);
+    }
+
+    /// <inheritdoc/>
+    public override bool Read(GH_IReader reader)
+    {
+        _includeLegacy = reader.ItemExists("IncludeLegacy") && reader.GetBoolean("IncludeLegacy");
+        return base.Read(reader);
     }
 
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        _catalog ??= BuildCatalog();
+        _catalog ??= BuildCatalog(_includeLegacy);
         DA.SetData(0, new GH_ComponentCatalog(_catalog));
     }
 
     /// <summary>
-    /// Enumerates the component server once and builds the catalog, skipping obsolete entries
-    /// and anything without a usable display name. Native (core-library) membership is recorded
-    /// so the matcher can prefer stock components.
+    /// Enumerates the component server once and builds the catalog, skipping obsolete entries,
+    /// anything without a usable display name, and — unless <paramref name="includeLegacy"/> is set —
+    /// hidden-exposure (legacy/back-compat) components that are kept registered but never shown in the
+    /// ribbon. Native (core-library) membership is recorded so the matcher can prefer stock components.
     /// </summary>
+    /// <param name="includeLegacy">True to keep hidden-exposure legacy components in the catalog.</param>
     /// <returns>The built catalog.</returns>
-    private static ComponentCatalog BuildCatalog()
+    private static ComponentCatalog BuildCatalog(bool includeLegacy)
     {
         var server = Instances.ComponentServer;
         var coreLibs = new HashSet<Guid>(server.Libraries.Where(l => l.IsCoreLibrary).Select(l => l.Id));
@@ -77,6 +106,13 @@ public class Library : PhyBase
         foreach (IGH_ObjectProxy proxy in server.ObjectProxies)
         {
             if (proxy?.Desc is null || proxy.Obsolete)
+            {
+                continue;
+            }
+
+            // Hidden exposure marks a component Grasshopper keeps for back-compat but omits from the
+            // ribbon — the "old" twin that collides by name with the current component. Skip by default.
+            if (!includeLegacy && proxy.Exposure == GH_Exposure.hidden)
             {
                 continue;
             }
@@ -101,6 +137,13 @@ public class Library : PhyBase
 
     private void OnRefresh(object? sender, EventArgs e)
     {
+        _catalog = null;
+        ExpireSolution(true);
+    }
+
+    private void OnToggleLegacy(object? sender, EventArgs e)
+    {
+        _includeLegacy = !_includeLegacy;
         _catalog = null;
         ExpireSolution(true);
     }

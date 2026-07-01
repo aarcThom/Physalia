@@ -9,6 +9,7 @@ using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Grounding;
+using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
 using Physalia.Core.Recording;
 using Physalia.GH.Goo;
@@ -50,10 +51,17 @@ public class Recorder : StatefulComponentBase
     // This is configuration, NOT conversation state — it survives Clear and is serialized.
     private GroundingSelection? _selection;
 
+    // Cluster grounding settings, mirroring the component-catalog selection above. Null = include
+    // every available cluster (default); a non-null selection narrows which clusters are folded into
+    // the prompt. Configuration, not conversation state — survives Clear and is serialized.
+    private ClusterSelection? _clusterSelection;
+
     // Caches of the live grounding wired in this solve, for the prompt build and for the chat UI to
-    // read. _liveCatalog is the merged catalog across all wired ComponentCatalogGroundings.
+    // read. _liveCatalog is the merged catalog across all wired ComponentCatalogGroundings;
+    // _liveClusterCatalog is the same for ClusterCatalogGroundings.
     private IReadOnlyList<Grounding> _liveGroundings = Array.Empty<Grounding>();
     private ComponentCatalog? _liveCatalog;
+    private ClusterCatalog? _liveClusterCatalog;
 
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
@@ -98,6 +106,25 @@ public class Recorder : StatefulComponentBase
     /// </summary>
     public GroundingSelection? GroundingSelectionOrNull => _selection;
 
+    /// <summary>
+    /// Gets the clusters wired into the Grounding input, merged across every wired cluster grounding.
+    /// Empty when no cluster grounding is wired. For the chat UI's cluster selector and the <c>/c/</c>
+    /// prompt autocomplete — updated every solve.
+    /// </summary>
+    public IReadOnlyList<ClusterEntry> AvailableClusters =>
+        _liveClusterCatalog?.Entries ?? Array.Empty<ClusterEntry>();
+
+    /// <summary>
+    /// Gets a value indicating whether any cluster grounding is currently wired (so the chat UI can
+    /// enable/grey its cluster affordance).
+    /// </summary>
+    public bool HasClusterGrounding => _liveClusterCatalog is not null;
+
+    /// <summary>
+    /// Gets the current cluster selection, or <see langword="null"/> for the default (include all).
+    /// </summary>
+    public ClusterSelection? ClusterSelectionOrNull => _clusterSelection;
+
     /// <inheritdoc/>
     protected override string ClearMenuText => "Clear Conversation";
 
@@ -109,6 +136,18 @@ public class Recorder : StatefulComponentBase
     public void SetGroundingSelection(GroundingSelection? selection)
     {
         _selection = selection;
+        ExpireSolution(true);
+    }
+
+    /// <summary>
+    /// Sets the cluster selection (null = include every available cluster) and re-solves so the
+    /// change takes effect on the next minted Instructions. Called from the chat window on the UI
+    /// thread.
+    /// </summary>
+    /// <param name="selection">The new selection, or null to include every cluster.</param>
+    public void SetClusterSelection(ClusterSelection? selection)
+    {
+        _clusterSelection = selection;
         ExpireSolution(true);
     }
 
@@ -249,6 +288,18 @@ public class Recorder : StatefulComponentBase
             }
         }
 
+        // Cluster selection, persisted with the same null-vs-empty flag discipline.
+        writer.SetBoolean("ClusterSelectionSet", _clusterSelection is not null);
+        if (_clusterSelection is not null)
+        {
+            IReadOnlyList<string> names = _clusterSelection.Names;
+            writer.SetInt32("ClusterNameCount", names.Count);
+            for (int i = 0; i < names.Count; i++)
+            {
+                writer.SetString("ClusterName", i, names[i]);
+            }
+        }
+
         return base.Write(writer);
     }
 
@@ -271,6 +322,22 @@ public class Recorder : StatefulComponentBase
         else
         {
             _selection = null;
+        }
+
+        if (reader.ItemExists("ClusterSelectionSet") && reader.GetBoolean("ClusterSelectionSet"))
+        {
+            int count = reader.ItemExists("ClusterNameCount") ? reader.GetInt32("ClusterNameCount") : 0;
+            var names = new List<string>(count);
+            for (int i = 0; i < count; i++)
+            {
+                names.Add(reader.GetString("ClusterName", i));
+            }
+
+            _clusterSelection = ClusterSelection.FromNames(names);
+        }
+        else
+        {
+            _clusterSelection = null;
         }
 
         return base.Read(reader);
@@ -306,10 +373,19 @@ public class Recorder : StatefulComponentBase
             .ToList();
 
         _liveCatalog = mergedEntries.Count > 0 ? new ComponentCatalog(mergedEntries) : null;
+
+        var mergedClusters = _liveGroundings
+            .OfType<ClusterCatalogGrounding>()
+            .Where(g => g.Catalog is not null)
+            .SelectMany(g => g.Catalog.Entries)
+            .ToList();
+
+        _liveClusterCatalog = mergedClusters.Count > 0 ? new ClusterCatalog(mergedClusters) : null;
     }
 
-    // Folds the wired groundings into the system prompt, applying the selection only to
-    // component-catalog groundings (other kinds pass through untouched).
+    // Folds the wired groundings into the system prompt, applying the component selection to
+    // component-catalog groundings and the cluster selection to cluster groundings (other kinds
+    // pass through untouched).
     private string BuildGroundedSystemPrompt(string systemPrompt)
     {
         if (_liveGroundings.Count == 0)
@@ -318,9 +394,12 @@ public class Recorder : StatefulComponentBase
         }
 
         var mapped = _liveGroundings
-            .Select(g => g is ComponentCatalogGrounding cc
-                ? new ComponentCatalogGrounding(cc.Catalog.Filtered(_selection))
-                : g)
+            .Select(g => g switch
+            {
+                ComponentCatalogGrounding cc => new ComponentCatalogGrounding(cc.Catalog.Filtered(_selection)),
+                ClusterCatalogGrounding cl => new ClusterCatalogGrounding(cl.Catalog.Filtered(_clusterSelection)),
+                _ => g,
+            })
             .ToList();
 
         return GroundingComposer.Append(systemPrompt, mapped);

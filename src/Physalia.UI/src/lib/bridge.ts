@@ -64,6 +64,12 @@ export interface UiState {
 	groundingTree: GroundingCategory[];
 	/** The current grounding selection (included tabs/panels), or null = include everything (default). */
 	groundingSelection: GroundingCategory[] | null;
+	/** True when a cluster grounding is wired into the Recorder (greys the Clusters kind when false). */
+	clustersWired: boolean;
+	/** The clusters available in Files/CLUSTERS (name, description, I/O), for the cluster selector and the "/c/" autocomplete. */
+	availableClusters: ClusterInfo[];
+	/** The current cluster selection (included cluster names), or null = include everything (default). */
+	clusterSelection: string[] | null;
 }
 
 /** One tab (category) and its panels (sub-categories) in the grounding selector. */
@@ -72,11 +78,26 @@ export interface GroundingCategory {
 	subCategories: string[];
 }
 
+/** One available Grasshopper cluster, for the cluster selector and the "/c/" prompt autocomplete. */
+export interface ClusterInfo {
+	name: string;
+	description: string;
+	inputs: string[];
+	outputs: string[];
+}
+
 /** Grounding selection sent back to the host. all=true clears to include-everything (null). */
 export interface GroundingSelectionPayload {
 	all: boolean;
 	/** Included [category, subCategory] leaf pairs. Ignored when all is true. */
 	leaves: [string, string][];
+}
+
+/** Cluster selection sent back to the host. all=true clears to include-everything (null). */
+export interface ClusterSelectionPayload {
+	all: boolean;
+	/** Included cluster names. Ignored when all is true. */
+	names: string[];
 }
 
 /** Outcome of a save-API-key request, pushed back by the host after it writes the config. */

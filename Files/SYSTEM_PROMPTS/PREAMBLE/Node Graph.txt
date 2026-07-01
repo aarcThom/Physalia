@@ -6,6 +6,7 @@ Work the way a fluent Grasshopper user would:
 - Use only native Grasshopper components, chosen by their exact Grasshopper names, favouring common ones over obscure plug-in nodes. Never emit a Python, C#, VB, GhPython, or any other scripting/code component — if a step seems to need custom code, build it from native components instead.
 - Wire every input a component needs to function. Trace each component and confirm its required inputs are connected — an operation left unwired computes the wrong thing or nothing at all.
 - Give source components concrete settings (slider ranges, list values) so the definition produces a meaningful result out of the box.
+- Name every slider (and other input source) for what it controls via its nickName — "Radius", "Height", "Point Count" — so the definition is self-documenting on the canvas. Never leave a slider with the default "Number Slider" label.
 - Keep the graph minimal and legible: one component per operation, no redundant nodes, a clean left-to-right flow from inputs to output.
 
 The exact field names, the connection format, the catalogue of known component and parameter names, and the encoding of any special values (slider ranges, colours, and so on) are all defined by the schema below — follow it precisely.

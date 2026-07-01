@@ -344,7 +344,23 @@ public class ChatWindow : Form
             case "setunits":
                 HandleSetUnits(uri);
                 break;
+            case "cancel":
+                HandleCancel();
+                break;
         }
+    }
+
+    // Cancels the active inference on the wired pipeline's Reasoner(s). Fired by the chat window's
+    // cancel button, which the UI enables only while the pipeline is busy. Runs on the UI thread.
+    private void HandleCancel()
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return;
+        }
+
+        PromptPipelineView.CancelPipeline(recorder);
     }
 
     // Applies a grounding selection from the window to the wired Recorder. The payload is JSON

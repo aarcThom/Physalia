@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using Grasshopper;
@@ -21,7 +22,13 @@ internal static class ComponentHelpers
     /// Grasshopper's own document-wide conversion.
     /// </summary>
     /// <param name="objects">The freshly placed document objects.</param>
-    internal static void ApplyNickNameDisplay(IEnumerable<IGH_DocumentObject> objects)
+    /// <param name="preserveNickNames">
+    /// Instance GUIDs of objects whose own display nickname was set deliberately (e.g. a Number
+    /// Slider a model named "Radius"). For these, the display label is left as-is rather than
+    /// expanded to the type name — expanding a floating control's nickname would erase its meaning.
+    /// Component parameter grips are still expanded. Null preserves nothing (the default).
+    /// </param>
+    internal static void ApplyNickNameDisplay(IEnumerable<IGH_DocumentObject> objects, ISet<Guid>? preserveNickNames = null)
     {
         if (!CentralSettings.CanvasFullNames)
         {
@@ -30,7 +37,7 @@ internal static class ComponentHelpers
 
         foreach (IGH_DocumentObject obj in objects)
         {
-            ExpandToFullName(obj);
+            ExpandToFullName(obj, preserveNickNames);
         }
     }
 
@@ -42,7 +49,7 @@ internal static class ComponentHelpers
     {
         if (CentralSettings.CanvasFullNames)
         {
-            ExpandToFullName(obj);
+            ExpandToFullName(obj, preserveNickNames: null);
         }
     }
 
@@ -51,7 +58,7 @@ internal static class ComponentHelpers
     // recomputes capsule widths to fit the full names: objects placed by GhJSON's Put were already
     // laid out with the short JSON nicknames, so without this the label is truncated ("Si...") to
     // the stale narrow width.
-    private static void ExpandToFullName(IGH_DocumentObject obj)
+    private static void ExpandToFullName(IGH_DocumentObject obj, ISet<Guid>? preserveNickNames)
     {
         if (obj is IGH_Component comp)
         {
@@ -67,7 +74,14 @@ internal static class ComponentHelpers
         }
         else if (obj is IGH_Param floatingParam)
         {
-            floatingParam.NickName = floatingParam.Name;
+            // A floating control's nickname (a Number Slider's label, say) is its meaning, not an
+            // abbreviation of a type name — so only expand it to the full Name when it was NOT set
+            // deliberately. Preserving these keeps a model-named "Radius" slider from becoming
+            // "Number Slider" when the canvas has Draw Full Names on.
+            if (preserveNickNames is null || !preserveNickNames.Contains(obj.InstanceGuid))
+            {
+                floatingParam.NickName = floatingParam.Name;
+            }
         }
 
         obj.Attributes?.ExpireLayout();

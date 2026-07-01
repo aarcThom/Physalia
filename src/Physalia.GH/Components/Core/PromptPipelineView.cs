@@ -65,6 +65,23 @@ internal static class PromptPipelineView
     }
 
     /// <summary>
+    /// Cancels the active inference on every Reasoner on the forward signal spine of the given
+    /// Recorder. Fired by the chat window's cancel button, which the UI enables only while the
+    /// pipeline is busy. No-op when no Reasoner is running.
+    /// </summary>
+    /// <param name="recorder">The Recorder whose downstream Reasoner(s) to cancel.</param>
+    public static void CancelPipeline(Recorder recorder)
+    {
+        foreach (IGH_Component comp in DownstreamSignalComponents(recorder))
+        {
+            if (comp is Reasoner reasoner)
+            {
+                reasoner.CancelInference();
+            }
+        }
+    }
+
+    /// <summary>
     /// Whether the prompt source feeds a complete inference pipeline: a Recorder is wired to the
     /// given output, and its Signal reaches a Reasoner — directly or through a compaction
     /// component / gate — that has a Model (LLM) connected. Used by the chat window to choose

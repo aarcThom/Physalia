@@ -130,14 +130,29 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
             da.GetData(_cancelIndex, ref cancel);
         }
 
-        if (cancel && !_lastCancel && _isRunning)
+        if (cancel && !_lastCancel)
         {
-            _cts?.Cancel();
-            _isRunning = false;
-            AbortReadPass();
+            CancelInference();
         }
 
         _lastCancel = cancel;
+    }
+
+    /// <summary>
+    /// Cancels the active inference call, if one is in flight. Fired by the rising edge of the
+    /// Cancel input and by the chat window's cancel button (routed through the wired Recorder via
+    /// <see cref="PromptPipelineView.CancelPipeline"/>). No-op when no request is running.
+    /// </summary>
+    public void CancelInference()
+    {
+        if (!_isRunning)
+        {
+            return;
+        }
+
+        _cts?.Cancel();
+        _isRunning = false;
+        AbortReadPass();
     }
 
     /// <inheritdoc/>

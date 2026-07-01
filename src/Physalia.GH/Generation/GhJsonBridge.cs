@@ -256,6 +256,13 @@ internal static class GhJsonBridge
                 Pivot = new GhJsonPivot(pivot.X, pivot.Y),
             };
 
+            // A model-supplied nickName is the canvas label (e.g. a slider named "Radius"); carry it
+            // through so the placed component reads clearly. Blank leaves the component's default label.
+            if (!string.IsNullOrWhiteSpace(component.NickName))
+            {
+                ghComponent.NickName = component.NickName;
+            }
+
             if (Guid.TryParse(component.InstanceGuid, out Guid instanceGuid))
             {
                 ghComponent.InstanceGuid = instanceGuid;
@@ -410,7 +417,68 @@ internal static class GhJsonBridge
     /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
     internal static PlaceResult LoadAndPlaceJson(string json, PointF targetOrigin)
     {
-        return PlaceDocument(GhJson.FromJson(json), targetOrigin);
+        GhJsonDocument doc = GhJson.FromJson(json);
+        RelayoutLlmGraph(doc);
+        return PlaceDocument(doc, targetOrigin);
+    }
+
+    /// <summary>
+    /// Recomputes a clean left-to-right hierarchical layout for an LLM-authored GhJSON graph,
+    /// overwriting the model's own (typically tight and overlapping) pivots. Nodes are layered by
+    /// data-flow depth and stacked vertically within each layer, so sources such as sliders sit in
+    /// their own column instead of colliding with the components they feed. Layer 0's top node lands
+    /// at the layout origin, so the bounding-box corner PlaceDocument anchors to the transmitter is a
+    /// real component. Applied only on the LLM placement path; preset/Deserializer placements (which
+    /// carry intended pivots) go through PlaceDocument directly and keep their authored layout.
+    /// </summary>
+    /// <param name="doc">The parsed GhJSON document to relayout in place.</param>
+    private static void RelayoutLlmGraph(GhJsonDocument doc)
+    {
+        if (doc.Components is null || doc.Components.Count == 0)
+        {
+            return;
+        }
+
+        var nodeIds = new List<int>();
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.Id is int id)
+            {
+                nodeIds.Add(id);
+            }
+        }
+
+        if (nodeIds.Count == 0)
+        {
+            return;
+        }
+
+        var edges = new List<(int From, int To)>();
+        foreach (GhJsonConnection connection in doc.Connections ?? Enumerable.Empty<GhJsonConnection>())
+        {
+            if (connection.From?.Id is int from && connection.To?.Id is int to)
+            {
+                edges.Add((from, to));
+            }
+        }
+
+        IReadOnlyDictionary<int, PointF> positions = HierarchicalLayout.ComputePositions(nodeIds, edges);
+
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.Id is int id && positions.TryGetValue(id, out PointF p))
+            {
+                if (component.Pivot is null)
+                {
+                    component.Pivot = new GhJsonPivot(p.X, p.Y);
+                }
+                else
+                {
+                    component.Pivot.X = p.X;
+                    component.Pivot.Y = p.Y;
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -428,7 +496,8 @@ internal static class GhJsonBridge
         }
 
         // The offset aligns the content's top-left pivot to the target. Computed from the FULL layout
-        // (clusters included) so relative positions hold once clusters are lifted out.
+        // (clusters included) so relative positions hold once clusters are lifted out. On the LLM path
+        // the graph has been relaid out so a real component (layer 0's top node) sits at this corner.
         PointF offset = ComputeOffset(doc.Components, targetOrigin);
 
         // Cluster nodes (stamped by the Resolver) cannot be created by the GhJSON library, so lift
@@ -659,6 +728,33 @@ internal static class GhJsonBridge
         return obj as IGH_Param;
     }
 
+    // Instance GUIDs (post-placement, after RegenerateInstanceGuids) of placed objects whose source
+    // document carried an explicit nickName. These are labels a producer set on purpose (most often a
+    // Number Slider named for what it drives), so nickname-display expansion must leave them intact.
+    private static ISet<Guid> ExplicitlyNickNamedGuids(GhJsonDocument doc, PutResult result)
+    {
+        var guids = new HashSet<Guid>();
+        if (doc.Components is null)
+        {
+            return guids;
+        }
+
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (string.IsNullOrWhiteSpace(component.NickName))
+            {
+                continue;
+            }
+
+            if (component.Id is int id && result.IdToGuidMapping.TryGetValue(id, out Guid guid))
+            {
+                guids.Add(guid);
+            }
+        }
+
+        return guids;
+    }
+
     // Shared PutOptions for every Physalia placement: explicit offset (no auto-layout), connections
     // and groups created, fresh instance guids, invalid components skipped, placed objects left
     // deselected (so a fresh deserialize/placement doesn't drop a selection lasso on the canvas).
@@ -695,7 +791,7 @@ internal static class GhJsonBridge
 
         if (result.Success)
         {
-            ComponentHelpers.ApplyNickNameDisplay(result.PlacedObjects);
+            ComponentHelpers.ApplyNickNameDisplay(result.PlacedObjects, ExplicitlyNickNamedGuids(doc, result));
 
             // PutOptions.SelectPlacedObjects is false, but the GhJSON library still selects created
             // groups (and their members), so a preset carrying a group lands selected. Deselect every

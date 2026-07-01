@@ -15,6 +15,7 @@
     "connections has one entry per wired input. A component with three wired inputs (e.g. Construct Point X, Y, Z) needs three separate connection entries pointing to it. Reference each endpoint by { id, paramIndex }: id selects the component, and paramIndex is the parameter's zero-based position in that component's list — the OUTPUT list for the wire's 'from', the INPUT list for its 'to' — counting in the order shown in componentCatalog (first parameter = 0). paramName is optional and for readability only; the wire is matched by paramIndex.",
     "Do not leave a non-source component's inputs all unwired. Any downstream component that should receive data but has no incoming connections is reported as a placement failure. Source components (Number Slider, Panel acting as input, Boolean Toggle, value params) legitimately have no inputs.",
     "Number Slider value uses the format 'default<min~max>', e.g. '5<0~10>', set at componentState.extensions['gh.numberslider'].value. This is the most common mistake — do not use a plain number.",
+    "Give every Number Slider (and other input source, e.g. Boolean Toggle, Value List) a nickName naming what it controls — 'Radius', 'Height', 'Point Count' — so the definition reads clearly on the canvas. Never leave a slider with its default 'Number Slider' label. Short and specific; optional on other components.",
     "Colours use the prefixed string 'argb:A,R,G,B' where each channel is 0-255, e.g. 'argb:255,200,220,240'.",
     "Component-type-specific values (slider range, panel text, value-list items, etc.) live under componentState.extensions, keyed by the extension name (e.g. 'gh.numberslider', 'gh.panel'). Standard components with no special state omit componentState entirely.",
     "Omit document metadata and groups — they are not needed and are not part of this schema. Output only the raw JSON object."
@@ -107,7 +108,7 @@
         },
         "nickName": {
           "type": "string",
-          "description": "Optional custom on-canvas nickname for the component."
+          "description": "On-canvas label for the component. Set it on every input source — most importantly a Number Slider — to name what it controls (e.g. 'Radius', 'Height'); short and specific. Optional for other components."
         },
         "componentState": {
           "$ref": "#/$defs/componentState"

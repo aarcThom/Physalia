@@ -10,6 +10,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
+	import SquareIcon from '@lucide/svelte/icons/square';
 	import XIcon from '@lucide/svelte/icons/x';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import BoxIcon from '@lucide/svelte/icons/box';
@@ -34,6 +35,8 @@
 		onsavekey?: (providerId: string, key: string) => void;
 		/** Opens the grounding selection panel. */
 		ongrounding?: () => void;
+		/** Cancels the in-flight request; only invokable while busy. */
+		oncancel?: () => void;
 	}
 
 	let {
@@ -45,7 +48,8 @@
 		clusterNames = [],
 		onsend,
 		onsavekey,
-		ongrounding
+		ongrounding,
+		oncancel
 	}: Props = $props();
 
 	interface PendingImage {
@@ -456,6 +460,16 @@
 		onpaste={onPaste}
 		class="max-h-56 min-h-16 flex-1 resize-none border-none bg-transparent p-2 text-base md:text-base shadow-none focus-visible:ring-0 disabled:bg-transparent disabled:opacity-100 dark:bg-transparent"
 	/>
+
+	<Button
+		variant="ghost"
+		size="icon"
+		onclick={() => oncancel?.()}
+		disabled={!busy}
+		title={busy ? 'Cancel the active request' : 'No active request to cancel'}
+	>
+		<SquareIcon />
+	</Button>
 
 	<Button size="icon" onclick={submit} disabled={inert} title="Send">
 		<ArrowUpIcon />

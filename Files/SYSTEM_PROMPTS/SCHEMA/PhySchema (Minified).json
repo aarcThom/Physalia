@@ -9,6 +9,7 @@
     "paramName is case-sensitive; match componentCatalog exactly, else use the full GH parameter Name.",
     "Wire every required input.",
     "Number Slider value format: 'default<min~max>', e.g. '5<0~10>'.",
+    "Give every Number Slider (and other input sources) a nickName naming what it controls (e.g. 'Radius', 'Height'); short and specific. Optional on other components.",
     "id values are unique integers; instanceGuid values are unique UUID v4 strings."
   ],
   "componentCatalog": [
@@ -43,6 +44,7 @@
         "additionalProperties": false,
         "properties": {
           "name": {"type": "string"},
+          "nickName": {"type": "string"},
           "instanceGuid": {"type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"},
           "id": {"type": "integer"},
           "componentState": {"type": "object"}
@@ -65,8 +67,8 @@
   "example": {
     "schema": "1.0",
     "components": [
-      {"name": "Number Slider", "instanceGuid": "11111111-1111-1111-1111-111111111111", "id": 1, "componentState": {"extensions": {"gh.numberslider": {"value": "3<0~10>"}}}},
-      {"name": "Number Slider", "instanceGuid": "55555555-5555-5555-5555-555555555555", "id": 5, "componentState": {"extensions": {"gh.numberslider": {"value": "2<0.1~5>"}}}},
+      {"name": "Number Slider", "nickName": "Center X", "instanceGuid": "11111111-1111-1111-1111-111111111111", "id": 1, "componentState": {"extensions": {"gh.numberslider": {"value": "3<0~10>"}}}},
+      {"name": "Number Slider", "nickName": "Radius", "instanceGuid": "55555555-5555-5555-5555-555555555555", "id": 5, "componentState": {"extensions": {"gh.numberslider": {"value": "2<0.1~5>"}}}},
       {"name": "Construct Point", "instanceGuid": "44444444-4444-4444-4444-444444444444", "id": 4},
       {"name": "Sphere", "instanceGuid": "66666666-6666-6666-6666-666666666666", "id": 6}
     ],

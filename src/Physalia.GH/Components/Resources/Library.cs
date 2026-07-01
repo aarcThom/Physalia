@@ -2,13 +2,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Windows.Forms;
 using GH_IO.Serialization;
-using Grasshopper;
 using Grasshopper.Kernel;
 using Physalia.Core.Grounding.Components;
+using Physalia.GH.Generation;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -28,7 +26,8 @@ public class Library : PhyBase
     // Legacy (hidden-exposure) components are kept registered by Grasshopper for backward
     // compatibility but do not appear in the ribbon — e.g. an old colour "Multiplication" that
     // collides by name with the current one and confuses the model. Excluded by default; a
-    // right-click toggle brings them back. Persisted, since it is configuration.
+    // right-click toggle brings them back. Persisted, since it is configuration. Obscure-exposure
+    // components (e.g. Mass Multiplication) are demoted but genuinely useful, and are kept.
     private bool _includeLegacy;
 
     /// <summary>
@@ -85,54 +84,8 @@ public class Library : PhyBase
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        _catalog ??= BuildCatalog(_includeLegacy);
+        _catalog ??= ComponentCatalogProvider.BuildFromServer(_includeLegacy);
         DA.SetData(0, new GH_ComponentCatalog(_catalog));
-    }
-
-    /// <summary>
-    /// Enumerates the component server once and builds the catalog, skipping obsolete entries,
-    /// anything without a usable display name, and — unless <paramref name="includeLegacy"/> is set —
-    /// hidden-exposure (legacy/back-compat) components that are kept registered but never shown in the
-    /// ribbon. Native (core-library) membership is recorded so the matcher can prefer stock components.
-    /// </summary>
-    /// <param name="includeLegacy">True to keep hidden-exposure legacy components in the catalog.</param>
-    /// <returns>The built catalog.</returns>
-    private static ComponentCatalog BuildCatalog(bool includeLegacy)
-    {
-        var server = Instances.ComponentServer;
-        var coreLibs = new HashSet<Guid>(server.Libraries.Where(l => l.IsCoreLibrary).Select(l => l.Id));
-
-        var entries = new List<CatalogEntry>();
-        foreach (IGH_ObjectProxy proxy in server.ObjectProxies)
-        {
-            if (proxy?.Desc is null || proxy.Obsolete)
-            {
-                continue;
-            }
-
-            // Hidden exposure marks a component Grasshopper keeps for back-compat but omits from the
-            // ribbon — the "old" twin that collides by name with the current component. Skip by default.
-            if (!includeLegacy && proxy.Exposure == GH_Exposure.hidden)
-            {
-                continue;
-            }
-
-            string name = proxy.Desc.Name ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(name) || name.IndexOf("OBSOLETE", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                continue;
-            }
-
-            entries.Add(new CatalogEntry(
-                name,
-                proxy.Guid,
-                proxy.Desc.Category ?? string.Empty,
-                proxy.Desc.SubCategory ?? string.Empty,
-                proxy.Desc.NickName ?? string.Empty,
-                coreLibs.Contains(proxy.LibraryGuid)));
-        }
-
-        return new ComponentCatalog(entries);
     }
 
     private void OnRefresh(object? sender, EventArgs e)

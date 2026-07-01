@@ -297,9 +297,11 @@ internal static class GhJsonBridge
     /// <summary>
     /// Rewrites each component's name in a GhJSON string to a real installed component, matched
     /// against <paramref name="catalog"/>, and stamps the resolved component-type GUID so the
-    /// library can create it exactly. Components that already carry a non-empty
-    /// <c>componentGuid</c> are left untouched. Names that cannot be matched confidently are
-    /// returned for feedback rather than guessed.
+    /// library can create it exactly. An incoming <c>componentGuid</c> is trusted only when it
+    /// names a catalogued (installed, non-obsolete) component; a stale or deprecated GUID — the
+    /// kind a model reproduces from old files, e.g. the obsolete colour "Multiplication" — is
+    /// discarded and the component re-resolved by name. Names that cannot be matched confidently
+    /// are returned for feedback rather than guessed.
     /// </summary>
     /// <param name="json">The GhJSON document as a string.</param>
     /// <param name="catalog">The installed-component catalog to resolve against.</param>
@@ -316,9 +318,18 @@ internal static class GhJsonBridge
         {
             foreach (GhJsonComponent component in doc.Components)
             {
-                if (component.ComponentGuid is not null && component.ComponentGuid.Value != Guid.Empty)
+                if (component.ComponentGuid is Guid incoming && incoming != Guid.Empty)
                 {
-                    continue;
+                    // Trust an incoming GUID only if it points at a catalogued (installed,
+                    // non-obsolete) component. A stale/deprecated GUID — the obsolete colour
+                    // "Multiplication" a model reproduces from old files — is dropped so the
+                    // name-match below re-resolves it to the current component.
+                    if (catalog.ContainsGuid(incoming))
+                    {
+                        continue;
+                    }
+
+                    component.ComponentGuid = null;
                 }
 
                 string proposed = component.Name ?? string.Empty;
@@ -430,6 +441,13 @@ internal static class GhJsonBridge
             return clusterPlan is null ? EmptyDocumentResult() : PlaceClustersOnly(clusterPlan);
         }
 
+        // Stamp a validated, non-obsolete component GUID on every node before Put. The GhJSON library
+        // creates GUID-first and falls back to an UNFILTERED name lookup (CreateByName returns the first
+        // proxy matching a name, obsolete or not — e.g. the colour "Multiplication" twin). Stamping here
+        // makes placement self-sufficient for pipelines with no Resolver and guarantees creation goes
+        // through the correct GUID rather than that fallback.
+        StampComponentGuids(doc);
+
         // Normalise AI-authored JSON (missing ids, stray fields, near-miss structure) before placing.
         // The GhJSON library's fixer is the single source of repair; anything it cannot fix is surfaced
         // to the caller so it can be routed back to the model as feedback.
@@ -439,6 +457,52 @@ internal static class GhJsonBridge
 
         var options = BuildPutOptions(offset);
         return ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan);
+    }
+
+    // Ensures every component carries a validated, non-obsolete component-type GUID before Put, so the
+    // GhJSON library instantiates it via CreateByGuid rather than its unfiltered CreateByName fallback
+    // (which returns the FIRST proxy matching a name — obsolete twins included, e.g. colour
+    // "Multiplication"). A node already carrying a live, non-obsolete GUID is left untouched, so user
+    // and preset graphs are unaffected; a missing or obsolete GUID is re-resolved by name against the
+    // obsolete-free catalog. Cluster nodes are skipped (they are lifted out and placed separately).
+    private static void StampComponentGuids(GhJsonDocument doc)
+    {
+        if (doc.Components is null || doc.Components.Count == 0)
+        {
+            return;
+        }
+
+        ComponentCatalog catalog = ComponentCatalogProvider.BuildFromServer();
+        if (catalog.Count == 0)
+        {
+            return;
+        }
+
+        GH_ComponentServer server = Grasshopper.Instances.ComponentServer;
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (IsClusterNode(component))
+            {
+                continue;
+            }
+
+            // Keep an incoming GUID only when it names a live, non-obsolete component.
+            if (component.ComponentGuid is Guid guid && guid != Guid.Empty)
+            {
+                IGH_ObjectProxy proxy = server.EmitObjectProxy(guid);
+                if (proxy is not null && !proxy.Obsolete)
+                {
+                    continue;
+                }
+            }
+
+            ComponentMatcher.MatchResult match = ComponentMatcher.Match(component.Name ?? string.Empty, catalog);
+            if (match.IsConfident && match.Entry is not null)
+            {
+                component.Name = match.Entry.Name;
+                component.ComponentGuid = match.Entry.ComponentGuid;
+            }
+        }
     }
 
     // The canvas offset that maps the content's top-left pivot onto targetOrigin. Components with no

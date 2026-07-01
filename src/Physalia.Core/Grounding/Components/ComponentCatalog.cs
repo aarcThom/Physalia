@@ -18,6 +18,7 @@ namespace Physalia.Core.Grounding.Components;
 public sealed class ComponentCatalog
 {
     private IReadOnlyList<CatalogCategory>? _categoryTree;
+    private HashSet<Guid>? _guids;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ComponentCatalog"/> class.
@@ -37,6 +38,17 @@ public sealed class ComponentCatalog
     /// Gets the number of entries in the catalog.
     /// </summary>
     public int Count => Entries.Count;
+
+    /// <summary>
+    /// Returns whether the catalog contains a component with the given type GUID. Because the
+    /// catalog excludes obsolete and hidden components, this doubles as a validity check: an
+    /// incoming GUID that is not present is either unknown or points at a deprecated component,
+    /// and should be re-resolved by name rather than instantiated as-is.
+    /// </summary>
+    /// <param name="componentGuid">The component-type GUID to look up.</param>
+    /// <returns>True when a catalogued entry has this component GUID.</returns>
+    public bool ContainsGuid(Guid componentGuid) =>
+        (_guids ??= Entries.Select(e => e.ComponentGuid).ToHashSet()).Contains(componentGuid);
 
     /// <summary>
     /// Gets the distinct component display names, sorted, for prompt grounding.

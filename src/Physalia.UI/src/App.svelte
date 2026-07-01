@@ -193,6 +193,12 @@
 		window.location.href = `${BRIDGE_SCHEME}://submit?images=1`;
 	}
 
+	// Ask the host to cancel the active inference on the wired pipeline's Reasoner. The composer's
+	// cancel button is enabled only while `busy`, so this fires only when a request is in flight.
+	function cancel() {
+		window.location.href = `${BRIDGE_SCHEME}://cancel`;
+	}
+
 	// Open an external setup link in the system browser (the host cancels the nav and shells out).
 	function openLink(url: string) {
 		window.location.href = `${BRIDGE_SCHEME}://open?url=${encodeURIComponent(url)}`;
@@ -475,6 +481,7 @@
 			onsend={send}
 			onsavekey={saveKey}
 			ongrounding={() => openPanel('grounding')}
+			oncancel={cancel}
 		/>
 	</div>
 

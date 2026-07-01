@@ -4,7 +4,9 @@
 #nullable enable
 
 using System;
-using Physalia.Core.Catalog;
+using System.Linq;
+using Physalia.Core.Grounding.Clusters;
+using Physalia.Core.Grounding.Components;
 
 namespace Physalia.Core.Grounding;
 
@@ -48,26 +50,71 @@ public sealed record ComponentCatalogGrounding(ComponentCatalog Catalog) : Groun
 }
 
 /// <summary>
-/// Grounds the model with a Grasshopper cluster (.ghx) available for use.
+/// Grounds the model with the Grasshopper clusters available in the user's <c>Files/CLUSTERS</c>
+/// folder. Each cluster is rendered as a component-like signature (name, inputs, outputs, optional
+/// description) so the model can reference and wire a cluster exactly as it would a component — the
+/// placement layer recognises the referenced name as a cluster and instantiates it from its file.
 /// </summary>
-/// <param name="Name">The cluster's display name.</param>
-/// <param name="Description">A description of what the cluster does and its inputs/outputs.</param>
-/// <remarks>
-/// Scaffold: today this carries only a name and a free-text description. TODO: extract the
-/// cluster's input/output parameter specs from the .ghx and render them as a structured signature.
-/// </remarks>
-public sealed record ClusterGrounding(string Name, string Description) : Grounding
+/// <param name="Catalog">The available-cluster catalog.</param>
+public sealed record ClusterCatalogGrounding(ClusterCatalog Catalog) : Grounding
 {
     /// <inheritdoc/>
     public override string ToSystemPromptSection()
     {
-        if (string.IsNullOrWhiteSpace(Name))
+        if (Catalog is null || Catalog.Count == 0)
         {
             return string.Empty;
         }
 
-        string body = string.IsNullOrWhiteSpace(Description) ? string.Empty : "\n" + Description.Trim();
-        return $"The following Grasshopper cluster is available — use it where it fits: {Name.Trim()}." + body;
+        var lines = Catalog.Entries
+            .Where(e => !string.IsNullOrWhiteSpace(e.Name))
+            .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(FormatEntry)
+            .ToList();
+
+        if (lines.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return "These Grasshopper clusters are available — reference one by its exact name (like a "
+            + "component) where it fits:\n" + string.Join("\n", lines);
+    }
+
+    // Renders one cluster as "- Name(in: A:Number, B:Point) -> (out: R:Brep): description".
+    private static string FormatEntry(ClusterEntry entry)
+    {
+        string inputs = string.Join(", ", entry.Inputs.Select(FormatPort));
+        string outputs = string.Join(", ", entry.Outputs.Select(FormatPort));
+        string signature = $"- {entry.Name.Trim()}(in: {inputs}) -> (out: {outputs})";
+        return string.IsNullOrWhiteSpace(entry.Description)
+            ? signature
+            : signature + ": " + entry.Description.Trim();
+    }
+
+    private static string FormatPort(ClusterPort port) =>
+        string.IsNullOrWhiteSpace(port.TypeHint) ? port.Name : $"{port.Name}:{port.TypeHint}";
+}
+
+/// <summary>
+/// Grounds the model with the unit system of the active Rhino/Grasshopper document, so numeric
+/// values and geometry it produces match the document's units. The <see cref="Units"/> string is the
+/// text handed to the model — either the live document units or a user-chosen override; the override
+/// never changes the document itself.
+/// </summary>
+/// <param name="Units">The unit-system display name (e.g. <c>Millimeters</c>, <c>Inches</c>).</param>
+public sealed record DocumentUnitsGrounding(string Units) : Grounding
+{
+    /// <inheritdoc/>
+    public override string ToSystemPromptSection()
+    {
+        if (string.IsNullOrWhiteSpace(Units))
+        {
+            return string.Empty;
+        }
+
+        return $"The active Rhino/Grasshopper document uses these units: {Units.Trim()}. "
+            + "Produce geometry and numeric values consistent with this unit system.";
     }
 }
 

@@ -6,9 +6,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using Grasshopper.Kernel;
-using Physalia.Core.Catalog;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
+using Physalia.Core.Grounding.Components;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 

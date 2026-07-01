@@ -5,7 +5,7 @@
 
 using System;
 
-namespace Physalia.Core.Catalog;
+namespace Physalia.Core.Grounding.Components;
 
 /// <summary>
 /// One resolvable Grasshopper component in the installed library: its display name, its

@@ -17,6 +17,9 @@ using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Physalia.Core.Config;
 using Physalia.Core.ConvoInstruct;
+using Physalia.Core.Grounding;
+using Physalia.Core.Grounding.Clusters;
+using Physalia.Core.Grounding.Components;
 using Physalia.GH.Components;
 
 namespace Physalia.GH.Panels;
@@ -49,6 +52,15 @@ public class ChatWindow : Form
     // Shared client for the llama-server setup probe. A short timeout bounds the rare case where
     // packets to the default endpoint are dropped (a refused connection fails fast on its own).
     private static readonly HttpClient ProbeClient = new() { Timeout = TimeSpan.FromSeconds(2) };
+
+    // Common Rhino unit-system names offered in the grounding window's Document Units dropdown. These
+    // match Rhino.UnitSystem.ToString() so an override reads like the live document value. The live
+    // document units (and any current override) are merged in at push time, so uncommon systems still
+    // appear when in use.
+    private static readonly string[] UnitOptions =
+    {
+        "Millimeters", "Centimeters", "Meters", "Kilometers", "Inches", "Feet", "Yards", "Miles",
+    };
 
     // How often the setup probe re-runs once a result is known, so the setup state clears within a
     // few seconds of the user adding a key / starting a local server (and reappears if removed).
@@ -102,6 +114,7 @@ public class ChatWindow : Form
     private string? _lastChatboxes;
     private bool? _lastCollapsed;
     private int? _lastHarnessCount;
+    private string? _lastGroundingSignature;
 
     // Set on a Chatbox switch: forces the next Tick to push history/stream/state unconditionally,
     // even when the newly viewed component's values equal the reset caches (e.g. a fresh component
@@ -322,8 +335,135 @@ public class ChatWindow : Form
             case "togglecollapse":
                 _component.ToggleCollapse();
                 break;
+            case "setgrounding":
+                HandleSetGrounding(uri);
+                break;
+            case "setclusters":
+                HandleSetClusters(uri);
+                break;
+            case "setunits":
+                HandleSetUnits(uri);
+                break;
         }
     }
+
+    // Applies a grounding selection from the window to the wired Recorder. The payload is JSON
+    // {all:bool, leaves:[[category,subCategory],...]} passed in the ?sel= query. all:true (or a
+    // missing payload) clears the selection back to null = include everything.
+    private void HandleSetGrounding(Uri uri)
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return;
+        }
+
+        string raw = GetQueryValue(uri.Query, "sel");
+        GroundingSelection? selection = null;
+        if (!string.IsNullOrEmpty(raw))
+        {
+            try
+            {
+                GroundingSelectionPayload? payload = JsonSerializer.Deserialize<GroundingSelectionPayload>(raw, ReadOpts);
+                if (payload is not null && !payload.All)
+                {
+                    IEnumerable<(string, string)> leaves = (payload.Leaves ?? new List<List<string>>())
+                        .Where(l => l is { Count: >= 2 })
+                        .Select(l => (l[0] ?? string.Empty, l[1] ?? string.Empty));
+                    selection = GroundingSelection.FromLeaves(leaves);
+                }
+            }
+            catch (JsonException)
+            {
+                return;
+            }
+        }
+
+        recorder.SetGroundingSelection(selection);
+    }
+
+    // Applies a cluster selection from the window to the wired Recorder. The payload is JSON
+    // {all:bool, names:[...]} passed in the ?sel= query. all:true (or a missing payload) clears the
+    // selection back to null = include every available cluster.
+    private void HandleSetClusters(Uri uri)
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return;
+        }
+
+        string raw = GetQueryValue(uri.Query, "sel");
+        ClusterSelection? selection = null;
+        if (!string.IsNullOrEmpty(raw))
+        {
+            try
+            {
+                ClusterSelectionPayload? payload = JsonSerializer.Deserialize<ClusterSelectionPayload>(raw, ReadOpts);
+                if (payload is not null && !payload.All)
+                {
+                    selection = ClusterSelection.FromNames(payload.Names ?? new List<string>());
+                }
+            }
+            catch (JsonException)
+            {
+                return;
+            }
+        }
+
+        recorder.SetClusterSelection(selection);
+    }
+
+    // Applies a document-units override from the window to the wired Recorder. The payload is JSON
+    // {reset:bool, units:string} passed in the ?sel= query. reset:true (or a missing payload) clears
+    // the override back to null = use the live document units. The document itself is never changed.
+    private void HandleSetUnits(Uri uri)
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return;
+        }
+
+        string raw = GetQueryValue(uri.Query, "sel");
+        string? units = null;
+        if (!string.IsNullOrEmpty(raw))
+        {
+            try
+            {
+                UnitsOverridePayload? payload = JsonSerializer.Deserialize<UnitsOverridePayload>(raw, ReadOpts);
+                if (payload is not null && !payload.Reset)
+                {
+                    units = payload.Units;
+                }
+            }
+            catch (JsonException)
+            {
+                return;
+            }
+        }
+
+        recorder.SetUnitsOverride(units);
+    }
+
+    // The names of the clusters currently exposed to the model (the chat-selected subset, or all when
+    // no selection is set). Used to normalize "/c/<name>" prompt tokens at submit time.
+    private IReadOnlyCollection<string> IncludedClusterNames()
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        IEnumerable<string> names = recorder.AvailableClusters.Select(c => c.Name);
+        ClusterSelection? selection = recorder.ClusterSelectionOrNull;
+        return (selection is null ? names : names.Where(selection.Includes)).ToList();
+    }
+
+    // Rewrites "/c/<clustername>" references in submitted prompt text into a clear cluster mention.
+    private string NormalizeClusterRefs(string text) =>
+        PromptClusterResolver.Normalize(text, IncludedClusterNames());
 
     // Opens an external setup link (http/https only) in the user's default browser. The chat runs
     // from file://, so an in-page navigation would replace it — links route here instead.
@@ -428,7 +568,7 @@ public class ChatWindow : Form
             string text = GetQueryValue(query, "text");
             if (!string.IsNullOrEmpty(text))
             {
-                _component.SubmitFromWindow(text);
+                _component.SubmitFromWindow(NormalizeClusterRefs(text));
             }
 
             return;
@@ -512,7 +652,7 @@ public class ChatWindow : Form
             return;
         }
 
-        string msgText = message.Text ?? string.Empty;
+        string msgText = NormalizeClusterRefs(message.Text ?? string.Empty);
         IReadOnlyList<SubmitImage> images = message.Images ?? (IReadOnlyList<SubmitImage>)Array.Empty<SubmitImage>();
 
         var blocks = new List<MessageContent>();
@@ -668,9 +808,68 @@ public class ChatWindow : Form
         bool collapsed = _component.Group.Collapsed;
         int harnessCount = _component.Group.Count;
 
+        // Grounding state for the window's grounding panel: whether a component catalog is wired
+        // (greys the icon when not), the available tab → panels tree, and the current selection
+        // (null = include everything). The selection's flat leaves are regrouped to the tree's shape.
+        bool groundingWired = recorder?.HasComponentGrounding == true;
+        var groundingTree = (recorder?.AvailableGroundingTree ?? Array.Empty<CatalogCategory>())
+            .Select(c => new { category = c.Category, subCategories = c.SubCategories })
+            .ToList();
+        object? groundingSelection = null;
+        if (recorder?.GroundingSelectionOrNull is { } sel)
+        {
+            groundingSelection = sel.Leaves
+                .GroupBy(l => l.Category, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new
+                {
+                    category = g.Key,
+                    subCategories = g.Select(l => l.SubCategory)
+                        .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                        .ToList(),
+                })
+                .ToList();
+        }
+
+        // Cluster grounding state for the window's cluster selector and the "/c/" autocomplete: whether
+        // any cluster grounding is wired, the available clusters (name + I/O + description), and the
+        // current selection (null = include everything).
+        bool clustersWired = recorder?.HasClusterGrounding == true;
+        var availableClusters = (recorder?.AvailableClusters ?? Array.Empty<ClusterEntry>())
+            .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(c => new
+            {
+                name = c.Name,
+                description = c.Description,
+                inputs = c.Inputs.Select(p => p.Name).ToList(),
+                outputs = c.Outputs.Select(p => p.Name).ToList(),
+            })
+            .ToList();
+        object? clusterSelection = null;
+        if (recorder?.ClusterSelectionOrNull is { } csel)
+        {
+            clusterSelection = csel.Names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        // Document-units grounding state: whether a units grounding is wired, the live document units,
+        // the current override (null = use the document units), and the unit choices for the dropdown.
+        // The live document value is always present in the options so the dropdown can show it.
+        bool unitsWired = recorder?.HasUnitsGrounding == true;
+        string documentUnits = recorder?.DocumentUnits ?? string.Empty;
+        string? unitsOverride = recorder?.UnitsOverrideOrNull;
+        var unitOptions = UnitOptions
+            .Concat(new[] { documentUnits, unitsOverride ?? string.Empty })
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        string groundingSignature = JsonSerializer.Serialize(
+            new { groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
+
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
-            || collapsed != _lastCollapsed || harnessCount != _lastHarnessCount)
+            || collapsed != _lastCollapsed || harnessCount != _lastHarnessCount
+            || groundingSignature != _lastGroundingSignature)
         {
             _lastConnected = connected;
             _lastBusy = busy;
@@ -680,8 +879,9 @@ public class ChatWindow : Form
             _lastConfigured = configuredJson;
             _lastCollapsed = collapsed;
             _lastHarnessCount = harnessCount;
+            _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 
@@ -879,6 +1079,7 @@ public class ChatWindow : Form
         _lastNeedsSetup = null;
         _lastStatus = null;
         _lastConfigured = null;
+        _lastGroundingSignature = null;
         _forcePush = true;
     }
 
@@ -1455,4 +1656,16 @@ public class ChatWindow : Form
     private sealed record SubmitImage(string Base64, string MediaType, string Filename);
 
     private sealed record SubmitMessage(string Text, List<SubmitImage>? Images);
+
+    // Grounding selection pushed from the window: all=true clears to include-everything; otherwise
+    // leaves is a list of [category, subCategory] pairs to include.
+    private sealed record GroundingSelectionPayload(bool All, List<List<string>>? Leaves);
+
+    // Cluster selection pushed from the window: all=true clears to include-everything; otherwise
+    // names is the list of cluster names to include.
+    private sealed record ClusterSelectionPayload(bool All, List<string>? Names);
+
+    // Document-units override pushed from the window: reset=true clears to the live document units;
+    // otherwise units is the override text handed to the model.
+    private sealed record UnitsOverridePayload(bool Reset, string? Units);
 }

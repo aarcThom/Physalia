@@ -11,6 +11,7 @@
 	import Composer from '$lib/chat/Composer.svelte';
 	import Setup from '$lib/chat/Setup.svelte';
 	import Preset from '$lib/chat/Preset.svelte';
+	import Grounding from '$lib/chat/Grounding.svelte';
 	import ManualDefinition from '$lib/chat/ManualDefinition.svelte';
 	import ConnectOptions from '$lib/chat/ConnectOptions.svelte';
 	import {
@@ -26,7 +27,19 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { getProvider } from '$lib/chat/providers';
 	import { cn } from '$lib/utils';
-	import type { SetupResult, SubmitMessage, UiChatbox, UiMessage, UiPreset, UiState } from '$lib/bridge';
+	import type {
+		ClusterInfo,
+		ClusterSelectionPayload,
+		GroundingCategory,
+		GroundingSelectionPayload,
+		SetupResult,
+		SubmitMessage,
+		UiChatbox,
+		UiMessage,
+		UiPreset,
+		UiState,
+		UnitsOverridePayload
+	} from '$lib/bridge';
 
 	const BRIDGE_SCHEME = 'phbridge';
 
@@ -42,6 +55,37 @@
 	let collapsed = $state(false);
 	let harnessCount = $state(0);
 
+	// Grounding state for the grounding panel: whether a component catalog is wired (enables the
+	// Composer's grounding button), the available tab → panels tree, and the current selection
+	// (null = include everything).
+	let groundingWired = $state(false);
+	let groundingTree = $state<GroundingCategory[]>([]);
+	let groundingSelection = $state<GroundingCategory[] | null>(null);
+
+	// Cluster grounding state: whether a cluster grounding is wired, the available clusters (from
+	// Files/CLUSTERS), and the current selection (null = include everything).
+	let clustersWired = $state(false);
+	let availableClusters = $state<ClusterInfo[]>([]);
+	let clusterSelection = $state<string[] | null>(null);
+
+	// Document-units grounding state: whether a units grounding is wired, the live document units, the
+	// current override (null = use the document units), and the dropdown choices.
+	let unitsWired = $state(false);
+	let documentUnits = $state('');
+	let unitsOverride = $state<string | null>(null);
+	let unitOptions = $state<string[]>([]);
+
+	// The grounding button opens the panel whenever any grounding kind is wired (components, clusters,
+	// or document units), not just a component catalog.
+	let groundingAvailable = $derived(groundingWired || clustersWired || unitsWired);
+
+	// The cluster names currently exposed to the model (selection applied), for the "/c/" autocomplete.
+	let includedClusterNames = $derived(
+		availableClusters
+			.map((c) => c.name)
+			.filter((n) => clusterSelection === null || clusterSelection.includes(n))
+	);
+
 	// Setup screen state. `needsSetup` (from the host) forces it when no provider is configured;
 	// `manualSetup` lets the user open it from the header dropdown to add another provider later.
 	let manualSetup = $state(false);
@@ -50,7 +94,7 @@
 
 	// Other full-screen pages opened from the header menu (mutually exclusive with the chat view
 	// and with setup). null = none open.
-	let panel = $state<'preset' | 'manualdef' | null>(null);
+	let panel = $state<'preset' | 'manualdef' | 'grounding' | null>(null);
 	// Bundled presets (from Files/PRESETS), pushed by the host.
 	let presets = $state<UiPreset[]>([]);
 	// Every Chatbox on the canvas (the bottom switcher row), pushed by the host.
@@ -86,6 +130,16 @@
 				configuredProviders = next.configuredProviders ?? [];
 				collapsed = next.collapsed ?? false;
 				harnessCount = next.harnessCount ?? 0;
+				groundingWired = next.groundingWired ?? false;
+				groundingTree = next.groundingTree ?? [];
+				groundingSelection = next.groundingSelection ?? null;
+				clustersWired = next.clustersWired ?? false;
+				availableClusters = next.availableClusters ?? [];
+				clusterSelection = next.clusterSelection ?? null;
+				unitsWired = next.unitsWired ?? false;
+				documentUnits = next.documentUnits ?? '';
+				unitsOverride = next.unitsOverride ?? null;
+				unitOptions = next.unitOptions ?? [];
 			},
 			setSetupResult: (result) => {
 				setupResult = result;
@@ -174,6 +228,25 @@
 		window.location.href = `${BRIDGE_SCHEME}://selectchatbox?id=${encodeURIComponent(id)}`;
 	}
 
+	// Apply a grounding selection to the wired Recorder. The payload {all, leaves} is small enough to
+	// carry in the URL query (unlike image payloads). all=true returns to include-everything.
+	function setGrounding(payload: GroundingSelectionPayload) {
+		const json = JSON.stringify(payload);
+		window.location.href = `${BRIDGE_SCHEME}://setgrounding?sel=${encodeURIComponent(json)}`;
+	}
+
+	// Apply a cluster selection to the wired Recorder. all=true returns to include-everything.
+	function setClusters(payload: ClusterSelectionPayload) {
+		const json = JSON.stringify(payload);
+		window.location.href = `${BRIDGE_SCHEME}://setclusters?sel=${encodeURIComponent(json)}`;
+	}
+
+	// Apply a document-units override to the wired Recorder. reset=true returns to the live doc units.
+	function setUnits(payload: UnitsOverridePayload) {
+		const json = JSON.stringify(payload);
+		window.location.href = `${BRIDGE_SCHEME}://setunits?sel=${encodeURIComponent(json)}`;
+	}
+
 	// Hand a pasted API key to the host, which writes it to API_KEY_CONFIG.YAML and reports back
 	// via setSetupResult. encodeURIComponent keeps the key intact in the URL (no literal '+').
 	function saveKey(providerId: string, key: string) {
@@ -199,8 +272,8 @@
 		setupResult = null;
 	}
 
-	// Open one of the header-menu pages (preset / manual definition), leaving setup.
-	function openPanel(which: 'preset' | 'manualdef') {
+	// Open one of the pages (preset / manual definition / grounding), leaving setup.
+	function openPanel(which: 'preset' | 'manualdef' | 'grounding') {
 		panel = which;
 		manualSetup = false;
 		selectedProviderId = null;
@@ -321,6 +394,21 @@
 				/>
 			{:else if panel === 'preset'}
 				<Preset {presets} onplace={placePreset} onclose={closePanel} />
+			{:else if panel === 'grounding'}
+				<Grounding
+					tree={groundingTree}
+					selection={groundingSelection}
+					clusters={availableClusters}
+					clusterSelection={clusterSelection}
+					{unitsWired}
+					{documentUnits}
+					{unitsOverride}
+					{unitOptions}
+					onapply={setGrounding}
+					onapplyclusters={setClusters}
+					onapplyunits={setUnits}
+					onclose={closePanel}
+				/>
 			{:else if panel === 'manualdef'}
 				<ManualDefinition onclose={closePanel} />
 			{:else if showConnect}
@@ -382,8 +470,11 @@
 			{busy}
 			disabled={showSetup}
 			apiKeyProvider={keyProvider}
+			groundingWired={groundingAvailable}
+			clusterNames={includedClusterNames}
 			onsend={send}
 			onsavekey={saveKey}
+			ongrounding={() => openPanel('grounding')}
 		/>
 	</div>
 

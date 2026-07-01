@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Windows.Forms;
-using Grasshopper;
+using GH_IO.Serialization;
 using Grasshopper.Kernel;
-using Physalia.Core.Catalog;
+using Physalia.Core.Grounding.Components;
+using Physalia.GH.Generation;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -23,6 +22,13 @@ namespace Physalia.GH.Components;
 public class Library : PhyBase
 {
     private ComponentCatalog? _catalog;
+
+    // Legacy (hidden-exposure) components are kept registered by Grasshopper for backward
+    // compatibility but do not appear in the ribbon — e.g. an old colour "Multiplication" that
+    // collides by name with the current one and confuses the model. Excluded by default; a
+    // right-click toggle brings them back. Persisted, since it is configuration. Obscure-exposure
+    // components (e.g. Mass Multiplication) are demoted but genuinely useful, and are kept.
+    private bool _includeLegacy;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Library"/> class.
@@ -53,54 +59,44 @@ public class Library : PhyBase
         base.AppendAdditionalMenuItems(menu);
         Menu_AppendSeparator(menu);
         Menu_AppendItem(menu, "Refresh catalog", OnRefresh);
+        Menu_AppendItem(
+            menu,
+            "Include legacy (hidden) components",
+            OnToggleLegacy,
+            enabled: true,
+            @checked: _includeLegacy);
+    }
+
+    /// <inheritdoc/>
+    public override bool Write(GH_IWriter writer)
+    {
+        writer.SetBoolean("IncludeLegacy", _includeLegacy);
+        return base.Write(writer);
+    }
+
+    /// <inheritdoc/>
+    public override bool Read(GH_IReader reader)
+    {
+        _includeLegacy = reader.ItemExists("IncludeLegacy") && reader.GetBoolean("IncludeLegacy");
+        return base.Read(reader);
     }
 
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        _catalog ??= BuildCatalog();
+        _catalog ??= ComponentCatalogProvider.BuildFromServer(_includeLegacy);
         DA.SetData(0, new GH_ComponentCatalog(_catalog));
-    }
-
-    /// <summary>
-    /// Enumerates the component server once and builds the catalog, skipping obsolete entries
-    /// and anything without a usable display name. Native (core-library) membership is recorded
-    /// so the matcher can prefer stock components.
-    /// </summary>
-    /// <returns>The built catalog.</returns>
-    private static ComponentCatalog BuildCatalog()
-    {
-        var server = Instances.ComponentServer;
-        var coreLibs = new HashSet<Guid>(server.Libraries.Where(l => l.IsCoreLibrary).Select(l => l.Id));
-
-        var entries = new List<CatalogEntry>();
-        foreach (IGH_ObjectProxy proxy in server.ObjectProxies)
-        {
-            if (proxy?.Desc is null || proxy.Obsolete)
-            {
-                continue;
-            }
-
-            string name = proxy.Desc.Name ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(name) || name.IndexOf("OBSOLETE", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                continue;
-            }
-
-            entries.Add(new CatalogEntry(
-                name,
-                proxy.Guid,
-                proxy.Desc.Category ?? string.Empty,
-                proxy.Desc.SubCategory ?? string.Empty,
-                proxy.Desc.NickName ?? string.Empty,
-                coreLibs.Contains(proxy.LibraryGuid)));
-        }
-
-        return new ComponentCatalog(entries);
     }
 
     private void OnRefresh(object? sender, EventArgs e)
     {
+        _catalog = null;
+        ExpireSolution(true);
+    }
+
+    private void OnToggleLegacy(object? sender, EventArgs e)
+    {
+        _includeLegacy = !_includeLegacy;
         _catalog = null;
         ExpireSolution(true);
     }

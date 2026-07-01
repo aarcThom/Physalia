@@ -2,29 +2,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
+using System.Windows.Forms;
 using Grasshopper.Kernel;
 using Physalia.Core.Grounding;
+using Physalia.Core.Grounding.Clusters;
+using Physalia.GH.Generation;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Scaffold producer: emits a <see cref="ClusterGrounding"/> describing a Grasshopper cluster
-/// (.ghx) so the Composer can ground the model with it. Wire its output into the Composer's
-/// Grounding input.
+/// Reads the user's <c>Files/CLUSTERS</c> folder and emits a <see cref="ClusterCatalogGrounding"/>
+/// describing every available cluster — its name, its introspected input/output signature, and the
+/// optional description from <c>clusters.json</c>. Wire its output into the Recorder's Grounding
+/// input; the chat window then lets the user pick which clusters the model may use. Has no inputs;
+/// right-click to refresh after adding or editing cluster files.
 /// </summary>
-/// <remarks>
-/// WIP: today the cluster is described by a hand-written name and description. TODO: accept a
-/// .ghx path and extract the cluster's input/output parameter specs to build the description.
-/// </remarks>
 public class ClusterGrounder : PhyBase
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="ClusterGrounder"/> class.
     /// </summary>
     public ClusterGrounder()
-        : base("Cluster Grounding", "ClGnd", "Grounds the model with an available Grasshopper cluster (.ghx). WIP scaffold.", "Resources")
+        : base("Cluster Grounding", "ClGnd", "Grounds the model with the Grasshopper clusters in Files/CLUSTERS. Right-click to refresh.", "Resources")
     {
     }
 
@@ -34,30 +35,33 @@ public class ClusterGrounder : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Name", "N", "The cluster's display name.", GH_ParamAccess.item, string.Empty);
-        int descIndex = pManager.AddTextParameter("Description", "D", "What the cluster does and its inputs/outputs.", GH_ParamAccess.item, string.Empty);
-        pManager[descIndex].Optional = true;
+        // No inputs: the catalog is read from the Files/CLUSTERS folder.
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Cluster grounding for the Composer.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Cluster grounding for the Recorder.", GH_ParamAccess.item);
+    }
+
+    /// <inheritdoc/>
+    public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
+    {
+        base.AppendAdditionalMenuItems(menu);
+        Menu_AppendSeparator(menu);
+        Menu_AppendItem(menu, "Refresh clusters", OnRefresh);
     }
 
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        string name = string.Empty;
-        string description = string.Empty;
-        DA.GetData(0, ref name);
-        DA.GetData(1, ref description);
+        ClusterCatalog catalog = ClusterCatalogProvider.GetCatalog();
+        DA.SetData(0, new GH_Grounding(new ClusterCatalogGrounding(catalog)));
+    }
 
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            return;
-        }
-
-        DA.SetData(0, new GH_Grounding(new ClusterGrounding(name, description)));
+    private void OnRefresh(object? sender, EventArgs e)
+    {
+        ClusterCatalogProvider.GetCatalog(forceRefresh: true);
+        ExpireSolution(true);
     }
 }

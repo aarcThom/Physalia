@@ -3,7 +3,7 @@
 
 using GH_IO.Serialization;
 using Grasshopper.Kernel.Types;
-using Physalia.Core.Catalog;
+using Physalia.Core.Grounding.Components;
 
 namespace Physalia.GH.Goo;
 

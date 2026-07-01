@@ -13,9 +13,12 @@ using GhJSON.Grasshopper;
 using GhJSON.Grasshopper.PutOperations;
 using Grasshopper.Kernel;
 using Newtonsoft.Json;
-using Physalia.Core.Catalog;
+using Physalia.Core.Grounding;
+using Physalia.Core.Grounding.Clusters;
+using Physalia.Core.Grounding.Components;
 using Physalia.GH.Components;
 using Physalia.GH.Components.Utility;
+using GHClusterObject = Grasshopper.Kernel.Special.GH_Cluster;
 
 namespace Physalia.GH.Generation;
 
@@ -57,6 +60,19 @@ internal static class GhJsonBridge
     // extensions as an opaque pass-through, so this round-trips untouched.
     private const string PickerValueExtensionKey = "physalia.pickerValue";
 
+    // componentState.extensions key under which a Recorder's grounding selection is stored, so a
+    // preset carries which component-catalog tabs/panels are folded into the system prompt. Absent =
+    // null selection = include everything (the default), matching the Picker's "skip when no
+    // selection". Stored as benign labels (tab/panel names) — never a secret.
+    private const string GroundingSelectionExtensionKey = "physalia.groundingSelection";
+
+    // componentState.extensions key marking a component as a Grasshopper cluster reference rather
+    // than an installed component. The Resolver stamps it (with the cluster's name) when a generated
+    // node name matches a cluster in Files/CLUSTERS; placement then instantiates the cluster from its
+    // file instead of asking the GhJSON library to create it by componentGuid. GhJSON treats
+    // extensions as an opaque pass-through, so this round-trips untouched.
+    private const string ClusterExtensionKey = "physalia.cluster";
+
     /// <summary>
     /// Exports the Grasshopper objects identified by <paramref name="guids"/> to a
     /// <c>.ghjson</c> file at <paramref name="path"/>.
@@ -79,6 +95,10 @@ internal static class GhJsonBridge
         // The Picker's selected value lives in its native Write/Read blob, which GhJSON does not
         // capture; persist it into the component's extensions so the selection survives the round-trip.
         InjectPickerValues(doc);
+
+        // A Recorder's grounding selection lives in its native Write/Read blob too; persist it so a
+        // preset carries the chosen tabs/panels.
+        InjectGroundingSelection(doc);
 
         // Metadata has a private setter, so a user comment is injected by rebuilding the document
         // (the component objects were mutated in place above, so they carry over).
@@ -180,6 +200,41 @@ internal static class GhJsonBridge
     }
 
     /// <summary>
+    /// Records each exported <see cref="Recorder"/>'s grounding selection under
+    /// <see cref="GroundingSelectionExtensionKey"/> in its state extensions, so a preset carries which
+    /// component-catalog tabs/panels are folded into the system prompt. Recorders with the default
+    /// (null = include everything) selection are skipped, so an absent extension restores as null.
+    /// </summary>
+    /// <param name="doc">The freshly captured document to annotate in place.</param>
+    private static void InjectGroundingSelection(GhJsonDocument doc)
+    {
+        GH_Document? live = Grasshopper.Instances.ActiveCanvas?.Document;
+        if (live is null)
+        {
+            return;
+        }
+
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.InstanceGuid is not Guid guid
+                || live.FindObject(guid, false) is not Recorder recorder
+                || recorder.GroundingSelectionOrNull is not { } selection)
+            {
+                continue;
+            }
+
+            var leaves = selection.Leaves
+                .Select(leaf => new GroundingLeaf { Category = leaf.Category, SubCategory = leaf.SubCategory })
+                .ToList();
+
+            component.ComponentState ??= new GhJsonComponentState();
+            component.ComponentState.Extensions ??= new Dictionary<string, object>();
+            component.ComponentState.Extensions[GroundingSelectionExtensionKey] =
+                new GroundingSelectionExtension { Leaves = leaves };
+        }
+    }
+
+    /// <summary>
     /// Serialises a <see cref="PhySchemaDocument"/> (the LLM-authored, position-free definition)
     /// to a GhJSON string, stamping each component with the canvas pivot computed by the caller.
     /// </summary>
@@ -242,14 +297,19 @@ internal static class GhJsonBridge
     /// <summary>
     /// Rewrites each component's name in a GhJSON string to a real installed component, matched
     /// against <paramref name="catalog"/>, and stamps the resolved component-type GUID so the
-    /// library can create it exactly. Components that already carry a non-empty
-    /// <c>componentGuid</c> are left untouched. Names that cannot be matched confidently are
-    /// returned for feedback rather than guessed.
+    /// library can create it exactly. An incoming <c>componentGuid</c> is trusted only when it
+    /// names a catalogued (installed, non-obsolete) component; a stale or deprecated GUID — the
+    /// kind a model reproduces from old files, e.g. the obsolete colour "Multiplication" — is
+    /// discarded and the component re-resolved by name. Names that cannot be matched confidently
+    /// are returned for feedback rather than guessed.
     /// </summary>
     /// <param name="json">The GhJSON document as a string.</param>
     /// <param name="catalog">The installed-component catalog to resolve against.</param>
+    /// <param name="clusterCatalog">The available-cluster catalog; a node whose name exactly matches a
+    /// cluster is stamped as a cluster reference (handled by placement) rather than resolved to an
+    /// installed component. Pass an empty catalog to disable cluster resolution.</param>
     /// <returns>The resolved GhJSON and the list of names that could not be resolved.</returns>
-    internal static (string Json, IReadOnlyList<string> Unresolved) ResolveComponentNames(string json, ComponentCatalog catalog)
+    internal static (string Json, IReadOnlyList<string> Unresolved) ResolveComponentNames(string json, ComponentCatalog catalog, ClusterCatalog clusterCatalog)
     {
         GhJsonDocument doc = GhJson.FromJson(json);
         var unresolved = new List<string>();
@@ -258,12 +318,33 @@ internal static class GhJsonBridge
         {
             foreach (GhJsonComponent component in doc.Components)
             {
-                if (component.ComponentGuid is not null && component.ComponentGuid.Value != Guid.Empty)
+                if (component.ComponentGuid is Guid incoming && incoming != Guid.Empty)
                 {
-                    continue;
+                    // Trust an incoming GUID only if it points at a catalogued (installed,
+                    // non-obsolete) component. A stale/deprecated GUID — the obsolete colour
+                    // "Multiplication" a model reproduces from old files — is dropped so the
+                    // name-match below re-resolves it to the current component.
+                    if (catalog.ContainsGuid(incoming))
+                    {
+                        continue;
+                    }
+
+                    component.ComponentGuid = null;
                 }
 
                 string proposed = component.Name ?? string.Empty;
+
+                // A node whose name exactly matches a cluster is a cluster reference — stamp it and
+                // let placement instantiate it from its file. Checked before the fuzzy component match
+                // so an exact cluster name is never mis-resolved to a similarly-named component.
+                ClusterEntry? cluster = clusterCatalog?.Find(proposed);
+                if (cluster is not null)
+                {
+                    component.Name = cluster.Name;
+                    StampClusterReference(component, cluster.Name);
+                    continue;
+                }
+
                 ComponentMatcher.MatchResult match = ComponentMatcher.Match(proposed, catalog);
 
                 if (match.IsConfident && match.Entry is not null)
@@ -279,6 +360,15 @@ internal static class GhJsonBridge
         }
 
         return (GhJson.ToJson(doc), unresolved);
+    }
+
+    // Marks a component as a cluster reference by name. Placement reads this and loads the cluster
+    // from Files/CLUSTERS instead of instantiating an installed component by componentGuid.
+    private static void StampClusterReference(GhJsonComponent component, string clusterName)
+    {
+        component.ComponentState ??= new GhJsonComponentState();
+        component.ComponentState.Extensions ??= new Dictionary<string, object>();
+        component.ComponentState.Extensions[ClusterExtensionKey] = new ClusterRefExtension { Name = clusterName };
     }
 
     /// <summary>
@@ -337,6 +427,27 @@ internal static class GhJsonBridge
             return EmptyDocumentResult();
         }
 
+        // The offset aligns the content's top-left pivot to the target. Computed from the FULL layout
+        // (clusters included) so relative positions hold once clusters are lifted out.
+        PointF offset = ComputeOffset(doc.Components, targetOrigin);
+
+        // Cluster nodes (stamped by the Resolver) cannot be created by the GhJSON library, so lift
+        // them out before Fix/Put: Physalia instantiates each from its file and rewires its wires.
+        ClusterPlan? clusterPlan = ExtractClusters(ref doc, offset);
+
+        if (doc.Components is null || doc.Components.Count == 0)
+        {
+            // Graph is clusters only — there is nothing for the library Put to do; place directly.
+            return clusterPlan is null ? EmptyDocumentResult() : PlaceClustersOnly(clusterPlan);
+        }
+
+        // Stamp a validated, non-obsolete component GUID on every node before Put. The GhJSON library
+        // creates GUID-first and falls back to an UNFILTERED name lookup (CreateByName returns the first
+        // proxy matching a name, obsolete or not — e.g. the colour "Multiplication" twin). Stamping here
+        // makes placement self-sufficient for pipelines with no Resolver and guarantees creation goes
+        // through the correct GUID rather than that fallback.
+        StampComponentGuids(doc);
+
         // Normalise AI-authored JSON (missing ids, stray fields, near-miss structure) before placing.
         // The GhJSON library's fixer is the single source of repair; anything it cannot fix is surfaced
         // to the caller so it can be routed back to the model as feedback.
@@ -344,9 +455,63 @@ internal static class GhJsonBridge
         doc = fixResult.Document;
         IReadOnlyList<string> unfixedIssues = fixResult.UnfixedIssues ?? (IReadOnlyList<string>)Array.Empty<string>();
 
+        var options = BuildPutOptions(offset);
+        return ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan);
+    }
+
+    // Ensures every component carries a validated, non-obsolete component-type GUID before Put, so the
+    // GhJSON library instantiates it via CreateByGuid rather than its unfiltered CreateByName fallback
+    // (which returns the FIRST proxy matching a name — obsolete twins included, e.g. colour
+    // "Multiplication"). A node already carrying a live, non-obsolete GUID is left untouched, so user
+    // and preset graphs are unaffected; a missing or obsolete GUID is re-resolved by name against the
+    // obsolete-free catalog. Cluster nodes are skipped (they are lifted out and placed separately).
+    private static void StampComponentGuids(GhJsonDocument doc)
+    {
+        if (doc.Components is null || doc.Components.Count == 0)
+        {
+            return;
+        }
+
+        ComponentCatalog catalog = ComponentCatalogProvider.BuildFromServer();
+        if (catalog.Count == 0)
+        {
+            return;
+        }
+
+        GH_ComponentServer server = Grasshopper.Instances.ComponentServer;
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (IsClusterNode(component))
+            {
+                continue;
+            }
+
+            // Keep an incoming GUID only when it names a live, non-obsolete component.
+            if (component.ComponentGuid is Guid guid && guid != Guid.Empty)
+            {
+                IGH_ObjectProxy proxy = server.EmitObjectProxy(guid);
+                if (proxy is not null && !proxy.Obsolete)
+                {
+                    continue;
+                }
+            }
+
+            ComponentMatcher.MatchResult match = ComponentMatcher.Match(component.Name ?? string.Empty, catalog);
+            if (match.IsConfident && match.Entry is not null)
+            {
+                component.Name = match.Entry.Name;
+                component.ComponentGuid = match.Entry.ComponentGuid;
+            }
+        }
+    }
+
+    // The canvas offset that maps the content's top-left pivot onto targetOrigin. Components with no
+    // pivot are ignored; an all-pivotless set yields a zero origin (offset == targetOrigin).
+    private static PointF ComputeOffset(IReadOnlyList<GhJsonComponent> components, PointF targetOrigin)
+    {
         float minX = float.MaxValue;
         float minY = float.MaxValue;
-        foreach (GhJsonComponent component in doc.Components)
+        foreach (GhJsonComponent component in components)
         {
             if (component.Pivot is not null)
             {
@@ -361,8 +526,7 @@ internal static class GhJsonBridge
             minY = 0f;
         }
 
-        var options = BuildPutOptions(new PointF(targetOrigin.X - minX, targetOrigin.Y - minY));
-        return ExecutePut(doc, options, unfixedIssues);
+        return new PointF(targetOrigin.X - minX, targetOrigin.Y - minY);
     }
 
     /// <summary>
@@ -510,9 +674,10 @@ internal static class GhJsonBridge
     };
 
     // Runs Put for an already-Fixed document with caller-built options, then on success applies
-    // nickname display, restores wireless feedback links, and runs the optional post-placement step
-    // (used to splice an anchor component into a placeholder slot). Shapes the PlaceResult.
-    private static PlaceResult ExecutePut(GhJsonDocument doc, PutOptions options, IReadOnlyList<string> unfixedIssues, Action<PutResult>? afterPlace = null)
+    // nickname display, restores wireless feedback links, runs the optional post-placement step
+    // (used to splice an anchor component into a placeholder slot), and places/rewires any clusters
+    // lifted out before Put. Shapes the PlaceResult, folding cluster guids into the placed set.
+    private static PlaceResult ExecutePut(GhJsonDocument doc, PutOptions options, IReadOnlyList<string> unfixedIssues, Action<PutResult>? afterPlace = null, ClusterPlan? clusterPlan = null)
     {
         IsImporting = true;
         PutResult result;
@@ -524,6 +689,9 @@ internal static class GhJsonBridge
         {
             IsImporting = false;
         }
+
+        var clusterGuids = new List<Guid>();
+        var clusterWarnings = new List<string>();
 
         if (result.Success)
         {
@@ -547,20 +715,329 @@ internal static class GhJsonBridge
 
             RestoreFeedbackLinks(doc, result);
             bool pickersRestored = RestorePickerValues(doc, result);
+            bool groundingRestored = RestoreGroundingSelection(doc, result);
             afterPlace?.Invoke(result);
+
+            // Place clusters lifted out before Put and rewire their connections to the placed graph.
+            GH_Document? hostDoc = result.PlacedObjects.FirstOrDefault()?.OnPingDocument()
+                ?? Grasshopper.Instances.ActiveCanvas?.Document;
+            bool clustersPlaced = clusterPlan is not null
+                && PlaceClusters(clusterPlan, hostDoc, result, clusterGuids, clusterWarnings);
 
             // Params and wires were changed after Put's own solution, so re-solve the now-expired
             // components (and their downstream) to bring recreated variable params and restored
-            // Picker selections live.
-            if (reconciled.Count > 0 || pickersRestored)
+            // Picker/grounding selections (and placed clusters) live.
+            if (reconciled.Count > 0 || pickersRestored || groundingRestored || clustersPlaced)
             {
-                result.PlacedObjects.FirstOrDefault()?.OnPingDocument()?.NewSolution(false);
+                (result.PlacedObjects.FirstOrDefault()?.OnPingDocument() ?? hostDoc)?.NewSolution(false);
             }
         }
 
+        var placedGuids = result.PlacedObjects.Select(o => o.InstanceGuid).Concat(clusterGuids).ToList();
+        var warnings = result.Warnings.Concat(clusterWarnings).ToList();
+
         return result.Success
-            ? new PlaceResult(true, result.ComponentsPlaced, result.ConnectionsCreated, result.Warnings.Count, null, result.PlacedObjects.Select(o => o.InstanceGuid).ToList(), result.Warnings.ToList(), unfixedIssues)
+            ? new PlaceResult(true, result.ComponentsPlaced + clusterGuids.Count, result.ConnectionsCreated, warnings.Count, null, placedGuids, warnings, unfixedIssues)
             : new PlaceResult(false, 0, 0, 0, result.ErrorMessage, Array.Empty<Guid>(), Array.Empty<string>(), unfixedIssues);
+    }
+
+    // True when a component was stamped as a cluster reference by the Resolver (see StampClusterReference).
+    private static bool IsClusterNode(GhJsonComponent component) =>
+        component.ComponentState?.Extensions is { } ext && ext.ContainsKey(ClusterExtensionKey);
+
+    // Reads the cluster name from a cluster-reference node's extension, or null when absent/malformed.
+    private static string? ReadClusterName(GhJsonComponent component)
+    {
+        if (component.ComponentState?.Extensions is not { } ext
+            || !ext.TryGetValue(ClusterExtensionKey, out object? raw))
+        {
+            return null;
+        }
+
+        try
+        {
+            // The extension round-trips as a Newtonsoft token; re-serialise to read it back typed.
+            return JsonConvert.DeserializeObject<ClusterRefExtension>(JsonConvert.SerializeObject(raw))?.Name;
+        }
+        catch (Newtonsoft.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    // Lifts cluster nodes out of the document so the GhJSON library never sees them: returns a plan
+    // (each cluster's resolved file, pivot, and the connections that touched it) and rewrites
+    // <paramref name="doc"/> in place to keep only the non-cluster components and the wires among them.
+    // Returns null (and leaves the document untouched) when there are no cluster nodes.
+    //
+    // A node is a cluster when the Resolver stamped it (physalia.cluster), OR — for pipelines with no
+    // Resolver — when it carries no real component guid and its name matches a cluster on disk. The
+    // latter makes placement self-sufficient: without it, an unstamped cluster node reaches Put, which
+    // cannot create it and reports its wires as failures.
+    private static ClusterPlan? ExtractClusters(ref GhJsonDocument doc, PointF offset)
+    {
+        if (doc.Components is null)
+        {
+            return null;
+        }
+
+        ClusterCatalog catalog = ClusterCatalogProvider.GetCatalog();
+
+        ClusterEntry? EntryFor(GhJsonComponent c)
+        {
+            bool hasRealGuid = c.ComponentGuid is Guid g && g != Guid.Empty;
+            if (hasRealGuid && !IsClusterNode(c))
+            {
+                return null; // a resolved installed component — never hijack it as a cluster
+            }
+
+            string name = ReadClusterName(c) ?? c.Name ?? string.Empty;
+            return catalog.Find(name);
+        }
+
+        var clusterComponents = doc.Components.Where(c => EntryFor(c) is not null).ToList();
+        if (clusterComponents.Count == 0)
+        {
+            return null;
+        }
+
+        var clusterIds = new HashSet<int>(clusterComponents
+            .Where(c => c.Id is int)
+            .Select(c => c.Id!.Value));
+
+        var placements = new List<ClusterPlacement>();
+        foreach (GhJsonComponent component in clusterComponents)
+        {
+            ClusterEntry entry = EntryFor(component)!;
+            PointF pivot = component.Pivot is not null
+                ? new PointF((float)component.Pivot.X, (float)component.Pivot.Y)
+                : PointF.Empty;
+            placements.Add(new ClusterPlacement(component.Id, entry.Name, entry.FilePath, pivot));
+        }
+
+        var clusterConnections = new List<GhJsonConnection>();
+        var keptConnections = new List<GhJsonConnection>();
+        foreach (GhJsonConnection conn in doc.Connections ?? Enumerable.Empty<GhJsonConnection>())
+        {
+            bool touchesCluster = (conn.From is { } f && clusterIds.Contains(f.Id))
+                || (conn.To is { } t && clusterIds.Contains(t.Id));
+            (touchesCluster ? clusterConnections : keptConnections).Add(conn);
+        }
+
+        var keptComponents = doc.Components.Where(c => EntryFor(c) is null).ToList();
+        doc = new GhJsonDocument(doc.Schema, doc.Metadata, keptComponents, keptConnections, doc.Groups);
+
+        return new ClusterPlan(placements, clusterConnections, offset);
+    }
+
+    // Places each planned cluster into the host document and rewires the connections that touched a
+    // cluster, against both the library-placed components and the freshly-added clusters. Cluster guids
+    // and any per-cluster failures are accumulated into the caller's lists. Returns whether any cluster
+    // was added (so the caller can trigger a re-solve).
+    private static bool PlaceClusters(ClusterPlan plan, GH_Document? host, PutResult result, List<Guid> placedGuids, List<string> warnings)
+    {
+        if (plan.Placements.Count == 0)
+        {
+            return false;
+        }
+
+        if (host is null)
+        {
+            warnings.Add("Clusters could not be placed: no active Grasshopper document.");
+            return false;
+        }
+
+        // GhJSON id -> placed object, covering both library-placed components and the clusters we add.
+        var byId = new Dictionary<int, IGH_DocumentObject>();
+        foreach (KeyValuePair<int, Guid> pair in result.IdToGuidMapping)
+        {
+            IGH_DocumentObject? obj = result.PlacedObjects.FirstOrDefault(o => o.InstanceGuid == pair.Value);
+            if (obj is not null)
+            {
+                byId[pair.Key] = obj;
+            }
+        }
+
+        bool any = AddClusters(plan, host, byId, placedGuids, warnings);
+        RewireClusterConnections(plan.Connections, byId, ClusterIds(plan));
+        return any;
+    }
+
+    // Placement path for a graph that is clusters only (the GhJSON library Put had nothing to do).
+    private static PlaceResult PlaceClustersOnly(ClusterPlan plan)
+    {
+        GH_Document? host = Grasshopper.Instances.ActiveCanvas?.Document;
+        if (host is null)
+        {
+            return new PlaceResult(false, 0, 0, 0, "No active Grasshopper document to place clusters into.", Array.Empty<Guid>(), Array.Empty<string>(), Array.Empty<string>());
+        }
+
+        var placedGuids = new List<Guid>();
+        var warnings = new List<string>();
+        var byId = new Dictionary<int, IGH_DocumentObject>();
+
+        AddClusters(plan, host, byId, placedGuids, warnings);
+        RewireClusterConnections(plan.Connections, byId, ClusterIds(plan));
+
+        if (placedGuids.Count > 0)
+        {
+            host.NewSolution(false);
+        }
+
+        return new PlaceResult(true, placedGuids.Count, 0, warnings.Count, null, placedGuids, warnings, Array.Empty<string>());
+    }
+
+    // Adds each planned cluster to the document at its offset-adjusted pivot, recording the placed guid
+    // and id->object mapping. A missing file or load failure is reported as a warning and skipped.
+    private static bool AddClusters(ClusterPlan plan, GH_Document host, IDictionary<int, IGH_DocumentObject> byId, List<Guid> placedGuids, List<string> warnings)
+    {
+        bool any = false;
+        foreach (ClusterPlacement placement in plan.Placements)
+        {
+            if (string.IsNullOrEmpty(placement.FilePath) || !System.IO.File.Exists(placement.FilePath))
+            {
+                warnings.Add($"Cluster '{placement.Name}' could not be placed: its file is not present in Files/CLUSTERS.");
+                continue;
+            }
+
+            GHClusterObject? cluster = TryLoadCluster(placement.FilePath!);
+            if (cluster is null)
+            {
+                warnings.Add($"Cluster '{placement.Name}' could not be loaded.");
+                continue;
+            }
+
+            host.AddObject(cluster, false);
+            if (cluster.Attributes is null)
+            {
+                cluster.CreateAttributes();
+            }
+
+            if (cluster.Attributes is not null)
+            {
+                cluster.Attributes.Pivot = new PointF(placement.Pivot.X + plan.Offset.X, placement.Pivot.Y + plan.Offset.Y);
+                cluster.Attributes.Selected = false;
+                cluster.Attributes.ExpireLayout();
+            }
+
+            placedGuids.Add(cluster.InstanceGuid);
+            if (placement.Id is int id)
+            {
+                byId[id] = cluster;
+            }
+
+            any = true;
+        }
+
+        return any;
+    }
+
+    // Rewires the connections that touched a cluster against the combined map of library-placed
+    // components and freshly-added clusters. The cluster-side endpoint is resolved by paramIndex first
+    // (a cluster routinely exposes several inputs/outputs sharing one name — e.g. two "Curve" inputs —
+    // which a name-only lookup cannot tell apart); the other endpoint stays name-first. Endpoints that
+    // do not resolve are skipped.
+    private static void RewireClusterConnections(IReadOnlyList<GhJsonConnection> connections, IReadOnlyDictionary<int, IGH_DocumentObject> byId, IReadOnlyCollection<int> clusterIds)
+    {
+        foreach (GhJsonConnection conn in connections)
+        {
+            if (conn.From is not { } from || conn.To is not { } to
+                || !byId.TryGetValue(from.Id, out IGH_DocumentObject? fromObj)
+                || !byId.TryGetValue(to.Id, out IGH_DocumentObject? toObj))
+            {
+                continue;
+            }
+
+            IGH_Param? source = FindEndpointParam(fromObj, from, output: true, preferIndex: clusterIds.Contains(from.Id));
+            IGH_Param? sink = FindEndpointParam(toObj, to, output: false, preferIndex: clusterIds.Contains(to.Id));
+            if (source is null || sink is null || sink.Sources.Contains(source))
+            {
+                continue;
+            }
+
+            sink.AddSource(source);
+        }
+    }
+
+    // Resolves a connection endpoint to a live parameter. When preferIndex is set (the cluster side),
+    // paramIndex wins so same-named ports are addressable; otherwise the full Name is matched, with
+    // paramIndex as a fallback. Floating params resolve to the object itself.
+    private static IGH_Param? FindEndpointParam(IGH_DocumentObject obj, GhJsonConnectionEndpoint endpoint, bool output, bool preferIndex)
+    {
+        if (obj is not IGH_Component component)
+        {
+            return obj as IGH_Param;
+        }
+
+        IList<IGH_Param> list = output ? component.Params.Output : component.Params.Input;
+        bool IndexInRange(out int i)
+        {
+            i = endpoint.ParamIndex ?? -1;
+            return i >= 0 && i < list.Count;
+        }
+
+        if (preferIndex && IndexInRange(out int idx))
+        {
+            return list[idx];
+        }
+
+        IGH_Param? byName = list.FirstOrDefault(p => p.Name == endpoint.ParamName);
+        if (byName is not null)
+        {
+            return byName;
+        }
+
+        // A cluster's port name in the grounding (and thus the model's wire) is the hook nickname,
+        // which is the param's NickName here, not its Name — match that before giving up.
+        if (preferIndex)
+        {
+            IGH_Param? byNickName = list.FirstOrDefault(p => p.NickName == endpoint.ParamName);
+            if (byNickName is not null)
+            {
+                return byNickName;
+            }
+        }
+
+        return IndexInRange(out int fallback) ? list[fallback] : null;
+    }
+
+    // The GhJSON ids of the planned clusters — the endpoints that must resolve by paramIndex.
+    private static HashSet<int> ClusterIds(ClusterPlan plan) =>
+        new HashSet<int>(plan.Placements.Where(p => p.Id is int).Select(p => p.Id!.Value));
+
+    private static GHClusterObject? TryLoadCluster(string path)
+    {
+        try
+        {
+            var cluster = new GHClusterObject();
+            cluster.CreateFromFilePath(path);
+            return cluster;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // A planned cluster placement: its GhJSON id (for rewiring), display name, resolved file path
+    // (null when the named cluster is no longer in Files/CLUSTERS), and its file-space pivot.
+    private readonly record struct ClusterPlacement(int? Id, string Name, string? FilePath, PointF Pivot);
+
+    // The clusters lifted out of a document before Put, the connections that touched them, and the
+    // canvas offset to apply (the same offset Put applies to the non-cluster components).
+    private sealed record ClusterPlan(
+        IReadOnlyList<ClusterPlacement> Placements,
+        IReadOnlyList<GhJsonConnection> Connections,
+        PointF Offset);
+
+    // Serialised shape of a cluster reference, stored under ClusterExtensionKey in a node's extensions.
+    private sealed class ClusterRefExtension
+    {
+        /// <summary>
+        /// Gets or sets the cluster's name (resolved to a file under Files/CLUSTERS at placement time).
+        /// </summary>
+        [JsonProperty("name")]
+        public string? Name { get; set; }
     }
 
     // Deselects every freshly placed object plus any group that contains one. The GhJSON library
@@ -861,6 +1338,58 @@ internal static class GhJsonBridge
     }
 
     /// <summary>
+    /// Restores each placed <see cref="Recorder"/>'s grounding selection from the
+    /// <see cref="GroundingSelectionExtensionKey"/> extension written by
+    /// <see cref="InjectGroundingSelection"/>. The component id is remapped to the newly-placed
+    /// object's InstanceGuid via <see cref="PutResult.IdToGuidMapping"/>. Returns whether any
+    /// selection was restored, so the caller can trigger a re-solve.
+    /// </summary>
+    /// <param name="doc">The placed document (post-Fix, so ids match the Put mapping).</param>
+    /// <param name="result">The Put result carrying the id-to-guid mapping and placed objects.</param>
+    /// <returns>true when at least one grounding selection was restored.</returns>
+    private static bool RestoreGroundingSelection(GhJsonDocument doc, PutResult result)
+    {
+        bool restored = false;
+
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.Id is not int id
+                || component.ComponentState?.Extensions is not { } extensions
+                || !extensions.TryGetValue(GroundingSelectionExtensionKey, out object? raw))
+            {
+                continue;
+            }
+
+            GroundingSelectionExtension? ext;
+            try
+            {
+                // The extension round-trips as a Newtonsoft token; re-serialise to read it back typed.
+                ext = JsonConvert.DeserializeObject<GroundingSelectionExtension>(JsonConvert.SerializeObject(raw));
+            }
+            catch (Newtonsoft.Json.JsonException)
+            {
+                continue;
+            }
+
+            if (ext?.Leaves is null
+                || !result.IdToGuidMapping.TryGetValue(id, out Guid guid)
+                || result.PlacedObjects.FirstOrDefault(o => o.InstanceGuid == guid) is not Recorder recorder)
+            {
+                continue;
+            }
+
+            var leaves = ext.Leaves
+                .Where(l => l is not null)
+                .Select(l => (l.Category ?? string.Empty, l.SubCategory ?? string.Empty));
+
+            recorder.SetGroundingSelection(GroundingSelection.FromLeaves(leaves));
+            restored = true;
+        }
+
+        return restored;
+    }
+
+    /// <summary>
     /// Removes abbreviated <c>nickName</c> entries from all parameter settings in a document so
     /// that the exported JSON contains only the full <c>parameterName</c> values.
     /// </summary>
@@ -903,5 +1432,36 @@ internal static class GhJsonBridge
         /// </summary>
         [JsonProperty("collectorIds")]
         public List<int>? CollectorIds { get; set; }
+    }
+
+    /// <summary>
+    /// Serialised shape of a Recorder's grounding selection, stored under
+    /// <see cref="GroundingSelectionExtensionKey"/> in the component's state extensions.
+    /// </summary>
+    private sealed class GroundingSelectionExtension
+    {
+        /// <summary>
+        /// Gets or sets the included <c>(Category, SubCategory)</c> leaves.
+        /// </summary>
+        [JsonProperty("leaves")]
+        public List<GroundingLeaf>? Leaves { get; set; }
+    }
+
+    /// <summary>
+    /// One included tab/panel leaf of a <see cref="GroundingSelectionExtension"/>.
+    /// </summary>
+    private sealed class GroundingLeaf
+    {
+        /// <summary>
+        /// Gets or sets the tab (category) name.
+        /// </summary>
+        [JsonProperty("category")]
+        public string? Category { get; set; }
+
+        /// <summary>
+        /// Gets or sets the panel (sub-category) name.
+        /// </summary>
+        [JsonProperty("subCategory")]
+        public string? SubCategory { get; set; }
     }
 }

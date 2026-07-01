@@ -58,6 +58,61 @@ export interface UiState {
 	collapsed: boolean;
 	/** How many components are in the viewed Chatbox's harness group (0 = nothing to collapse). */
 	harnessCount: number;
+	/** True when a component-catalog grounding is wired into the Recorder (greys the grounding icon when false). */
+	groundingWired: boolean;
+	/** The available component tabs and their panels, for the grounding selector. */
+	groundingTree: GroundingCategory[];
+	/** The current grounding selection (included tabs/panels), or null = include everything (default). */
+	groundingSelection: GroundingCategory[] | null;
+	/** True when a cluster grounding is wired into the Recorder (greys the Clusters kind when false). */
+	clustersWired: boolean;
+	/** The clusters available in Files/CLUSTERS (name, description, I/O), for the cluster selector and the "/c/" autocomplete. */
+	availableClusters: ClusterInfo[];
+	/** The current cluster selection (included cluster names), or null = include everything (default). */
+	clusterSelection: string[] | null;
+	/** True when a document-units grounding is wired into the Recorder (shows the Document Units pill). */
+	unitsWired: boolean;
+	/** The active Rhino document's current unit system (what the model gets unless overridden). */
+	documentUnits: string;
+	/** The current document-units override, or null = use the live document units (default). */
+	unitsOverride: string | null;
+	/** Unit-system choices for the Document Units dropdown (includes the current doc value + any override). */
+	unitOptions: string[];
+}
+
+/** One tab (category) and its panels (sub-categories) in the grounding selector. */
+export interface GroundingCategory {
+	category: string;
+	subCategories: string[];
+}
+
+/** One available Grasshopper cluster, for the cluster selector and the "/c/" prompt autocomplete. */
+export interface ClusterInfo {
+	name: string;
+	description: string;
+	inputs: string[];
+	outputs: string[];
+}
+
+/** Grounding selection sent back to the host. all=true clears to include-everything (null). */
+export interface GroundingSelectionPayload {
+	all: boolean;
+	/** Included [category, subCategory] leaf pairs. Ignored when all is true. */
+	leaves: [string, string][];
+}
+
+/** Cluster selection sent back to the host. all=true clears to include-everything (null). */
+export interface ClusterSelectionPayload {
+	all: boolean;
+	/** Included cluster names. Ignored when all is true. */
+	names: string[];
+}
+
+/** Document-units override sent back to the host. reset=true clears to the live document units. */
+export interface UnitsOverridePayload {
+	reset: boolean;
+	/** The override unit text. Ignored when reset is true. */
+	units: string;
 }
 
 /** Outcome of a save-API-key request, pushed back by the host after it writes the config. */

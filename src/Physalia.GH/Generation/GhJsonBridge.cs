@@ -256,6 +256,13 @@ internal static class GhJsonBridge
                 Pivot = new GhJsonPivot(pivot.X, pivot.Y),
             };
 
+            // A model-supplied nickName is the canvas label (e.g. a slider named "Radius"); carry it
+            // through so the placed component reads clearly. Blank leaves the component's default label.
+            if (!string.IsNullOrWhiteSpace(component.NickName))
+            {
+                ghComponent.NickName = component.NickName;
+            }
+
             if (Guid.TryParse(component.InstanceGuid, out Guid instanceGuid))
             {
                 ghComponent.InstanceGuid = instanceGuid;
@@ -659,6 +666,33 @@ internal static class GhJsonBridge
         return obj as IGH_Param;
     }
 
+    // Instance GUIDs (post-placement, after RegenerateInstanceGuids) of placed objects whose source
+    // document carried an explicit nickName. These are labels a producer set on purpose (most often a
+    // Number Slider named for what it drives), so nickname-display expansion must leave them intact.
+    private static ISet<Guid> ExplicitlyNickNamedGuids(GhJsonDocument doc, PutResult result)
+    {
+        var guids = new HashSet<Guid>();
+        if (doc.Components is null)
+        {
+            return guids;
+        }
+
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (string.IsNullOrWhiteSpace(component.NickName))
+            {
+                continue;
+            }
+
+            if (component.Id is int id && result.IdToGuidMapping.TryGetValue(id, out Guid guid))
+            {
+                guids.Add(guid);
+            }
+        }
+
+        return guids;
+    }
+
     // Shared PutOptions for every Physalia placement: explicit offset (no auto-layout), connections
     // and groups created, fresh instance guids, invalid components skipped, placed objects left
     // deselected (so a fresh deserialize/placement doesn't drop a selection lasso on the canvas).
@@ -695,7 +729,7 @@ internal static class GhJsonBridge
 
         if (result.Success)
         {
-            ComponentHelpers.ApplyNickNameDisplay(result.PlacedObjects);
+            ComponentHelpers.ApplyNickNameDisplay(result.PlacedObjects, ExplicitlyNickNamedGuids(doc, result));
 
             // PutOptions.SelectPlacedObjects is false, but the GhJSON library still selects created
             // groups (and their members), so a preset carrying a group lands selected. Deselect every

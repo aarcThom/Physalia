@@ -43,11 +43,17 @@ public sealed record PhySchemaDocument(
 /// <param name="InstanceGuid">A UUID string unique within the definition.</param>
 /// <param name="Id">Short integer identifier referenced by connections.</param>
 /// <param name="ComponentState">Optional opaque extra state; ignored by layout.</param>
+/// <param name="NickName">
+/// Optional canvas label describing what this component is for — most useful on input sources such
+/// as a Number Slider (e.g. "Radius", "Height"), so the placed definition reads clearly. Null/blank
+/// leaves the component's default label.
+/// </param>
 public sealed record PhySchemaComponent(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("instanceGuid")] string InstanceGuid,
     [property: JsonPropertyName("id")] int Id,
-    [property: JsonPropertyName("componentState")] JsonElement? ComponentState = null);
+    [property: JsonPropertyName("componentState")] JsonElement? ComponentState = null,
+    [property: JsonPropertyName("nickName")] string? NickName = null);
 
 /// <summary>
 /// A wire between two component parameters.

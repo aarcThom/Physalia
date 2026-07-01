@@ -18,8 +18,10 @@ namespace Physalia.GH.Generation;
 public static class HierarchicalLayout
 {
     // LAYOUT CONSTANTS =============================================================
-    private const float LayerSpacing = 300f;
-    private const float NodeSpacing = 100f;
+    // Horizontal gap between successive data-flow layers, and vertical gap between nodes stacked
+    // within one layer. LayerSpacing must clear the widest node (sliders/value nodes ~200 wide).
+    private const float LayerSpacing = 400f;
+    private const float NodeSpacing = 120f;
     private const float OriginX = 50f;
     private const float OriginY = 50f;
 
@@ -36,29 +38,52 @@ public static class HierarchicalLayout
     {
         ArgumentNullException.ThrowIfNull(schema);
 
-        var result = new Dictionary<int, PointF>();
         if (schema.Components is null || schema.Components.Count == 0)
+            return new Dictionary<int, PointF>();
+
+        var nodeIds = new HashSet<int>();
+        foreach (var component in schema.Components)
+            nodeIds.Add(component.Id);
+
+        var edges = new List<(int From, int To)>();
+        if (schema.Connections is not null)
+            foreach (var connection in schema.Connections)
+                edges.Add((connection.From.Id, connection.To.Id));
+
+        return ComputePositions(nodeIds, edges);
+    }
+
+    /// <summary>
+    /// Computes a left-to-right hierarchical pivot for a raw id-graph (nodes plus directed
+    /// data-flow edges). Nodes are layered by data-flow depth; pure source nodes are pulled
+    /// rightward to sit immediately left of their earliest consumer, and nodes within a layer
+    /// are stacked top-to-bottom by the barycenter heuristic. Edges whose endpoints are not both
+    /// in <paramref name="nodeIds"/> (or that are self-loops) are ignored.
+    /// </summary>
+    /// <param name="nodeIds">The set of node ids to place.</param>
+    /// <param name="edges">Directed edges as (from-id, to-id) pairs following data flow.</param>
+    /// <returns>A map from node id to its computed canvas pivot.</returns>
+    public static IReadOnlyDictionary<int, PointF> ComputePositions(
+        IReadOnlyCollection<int> nodeIds, IReadOnlyCollection<(int From, int To)> edges)
+    {
+        ArgumentNullException.ThrowIfNull(nodeIds);
+        ArgumentNullException.ThrowIfNull(edges);
+
+        var result = new Dictionary<int, PointF>();
+        if (nodeIds.Count == 0)
             return result;
 
-        // Valid node id set — connection endpoints referencing anything else are ignored.
-        var nodes = new HashSet<int>();
-        foreach (var component in schema.Components)
-            nodes.Add(component.Id);
+        var nodes = new HashSet<int>(nodeIds);
 
-        // Build upstream / downstream adjacency from the connection id-graph.
+        // Build upstream / downstream adjacency from the edge id-graph.
         var upstream = nodes.ToDictionary(id => id, _ => new HashSet<int>());
         var downstream = nodes.ToDictionary(id => id, _ => new HashSet<int>());
-        if (schema.Connections is not null)
+        foreach (var (from, to) in edges)
         {
-            foreach (var connection in schema.Connections)
-            {
-                int from = connection.From.Id;
-                int to = connection.To.Id;
-                if (from == to || !nodes.Contains(from) || !nodes.Contains(to))
-                    continue;
-                upstream[to].Add(from);
-                downstream[from].Add(to);
-            }
+            if (from == to || !nodes.Contains(from) || !nodes.Contains(to))
+                continue;
+            upstream[to].Add(from);
+            downstream[from].Add(to);
         }
 
         // Assign layers via longest-path from sources (recursive, cycle-safe).

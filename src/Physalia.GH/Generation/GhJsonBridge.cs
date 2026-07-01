@@ -417,7 +417,68 @@ internal static class GhJsonBridge
     /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
     internal static PlaceResult LoadAndPlaceJson(string json, PointF targetOrigin)
     {
-        return PlaceDocument(GhJson.FromJson(json), targetOrigin);
+        GhJsonDocument doc = GhJson.FromJson(json);
+        RelayoutLlmGraph(doc);
+        return PlaceDocument(doc, targetOrigin);
+    }
+
+    /// <summary>
+    /// Recomputes a clean left-to-right hierarchical layout for an LLM-authored GhJSON graph,
+    /// overwriting the model's own (typically tight and overlapping) pivots. Nodes are layered by
+    /// data-flow depth and stacked vertically within each layer, so sources such as sliders sit in
+    /// their own column instead of colliding with the components they feed. Layer 0's top node lands
+    /// at the layout origin, so the bounding-box corner PlaceDocument anchors to the transmitter is a
+    /// real component. Applied only on the LLM placement path; preset/Deserializer placements (which
+    /// carry intended pivots) go through PlaceDocument directly and keep their authored layout.
+    /// </summary>
+    /// <param name="doc">The parsed GhJSON document to relayout in place.</param>
+    private static void RelayoutLlmGraph(GhJsonDocument doc)
+    {
+        if (doc.Components is null || doc.Components.Count == 0)
+        {
+            return;
+        }
+
+        var nodeIds = new List<int>();
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.Id is int id)
+            {
+                nodeIds.Add(id);
+            }
+        }
+
+        if (nodeIds.Count == 0)
+        {
+            return;
+        }
+
+        var edges = new List<(int From, int To)>();
+        foreach (GhJsonConnection connection in doc.Connections ?? Enumerable.Empty<GhJsonConnection>())
+        {
+            if (connection.From?.Id is int from && connection.To?.Id is int to)
+            {
+                edges.Add((from, to));
+            }
+        }
+
+        IReadOnlyDictionary<int, PointF> positions = HierarchicalLayout.ComputePositions(nodeIds, edges);
+
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.Id is int id && positions.TryGetValue(id, out PointF p))
+            {
+                if (component.Pivot is null)
+                {
+                    component.Pivot = new GhJsonPivot(p.X, p.Y);
+                }
+                else
+                {
+                    component.Pivot.X = p.X;
+                    component.Pivot.Y = p.Y;
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -435,7 +496,8 @@ internal static class GhJsonBridge
         }
 
         // The offset aligns the content's top-left pivot to the target. Computed from the FULL layout
-        // (clusters included) so relative positions hold once clusters are lifted out.
+        // (clusters included) so relative positions hold once clusters are lifted out. On the LLM path
+        // the graph has been relaid out so a real component (layer 0's top node) sits at this corner.
         PointF offset = ComputeOffset(doc.Components, targetOrigin);
 
         // Cluster nodes (stamped by the Resolver) cannot be created by the GhJSON library, so lift

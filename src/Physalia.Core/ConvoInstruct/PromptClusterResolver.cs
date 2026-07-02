@@ -6,20 +6,20 @@ using System.Text;
 namespace Physalia.Core.ConvoInstruct;
 
 /// <summary>
-/// Pure parser that rewrites "/c/&lt;clustername&gt;" references in a prompt into a clear natural-language
+/// Pure parser that rewrites "/cl/&lt;clustername&gt;" references in a prompt into a clear natural-language
 /// mention the model understands. The chat input autocompletes these tokens against the currently
 /// included clusters, so by submit time a token names a real, grounded cluster; this normalizes it
-/// (e.g. <c>/c/My Cluster</c> → <c>the "My Cluster" cluster</c>) so the model wires the cluster the
-/// grounding described. A "/c/" not followed by a known cluster name is left as literal text.
+/// (e.g. <c>/cl/My Cluster</c> → <c>the "My Cluster" cluster</c>) so the model wires the cluster the
+/// grounding described. A "/cl/" not followed by a known cluster name is left as literal text.
 /// </summary>
 public static class PromptClusterResolver
 {
-    private const string Marker = "/c/";
+    private const string Marker = "/cl/";
 
     /// <summary>
-    /// Rewrites each "/c/&lt;name&gt;" token in <paramref name="prompt"/> whose name matches one in
+    /// Rewrites each "/cl/&lt;name&gt;" token in <paramref name="prompt"/> whose name matches one in
     /// <paramref name="clusterNames"/> into the phrase <c>the "&lt;name&gt;" cluster</c>. A token is
-    /// matched only when the "/c/" sits at a word boundary (start of string or after whitespace) and is
+    /// matched only when the "/cl/" sits at a word boundary (start of string or after whitespace) and is
     /// followed by a known cluster name ending at a non-word boundary. Names may contain spaces (they
     /// are matched against the full known name); longer names win when one is a prefix of another.
     /// Matching is case-insensitive, and the rewrite preserves the cluster's canonical casing.
@@ -35,7 +35,7 @@ public static class PromptClusterResolver
             return prompt ?? string.Empty;
         }
 
-        // Longest names first so "/c/Truss Frame" wins over "/c/Truss" at the same position.
+        // Longest names first so "/cl/Truss Frame" wins over "/cl/Truss" at the same position.
         var names = new List<string>(clusterNames);
         names.RemoveAll(string.IsNullOrWhiteSpace);
         names.Sort((a, b) => b.Length.CompareTo(a.Length));
@@ -69,7 +69,7 @@ public static class PromptClusterResolver
         && string.Compare(prompt, slashIndex, Marker, 0, Marker.Length, StringComparison.Ordinal) == 0;
 
     // Returns the known cluster name appearing at startIndex (canonical casing), or null. Requires the
-    // name to end at a non-word boundary so "/c/Truss" does not match inside "/c/Trusses".
+    // name to end at a non-word boundary so "/cl/Truss" does not match inside "/cl/Trusses".
     private static string? MatchName(string prompt, int startIndex, IReadOnlyList<string> namesLongestFirst)
     {
         foreach (string name in namesLongestFirst)

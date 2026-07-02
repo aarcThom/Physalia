@@ -73,6 +73,13 @@ internal static class GhJsonBridge
     // extensions as an opaque pass-through, so this round-trips untouched.
     private const string ClusterExtensionKey = "physalia.cluster";
 
+    // componentState.extensions key marking a node as a reference to an input already on the canvas
+    // (a Rhino-referenced parameter placed by the Rhino Geometry tool) rather than a component to
+    // create. The node is lifted out before Put — like a cluster — and the graph's wires that touched
+    // it are re-established against the live parameter, so an existing input is reused instead of
+    // duplicated. Value is the input's name. GhJSON treats extensions as opaque pass-through.
+    private const string ReferenceExtensionKey = "physalia.reference";
+
     /// <summary>
     /// Exports the Grasshopper objects identified by <paramref name="guids"/> to a
     /// <c>.ghjson</c> file at <paramref name="path"/>.
@@ -510,6 +517,22 @@ internal static class GhJsonBridge
             return clusterPlan is null ? EmptyDocumentResult() : PlaceClustersOnly(clusterPlan);
         }
 
+        // Reference nodes: inputs already on the canvas (Rhino Geometry tool params) the model asked to
+        // wire into rather than recreate. Lift them out before Put — like clusters — and splice the
+        // graph onto the live parameters afterward. Unresolved references (a name no longer on the
+        // canvas) are surfaced so the model can correct.
+        var referenceIssues = new List<string>();
+        ReferencePlan? referencePlan = ExtractReferences(
+            ref doc,
+            RhinoGeometryTool.CollectReferenceableInputs(Grasshopper.Instances.ActiveCanvas?.Document),
+            referenceIssues);
+
+        if (doc.Components is null || doc.Components.Count == 0)
+        {
+            // Nothing left to place (graph was only references / clusters). Clusters, if any, still place.
+            return clusterPlan is null ? EmptyDocumentResult() : PlaceClustersOnly(clusterPlan);
+        }
+
         // Stamp a validated, non-obsolete component GUID on every node before Put. The GhJSON library
         // creates GUID-first and falls back to an UNFILTERED name lookup (CreateByName returns the first
         // proxy matching a name, obsolete or not — e.g. the colour "Multiplication" twin). Stamping here
@@ -522,10 +545,12 @@ internal static class GhJsonBridge
         // to the caller so it can be routed back to the model as feedback.
         var fixResult = GhJson.Fix(doc);
         doc = fixResult.Document;
-        IReadOnlyList<string> unfixedIssues = fixResult.UnfixedIssues ?? (IReadOnlyList<string>)Array.Empty<string>();
+        IReadOnlyList<string> unfixedIssues = (fixResult.UnfixedIssues ?? Enumerable.Empty<string>())
+            .Concat(referenceIssues)
+            .ToList();
 
         var options = BuildPutOptions(offset);
-        return ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan);
+        return ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan, referencePlan: referencePlan);
     }
 
     // Ensures every component carries a validated, non-obsolete component-type GUID before Put, so the
@@ -773,7 +798,7 @@ internal static class GhJsonBridge
     // nickname display, restores wireless feedback links, runs the optional post-placement step
     // (used to splice an anchor component into a placeholder slot), and places/rewires any clusters
     // lifted out before Put. Shapes the PlaceResult, folding cluster guids into the placed set.
-    private static PlaceResult ExecutePut(GhJsonDocument doc, PutOptions options, IReadOnlyList<string> unfixedIssues, Action<PutResult>? afterPlace = null, ClusterPlan? clusterPlan = null)
+    private static PlaceResult ExecutePut(GhJsonDocument doc, PutOptions options, IReadOnlyList<string> unfixedIssues, Action<PutResult>? afterPlace = null, ClusterPlan? clusterPlan = null, ReferencePlan? referencePlan = null)
     {
         IsImporting = true;
         PutResult result;
@@ -820,10 +845,14 @@ internal static class GhJsonBridge
             bool clustersPlaced = clusterPlan is not null
                 && PlaceClusters(clusterPlan, hostDoc, result, clusterGuids, clusterWarnings);
 
+            // Splice the placed graph onto the live canvas inputs the model referenced (lifted out
+            // before Put), reusing them instead of the duplicates the model would otherwise author.
+            bool referencesWired = referencePlan is not null && RewireReferences(referencePlan, result);
+
             // Params and wires were changed after Put's own solution, so re-solve the now-expired
             // components (and their downstream) to bring recreated variable params and restored
-            // Picker/grounding selections (and placed clusters) live.
-            if (reconciled.Count > 0 || pickersRestored || groundingRestored || clustersPlaced)
+            // Picker/grounding selections (and placed clusters / referenced inputs) live.
+            if (reconciled.Count > 0 || pickersRestored || groundingRestored || clustersPlaced || referencesWired)
             {
                 (result.PlacedObjects.FirstOrDefault()?.OnPingDocument() ?? hostDoc)?.NewSolution(false);
             }
@@ -859,6 +888,124 @@ internal static class GhJsonBridge
         {
             return null;
         }
+    }
+
+    // Reads the referenced input name from a node stamped with physalia.reference, or null when absent/malformed.
+    private static string? ReadReferenceName(GhJsonComponent component)
+    {
+        if (component.ComponentState?.Extensions is not { } ext
+            || !ext.TryGetValue(ReferenceExtensionKey, out object? raw))
+        {
+            return null;
+        }
+
+        try
+        {
+            // The extension round-trips as a Newtonsoft token; re-serialise to read it back typed.
+            return JsonConvert.DeserializeObject<ReferenceRefExtension>(JsonConvert.SerializeObject(raw))?.Name;
+        }
+        catch (Newtonsoft.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    // Lifts reference nodes — existing canvas inputs the model asked to reuse — out of the document so
+    // the GhJSON library never creates them, returning a plan that maps each reference node's id to its
+    // live parameter plus the connections that touched it (rewired against the placed graph after Put),
+    // and rewriting <paramref name="doc"/> in place to keep only the remaining components and wires.
+    //
+    // A node is a reference when it carries the physalia.reference extension (the explicit contract), OR
+    // — the forgiving path — when its nickName matches a live input name. An explicit reference whose
+    // name is not (or no longer) a live input is reported in <paramref name="unresolved"/> and dropped so
+    // the model can correct. Returns null (leaving the document untouched) when there are no references.
+    private static ReferencePlan? ExtractReferences(ref GhJsonDocument doc, IReadOnlyList<ReferenceableInput> inputs, List<string> unresolved)
+    {
+        if (doc.Components is null || doc.Components.Count == 0)
+        {
+            return null;
+        }
+
+        var byName = new Dictionary<string, IGH_Param>(StringComparer.OrdinalIgnoreCase);
+        foreach (ReferenceableInput input in inputs)
+        {
+            if (!string.IsNullOrWhiteSpace(input.Name))
+            {
+                byName[input.Name] = input.LiveOutput;
+            }
+        }
+
+        var liveById = new Dictionary<int, IGH_Param>();
+        var droppedIds = new HashSet<int>();
+        foreach (GhJsonComponent component in doc.Components)
+        {
+            if (component.Id is not int id)
+            {
+                continue;
+            }
+
+            string? explicitName = ReadReferenceName(component);
+            if (explicitName is not null)
+            {
+                if (byName.TryGetValue(explicitName, out IGH_Param? live))
+                {
+                    liveById[id] = live;
+                }
+                else
+                {
+                    unresolved.Add(UnresolvedReferenceMessage(explicitName, byName.Keys));
+                    droppedIds.Add(id);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(component.NickName) && byName.TryGetValue(component.NickName, out IGH_Param? implied))
+            {
+                liveById[id] = implied;
+            }
+        }
+
+        if (liveById.Count == 0 && droppedIds.Count == 0)
+        {
+            return null;
+        }
+
+        var refIds = new HashSet<int>(liveById.Keys);
+        refIds.UnionWith(droppedIds);
+
+        var refConnections = new List<GhJsonConnection>();
+        var keptConnections = new List<GhJsonConnection>();
+        foreach (GhJsonConnection conn in doc.Connections ?? Enumerable.Empty<GhJsonConnection>())
+        {
+            bool touchesResolved = (conn.From is { } rf && liveById.ContainsKey(rf.Id))
+                || (conn.To is { } rt && liveById.ContainsKey(rt.Id));
+            bool touchesDropped = (conn.From is { } df && droppedIds.Contains(df.Id))
+                || (conn.To is { } dt && droppedIds.Contains(dt.Id));
+
+            if (touchesResolved && !touchesDropped)
+            {
+                refConnections.Add(conn);
+            }
+            else if (!touchesResolved && !touchesDropped)
+            {
+                keptConnections.Add(conn);
+            }
+
+            // A wire touching a dropped (unresolved) reference is discarded — there is nothing to wire to.
+        }
+
+        var keptComponents = doc.Components
+            .Where(c => c.Id is not int cid || !refIds.Contains(cid))
+            .ToList();
+        doc = new GhJsonDocument(doc.Schema, doc.Metadata, keptComponents, keptConnections, doc.Groups);
+
+        return new ReferencePlan(liveById, refConnections);
+    }
+
+    // Formats the model-facing message for a reference whose name is not (or no longer) a live input.
+    private static string UnresolvedReferenceMessage(string name, IEnumerable<string> available)
+    {
+        var names = available.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        string list = names.Count > 0 ? string.Join(", ", names) : "(none)";
+        return $"Referenced canvas input '{name}' was not found. Available inputs: {list}.";
     }
 
     // Lifts cluster nodes out of the document so the GhJSON library never sees them: returns a plan
@@ -1055,6 +1202,38 @@ internal static class GhJsonBridge
         }
     }
 
+    // Splices the placed graph onto the live parameters the reference nodes stood in for, WITHOUT moving
+    // them — the input was placed next to the transmitter's arrow tip when it was created and stays put.
+    // Reuses the cluster rewiring: a combined id->object map (library-placed objects plus each reference
+    // id mapped to its live parameter) is resolved by the same endpoint logic — the floating live param
+    // resolves to itself, the graph side by name then paramIndex. Returns whether any wire was processed.
+    private static bool RewireReferences(ReferencePlan plan, PutResult result)
+    {
+        if (plan.Connections.Count == 0)
+        {
+            return false;
+        }
+
+        var byId = new Dictionary<int, IGH_DocumentObject>();
+        foreach (KeyValuePair<int, Guid> pair in result.IdToGuidMapping)
+        {
+            IGH_DocumentObject? obj = result.PlacedObjects.FirstOrDefault(o => o.InstanceGuid == pair.Value);
+            if (obj is not null)
+            {
+                byId[pair.Key] = obj;
+            }
+        }
+
+        // Reference ids resolve to their live floating parameter (which is its own output source).
+        foreach (KeyValuePair<int, IGH_Param> pair in plan.LiveById)
+        {
+            byId[pair.Key] = pair.Value;
+        }
+
+        RewireClusterConnections(plan.Connections, byId, new HashSet<int>(plan.LiveById.Keys));
+        return true;
+    }
+
     // Resolves a connection endpoint to a live parameter. When preferIndex is set (the cluster side),
     // paramIndex wins so same-named ports are addressable; otherwise the full Name is matched, with
     // paramIndex as a fallback. Floating params resolve to the object itself.
@@ -1131,6 +1310,22 @@ internal static class GhJsonBridge
     {
         /// <summary>
         /// Gets or sets the cluster's name (resolved to a file under Files/CLUSTERS at placement time).
+        /// </summary>
+        [JsonProperty("name")]
+        public string? Name { get; set; }
+    }
+
+    // A reference plan: each reference node's GhJSON id mapped to the live parameter it stands for, and
+    // the connections that touched a reference node (rewired against the placed graph after Put).
+    private sealed record ReferencePlan(
+        IReadOnlyDictionary<int, IGH_Param> LiveById,
+        IReadOnlyList<GhJsonConnection> Connections);
+
+    // Serialised shape of a canvas-input reference, stored under ReferenceExtensionKey in a node's extensions.
+    private sealed class ReferenceRefExtension
+    {
+        /// <summary>
+        /// Gets or sets the referenced input's name (matched to a live canvas parameter at placement time).
         /// </summary>
         [JsonProperty("name")]
         public string? Name { get; set; }

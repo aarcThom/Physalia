@@ -23,12 +23,18 @@
 	import SquareMinusIcon from '@lucide/svelte/icons/square-minus';
 	import BoxIcon from '@lucide/svelte/icons/box';
 	import RulerIcon from '@lucide/svelte/icons/ruler';
+	import WrenchIcon from '@lucide/svelte/icons/wrench';
+	import ShapesIcon from '@lucide/svelte/icons/shapes';
+	import CodeIcon from '@lucide/svelte/icons/code';
 	import HappyFace from '$lib/chat/HappyFace.svelte';
 	import type {
+		CanvasInputInfo,
 		ClusterInfo,
 		ClusterSelectionPayload,
 		GroundingCategory,
 		GroundingSelectionPayload,
+		PythonFunctionInfo,
+		ToolsSelectionPayload,
 		UnitsOverridePayload
 	} from '$lib/bridge';
 
@@ -41,6 +47,14 @@
 		clusters: ClusterInfo[];
 		/** Current included cluster names, or null = include everything (default). */
 		clusterSelection: string[] | null;
+		/** Tool names currently on the canvas (from the Tools Present grounder). */
+		tools: string[];
+		/** Current enabled tool names, or null = include everything (default). */
+		toolsSelection: string[] | null;
+		/** Rhino-referenced inputs already on the canvas (read-only page). */
+		canvasInputs: CanvasInputInfo[];
+		/** Python functions available to the model (read-only page). */
+		pythonFunctions: PythonFunctionInfo[];
 		/** True when a document-units grounding is wired (shows the Document Units pill). */
 		unitsWired: boolean;
 		/** The active Rhino document's current unit system. */
@@ -53,6 +67,8 @@
 		onapply: (payload: GroundingSelectionPayload) => void;
 		/** Applies a new cluster selection (host action). all=true returns to include-everything. */
 		onapplyclusters: (payload: ClusterSelectionPayload) => void;
+		/** Applies a new tools selection (host action). all=true returns to include-everything. */
+		onapplytools: (payload: ToolsSelectionPayload) => void;
 		/** Applies a document-units override (host action). reset=true returns to the live doc units. */
 		onapplyunits: (payload: UnitsOverridePayload) => void;
 		/** Returns to the chat view. */
@@ -64,18 +80,25 @@
 		selection,
 		clusters,
 		clusterSelection,
+		tools,
+		toolsSelection,
+		canvasInputs,
+		pythonFunctions,
 		unitsWired,
 		documentUnits,
 		unitsOverride,
 		unitOptions,
 		onapply,
 		onapplyclusters,
+		onapplytools,
 		onapplyunits,
 		onclose
 	}: Props = $props();
 
 	// Two-level page: the kind pills, then a chosen kind's detail.
-	let view = $state<'kinds' | 'components' | 'clusters' | 'units'>('kinds');
+	let view = $state<'kinds' | 'components' | 'clusters' | 'tools' | 'canvas' | 'python' | 'units'>(
+		'kinds'
+	);
 
 	// Unit Separator (U+001F) packs a (category, subCategory) pair into one Set key. It is guaranteed
 	// absent from any Grasshopper tab/panel name, so splitting the key back is unambiguous. A space
@@ -216,6 +239,33 @@
 		return `(in: ${cluster.inputs.join(', ') || '—'}) → (out: ${cluster.outputs.join(', ') || '—'})`;
 	}
 
+	// Tools selection: a flat set of enabled tool names, mirroring clusters. Initialised once from props
+	// (null selection = every present tool enabled); local edits drive the host. Disabling a tool keeps
+	// it on the canvas but stops it being advertised to the model.
+	function initialIncludedTools(): Set<string> {
+		return new Set(toolsSelection ?? tools);
+	}
+
+	let includedTools = $state(initialIncludedTools());
+
+	function toggleTool(name: string) {
+		const next = new Set(includedTools);
+		if (next.has(name)) {
+			next.delete(name);
+		} else {
+			next.add(name);
+		}
+		includedTools = next;
+		onapplytools({ all: false, names: [...next] });
+	}
+
+	function resetAllTools() {
+		includedTools = new Set(tools);
+		onapplytools({ all: true, names: [] });
+	}
+
+	let allToolsIncluded = $derived(tools.length > 0 && tools.every((t) => includedTools.has(t)));
+
 	// Document units: the value shown to the model is the override when set, else the live document
 	// units. Selecting the document's own value clears the override so it keeps tracking the document;
 	// any other choice overrides the text handed to the model (never the document itself).
@@ -249,7 +299,7 @@
 			below to refine what's included.
 		</p>
 
-		{#if tree.length > 0 || clusters.length > 0 || unitsWired}
+		{#if tree.length > 0 || clusters.length > 0 || tools.length > 0 || canvasInputs.length > 0 || pythonFunctions.length > 0 || unitsWired}
 			<div class="mt-4 flex flex-col gap-2">
 				{#if tree.length > 0}
 					<Button
@@ -275,6 +325,41 @@
 						<span class="text-muted-foreground text-xs">
 							{allClustersIncluded ? 'All included' : `${includedClusters.size} of ${clusters.length}`}
 						</span>
+					</Button>
+				{/if}
+				{#if tools.length > 0}
+					<Button
+						variant="outline"
+						class="h-auto w-full justify-start gap-2 py-2.5 text-left"
+						onclick={() => (view = 'tools')}
+					>
+						<WrenchIcon class="size-4 shrink-0" />
+						<span class="flex-1">Tools</span>
+						<span class="text-muted-foreground text-xs">
+							{allToolsIncluded ? 'All enabled' : `${includedTools.size} of ${tools.length}`}
+						</span>
+					</Button>
+				{/if}
+				{#if canvasInputs.length > 0}
+					<Button
+						variant="outline"
+						class="h-auto w-full justify-start gap-2 py-2.5 text-left"
+						onclick={() => (view = 'canvas')}
+					>
+						<ShapesIcon class="size-4 shrink-0" />
+						<span class="flex-1">Canvas Inputs</span>
+						<span class="text-muted-foreground text-xs">{canvasInputs.length}</span>
+					</Button>
+				{/if}
+				{#if pythonFunctions.length > 0}
+					<Button
+						variant="outline"
+						class="h-auto w-full justify-start gap-2 py-2.5 text-left"
+						onclick={() => (view = 'python')}
+					>
+						<CodeIcon class="size-4 shrink-0" />
+						<span class="flex-1">Python Functions</span>
+						<span class="text-muted-foreground text-xs">{pythonFunctions.length}</span>
 					</Button>
 				{/if}
 				{#if unitsWired}
@@ -413,6 +498,86 @@
 						</span>
 					</span>
 				</button>
+			{/each}
+		</div>
+	{:else if view === 'tools'}
+		<div class="mb-4 flex items-center justify-between">
+			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+				<ArrowLeftIcon class="size-4" />
+				Grounding
+			</Button>
+			<Button variant="ghost" size="sm" onclick={resetAllTools} disabled={allToolsIncluded}>
+				Reset to all
+			</Button>
+		</div>
+
+		<h2 class="text-lg font-semibold">Tools</h2>
+		<p class="text-muted-foreground mt-1 text-sm">
+			Choose which of the tools on the canvas the model may call. Everything is enabled by default;
+			disabling a tool keeps it on the canvas but hides it from the model.
+		</p>
+
+		<div class="mt-4 flex flex-col gap-1">
+			{#each tools as tool (tool)}
+				{@const on = includedTools.has(tool)}
+				<button
+					type="button"
+					class="hover:bg-muted-foreground/10 flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm"
+					onclick={() => toggleTool(tool)}
+				>
+					{#if on}
+						<SquareCheckIcon class="text-foreground/80 size-4 shrink-0" />
+					{:else}
+						<SquareIcon class="text-muted-foreground size-4 shrink-0" />
+					{/if}
+					<span class="flex-1 font-mono">{tool}</span>
+				</button>
+			{/each}
+		</div>
+	{:else if view === 'canvas'}
+		<div class="mb-4 flex items-center justify-between">
+			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+				<ArrowLeftIcon class="size-4" />
+				Grounding
+			</Button>
+		</div>
+
+		<h2 class="text-lg font-semibold">Canvas Inputs</h2>
+		<p class="text-muted-foreground mt-1 text-sm">
+			Inputs already on the canvas (created by the Rhino Geometry tool) that the model can reference
+			by name — instead of recreating them — when it builds a graph.
+		</p>
+
+		<div class="mt-4 flex flex-col gap-1">
+			{#each canvasInputs as input (input.name)}
+				<div class="flex items-center gap-2 rounded px-2 py-1.5 text-sm">
+					<ShapesIcon class="text-muted-foreground size-4 shrink-0" />
+					<span class="flex-1 font-mono">{input.name}</span>
+					<span class="text-muted-foreground text-xs">{input.type}</span>
+				</div>
+			{/each}
+		</div>
+	{:else if view === 'python'}
+		<div class="mb-4 flex items-center justify-between">
+			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+				<ArrowLeftIcon class="size-4" />
+				Grounding
+			</Button>
+		</div>
+
+		<h2 class="text-lg font-semibold">Python Functions</h2>
+		<p class="text-muted-foreground mt-1 text-sm">
+			Python functions made available to the model to use where they fit.
+		</p>
+
+		<div class="mt-4 flex flex-col gap-2">
+			{#each pythonFunctions as fn, i (i)}
+				<div class="neu-raised-sm flex flex-col gap-1 rounded-md px-3 py-2">
+					<span class="font-mono text-sm">{fn.signature}</span>
+					{#if fn.docstring}
+						<span class="text-muted-foreground text-xs">{fn.docstring}</span>
+					{/if}
+				</div>
 			{/each}
 		</div>
 	{:else}

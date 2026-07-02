@@ -28,12 +28,15 @@
 	import { getProvider } from '$lib/chat/providers';
 	import { cn } from '$lib/utils';
 	import type {
+		CanvasInputInfo,
 		ClusterInfo,
 		ClusterSelectionPayload,
 		GroundingCategory,
 		GroundingSelectionPayload,
+		PythonFunctionInfo,
 		SetupResult,
 		SubmitMessage,
+		ToolsSelectionPayload,
 		UiChatbox,
 		UiMessage,
 		UiPreset,
@@ -68,8 +71,17 @@
 	let availableClusters = $state<ClusterInfo[]>([]);
 	let clusterSelection = $state<string[] | null>(null);
 
-	// Tools grounding state: the names of the tools currently in use, for the "/t/" autocomplete.
+	// Tools grounding state: whether a tools grounding is wired, the tools on the canvas (for the Tools
+	// page + "/t/" autocomplete), and the current selection (null = include everything).
+	let toolsWired = $state(false);
 	let availableTools = $state<string[]>([]);
+	let toolsSelection = $state<string[] | null>(null);
+
+	// Canvas Inputs and Python grounding state (read-only pages).
+	let canvasInputsWired = $state(false);
+	let availableCanvasInputs = $state<CanvasInputInfo[]>([]);
+	let pythonWired = $state(false);
+	let pythonFunctions = $state<PythonFunctionInfo[]>([]);
 
 	// Document-units grounding state: whether a units grounding is wired, the live document units, the
 	// current override (null = use the document units), and the dropdown choices.
@@ -78,15 +90,21 @@
 	let unitsOverride = $state<string | null>(null);
 	let unitOptions = $state<string[]>([]);
 
-	// The grounding button opens the panel whenever any grounding kind is wired (components, clusters,
-	// or document units), not just a component catalog.
-	let groundingAvailable = $derived(groundingWired || clustersWired || unitsWired);
+	// The grounding button opens the panel whenever any grounding kind is wired.
+	let groundingAvailable = $derived(
+		groundingWired || clustersWired || toolsWired || canvasInputsWired || pythonWired || unitsWired
+	);
 
 	// The cluster names currently exposed to the model (selection applied), for the "/c/" autocomplete.
 	let includedClusterNames = $derived(
 		availableClusters
 			.map((c) => c.name)
 			.filter((n) => clusterSelection === null || clusterSelection.includes(n))
+	);
+
+	// The tool names currently exposed to the model (selection applied), for the "/t/" autocomplete.
+	let includedToolNames = $derived(
+		availableTools.filter((n) => toolsSelection === null || toolsSelection.includes(n))
 	);
 
 	// Setup screen state. `needsSetup` (from the host) forces it when no provider is configured;
@@ -139,7 +157,13 @@
 				clustersWired = next.clustersWired ?? false;
 				availableClusters = next.availableClusters ?? [];
 				clusterSelection = next.clusterSelection ?? null;
+				toolsWired = next.toolsWired ?? false;
 				availableTools = next.availableTools ?? [];
+				toolsSelection = next.toolsSelection ?? null;
+				canvasInputsWired = next.canvasInputsWired ?? false;
+				availableCanvasInputs = next.availableCanvasInputs ?? [];
+				pythonWired = next.pythonWired ?? false;
+				pythonFunctions = next.pythonFunctions ?? [];
 				unitsWired = next.unitsWired ?? false;
 				documentUnits = next.documentUnits ?? '';
 				unitsOverride = next.unitsOverride ?? null;
@@ -249,6 +273,12 @@
 	function setClusters(payload: ClusterSelectionPayload) {
 		const json = JSON.stringify(payload);
 		window.location.href = `${BRIDGE_SCHEME}://setclusters?sel=${encodeURIComponent(json)}`;
+	}
+
+	// Apply a tools selection to the wired Recorder. all=true returns to include-every-present-tool.
+	function setTools(payload: ToolsSelectionPayload) {
+		const json = JSON.stringify(payload);
+		window.location.href = `${BRIDGE_SCHEME}://settools?sel=${encodeURIComponent(json)}`;
 	}
 
 	// Apply a document-units override to the wired Recorder. reset=true returns to the live doc units.
@@ -410,12 +440,17 @@
 					selection={groundingSelection}
 					clusters={availableClusters}
 					clusterSelection={clusterSelection}
+					tools={availableTools}
+					{toolsSelection}
+					canvasInputs={availableCanvasInputs}
+					{pythonFunctions}
 					{unitsWired}
 					{documentUnits}
 					{unitsOverride}
 					{unitOptions}
 					onapply={setGrounding}
 					onapplyclusters={setClusters}
+					onapplytools={setTools}
 					onapplyunits={setUnits}
 					onclose={closePanel}
 				/>
@@ -482,7 +517,7 @@
 			apiKeyProvider={keyProvider}
 			groundingWired={groundingAvailable}
 			clusterNames={includedClusterNames}
-			toolNames={availableTools}
+			toolNames={includedToolNames}
 			onsend={send}
 			onsavekey={saveKey}
 			ongrounding={() => openPanel('grounding')}

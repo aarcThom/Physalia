@@ -129,6 +129,15 @@ public class Recorder : StatefulComponentBase
     public bool HasComponentGrounding => _liveCatalog is not null;
 
     /// <summary>
+    /// Gets the entries of the grounded component catalog with the current grounding selection applied
+    /// — the components actually available to the model, for the chat input's <c>/c/&lt;tab&gt;/&lt;
+    /// component&gt;</c> reference (tab → components autocomplete and submit-time normalization). Empty
+    /// when no component-catalog grounding is wired.
+    /// </summary>
+    public IReadOnlyList<CatalogEntry> IncludedComponentEntries =>
+        _liveCatalog?.Filtered(_selection).Entries ?? Array.Empty<CatalogEntry>();
+
+    /// <summary>
     /// Gets the current grounding selection, or <see langword="null"/> for the default (include all).
     /// </summary>
     public GroundingSelection? GroundingSelectionOrNull => _selection;

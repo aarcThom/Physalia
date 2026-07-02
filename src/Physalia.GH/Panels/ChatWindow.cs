@@ -498,8 +498,25 @@ public class ChatWindow : Form
         recorder.SetUnitsOverride(units);
     }
 
+    // The names of the components currently exposed to the model (the grounded catalog with the
+    // grounding selection applied). Used to normalize "/c/<tab>/<name>" prompt tokens at submit time.
+    private IReadOnlyCollection<string> IncludedComponentNames()
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        return recorder.IncludedComponentEntries
+            .Select(e => e.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     // The names of the clusters currently exposed to the model (the chat-selected subset, or all when
-    // no selection is set). Used to normalize "/c/<name>" prompt tokens at submit time.
+    // no selection is set). Used to normalize "/cl/<name>" prompt tokens at submit time.
     private IReadOnlyCollection<string> IncludedClusterNames()
     {
         Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
@@ -528,11 +545,14 @@ public class ChatWindow : Form
         return (selection is null ? names : names.Where(selection.Includes)).ToList();
     }
 
-    // Rewrites "/c/<clustername>" and "/t/<toolname>" references in submitted prompt text into clear
-    // natural-language mentions the model understands.
+    // Rewrites "/c/<tab>/<component>", "/cl/<clustername>" and "/t/<toolname>" references in submitted
+    // prompt text into clear natural-language mentions the model understands. The markers are distinct,
+    // so the three resolvers compose in any order without interfering.
     private string NormalizeRefs(string text) =>
         PromptToolResolver.Normalize(
-            PromptClusterResolver.Normalize(text, IncludedClusterNames()),
+            PromptClusterResolver.Normalize(
+                PromptComponentResolver.Normalize(text, IncludedComponentNames()),
+                IncludedClusterNames()),
             IncludedToolNames());
 
     // Opens an external setup link (http/https only) in the user's default browser. The chat runs
@@ -901,7 +921,24 @@ public class ChatWindow : Form
                 .ToList();
         }
 
-        // Cluster grounding state for the window's cluster selector and the "/c/" autocomplete: whether
+        // Grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete. Kept
+        // out of the change-detection signature below (it can be large): it changes only when the
+        // component tree or its selection changes, both of which ARE in the signature.
+        var availableComponents = (recorder?.IncludedComponentEntries ?? Array.Empty<CatalogEntry>())
+            .Where(e => !string.IsNullOrWhiteSpace(e.Category) && !string.IsNullOrWhiteSpace(e.Name))
+            .GroupBy(e => e.Category, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new
+            {
+                tab = g.Key,
+                components = g.Select(e => e.Name)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+            })
+            .ToList();
+
+        // Cluster grounding state for the window's cluster selector and the "/cl/" autocomplete: whether
         // any cluster grounding is wired, the available clusters (name + I/O + description), and the
         // current selection (null = include everything).
         bool clustersWired = recorder?.HasClusterGrounding == true;
@@ -958,8 +995,12 @@ public class ChatWindow : Form
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        // Cheap proxy for availableComponents in the signature (serializing the full list every tick
+        // would churn); the tree/selection already trigger a push, this just catches a catalog resize.
+        int componentCount = availableComponents.Sum(c => c.components.Count);
+
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
+            new { groundingWired, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -976,7 +1017,7 @@ public class ChatWindow : Form
             _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 

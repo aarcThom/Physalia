@@ -240,15 +240,17 @@
 		box-shadow: var(--neu-inset);
 	}
 
-	/* Physalia "/" commands, coloured on a soft blue chip in the prompt box's highlight backdrop.
-	   Defined here (not in a component-scoped <style>) because it is applied to markup injected via
-	   {@html}, which Svelte's scoped-style classes do not reach. NEVER give this a metric-affecting
-	   property (font-weight, font-size, letter-spacing, padding): the backdrop must wrap identically to
-	   the transparent textarea over it, or the caret drifts from the visible text. The chip is drawn
-	   with background + border-radius + a box-shadow spread (which extends the fill a couple of px
-	   around the glyphs WITHOUT reflowing them) — never padding. Monospace comes from the shared
-	   `font-mono` on both the backdrop and the textarea, so metrics stay in lock-step. */
+	/* Physalia "/" commands in the prompt box: monospace, coloured, on a soft blue chip. Defined here
+	   (not in the Composer's scoped <style>) because it styles the spans the Composer injects into its
+	   contenteditable editor via innerHTML, which scoped-style classes do not reach. The editor is
+	   contenteditable, so the caret lives in this styled content — a per-token font (monospace here
+	   while the surrounding prose stays sans) is safe and does not drift the caret. The chip is drawn
+	   with a box-shadow spread (extends the fill a couple of px around the glyphs without reflowing
+	   them) rather than padding, so a wrapped command stays tidy. */
 	.slash-cmd {
+		font-family:
+			ui-monospace, 'SF Mono', 'Cascadia Code', 'Segoe UI Mono', Consolas, 'Liberation Mono', Menlo,
+			monospace;
 		color: var(--slash-command);
 		background-color: var(--slash-command-bg);
 		border-radius: 4px;

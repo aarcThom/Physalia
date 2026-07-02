@@ -31,6 +31,7 @@
 		CanvasInputInfo,
 		ClusterInfo,
 		ClusterSelectionPayload,
+		ComponentTabInfo,
 		GroundingCategory,
 		GroundingSelectionPayload,
 		PythonFunctionInfo,
@@ -64,6 +65,8 @@
 	let groundingWired = $state(false);
 	let groundingTree = $state<GroundingCategory[]>([]);
 	let groundingSelection = $state<GroundingCategory[] | null>(null);
+	// Grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete.
+	let availableComponents = $state<ComponentTabInfo[]>([]);
 
 	// Cluster grounding state: whether a cluster grounding is wired, the available clusters (from
 	// Files/CLUSTERS), and the current selection (null = include everything).
@@ -154,6 +157,7 @@
 				groundingWired = next.groundingWired ?? false;
 				groundingTree = next.groundingTree ?? [];
 				groundingSelection = next.groundingSelection ?? null;
+				availableComponents = next.availableComponents ?? [];
 				clustersWired = next.clustersWired ?? false;
 				availableClusters = next.availableClusters ?? [];
 				clusterSelection = next.clusterSelection ?? null;
@@ -518,6 +522,7 @@
 			groundingWired={groundingAvailable}
 			clusterNames={includedClusterNames}
 			toolNames={includedToolNames}
+			componentTabs={availableComponents}
 			onsend={send}
 			onsavekey={saveKey}
 			ongrounding={() => openPanel('grounding')}

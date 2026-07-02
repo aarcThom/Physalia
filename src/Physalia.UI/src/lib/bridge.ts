@@ -64,6 +64,8 @@ export interface UiState {
 	groundingTree: GroundingCategory[];
 	/** The current grounding selection (included tabs/panels), or null = include everything (default). */
 	groundingSelection: GroundingCategory[] | null;
+	/** The grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete. */
+	availableComponents: ComponentTabInfo[];
 	/** True when a cluster grounding is wired into the Recorder (greys the Clusters kind when false). */
 	clustersWired: boolean;
 	/** The clusters available in Files/CLUSTERS (name, description, I/O), for the cluster selector and the "/c/" autocomplete. */
@@ -98,6 +100,12 @@ export interface UiState {
 export interface GroundingCategory {
 	category: string;
 	subCategories: string[];
+}
+
+/** One tab and its component names, for the "/c/<tab>/<component>" staged autocomplete. */
+export interface ComponentTabInfo {
+	tab: string;
+	components: string[];
 }
 
 /** One available Grasshopper cluster, for the cluster selector and the "/c/" prompt autocomplete. */

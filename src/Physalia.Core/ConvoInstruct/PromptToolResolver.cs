@@ -15,12 +15,16 @@ namespace Physalia.Core.ConvoInstruct;
 /// "create_rhino_geometry" tool</c>) so the model reaches for the tool the grounding advertised. A "/t/"
 /// not followed by a known tool name is left as literal text.
 ///
-/// <para>This mirrors <see cref="PromptClusterResolver"/> exactly, differing only in the marker ("/t/"
-/// vs "/c/") and the phrase it produces ("tool" vs "cluster").</para>
+/// <para>This mirrors <see cref="PromptClusterResolver"/>, differing in the marker ("/t/" vs "/c/") and
+/// the phrase it produces ("tool" vs "cluster"). The one special case is the <c>memory</c> tool, which
+/// takes a scope: <c>/t/memory/global</c> and <c>/t/memory/local</c> normalize to a phrase that also
+/// tells the model which memory scope to target.</para>
 /// </summary>
 public static class PromptToolResolver
 {
     private const string Marker = "/t/";
+    private const string MemoryTool = "memory";
+    private static readonly string[] MemoryScopes = { "global", "local" };
 
     /// <summary>
     /// Rewrites each "/t/&lt;name&gt;" token in <paramref name="prompt"/> whose name matches one in
@@ -56,8 +60,23 @@ public static class PromptToolResolver
                 string? matched = MatchName(prompt, i + Marker.Length, names);
                 if (matched is not null)
                 {
-                    sb.Append("the \"").Append(matched).Append("\" tool");
-                    i += Marker.Length + matched.Length;
+                    int afterName = i + Marker.Length + matched.Length;
+
+                    // The memory tool alone carries a "/global" or "/local" scope suffix.
+                    string? scope = matched.Equals(MemoryTool, StringComparison.OrdinalIgnoreCase)
+                        ? MatchScope(prompt, afterName)
+                        : null;
+                    if (scope is not null)
+                    {
+                        sb.Append(MemoryScopePhrase(scope));
+                        i = afterName + 1 + scope.Length; // +1 for the '/' between name and scope
+                    }
+                    else
+                    {
+                        sb.Append("the \"").Append(matched).Append("\" tool");
+                        i = afterName;
+                    }
+
                     continue;
                 }
             }
@@ -100,6 +119,43 @@ public static class PromptToolResolver
 
         return null;
     }
+
+    // Matches a "/global" or "/local" scope immediately after the memory tool name. Requires the '/'
+    // separator and the scope to end at a non-word boundary. Returns the canonical scope, or null.
+    private static string? MatchScope(string prompt, int slashIndex)
+    {
+        if (slashIndex >= prompt.Length || prompt[slashIndex] != '/')
+        {
+            return null;
+        }
+
+        int start = slashIndex + 1;
+        foreach (string scope in MemoryScopes)
+        {
+            int end = start + scope.Length;
+            if (end > prompt.Length)
+            {
+                continue;
+            }
+
+            if (string.Compare(prompt, start, scope, 0, scope.Length, StringComparison.OrdinalIgnoreCase) != 0)
+            {
+                continue;
+            }
+
+            if (end < prompt.Length && IsWordChar(prompt[end]))
+            {
+                continue;
+            }
+
+            return scope;
+        }
+
+        return null;
+    }
+
+    private static string MemoryScopePhrase(string scope) =>
+        $"the \"memory\" tool (save to your {scope.ToLowerInvariant()} memory, under /memories/{scope.ToLowerInvariant()})";
 
     private static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '-' || c == '_';
 }

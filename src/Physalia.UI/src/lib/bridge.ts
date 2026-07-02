@@ -94,10 +94,6 @@ export interface UiState {
 	unitsOverride: string | null;
 	/** Unit-system choices for the Document Units dropdown (includes the current doc value + any override). */
 	unitOptions: string[];
-	/** True when a Memory grounding is wired into the Recorder (enables the Memory page + "/m/" references). */
-	memoryWired: boolean;
-	/** The memory scopes the "/m/" reference offers ("global", "local") — empty when memory is not wired. */
-	memoryScopes: string[];
 }
 
 /** One tab (category) and its panels (sub-categories) in the grounding selector. */

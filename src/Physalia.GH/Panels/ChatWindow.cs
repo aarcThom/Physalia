@@ -545,17 +545,16 @@ public class ChatWindow : Form
         return (selection is null ? names : names.Where(selection.Includes)).ToList();
     }
 
-    // Rewrites "/c/<tab>/<component>", "/cl/<clustername>", "/t/<toolname>" and the memory scope
-    // references "/m/global" / "/m/local" in submitted prompt text into clear natural-language mentions
-    // the model understands. The markers are distinct, so the resolvers compose in any order without
-    // interfering.
+    // Rewrites "/c/<tab>/<component>", "/cl/<clustername>" and "/t/<toolname>" references (including the
+    // memory tool's "/t/memory/global" / "/t/memory/local" scope form) in submitted prompt text into
+    // clear natural-language mentions the model understands. The markers are distinct, so the three
+    // resolvers compose in any order without interfering.
     private string NormalizeRefs(string text) =>
-        PromptMemoryResolver.Normalize(
-            PromptToolResolver.Normalize(
-                PromptClusterResolver.Normalize(
-                    PromptComponentResolver.Normalize(text, IncludedComponentNames()),
-                    IncludedClusterNames()),
-                IncludedToolNames()));
+        PromptToolResolver.Normalize(
+            PromptClusterResolver.Normalize(
+                PromptComponentResolver.Normalize(text, IncludedComponentNames()),
+                IncludedClusterNames()),
+            IncludedToolNames());
 
     // Opens an external setup link (http/https only) in the user's default browser. The chat runs
     // from file://, so an in-page navigation would replace it — links route here instead.
@@ -997,17 +996,12 @@ public class ChatWindow : Form
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // Memory grounding state: whether a memory grounding is wired (enables the Memory page and the
-        // "/m/global" / "/m/local" chat references), and the two fixed scopes the references offer.
-        bool memoryWired = recorder?.HasMemoryGrounding == true;
-        var memoryScopes = memoryWired ? new[] { "global", "local" } : Array.Empty<string>();
-
         // Cheap proxy for availableComponents in the signature (serializing the full list every tick
         // would churn); the tree/selection already trigger a push, this just catches a catalog resize.
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, memoryWired }, WriteOpts);
+            new { groundingWired, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -1024,7 +1018,7 @@ public class ChatWindow : Form
             _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, memoryWired, memoryScopes }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 

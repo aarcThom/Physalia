@@ -26,7 +26,6 @@
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
 	import ShapesIcon from '@lucide/svelte/icons/shapes';
 	import CodeIcon from '@lucide/svelte/icons/code';
-	import BrainIcon from '@lucide/svelte/icons/brain';
 	import HappyFace from '$lib/chat/HappyFace.svelte';
 	import type {
 		CanvasInputInfo,
@@ -64,8 +63,6 @@
 		unitsOverride: string | null;
 		/** Unit-system choices for the dropdown (includes the current doc value + any override). */
 		unitOptions: string[];
-		/** True when a memory grounding is wired (shows the read-only Memory page). */
-		memoryWired: boolean;
 		/** Applies a new component selection (host action). all=true returns to include-everything. */
 		onapply: (payload: GroundingSelectionPayload) => void;
 		/** Applies a new cluster selection (host action). all=true returns to include-everything. */
@@ -91,7 +88,6 @@
 		documentUnits,
 		unitsOverride,
 		unitOptions,
-		memoryWired,
 		onapply,
 		onapplyclusters,
 		onapplytools,
@@ -100,9 +96,9 @@
 	}: Props = $props();
 
 	// Two-level page: the kind pills, then a chosen kind's detail.
-	let view = $state<
-		'kinds' | 'components' | 'clusters' | 'tools' | 'canvas' | 'python' | 'units' | 'memory'
-	>('kinds');
+	let view = $state<'kinds' | 'components' | 'clusters' | 'tools' | 'canvas' | 'python' | 'units'>(
+		'kinds'
+	);
 
 	// Unit Separator (U+001F) packs a (category, subCategory) pair into one Set key. It is guaranteed
 	// absent from any Grasshopper tab/panel name, so splitting the key back is unambiguous. A space
@@ -303,7 +299,7 @@
 			below to refine what's included.
 		</p>
 
-		{#if tree.length > 0 || clusters.length > 0 || tools.length > 0 || canvasInputs.length > 0 || pythonFunctions.length > 0 || unitsWired || memoryWired}
+		{#if tree.length > 0 || clusters.length > 0 || tools.length > 0 || canvasInputs.length > 0 || pythonFunctions.length > 0 || unitsWired}
 			<div class="mt-4 flex flex-col gap-2">
 				{#if tree.length > 0}
 					<Button
@@ -377,17 +373,6 @@
 						<span class="text-muted-foreground text-xs">
 							{effectiveUnits || 'None'}{unitsOverride !== null ? ' (overridden)' : ''}
 						</span>
-					</Button>
-				{/if}
-				{#if memoryWired}
-					<Button
-						variant="outline"
-						class="h-auto w-full justify-start gap-2 py-2.5 text-left"
-						onclick={() => (view = 'memory')}
-					>
-						<BrainIcon class="size-4 shrink-0" />
-						<span class="flex-1">Memory</span>
-						<span class="text-muted-foreground text-xs">On</span>
 					</Button>
 				{/if}
 			</div>
@@ -595,7 +580,7 @@
 				</div>
 			{/each}
 		</div>
-	{:else if view === 'units'}
+	{:else}
 		<div class="mb-4 flex items-center justify-between">
 			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
 				<ArrowLeftIcon class="size-4" />
@@ -645,40 +630,6 @@
 					<span class="font-medium">{unitsOverride}</span> for the model only.
 				</p>
 			{/if}
-		</div>
-	{:else}
-		<div class="mb-4 flex items-center justify-between">
-			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
-				<ArrowLeftIcon class="size-4" />
-				Grounding
-			</Button>
-		</div>
-
-		<h2 class="text-lg font-semibold">Memory</h2>
-		<p class="text-muted-foreground mt-1 text-sm">
-			The model has a persistent memory it can read and write through the memory tool. It is told to
-			consult its memory at the start of a task and to record durable facts as it works.
-		</p>
-
-		<div class="mt-4 flex flex-col gap-2">
-			<div class="neu-raised-sm flex flex-col gap-1 rounded-md px-3 py-2">
-				<span class="font-medium">Global memory</span>
-				<span class="text-muted-foreground text-xs">
-					<span class="font-mono">/memories/global</span> — facts shared across every Grasshopper
-					document. Steer a write here by typing <span class="font-mono">/m/global</span> in a prompt.
-				</span>
-			</div>
-			<div class="neu-raised-sm flex flex-col gap-1 rounded-md px-3 py-2">
-				<span class="font-medium">Local memory</span>
-				<span class="text-muted-foreground text-xs">
-					<span class="font-mono">/memories/local</span> — facts specific to the current document.
-					Steer a write here by typing <span class="font-mono">/m/local</span> in a prompt.
-				</span>
-			</div>
-			<p class="text-muted-foreground mt-1 text-xs">
-				Wire a <strong>Memory</strong> tool node into a Router so the model can actually call these
-				operations. Memory files live under <span class="font-mono">Files/memories</span>.
-			</p>
 		</div>
 	{/if}
 </div>

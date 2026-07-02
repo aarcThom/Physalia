@@ -41,8 +41,6 @@
 		toolNames?: string[];
 		/** Grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete. */
 		componentTabs?: ComponentTabInfo[];
-		/** Memory scopes ("global", "local") for the "/m/<scope>" reference — empty when memory is off. */
-		memoryScopes?: string[];
 		onsend: (message: SubmitMessage) => void;
 		/** Called with the pasted API key when in apiKeyProvider mode. */
 		onsavekey?: (providerId: string, key: string) => void;
@@ -61,7 +59,6 @@
 		clusterNames = [],
 		toolNames = [],
 		componentTabs = [],
-		memoryScopes = [],
 		onsend,
 		onsavekey,
 		ongrounding,
@@ -98,6 +95,14 @@
 
 	// All [image#N] tokens. Order in the text mirrors insertion order, which mirrors `pending`.
 	const TOKEN = /\[image#\d+\]/g;
+
+	// The memory tool is a normal tool, but it uniquely takes a scope: "/t/memory/global" or
+	// "/t/memory/local". These are the second-level names offered after "/t/memory/".
+	const MEMORY_TOOL = 'memory';
+	const MEMORY_SCOPES = ['global', 'local'];
+	function hasMemoryTool(): boolean {
+		return toolNames.some((n) => n.toLowerCase() === MEMORY_TOOL);
+	}
 
 	onMount(() => render());
 
@@ -209,11 +214,16 @@
 		}
 		if (three === '/t/') {
 			const m = matchKnownName(value.slice(i + 3), toolNames);
-			return m !== null ? i + 3 + m.length : runEnd(value, i + 3);
-		}
-		if (three === '/m/') {
-			const m = matchKnownName(value.slice(i + 3), memoryScopes);
-			return m !== null ? i + 3 + m.length : runEnd(value, i + 3);
+			if (m !== null) {
+				// The memory tool extends across a "/global" or "/local" scope suffix.
+				const afterName = i + 3 + m.length;
+				if (m.toLowerCase() === MEMORY_TOOL && value[afterName] === '/') {
+					const scope = matchKnownName(value.slice(afterName + 1), MEMORY_SCOPES);
+					if (scope !== null) return afterName + 1 + scope.length;
+				}
+				return afterName;
+			}
+			return runEnd(value, i + 3);
 		}
 		return runEnd(value, i + 1);
 	}
@@ -360,7 +370,7 @@
 	//  - COMP-TAB / COMP-NAME: "/c/" offers tabs, then "/c/<tab>/" offers that tab's components.
 	//  - CLUSTER / TOOL: "/cl/" and "/t/" offer cluster / tool names.
 	// Accepting a kind or a tab inserts the next marker and immediately opens the following stage.
-	type RefStage = 'kind' | 'comp-tab' | 'comp-name' | 'cluster' | 'tool' | 'memory';
+	type RefStage = 'kind' | 'comp-tab' | 'comp-name' | 'cluster' | 'tool' | 'memory-scope';
 
 	let refMenuOpen = $state(false);
 	let refStage = $state<RefStage>('kind');
@@ -386,20 +396,11 @@
 		if (componentTabs.length > 0) kinds.push('c');
 		if (clusterNames.length > 0) kinds.push('cl');
 		if (toolNames.length > 0) kinds.push('t');
-		if (memoryScopes.length > 0) kinds.push('m');
 		return kinds;
 	}
 
 	function kindLabel(key: string): string {
-		return key === 'c'
-			? 'Components'
-			: key === 'cl'
-				? 'Clusters'
-				: key === 't'
-					? 'Tools'
-					: key === 'm'
-						? 'Memory'
-						: key;
+		return key === 'c' ? 'Components' : key === 'cl' ? 'Clusters' : key === 't' ? 'Tools' : key;
 	}
 
 	function startsWith(candidates: string[], q: string): string[] {
@@ -447,17 +448,17 @@
 			refMenuOpen = false;
 			return;
 		}
+		// /t/memory/<scope> — the memory tool's global/local scope (checked before the generic tool case)
+		if (hasMemoryTool() && (m = before.match(/(?:^|\s)\/t\/memory\/([^\n]*)$/i))) {
+			let matches = startsWith(MEMORY_SCOPES, m[1]);
+			if (matches.length) return openMenu('memory-scope', matches, caret - m[1].length, caret);
+			refMenuOpen = false;
+			return;
+		}
 		// /t/<tool>
 		if ((m = before.match(/(?:^|\s)\/t\/([^\n]*)$/))) {
 			let matches = startsWith(toolNames, m[1]);
 			if (matches.length) return openMenu('tool', matches, caret - m[1].length, caret);
-			refMenuOpen = false;
-			return;
-		}
-		// /m/<scope>
-		if ((m = before.match(/(?:^|\s)\/m\/([^\n]*)$/))) {
-			let matches = startsWith(memoryScopes, m[1]);
-			if (matches.length) return openMenu('memory', matches, caret - m[1].length, caret);
 			refMenuOpen = false;
 			return;
 		}
@@ -483,6 +484,10 @@
 			insert = `/${item}/`;
 			reopen = true;
 		} else if (refStage === 'comp-tab') {
+			insert = `${item}/`;
+			reopen = true;
+		} else if (refStage === 'tool' && item.toLowerCase() === MEMORY_TOOL) {
+			// The memory tool takes a scope — insert "memory/" and drill into global/local.
 			insert = `${item}/`;
 			reopen = true;
 		} else {
@@ -759,8 +764,6 @@
 							<WrenchIcon class="text-muted-foreground size-3.5 shrink-0" />
 						{:else if item === 'cl'}
 							<BoxIcon class="text-muted-foreground size-3.5 shrink-0" />
-						{:else if item === 'm'}
-							<BrainIcon class="text-muted-foreground size-3.5 shrink-0" />
 						{:else}
 							<ShapesIcon class="text-muted-foreground size-3.5 shrink-0" />
 						{/if}
@@ -776,10 +779,10 @@
 						<BoxIcon class="text-muted-foreground size-3.5 shrink-0" />
 						<span class="flex-1 truncate">{item}</span>
 						<span class="text-muted-foreground/70 font-mono text-xs">/cl/</span>
-					{:else if refStage === 'memory'}
+					{:else if refStage === 'memory-scope'}
 						<BrainIcon class="text-muted-foreground size-3.5 shrink-0" />
 						<span class="flex-1 truncate">{item}</span>
-						<span class="text-muted-foreground/70 font-mono text-xs">/m/</span>
+						<span class="text-muted-foreground/70 font-mono text-xs">/t/memory/</span>
 					{:else}
 						<WrenchIcon class="text-muted-foreground size-3.5 shrink-0" />
 						<span class="flex-1 truncate">{item}</span>

@@ -90,11 +90,6 @@ public class Recorder : StatefulComponentBase
     private IReadOnlyList<CanvasInput> _liveCanvasInputs = Array.Empty<CanvasInput>();
     private IReadOnlyList<PythonFunctionGrounding> _livePythonFunctions = Array.Empty<PythonFunctionGrounding>();
 
-    // Whether a memory grounding is wired this solve, so the chat UI can show its Memory affordance and
-    // enable the "/m/global" and "/m/local" references. The grounding is a switch (it carries no data),
-    // so a bool is all that is cached.
-    private bool _liveMemoryGrounding;
-
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
     private RecordOutcome _pendingOutcome;
@@ -202,12 +197,6 @@ public class Recorder : StatefulComponentBase
     /// Gets a value indicating whether any python-function grounding is currently wired.
     /// </summary>
     public bool HasPythonGrounding => _livePythonFunctions.Count > 0;
-
-    /// <summary>
-    /// Gets a value indicating whether a memory grounding is currently wired (so the chat UI can
-    /// show/hide its Memory affordance and enable the <c>/m/global</c> and <c>/m/local</c> references).
-    /// </summary>
-    public bool HasMemoryGrounding => _liveMemoryGrounding;
 
     /// <summary>
     /// Gets the current cluster selection, or <see langword="null"/> for the default (include all).
@@ -584,8 +573,6 @@ public class Recorder : StatefulComponentBase
             .ToList();
 
         _livePythonFunctions = _liveGroundings.OfType<PythonFunctionGrounding>().ToList();
-
-        _liveMemoryGrounding = _liveGroundings.OfType<MemoryGrounding>().Any();
     }
 
     // The tools advertised to the model: the live tools narrowed by the tools selection (null = all).

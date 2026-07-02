@@ -123,7 +123,9 @@ public abstract class CompactionComponentBase : RoutingComponentBase<Instruction
         string trace = $"Compacted {result.OriginalMessageCount} → {result.RetainedMessageCount} messages";
         return RoutingResult.Ok(
             trace,
-            instructions: new Instructions(source.SystemPrompt, result.Conversation),
+            // Carry the source tools forward unchanged — compaction shrinks the conversation, not the
+            // set of tools advertised to the model, so the Reasoner still sees them past a compactor.
+            instructions: new Instructions(source.SystemPrompt, result.Conversation) { Tools = source.Tools },
             message: $"{trace} ({result.DroppedMessageCount} dropped).",
             level: GH_RuntimeMessageLevel.Remark);
     }

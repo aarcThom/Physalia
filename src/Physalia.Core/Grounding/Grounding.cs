@@ -4,7 +4,9 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using Physalia.Core.Common;
 using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
 
@@ -140,4 +142,70 @@ public sealed record PythonFunctionGrounding(string Signature, string Docstring)
         string body = string.IsNullOrWhiteSpace(Docstring) ? string.Empty : "\n" + Docstring.Trim();
         return $"The following python function is available — use it where it fits:\n{Signature.Trim()}" + body;
     }
+}
+
+/// <summary>
+/// Grounds the model with the inputs already placed on the canvas — the Rhino-referenced parameters
+/// dropped by the Rhino Geometry tool (or otherwise present). The model can wire one into a graph it
+/// generates instead of recreating it: it references the input by its exact name (as a node's nickName)
+/// and the placement layer splices the graph onto the live parameter. Without this, the model has no
+/// way to know those inputs exist and duplicates them.
+/// </summary>
+/// <param name="Inputs">The referenceable canvas inputs (name + geometry type).</param>
+public sealed record CanvasInputGrounding(IReadOnlyList<CanvasInput> Inputs) : Grounding
+{
+    /// <inheritdoc/>
+    public override string ToSystemPromptSection()
+    {
+        if (Inputs is null || Inputs.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var lines = Inputs
+            .Where(i => i is not null && !string.IsNullOrWhiteSpace(i.Name))
+            .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(i => string.IsNullOrWhiteSpace(i.TypeName) ? $"- {i.Name.Trim()}" : $"- {i.Name.Trim()} ({i.TypeName.Trim()})")
+            .ToList();
+
+        if (lines.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return "These inputs already exist on the canvas — to use one, reference it by its exact name "
+            + "(set it as a node's nickName) instead of recreating it, and the graph will be wired onto "
+            + "the existing object:\n" + string.Join("\n", lines);
+    }
+}
+
+/// <summary>
+/// One referenceable input already on the canvas: its unique reference name and the geometry type it
+/// carries (e.g. <c>Curve</c>, <c>Point</c>).
+/// </summary>
+/// <param name="Name">The unique name the model references (the parameter's nickname).</param>
+/// <param name="TypeName">The geometry type the input carries.</param>
+public sealed record CanvasInput(string Name, string TypeName);
+
+/// <summary>
+/// Grounds the model with the tools currently in use in the document — the tool nodes wired into a
+/// dispatch loop (a Router), collected by the Tools Present grounder. Unlike the other grounding
+/// kinds it contributes <b>no</b> system-prompt text: tools are advertised to the model through the
+/// provider's native tool-calling API, so folding them into the prompt as prose would double-advertise
+/// them. This record instead <i>carries</i> the live tool definitions from the grounder to the Recorder,
+/// which lifts them onto the <see cref="ConvoInstruct.Instructions.Tools"/> it mints (and surfaces their
+/// names for the chat input's <c>/t/</c> reference).
+/// </summary>
+/// <param name="Tools">The definitions of every tool in use.</param>
+public sealed record ToolsGrounding(IReadOnlyList<ToolDefinition> Tools) : Grounding
+{
+    /// <inheritdoc/>
+    /// <remarks>Empty by design — tools reach the model as native tool definitions, not prompt text.</remarks>
+    public override string ToSystemPromptSection() => string.Empty;
+
+    /// <summary>
+    /// Gets the names of the carried tools, for the chat input's <c>/t/&lt;toolname&gt;</c> reference.
+    /// </summary>
+    public IEnumerable<string> ToolNames =>
+        Tools is null ? Enumerable.Empty<string>() : Tools.Select(t => t.Name);
 }

@@ -68,6 +68,9 @@
 	let availableClusters = $state<ClusterInfo[]>([]);
 	let clusterSelection = $state<string[] | null>(null);
 
+	// Tools grounding state: the names of the tools currently in use, for the "/t/" autocomplete.
+	let availableTools = $state<string[]>([]);
+
 	// Document-units grounding state: whether a units grounding is wired, the live document units, the
 	// current override (null = use the document units), and the dropdown choices.
 	let unitsWired = $state(false);
@@ -136,6 +139,7 @@
 				clustersWired = next.clustersWired ?? false;
 				availableClusters = next.availableClusters ?? [];
 				clusterSelection = next.clusterSelection ?? null;
+				availableTools = next.availableTools ?? [];
 				unitsWired = next.unitsWired ?? false;
 				documentUnits = next.documentUnits ?? '';
 				unitsOverride = next.unitsOverride ?? null;
@@ -478,6 +482,7 @@
 			apiKeyProvider={keyProvider}
 			groundingWired={groundingAvailable}
 			clusterNames={includedClusterNames}
+			toolNames={availableTools}
 			onsend={send}
 			onsavekey={saveKey}
 			ongrounding={() => openPanel('grounding')}

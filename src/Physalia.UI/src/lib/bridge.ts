@@ -70,6 +70,10 @@ export interface UiState {
 	availableClusters: ClusterInfo[];
 	/** The current cluster selection (included cluster names), or null = include everything (default). */
 	clusterSelection: string[] | null;
+	/** True when a Tools Present grounding is wired into the Recorder. */
+	toolsWired: boolean;
+	/** The names of the tools currently in use, for the "/t/" prompt autocomplete. */
+	availableTools: string[];
 	/** True when a document-units grounding is wired into the Recorder (shows the Document Units pill). */
 	unitsWired: boolean;
 	/** The active Rhino document's current unit system (what the model gets unless overridden). */

@@ -7,6 +7,7 @@ using System.Linq;
 using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Grounding;
 using Physalia.Core.Grounding.Clusters;
@@ -71,6 +72,11 @@ public class Recorder : StatefulComponentBase
     private ClusterCatalog? _liveClusterCatalog;
     private DocumentUnitsGrounding? _liveUnitsGrounding;
 
+    // The tool definitions carried by every wired ToolsGrounding (the Tools Present grounder), merged.
+    // Lifted onto the Instructions minted for inference so the Reasoner advertises them to the model,
+    // and their names feed the chat input's "/t/" reference. Empty when no tools grounding is wired.
+    private IReadOnlyList<ToolDefinition> _liveTools = Array.Empty<ToolDefinition>();
+
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
     private RecordOutcome _pendingOutcome;
@@ -127,6 +133,20 @@ public class Recorder : StatefulComponentBase
     /// enable/grey its cluster affordance).
     /// </summary>
     public bool HasClusterGrounding => _liveClusterCatalog is not null;
+
+    /// <summary>
+    /// Gets the names of the tools currently in use (wired into a Router, collected by a wired Tools
+    /// Present grounder). For the chat input's <c>/t/</c> prompt autocomplete — updated every solve.
+    /// Empty when no tools grounding is wired.
+    /// </summary>
+    public IReadOnlyList<string> AvailableToolNames =>
+        _liveTools.Select(t => t.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.Ordinal).ToList();
+
+    /// <summary>
+    /// Gets a value indicating whether any tools grounding is currently wired (so the chat UI can
+    /// enable/grey its tool affordance).
+    /// </summary>
+    public bool HasToolsGrounding => _liveTools.Count > 0;
 
     /// <summary>
     /// Gets the current cluster selection, or <see langword="null"/> for the default (include all).
@@ -244,8 +264,12 @@ public class Recorder : StatefulComponentBase
             switch (_pendingOutcome)
             {
                 case RecordOutcome.UserTurn:
-                    // The minted signal carries the full Instructions: the trigger IS the data.
-                    LatchSuccess(_pendingUserText, instructions: new Instructions(BuildGroundedSystemPrompt(systemPrompt), _conversation));
+                    // The minted signal carries the full Instructions: the trigger IS the data. The
+                    // tools wired in as grounding ride on Instructions.Tools so the Reasoner advertises
+                    // them to the model without a separate wire.
+                    LatchSuccess(
+                        _pendingUserText,
+                        instructions: new Instructions(BuildGroundedSystemPrompt(systemPrompt), _conversation) { Tools = _liveTools });
                     break;
                 case RecordOutcome.AssistantTurn:
                     // Quiet success: a Reasoner wired off the outgoing signal must not
@@ -439,6 +463,16 @@ public class Recorder : StatefulComponentBase
 
         // A document-units grounding carries a single value; if several are wired, the last one wins.
         _liveUnitsGrounding = _liveGroundings.OfType<DocumentUnitsGrounding>().LastOrDefault();
+
+        // Tool definitions carried by every wired ToolsGrounding, merged (deduped by name — one Tools
+        // Present grounder is the norm, but two wired ones must not advertise a tool twice).
+        _liveTools = _liveGroundings
+            .OfType<ToolsGrounding>()
+            .SelectMany(g => g.Tools ?? Array.Empty<ToolDefinition>())
+            .Where(t => t is not null)
+            .GroupBy(t => t.Name, StringComparer.Ordinal)
+            .Select(g => g.First())
+            .ToList();
     }
 
     // Folds the wired groundings into the system prompt, applying the component selection to

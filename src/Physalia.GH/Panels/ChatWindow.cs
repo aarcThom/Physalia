@@ -477,9 +477,20 @@ public class ChatWindow : Form
         return (selection is null ? names : names.Where(selection.Includes)).ToList();
     }
 
-    // Rewrites "/c/<clustername>" references in submitted prompt text into a clear cluster mention.
-    private string NormalizeClusterRefs(string text) =>
-        PromptClusterResolver.Normalize(text, IncludedClusterNames());
+    // The names of the tools currently exposed to the model (every tool in use, collected by the wired
+    // Tools Present grounder). Used to normalize "/t/<name>" prompt tokens at submit time.
+    private IReadOnlyCollection<string> AvailableToolNames()
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        return recorder?.AvailableToolNames ?? (IReadOnlyCollection<string>)Array.Empty<string>();
+    }
+
+    // Rewrites "/c/<clustername>" and "/t/<toolname>" references in submitted prompt text into clear
+    // natural-language mentions the model understands.
+    private string NormalizeRefs(string text) =>
+        PromptToolResolver.Normalize(
+            PromptClusterResolver.Normalize(text, IncludedClusterNames()),
+            AvailableToolNames());
 
     // Opens an external setup link (http/https only) in the user's default browser. The chat runs
     // from file://, so an in-page navigation would replace it — links route here instead.
@@ -584,7 +595,7 @@ public class ChatWindow : Form
             string text = GetQueryValue(query, "text");
             if (!string.IsNullOrEmpty(text))
             {
-                _component.SubmitFromWindow(NormalizeClusterRefs(text));
+                _component.SubmitFromWindow(NormalizeRefs(text));
             }
 
             return;
@@ -668,7 +679,7 @@ public class ChatWindow : Form
             return;
         }
 
-        string msgText = NormalizeClusterRefs(message.Text ?? string.Empty);
+        string msgText = NormalizeRefs(message.Text ?? string.Empty);
         IReadOnlyList<SubmitImage> images = message.Images ?? (IReadOnlyList<SubmitImage>)Array.Empty<SubmitImage>();
 
         var blocks = new List<MessageContent>();
@@ -867,6 +878,14 @@ public class ChatWindow : Form
             clusterSelection = csel.Names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
+        // Tool grounding state for the "/t/" autocomplete: whether any tools grounding is wired and the
+        // names of the tools currently in use. There is no selection to narrow — every tool in use is
+        // advertised to the model.
+        bool toolsWired = recorder?.HasToolsGrounding == true;
+        var availableTools = (recorder?.AvailableToolNames ?? Array.Empty<string>())
+            .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         // Document-units grounding state: whether a units grounding is wired, the live document units,
         // the current override (null = use the document units), and the unit choices for the dropdown.
         // The live document value is always present in the options so the dropdown can show it.
@@ -880,7 +899,7 @@ public class ChatWindow : Form
             .ToList();
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
+            new { groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -897,7 +916,7 @@ public class ChatWindow : Form
             _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 

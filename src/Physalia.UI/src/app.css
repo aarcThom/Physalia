@@ -80,6 +80,10 @@
 	/* The one accent: the primary call-to-action (Send) reads as a raised blue chip. */
 	--neu-accent: oklch(0.62 0.13 250);
 
+	/* Physalia "/" commands (e.g. /c/<cluster>, /t/<tool>, /<image alias>) are coloured purple in the
+	   prompt box so they read as references rather than literal text. */
+	--slash-command: oklch(0.5 0.24 300);
+
 	/* Extents kept under the chat's p-4 (16px) gutter so full-width raised blocks (JSON / tool
 	   cards) fade softly instead of being hard-clipped by the scroll container's overflow. */
 	--neu-shadow: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
@@ -233,6 +237,14 @@
 	.neu-well {
 		background-color: var(--neu-bg);
 		box-shadow: var(--neu-inset);
+	}
+
+	/* Physalia "/" commands, coloured in the prompt box's highlight backdrop. Defined here (not in a
+	   component-scoped <style>) because it is applied to markup injected via {@html}, which Svelte's
+	   scoped-style classes do not reach. */
+	.slash-cmd {
+		color: var(--slash-command);
+		font-weight: 500;
 	}
 
 	/* Pressable button: raised, lifts on hover, presses in (inset) when active / open. */

@@ -14,6 +14,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import BoxIcon from '@lucide/svelte/icons/box';
+	import WrenchIcon from '@lucide/svelte/icons/wrench';
 	import { stripDataUrl, type SubmitMessage } from '$lib/bridge';
 
 	interface Props {
@@ -30,6 +31,8 @@
 		groundingWired?: boolean;
 		/** Names of clusters the model may use, for the "/c/" reference autocomplete. */
 		clusterNames?: string[];
+		/** Names of tools currently in use, for the "/t/" reference autocomplete. */
+		toolNames?: string[];
 		onsend: (message: SubmitMessage) => void;
 		/** Called with the pasted API key when in apiKeyProvider mode. */
 		onsavekey?: (providerId: string, key: string) => void;
@@ -46,6 +49,7 @@
 		apiKeyProvider = null,
 		groundingWired = false,
 		clusterNames = [],
+		toolNames = [],
 		onsend,
 		onsavekey,
 		ongrounding,
@@ -151,57 +155,65 @@
 		}
 	}
 
-	// "/c/<clustername>" reference autocomplete. The menu opens while the user is typing a "/c/" token
-	// (at a word boundary) and offers the cluster names the model may use; only these can be inserted,
-	// so a token always names a real, included cluster. The server normalizes the token on submit.
-	let clusterMenuOpen = $state(false);
-	let clusterMatches = $state<string[]>([]);
-	let clusterActiveIndex = $state(0);
-	// Text range [start, end) of the "/c/<query>" being typed, replaced when a name is chosen.
-	let clusterTokenStart = 0;
-	let clusterTokenEnd = 0;
+	// "/c/<clustername>" and "/t/<toolname>" reference autocomplete. The menu opens while the user is
+	// typing a "/c/" or "/t/" token (at a word boundary) and offers the cluster / tool names the model
+	// may use; only these can be inserted, so a token always names a real, available reference. The
+	// server normalizes the token on submit.
+	let refMenuOpen = $state(false);
+	let refMatches = $state<string[]>([]);
+	let refActiveIndex = $state(0);
+	let refMarker = $state<'c' | 't'>('c'); // which reference kind the open menu is completing
+	// Text range [start, end) of the "/<marker>/<query>" being typed, replaced when a name is chosen.
+	let refTokenStart = 0;
+	let refTokenEnd = 0;
 
-	// Recomputes the autocomplete menu from the text before the caret. A "/c/" at the start or after
-	// whitespace, followed by any non-newline text, is the active query; matches are cluster names
-	// that start with it (case-insensitive). No match (or no clusters) closes the menu.
-	function syncClusterMenu() {
+	function namesFor(marker: 'c' | 't'): string[] {
+		return marker === 'c' ? clusterNames : toolNames;
+	}
+
+	// Recomputes the autocomplete menu from the text before the caret. A "/c/" or "/t/" at the start or
+	// after whitespace, followed by any non-newline text, is the active query; matches are cluster / tool
+	// names that start with it (case-insensitive). No match (or no candidates) closes the menu.
+	function syncRefMenu() {
 		let el = textareaRef;
-		if (!el || clusterNames.length === 0) {
-			clusterMenuOpen = false;
+		if (!el) {
+			refMenuOpen = false;
 			return;
 		}
 
 		let caret = el.selectionStart ?? text.length;
 		let before = text.slice(0, caret);
-		let m = before.match(/(?:^|\s)\/c\/([^\n]*)$/);
+		let m = before.match(/(?:^|\s)\/([ct])\/([^\n]*)$/);
 		if (!m) {
-			clusterMenuOpen = false;
+			refMenuOpen = false;
 			return;
 		}
 
-		let query = m[1];
-		let matches = clusterNames.filter((n) => n.toLowerCase().startsWith(query.toLowerCase()));
+		let marker = m[1] as 'c' | 't';
+		let query = m[2];
+		let matches = namesFor(marker).filter((n) => n.toLowerCase().startsWith(query.toLowerCase()));
 		if (matches.length === 0) {
-			clusterMenuOpen = false;
+			refMenuOpen = false;
 			return;
 		}
 
-		clusterMatches = matches;
-		clusterActiveIndex = 0;
-		clusterTokenStart = caret - query.length - 3; // back over "/c/" + the query
-		clusterTokenEnd = caret;
-		clusterMenuOpen = true;
+		refMarker = marker;
+		refMatches = matches;
+		refActiveIndex = 0;
+		refTokenStart = caret - query.length - 3; // back over "/<marker>/" + the query
+		refTokenEnd = caret;
+		refMenuOpen = true;
 	}
 
-	// Replaces the in-progress "/c/<query>" with "/c/<name>" (kept as a token so the host resolves it),
-	// adds a trailing space, and restores the caret after it.
-	async function acceptCluster(name: string) {
-		let token = `/c/${name}`;
-		let after = text.slice(clusterTokenEnd);
+	// Replaces the in-progress "/<marker>/<query>" with "/<marker>/<name>" (kept as a token so the host
+	// resolves it), adds a trailing space, and restores the caret after it.
+	async function acceptRef(name: string) {
+		let token = `/${refMarker}/${name}`;
+		let after = text.slice(refTokenEnd);
 		let trail = after.length === 0 || !/^\s/.test(after) ? ' ' : '';
-		text = text.slice(0, clusterTokenStart) + token + trail + after;
-		let caret = clusterTokenStart + token.length + trail.length;
-		clusterMenuOpen = false;
+		text = text.slice(0, refTokenStart) + token + trail + after;
+		let caret = refTokenStart + token.length + trail.length;
+		refMenuOpen = false;
 
 		await tick();
 		let el = textareaRef;
@@ -213,34 +225,132 @@
 
 	// Menu keyboard navigation; returns true when the key was consumed (so the caller skips its own
 	// Enter-to-send / newline handling).
-	function handleClusterMenuKey(e: KeyboardEvent): boolean {
-		if (!clusterMenuOpen || clusterMatches.length === 0) {
+	function handleRefMenuKey(e: KeyboardEvent): boolean {
+		if (!refMenuOpen || refMatches.length === 0) {
 			return false;
 		}
 
 		if (e.key === 'ArrowDown') {
 			e.preventDefault();
-			clusterActiveIndex = (clusterActiveIndex + 1) % clusterMatches.length;
+			refActiveIndex = (refActiveIndex + 1) % refMatches.length;
 			return true;
 		}
 		if (e.key === 'ArrowUp') {
 			e.preventDefault();
-			clusterActiveIndex = (clusterActiveIndex - 1 + clusterMatches.length) % clusterMatches.length;
+			refActiveIndex = (refActiveIndex - 1 + refMatches.length) % refMatches.length;
 			return true;
 		}
 		if (e.key === 'Enter' || e.key === 'Tab') {
 			e.preventDefault();
-			void acceptCluster(clusterMatches[clusterActiveIndex]);
+			void acceptRef(refMatches[refActiveIndex]);
 			return true;
 		}
 		if (e.key === 'Escape') {
 			e.preventDefault();
-			clusterMenuOpen = false;
+			refMenuOpen = false;
 			return true;
 		}
 
 		return false;
 	}
+
+	// ---- Slash-command highlighting -------------------------------------------------------------
+	// A transparent-text textarea sits over a mirrored backdrop that renders the same text with every
+	// Physalia "/" command coloured purple. The backdrop must match the textarea's font, padding and
+	// wrapping exactly (see the markup) and is scroll-synced so the colours track the caret.
+	let highlightRef = $state<HTMLDivElement | null>(null);
+
+	function escapeHtml(s: string): string {
+		return s
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;');
+	}
+
+	// Longest-first, case-insensitive; requires a non-word boundary after the name (so "/c/Truss"
+	// does not match inside "/c/Trusses"). Mirrors the C# PromptClusterResolver / PromptToolResolver.
+	function matchKnownName(rest: string, names: string[]): string | null {
+		let sorted = names.filter(Boolean).slice().sort((a, b) => b.length - a.length);
+		let lower = rest.toLowerCase();
+		for (let name of sorted) {
+			if (lower.startsWith(name.toLowerCase())) {
+				let after = rest[name.length];
+				if (after === undefined || !/[\w-]/.test(after)) {
+					return rest.slice(0, name.length);
+				}
+			}
+		}
+		return null;
+	}
+
+	// Splits the text into plain / command segments. A command starts at a "/" on a word boundary:
+	// "/c/" or "/t/" extends across a known (possibly multi-word) reference name, else across the run
+	// of non-whitespace after the marker; a bare "/token" (e.g. an image alias) colours that token.
+	function highlightHtml(value: string): string {
+		let out = '';
+		let plainStart = 0;
+		let i = 0;
+
+		let flushPlain = (upto: number) => {
+			if (upto > plainStart) {
+				out += escapeHtml(value.slice(plainStart, upto));
+			}
+		};
+
+		while (i < value.length) {
+			let atBoundary = i === 0 || /\s/.test(value[i - 1]);
+			if (value[i] === '/' && atBoundary) {
+				let marker3 = value.slice(i, i + 3).toLowerCase();
+				let end: number;
+				if (marker3 === '/c/' || marker3 === '/t/') {
+					let rest = value.slice(i + 3);
+					let matched = matchKnownName(rest, marker3 === '/c/' ? clusterNames : toolNames);
+					if (matched !== null) {
+						end = i + 3 + matched.length;
+					} else {
+						end = i + 3;
+						while (end < value.length && !/\s/.test(value[end])) end++;
+					}
+				} else {
+					end = i + 1;
+					while (end < value.length && !/\s/.test(value[end])) end++;
+				}
+
+				if (end > i + 1) {
+					flushPlain(i);
+					out += `<span class="slash-cmd">${escapeHtml(value.slice(i, end))}</span>`;
+					i = end;
+					plainStart = i;
+					continue;
+				}
+			}
+			i++;
+		}
+
+		flushPlain(value.length);
+		// A trailing newline needs a placeholder char, else the backdrop is one line shorter than the
+		// textarea and the last line's colours drift out of sync.
+		return value.endsWith('\n') ? out + ' ' : out;
+	}
+
+	let highlighted = $derived(highlightHtml(text));
+
+	// Keep the backdrop scrolled in lock-step with the textarea.
+	function syncScroll() {
+		let el = textareaRef;
+		let bg = highlightRef;
+		if (el && bg) {
+			bg.scrollTop = el.scrollTop;
+			bg.scrollLeft = el.scrollLeft;
+		}
+	}
+
+	// Text changes (typing, paste, token insert/remove) can shift the textarea's scroll; re-sync the
+	// backdrop after the DOM updates so the colours stay aligned with the caret.
+	$effect(() => {
+		highlighted;
+		void tick().then(syncScroll);
+	});
 
 	async function addImages(files: FileList | File[] | null | undefined) {
 		if (!files) {
@@ -306,7 +416,7 @@
 			return;
 		}
 
-		clusterMenuOpen = false;
+		refMenuOpen = false;
 		let sentText = tidy(text.replace(TOKEN, '')).trim();
 		let images = pending.map((p) => ({
 			base64: p.base64,
@@ -324,8 +434,8 @@
 	}
 
 	function onKeyDown(e: KeyboardEvent) {
-		// The cluster autocomplete menu owns arrows/Enter/Tab/Escape while it is open.
-		if (handleClusterMenuKey(e)) {
+		// The reference autocomplete menu owns arrows/Enter/Tab/Escape while it is open.
+		if (handleRefMenuKey(e)) {
 			return;
 		}
 
@@ -342,7 +452,7 @@
 		if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Escape') {
 			return;
 		}
-		syncClusterMenu();
+		syncRefMenu();
 	}
 
 	function onPaste(e: ClipboardEvent) {
@@ -401,24 +511,28 @@
 {/if}
 
 <div class="relative">
-	{#if clusterMenuOpen}
+	{#if refMenuOpen}
 		<div
 			class="neu-raised absolute bottom-full left-0 z-10 mb-1.5 max-h-56 w-full overflow-y-auto rounded-lg p-1"
 		>
-			{#each clusterMatches as name, i (name)}
+			{#each refMatches as name, i (name)}
 				<button
 					type="button"
 					class={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm ${
-						i === clusterActiveIndex ? 'bg-muted-foreground/15' : 'hover:bg-muted-foreground/10'
+						i === refActiveIndex ? 'bg-muted-foreground/15' : 'hover:bg-muted-foreground/10'
 					}`}
 					onmousedown={(e) => {
 						e.preventDefault();
-						void acceptCluster(name);
+						void acceptRef(name);
 					}}
 				>
-					<BoxIcon class="text-muted-foreground size-3.5 shrink-0" />
+					{#if refMarker === 't'}
+						<WrenchIcon class="text-muted-foreground size-3.5 shrink-0" />
+					{:else}
+						<BoxIcon class="text-muted-foreground size-3.5 shrink-0" />
+					{/if}
 					<span class="flex-1 truncate">{name}</span>
-					<span class="text-muted-foreground/70 font-mono text-xs">/c/</span>
+					<span class="text-muted-foreground/70 font-mono text-xs">/{refMarker}/</span>
 				</button>
 			{/each}
 		</div>
@@ -449,17 +563,28 @@
 		</Button>
 	</div>
 
-	<Textarea
-		bind:ref={textareaRef}
-		bind:value={text}
-		{placeholder}
-		disabled={inert}
-		onkeydown={onKeyDown}
-		onkeyup={onKeyUp}
-		onclick={syncClusterMenu}
-		onpaste={onPaste}
-		class="max-h-56 min-h-16 flex-1 resize-none border-none bg-transparent p-2 text-base md:text-base shadow-none focus-visible:ring-0 disabled:bg-transparent disabled:opacity-100 dark:bg-transparent"
-	/>
+	<div class="relative flex-1">
+		<!-- Mirrored backdrop: same font/padding/wrapping as the textarea, renders the coloured
+		     slash-commands under the transparent-text textarea. -->
+		<div
+			bind:this={highlightRef}
+			aria-hidden="true"
+			class="pointer-events-none absolute inset-0 max-h-56 min-h-16 overflow-hidden whitespace-pre-wrap break-words p-2 text-base text-foreground md:text-base"
+		>{@html highlighted}</div>
+
+		<Textarea
+			bind:ref={textareaRef}
+			bind:value={text}
+			{placeholder}
+			disabled={inert}
+			onkeydown={onKeyDown}
+			onkeyup={onKeyUp}
+			onclick={syncRefMenu}
+			onpaste={onPaste}
+			onscroll={syncScroll}
+			class="relative max-h-56 min-h-16 w-full resize-none border-none bg-transparent p-2 text-base text-transparent caret-[var(--foreground)] shadow-none focus-visible:ring-0 disabled:bg-transparent disabled:opacity-100 md:text-base dark:bg-transparent"
+		/>
+	</div>
 
 	<Button
 		variant="ghost"

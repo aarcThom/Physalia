@@ -127,7 +127,9 @@ public class Summarizer : RoutingComponentBase<Instructions>
         string trace = $"Compacted {_result.OriginalMessageCount} → {_result.RetainedMessageCount} messages";
         return RoutingResult.Ok(
             trace,
-            instructions: new Instructions(data.SystemPrompt, _result.Conversation),
+            // Carry the source tools forward unchanged — summarization shrinks the conversation, not
+            // the set of tools advertised to the model, so the Reasoner still sees them past this node.
+            instructions: new Instructions(data.SystemPrompt, _result.Conversation) { Tools = data.Tools },
             message: $"{trace} ({_result.DroppedMessageCount} folded into the summary).",
             level: GH_RuntimeMessageLevel.Remark);
     }

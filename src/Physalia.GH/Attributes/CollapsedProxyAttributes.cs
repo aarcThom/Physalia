@@ -63,6 +63,14 @@ public class CollapsedProxyAttributes : GH_Attributes<IGH_DocumentObject>
     public override bool HasOutputGrip => false;
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// A hidden member must never be the object under the cursor — no hover tooltip, click, or drag.
+    /// The zero-size bounds alone would not pick, but a wire relay's own hit region does not derive
+    /// from bounds, so refuse the point-pick outright while collapsed.
+    /// </remarks>
+    public override bool IsPickRegion(PointF point) => false;
+
+    /// <inheritdoc/>
     protected override void Layout()
     {
         Pivot = _point;

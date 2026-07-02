@@ -80,6 +80,11 @@
 	/* The one accent: the primary call-to-action (Send) reads as a raised blue chip. */
 	--neu-accent: oklch(0.62 0.13 250);
 
+	/* Physalia "/" commands (e.g. /c/<cluster>, /t/<tool>, /<image alias>) are coloured purple and sit
+	   on a soft blue chip in the prompt box so they read as references rather than literal text. */
+	--slash-command: oklch(0.5 0.24 300);
+	--slash-command-bg: oklch(0.9 0.05 255);
+
 	/* Extents kept under the chat's p-4 (16px) gutter so full-width raised blocks (JSON / tool
 	   cards) fade softly instead of being hard-clipped by the scroll container's overflow. */
 	--neu-shadow: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
@@ -233,6 +238,23 @@
 	.neu-well {
 		background-color: var(--neu-bg);
 		box-shadow: var(--neu-inset);
+	}
+
+	/* Physalia "/" commands in the prompt box: monospace, coloured, on a soft blue chip. Defined here
+	   (not in the Composer's scoped <style>) because it styles the spans the Composer injects into its
+	   contenteditable editor via innerHTML, which scoped-style classes do not reach. The editor is
+	   contenteditable, so the caret lives in this styled content — a per-token font (monospace here
+	   while the surrounding prose stays sans) is safe and does not drift the caret. The chip is drawn
+	   with a box-shadow spread (extends the fill a couple of px around the glyphs without reflowing
+	   them) rather than padding, so a wrapped command stays tidy. */
+	.slash-cmd {
+		font-family:
+			ui-monospace, 'SF Mono', 'Cascadia Code', 'Segoe UI Mono', Consolas, 'Liberation Mono', Menlo,
+			monospace;
+		color: var(--slash-command);
+		background-color: var(--slash-command-bg);
+		border-radius: 4px;
+		box-shadow: 0 0 0 2px var(--slash-command-bg);
 	}
 
 	/* Pressable button: raised, lifts on hover, presses in (inset) when active / open. */

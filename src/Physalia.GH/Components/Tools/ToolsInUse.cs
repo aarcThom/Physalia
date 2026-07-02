@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Grasshopper.Kernel;
+using Physalia.Core.Grounding;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -13,13 +14,15 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Scans the document for tool nodes that are genuinely hooked into a dispatch loop — those whose
 /// Signal input is wired from a <see cref="Router"/> — and emits their tool definitions as a single
-/// list. Wire its one output into a Reasoner's Tools input instead of fanning each tool node's Tool
-/// output in by hand.
+/// grounding. Wire its one output into a Recorder's Grounding input (alongside any Library, Cluster,
+/// or Document Units grounding) instead of fanning each tool node's Tool output in by hand: the
+/// Recorder lifts the tool definitions onto the Instructions it mints, so the Reasoner advertises them
+/// to the model, and surfaces their names for the chat input's <c>/t/&lt;toolname&gt;</c> reference.
 ///
 /// <para>A stray, unwired tool node is ignored: a tool counts as in use only once a Router can
 /// actually dispatch to it. The list refreshes live as tools are wired, unwired, added, or removed —
 /// the component watches the document's solution end and re-solves itself only when the in-use set
-/// actually changes, so the new definitions reach the Reasoner without a runaway solve loop.</para>
+/// actually changes, so the new definitions reach the Recorder without a runaway solve loop.</para>
 /// </summary>
 public class ToolsInUse : PhyBase
 {
@@ -31,7 +34,7 @@ public class ToolsInUse : PhyBase
     /// Initializes a new instance of the <see cref="ToolsInUse"/> class.
     /// </summary>
     public ToolsInUse()
-        : base("Tools In Use", "ToolsUsed", "Lists the definitions of every tool node wired into a Router. Wire into a Reasoner's Tools input.", "Tools")
+        : base("Tools Present", "ToolsUsed", "Grounds the model with every tool node wired into a Router. Wire into a Recorder's Grounding input.", "Grounding")
     {
     }
 
@@ -66,7 +69,7 @@ public class ToolsInUse : PhyBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ToolDefinition(), "Tools", "T", "Definitions of every tool node wired into a Router. Wire into the Reasoner's Tools input.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Grounding carrying the definitions of every tool node wired into a Router. Wire into the Recorder's Grounding input.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -74,7 +77,9 @@ public class ToolsInUse : PhyBase
     {
         var tools = InUseTools(OnPingDocument()).ToList();
         _lastSignature = Signature(tools);
-        DA.SetDataList(OutTools, tools.Select(t => new GH_ToolDefinition(t.AdvertisedDefinition)));
+
+        var definitions = tools.Select(t => t.AdvertisedDefinition).ToList();
+        DA.SetData(OutTools, new GH_Grounding(new ToolsGrounding(definitions)));
     }
 
     /// <summary>
@@ -132,7 +137,7 @@ public class ToolsInUse : PhyBase
     {
         // A wire may have been added/removed to a tool node during this solution, which does not
         // re-solve this source component. Re-solve only when the in-use set actually changed, so the
-        // refreshed definitions reach the Reasoner and the comparison breaks any solve loop once it
+        // refreshed definitions reach the Recorder and the comparison breaks any solve loop once it
         // converges.
         if (Signature(InUseTools(OnPingDocument())) != _lastSignature)
         {

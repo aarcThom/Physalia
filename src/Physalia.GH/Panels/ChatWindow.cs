@@ -20,6 +20,7 @@ using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Grounding;
 using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
+using Physalia.Core.Grounding.Tools;
 using Physalia.GH.Components;
 
 namespace Physalia.GH.Panels;
@@ -341,6 +342,9 @@ public class ChatWindow : Form
             case "setclusters":
                 HandleSetClusters(uri);
                 break;
+            case "settools":
+                HandleSetTools(uri);
+                break;
             case "setunits":
                 HandleSetUnits(uri);
                 break;
@@ -430,6 +434,38 @@ public class ChatWindow : Form
         recorder.SetClusterSelection(selection);
     }
 
+    // Applies a tools selection from the window to the wired Recorder. The payload is JSON
+    // {all:bool, names:[...]} passed in the ?sel= query. all:true (or a missing payload) clears the
+    // selection back to null = advertise every tool present on the canvas.
+    private void HandleSetTools(Uri uri)
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return;
+        }
+
+        string raw = GetQueryValue(uri.Query, "sel");
+        ToolsSelection? selection = null;
+        if (!string.IsNullOrEmpty(raw))
+        {
+            try
+            {
+                ToolsSelectionPayload? payload = JsonSerializer.Deserialize<ToolsSelectionPayload>(raw, ReadOpts);
+                if (payload is not null && !payload.All)
+                {
+                    selection = ToolsSelection.FromNames(payload.Names ?? new List<string>());
+                }
+            }
+            catch (JsonException)
+            {
+                return;
+            }
+        }
+
+        recorder.SetToolsSelection(selection);
+    }
+
     // Applies a document-units override from the window to the wired Recorder. The payload is JSON
     // {reset:bool, units:string} passed in the ?sel= query. reset:true (or a missing payload) clears
     // the override back to null = use the live document units. The document itself is never changed.
@@ -462,8 +498,25 @@ public class ChatWindow : Form
         recorder.SetUnitsOverride(units);
     }
 
+    // The names of the components currently exposed to the model (the grounded catalog with the
+    // grounding selection applied). Used to normalize "/c/<tab>/<name>" prompt tokens at submit time.
+    private IReadOnlyCollection<string> IncludedComponentNames()
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        return recorder.IncludedComponentEntries
+            .Select(e => e.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     // The names of the clusters currently exposed to the model (the chat-selected subset, or all when
-    // no selection is set). Used to normalize "/c/<name>" prompt tokens at submit time.
+    // no selection is set). Used to normalize "/cl/<name>" prompt tokens at submit time.
     private IReadOnlyCollection<string> IncludedClusterNames()
     {
         Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
@@ -477,9 +530,30 @@ public class ChatWindow : Form
         return (selection is null ? names : names.Where(selection.Includes)).ToList();
     }
 
-    // Rewrites "/c/<clustername>" references in submitted prompt text into a clear cluster mention.
-    private string NormalizeClusterRefs(string text) =>
-        PromptClusterResolver.Normalize(text, IncludedClusterNames());
+    // The names of the tools currently exposed to the model (the chat-selected subset, or all present
+    // when no selection is set). Used to normalize "/t/<name>" prompt tokens at submit time.
+    private IReadOnlyCollection<string> IncludedToolNames()
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        IEnumerable<string> names = recorder.AvailableToolNames;
+        ToolsSelection? selection = recorder.ToolsSelectionOrNull;
+        return (selection is null ? names : names.Where(selection.Includes)).ToList();
+    }
+
+    // Rewrites "/c/<tab>/<component>", "/cl/<clustername>" and "/t/<toolname>" references in submitted
+    // prompt text into clear natural-language mentions the model understands. The markers are distinct,
+    // so the three resolvers compose in any order without interfering.
+    private string NormalizeRefs(string text) =>
+        PromptToolResolver.Normalize(
+            PromptClusterResolver.Normalize(
+                PromptComponentResolver.Normalize(text, IncludedComponentNames()),
+                IncludedClusterNames()),
+            IncludedToolNames());
 
     // Opens an external setup link (http/https only) in the user's default browser. The chat runs
     // from file://, so an in-page navigation would replace it — links route here instead.
@@ -584,7 +658,7 @@ public class ChatWindow : Form
             string text = GetQueryValue(query, "text");
             if (!string.IsNullOrEmpty(text))
             {
-                _component.SubmitFromWindow(NormalizeClusterRefs(text));
+                _component.SubmitFromWindow(NormalizeRefs(text));
             }
 
             return;
@@ -668,7 +742,7 @@ public class ChatWindow : Form
             return;
         }
 
-        string msgText = NormalizeClusterRefs(message.Text ?? string.Empty);
+        string msgText = NormalizeRefs(message.Text ?? string.Empty);
         IReadOnlyList<SubmitImage> images = message.Images ?? (IReadOnlyList<SubmitImage>)Array.Empty<SubmitImage>();
 
         var blocks = new List<MessageContent>();
@@ -847,7 +921,24 @@ public class ChatWindow : Form
                 .ToList();
         }
 
-        // Cluster grounding state for the window's cluster selector and the "/c/" autocomplete: whether
+        // Grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete. Kept
+        // out of the change-detection signature below (it can be large): it changes only when the
+        // component tree or its selection changes, both of which ARE in the signature.
+        var availableComponents = (recorder?.IncludedComponentEntries ?? Array.Empty<CatalogEntry>())
+            .Where(e => !string.IsNullOrWhiteSpace(e.Category) && !string.IsNullOrWhiteSpace(e.Name))
+            .GroupBy(e => e.Category, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new
+            {
+                tab = g.Key,
+                components = g.Select(e => e.Name)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+            })
+            .ToList();
+
+        // Cluster grounding state for the window's cluster selector and the "/cl/" autocomplete: whether
         // any cluster grounding is wired, the available clusters (name + I/O + description), and the
         // current selection (null = include everything).
         bool clustersWired = recorder?.HasClusterGrounding == true;
@@ -867,6 +958,31 @@ public class ChatWindow : Form
             clusterSelection = csel.Names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
+        // Tool grounding state for the Tools page + "/t/" autocomplete: whether any tools grounding is
+        // wired, the tools currently on the canvas, and the current selection (null = include all).
+        bool toolsWired = recorder?.HasToolsGrounding == true;
+        var availableTools = (recorder?.AvailableToolNames ?? Array.Empty<string>())
+            .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        object? toolsSelection = null;
+        if (recorder?.ToolsSelectionOrNull is { } tsel)
+        {
+            toolsSelection = tsel.Names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        // Canvas-inputs grounding state (read-only page): the Rhino-referenced inputs on the canvas.
+        bool canvasInputsWired = recorder?.HasCanvasInputGrounding == true;
+        var canvasInputs = (recorder?.AvailableCanvasInputs ?? Array.Empty<CanvasInput>())
+            .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(i => new { name = i.Name, type = i.TypeName })
+            .ToList();
+
+        // Python-function grounding state (read-only page): the available python functions.
+        bool pythonWired = recorder?.HasPythonGrounding == true;
+        var pythonFunctions = (recorder?.AvailablePythonFunctions ?? Array.Empty<PythonFunctionGrounding>())
+            .Select(p => new { signature = p.Signature, docstring = p.Docstring })
+            .ToList();
+
         // Document-units grounding state: whether a units grounding is wired, the live document units,
         // the current override (null = use the document units), and the unit choices for the dropdown.
         // The live document value is always present in the options so the dropdown can show it.
@@ -879,8 +995,12 @@ public class ChatWindow : Form
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        // Cheap proxy for availableComponents in the signature (serializing the full list every tick
+        // would churn); the tree/selection already trigger a push, this just catches a catalog resize.
+        int componentCount = availableComponents.Sum(c => c.components.Count);
+
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
+            new { groundingWired, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -897,7 +1017,7 @@ public class ChatWindow : Form
             _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection, clustersWired, availableClusters, clusterSelection, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 
@@ -1680,6 +1800,10 @@ public class ChatWindow : Form
     // Cluster selection pushed from the window: all=true clears to include-everything; otherwise
     // names is the list of cluster names to include.
     private sealed record ClusterSelectionPayload(bool All, List<string>? Names);
+
+    // Tools selection pushed from the window: all=true clears to include-every-present-tool; otherwise
+    // names is the list of tool names to advertise to the model.
+    private sealed record ToolsSelectionPayload(bool All, List<string>? Names);
 
     // Document-units override pushed from the window: reset=true clears to the live document units;
     // otherwise units is the override text handed to the model.

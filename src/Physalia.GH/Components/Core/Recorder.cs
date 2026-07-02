@@ -7,10 +7,12 @@ using System.Linq;
 using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Grounding;
 using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
+using Physalia.Core.Grounding.Tools;
 using Physalia.Core.Recording;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
@@ -56,6 +58,12 @@ public class Recorder : StatefulComponentBase
     // the prompt. Configuration, not conversation state — survives Clear and is serialized.
     private ClusterSelection? _clusterSelection;
 
+    // Tools selection, mirroring the cluster selection above. Null = advertise every tool present on
+    // the canvas (default); a non-null selection narrows which tools are advertised to the model, so
+    // the user can disable an on-canvas tool. Configuration, not conversation state — survives Clear
+    // and is serialized.
+    private ToolsSelection? _toolsSelection;
+
     // Document-units override. Null = use the live document units carried by the wired
     // DocumentUnitsGrounding (default); a non-null value is the unit text handed to the model instead
     // (the document itself is never changed). Configuration, not conversation state — survives Clear
@@ -70,6 +78,17 @@ public class Recorder : StatefulComponentBase
     private ComponentCatalog? _liveCatalog;
     private ClusterCatalog? _liveClusterCatalog;
     private DocumentUnitsGrounding? _liveUnitsGrounding;
+
+    // The tool definitions carried by every wired ToolsGrounding (the Tools Present grounder), merged.
+    // Lifted onto the Instructions minted for inference so the Reasoner advertises them to the model,
+    // and their names feed the chat input's "/t/" reference. Empty when no tools grounding is wired.
+    private IReadOnlyList<ToolDefinition> _liveTools = Array.Empty<ToolDefinition>();
+
+    // Caches of the other grounding kinds wired this solve, so every kind has a live read for the chat
+    // UI's grounding pages: the referenceable canvas inputs (Rhino Geometry params) and the available
+    // python functions.
+    private IReadOnlyList<CanvasInput> _liveCanvasInputs = Array.Empty<CanvasInput>();
+    private IReadOnlyList<PythonFunctionGrounding> _livePythonFunctions = Array.Empty<PythonFunctionGrounding>();
 
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
@@ -110,6 +129,15 @@ public class Recorder : StatefulComponentBase
     public bool HasComponentGrounding => _liveCatalog is not null;
 
     /// <summary>
+    /// Gets the entries of the grounded component catalog with the current grounding selection applied
+    /// — the components actually available to the model, for the chat input's <c>/c/&lt;tab&gt;/&lt;
+    /// component&gt;</c> reference (tab → components autocomplete and submit-time normalization). Empty
+    /// when no component-catalog grounding is wired.
+    /// </summary>
+    public IReadOnlyList<CatalogEntry> IncludedComponentEntries =>
+        _liveCatalog?.Filtered(_selection).Entries ?? Array.Empty<CatalogEntry>();
+
+    /// <summary>
     /// Gets the current grounding selection, or <see langword="null"/> for the default (include all).
     /// </summary>
     public GroundingSelection? GroundingSelectionOrNull => _selection;
@@ -127,6 +155,48 @@ public class Recorder : StatefulComponentBase
     /// enable/grey its cluster affordance).
     /// </summary>
     public bool HasClusterGrounding => _liveClusterCatalog is not null;
+
+    /// <summary>
+    /// Gets the names of the tools currently in use (wired into a Router, collected by a wired Tools
+    /// Present grounder). For the chat input's <c>/t/</c> prompt autocomplete — updated every solve.
+    /// Empty when no tools grounding is wired.
+    /// </summary>
+    public IReadOnlyList<string> AvailableToolNames =>
+        _liveTools.Select(t => t.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.Ordinal).ToList();
+
+    /// <summary>
+    /// Gets a value indicating whether any tools grounding is currently wired (so the chat UI can
+    /// enable/grey its tool affordance).
+    /// </summary>
+    public bool HasToolsGrounding => _liveTools.Count > 0;
+
+    /// <summary>
+    /// Gets the current tools selection, or <see langword="null"/> for the default (include every tool
+    /// present on the canvas).
+    /// </summary>
+    public ToolsSelection? ToolsSelectionOrNull => _toolsSelection;
+
+    /// <summary>
+    /// Gets the referenceable canvas inputs wired via a Canvas Inputs grounding, for the chat UI's
+    /// grounding page. Empty when none is wired.
+    /// </summary>
+    public IReadOnlyList<CanvasInput> AvailableCanvasInputs => _liveCanvasInputs;
+
+    /// <summary>
+    /// Gets a value indicating whether any canvas-inputs grounding is currently wired.
+    /// </summary>
+    public bool HasCanvasInputGrounding => _liveCanvasInputs.Count > 0;
+
+    /// <summary>
+    /// Gets the python functions wired via a Python Function grounding, for the chat UI's grounding
+    /// page. Empty when none is wired.
+    /// </summary>
+    public IReadOnlyList<PythonFunctionGrounding> AvailablePythonFunctions => _livePythonFunctions;
+
+    /// <summary>
+    /// Gets a value indicating whether any python-function grounding is currently wired.
+    /// </summary>
+    public bool HasPythonGrounding => _livePythonFunctions.Count > 0;
 
     /// <summary>
     /// Gets the current cluster selection, or <see langword="null"/> for the default (include all).
@@ -175,6 +245,18 @@ public class Recorder : StatefulComponentBase
     public void SetClusterSelection(ClusterSelection? selection)
     {
         _clusterSelection = selection;
+        ExpireSolution(true);
+    }
+
+    /// <summary>
+    /// Sets the tools selection (null = advertise every tool present on the canvas) and re-solves so
+    /// the change takes effect on the next minted Instructions. Called from the chat window on the UI
+    /// thread.
+    /// </summary>
+    /// <param name="selection">The new selection, or null to include every present tool.</param>
+    public void SetToolsSelection(ToolsSelection? selection)
+    {
+        _toolsSelection = selection;
         ExpireSolution(true);
     }
 
@@ -244,8 +326,12 @@ public class Recorder : StatefulComponentBase
             switch (_pendingOutcome)
             {
                 case RecordOutcome.UserTurn:
-                    // The minted signal carries the full Instructions: the trigger IS the data.
-                    LatchSuccess(_pendingUserText, instructions: new Instructions(BuildGroundedSystemPrompt(systemPrompt), _conversation));
+                    // The minted signal carries the full Instructions: the trigger IS the data. The
+                    // tools wired in as grounding ride on Instructions.Tools so the Reasoner advertises
+                    // them to the model without a separate wire.
+                    LatchSuccess(
+                        _pendingUserText,
+                        instructions: new Instructions(BuildGroundedSystemPrompt(systemPrompt), _conversation) { Tools = SelectedTools() });
                     break;
                 case RecordOutcome.AssistantTurn:
                     // Quiet success: a Reasoner wired off the outgoing signal must not
@@ -339,6 +425,18 @@ public class Recorder : StatefulComponentBase
             }
         }
 
+        // Tools selection, persisted with the same null-vs-empty flag discipline.
+        writer.SetBoolean("ToolsSelectionSet", _toolsSelection is not null);
+        if (_toolsSelection is not null)
+        {
+            IReadOnlyList<string> names = _toolsSelection.Names;
+            writer.SetInt32("ToolNameCount", names.Count);
+            for (int i = 0; i < names.Count; i++)
+            {
+                writer.SetString("ToolName", i, names[i]);
+            }
+        }
+
         // Document-units override, persisted with the same null-vs-set flag discipline.
         writer.SetBoolean("UnitsOverrideSet", _unitsOverride is not null);
         if (_unitsOverride is not null)
@@ -384,6 +482,22 @@ public class Recorder : StatefulComponentBase
         else
         {
             _clusterSelection = null;
+        }
+
+        if (reader.ItemExists("ToolsSelectionSet") && reader.GetBoolean("ToolsSelectionSet"))
+        {
+            int count = reader.ItemExists("ToolNameCount") ? reader.GetInt32("ToolNameCount") : 0;
+            var names = new List<string>(count);
+            for (int i = 0; i < count; i++)
+            {
+                names.Add(reader.GetString("ToolName", i));
+            }
+
+            _toolsSelection = ToolsSelection.FromNames(names);
+        }
+        else
+        {
+            _toolsSelection = null;
         }
 
         if (reader.ItemExists("UnitsOverrideSet") && reader.GetBoolean("UnitsOverrideSet"))
@@ -439,7 +553,33 @@ public class Recorder : StatefulComponentBase
 
         // A document-units grounding carries a single value; if several are wired, the last one wins.
         _liveUnitsGrounding = _liveGroundings.OfType<DocumentUnitsGrounding>().LastOrDefault();
+
+        // Tool definitions carried by every wired ToolsGrounding, merged (deduped by name — one Tools
+        // Present grounder is the norm, but two wired ones must not advertise a tool twice).
+        _liveTools = _liveGroundings
+            .OfType<ToolsGrounding>()
+            .SelectMany(g => g.Tools ?? Array.Empty<ToolDefinition>())
+            .Where(t => t is not null)
+            .GroupBy(t => t.Name, StringComparer.Ordinal)
+            .Select(g => g.First())
+            .ToList();
+
+        // Canvas inputs and python functions, cached so every grounding kind has a live read for the
+        // chat UI's grounding pages.
+        _liveCanvasInputs = _liveGroundings
+            .OfType<CanvasInputGrounding>()
+            .SelectMany(g => g.Inputs ?? Array.Empty<CanvasInput>())
+            .Where(i => i is not null)
+            .ToList();
+
+        _livePythonFunctions = _liveGroundings.OfType<PythonFunctionGrounding>().ToList();
     }
+
+    // The tools advertised to the model: the live tools narrowed by the tools selection (null = all).
+    private IReadOnlyList<ToolDefinition> SelectedTools() =>
+        _toolsSelection is { } selection
+            ? _liveTools.Where(t => selection.Includes(t.Name)).ToList()
+            : _liveTools;
 
     // Folds the wired groundings into the system prompt, applying the component selection to
     // component-catalog groundings and the cluster selection to cluster groundings (other kinds
@@ -451,15 +591,36 @@ public class Recorder : StatefulComponentBase
             return systemPrompt;
         }
 
-        var mapped = _liveGroundings
-            .Select(g => g switch
+        var mapped = new List<Grounding>();
+        bool toolsAdded = false;
+        foreach (Grounding g in _liveGroundings)
+        {
+            switch (g)
             {
-                ComponentCatalogGrounding cc => new ComponentCatalogGrounding(cc.Catalog.Filtered(_selection)),
-                ClusterCatalogGrounding cl => new ClusterCatalogGrounding(cl.Catalog.Filtered(_clusterSelection)),
-                DocumentUnitsGrounding du => _unitsOverride is { } ov ? new DocumentUnitsGrounding(ov) : du,
-                _ => g,
-            })
-            .ToList();
+                case ComponentCatalogGrounding cc:
+                    mapped.Add(new ComponentCatalogGrounding(cc.Catalog.Filtered(_selection)));
+                    break;
+                case ClusterCatalogGrounding cl:
+                    mapped.Add(new ClusterCatalogGrounding(cl.Catalog.Filtered(_clusterSelection)));
+                    break;
+                case DocumentUnitsGrounding du:
+                    mapped.Add(_unitsOverride is { } ov ? new DocumentUnitsGrounding(ov) : du);
+                    break;
+                case ToolsGrounding:
+                    // Collapse every wired tools grounding into ONE section listing the SELECTED tools
+                    // (exactly what is advertised to the model), so the prompt constrains it to that set.
+                    if (!toolsAdded)
+                    {
+                        mapped.Add(new ToolsGrounding(SelectedTools()));
+                        toolsAdded = true;
+                    }
+
+                    break;
+                default:
+                    mapped.Add(g);
+                    break;
+            }
+        }
 
         return GroundingComposer.Append(systemPrompt, mapped);
     }

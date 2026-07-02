@@ -28,7 +28,6 @@ namespace Physalia.GH.Components;
 public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
 {
     private int _cancelIndex = -1;
-    private int _toolsIndex = -1;
     private bool _lastCancel;
     private bool _isRunning;
     private string _response = string.Empty;
@@ -87,8 +86,6 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
         pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Model configuration from a Model or Tweaker component.", GH_ParamAccess.item);
-        _toolsIndex = pManager.AddParameter(new Param_ToolDefinition(), "Tools", "T", "Tool definitions from tool nodes, advertised to the model. Optional; leave unwired for plain inference.", GH_ParamAccess.list);
-        pManager[_toolsIndex].Optional = true;
         _cancelIndex = pManager.AddBooleanParameter("Cancel", "X", "Rising edge cancels the active inference call.", GH_ParamAccess.item, false);
     }
 
@@ -175,15 +172,9 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
         // pool) can keep one long-lived session per Reasoner across forward passes.
         config = config with { SessionKey = InstanceGuid };
 
-        // Read the wired tool definitions on the solve thread; the async call only uses the snapshot.
-        var toolGoos = new List<GH_ToolDefinition>();
-        da.GetDataList(_toolsIndex, toolGoos);
-        var tools = toolGoos
-            .Where(g => g?.Value is not null)
-            .Select(g => g!.Value!)
-            .ToList();
-
-        StartInference(data, config, tools);
+        // The tool definitions ride on the consumed signal's Instructions (the Recorder lifts them
+        // there from the Tools Present grounding), so there is no separate Tools input to read.
+        StartInference(data, config, data.Tools);
     }
 
     /// <inheritdoc/>

@@ -205,9 +205,14 @@ public class Chatbox : StatefulComponentBase
     /// <param name="document">The document the component was removed from.</param>
     public override void RemovedFromDocument(GH_Document document)
     {
+        document.SolutionEnd -= OnDocumentSolutionEnd;
         _activeWindow?.OnComponentRemoved(this);
         base.RemovedFromDocument(document);
     }
+
+    // Re-asserts the collapse after every solution: a hidden wire-relay member recreates its own
+    // attributes on solve and so loses the hide swap — re-hiding here keeps it inert behind the proxy.
+    private void OnDocumentSolutionEnd(object sender, GH_SolutionEventArgs e) => _group.RefreshCollapsePoint();
 
     /// <summary>
     /// Reassigns this Chatbox's emoji to one not already used by another Chatbox on the canvas,
@@ -221,6 +226,11 @@ public class Chatbox : StatefulComponentBase
     public override void AddedToDocument(GH_Document document)
     {
         base.AddedToDocument(document);
+
+        // Re-assert the harness collapse after each solution so a hidden wire relay (which recreates
+        // its attributes on solve) does not leak back as a clickable object through the proxy.
+        document.SolutionEnd -= OnDocumentSolutionEnd;
+        document.SolutionEnd += OnDocumentSolutionEnd;
 
         // Now that this instance has a document, flip its icon from the ribbon brain to the
         // blank canvas slot (the emoji is painted over it live).

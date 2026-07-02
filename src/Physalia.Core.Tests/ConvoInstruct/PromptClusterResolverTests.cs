@@ -14,43 +14,43 @@ public class PromptClusterResolverTests
     [Fact]
     public void Normalize_ReplacesTokenWithCanonicalPhrase()
     {
-        string result = PromptClusterResolver.Normalize("Use /c/Truss here", Names);
+        string result = PromptClusterResolver.Normalize("Use /cl/Truss here", Names);
         Assert.Equal("Use the \"Truss\" cluster here", result);
     }
 
     [Fact]
     public void Normalize_MatchesMultiWordName()
     {
-        string result = PromptClusterResolver.Normalize("build with /c/Loft Hull please", Names);
+        string result = PromptClusterResolver.Normalize("build with /cl/Loft Hull please", Names);
         Assert.Equal("build with the \"Loft Hull\" cluster please", result);
     }
 
     [Fact]
     public void Normalize_LongestNameWins()
     {
-        string result = PromptClusterResolver.Normalize("/c/Truss Frame now", Names);
+        string result = PromptClusterResolver.Normalize("/cl/Truss Frame now", Names);
         Assert.Equal("the \"Truss Frame\" cluster now", result);
     }
 
     [Fact]
     public void Normalize_PreservesCanonicalCasing()
     {
-        string result = PromptClusterResolver.Normalize("use /c/truss please", Names);
+        string result = PromptClusterResolver.Normalize("use /cl/truss please", Names);
         Assert.Equal("use the \"Truss\" cluster please", result);
     }
 
     [Fact]
     public void Normalize_IgnoresUnknownClusterName()
     {
-        string result = PromptClusterResolver.Normalize("use /c/Unknown please", Names);
-        Assert.Equal("use /c/Unknown please", result);
+        string result = PromptClusterResolver.Normalize("use /cl/Unknown please", Names);
+        Assert.Equal("use /cl/Unknown please", result);
     }
 
     [Fact]
     public void Normalize_IgnoresMarkerNotAtWordBoundary()
     {
-        string result = PromptClusterResolver.Normalize("path/c/Truss", Names);
-        Assert.Equal("path/c/Truss", result);
+        string result = PromptClusterResolver.Normalize("path/cl/Truss", Names);
+        Assert.Equal("path/cl/Truss", result);
     }
 
     [Fact]

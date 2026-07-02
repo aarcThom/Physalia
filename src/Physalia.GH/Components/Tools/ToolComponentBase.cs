@@ -139,7 +139,7 @@ public abstract class ToolComponentBase : StatefulComponentBase
     /// <inheritdoc/>
     protected sealed override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ToolDefinition(), "Tool", "T", "The tool definition advertised to the model. Wire into the Reasoner's Tools input.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ToolDefinition(), "Tool", "T", "The tool definition advertised to the model. The Tools Present grounder collects this automatically once a Router dispatches to this node — no wire needed.", GH_ParamAccess.item);
         pManager.AddParameter(new Param_Signal(), "Result", "R", "Tool result signal. Wire through a Feedback component into a Feedback Collector, then into the Router's Results input.", GH_ParamAccess.item);
     }
 

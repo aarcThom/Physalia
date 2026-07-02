@@ -64,12 +64,28 @@ export interface UiState {
 	groundingTree: GroundingCategory[];
 	/** The current grounding selection (included tabs/panels), or null = include everything (default). */
 	groundingSelection: GroundingCategory[] | null;
+	/** The grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete. */
+	availableComponents: ComponentTabInfo[];
 	/** True when a cluster grounding is wired into the Recorder (greys the Clusters kind when false). */
 	clustersWired: boolean;
 	/** The clusters available in Files/CLUSTERS (name, description, I/O), for the cluster selector and the "/c/" autocomplete. */
 	availableClusters: ClusterInfo[];
 	/** The current cluster selection (included cluster names), or null = include everything (default). */
 	clusterSelection: string[] | null;
+	/** True when a Tools Present grounding is wired into the Recorder. */
+	toolsWired: boolean;
+	/** The names of the tools currently on the canvas, for the Tools page and the "/t/" autocomplete. */
+	availableTools: string[];
+	/** The current tools selection (enabled tool names), or null = include everything (default). */
+	toolsSelection: string[] | null;
+	/** True when a Canvas Inputs grounding is wired into the Recorder. */
+	canvasInputsWired: boolean;
+	/** The Rhino-referenced inputs already on the canvas, for the Canvas Inputs page. */
+	availableCanvasInputs: CanvasInputInfo[];
+	/** True when a Python Function grounding is wired into the Recorder. */
+	pythonWired: boolean;
+	/** The python functions available to the model, for the Python page. */
+	pythonFunctions: PythonFunctionInfo[];
 	/** True when a document-units grounding is wired into the Recorder (shows the Document Units pill). */
 	unitsWired: boolean;
 	/** The active Rhino document's current unit system (what the model gets unless overridden). */
@@ -86,12 +102,30 @@ export interface GroundingCategory {
 	subCategories: string[];
 }
 
+/** One tab and its component names, for the "/c/<tab>/<component>" staged autocomplete. */
+export interface ComponentTabInfo {
+	tab: string;
+	components: string[];
+}
+
 /** One available Grasshopper cluster, for the cluster selector and the "/c/" prompt autocomplete. */
 export interface ClusterInfo {
 	name: string;
 	description: string;
 	inputs: string[];
 	outputs: string[];
+}
+
+/** One Rhino-referenced input already on the canvas, for the Canvas Inputs grounding page. */
+export interface CanvasInputInfo {
+	name: string;
+	type: string;
+}
+
+/** One python function available to the model, for the Python Function grounding page. */
+export interface PythonFunctionInfo {
+	signature: string;
+	docstring: string;
 }
 
 /** Grounding selection sent back to the host. all=true clears to include-everything (null). */
@@ -105,6 +139,13 @@ export interface GroundingSelectionPayload {
 export interface ClusterSelectionPayload {
 	all: boolean;
 	/** Included cluster names. Ignored when all is true. */
+	names: string[];
+}
+
+/** Tools selection sent back to the host. all=true clears to include-every-present-tool (null). */
+export interface ToolsSelectionPayload {
+	all: boolean;
+	/** Enabled tool names. Ignored when all is true. */
 	names: string[];
 }
 

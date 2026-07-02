@@ -64,6 +64,12 @@ public static class ToolDispatchRound
         var syntheticErrors = new List<ToolResultContent>();
         var warnings = new List<string>();
 
+        // The names the model may actually call, for the error given to an unmatched call so it can
+        // correct itself (e.g. a model that invents "fetch_url" is told the real tool is "read_url").
+        string availableList = availableOutputNames.Count > 0
+            ? "The available tools are: " + string.Join(", ", availableOutputNames) + "."
+            : "No tools are available.";
+
         foreach (ToolCallContent call in calls)
         {
             string? matchedName = null;
@@ -82,10 +88,11 @@ public static class ToolDispatchRound
                     $"No output is named \"{call.Name}\" — wire an output into that tool node, or the call is answered with an error.");
 
                 // The provider requires a tool_result for EVERY tool_use; answer the undispatchable
-                // call with an error result so the round can still complete with a valid pairing.
+                // call with an error result so the round can still complete with a valid pairing. Name
+                // the available tools so the model corrects instead of re-calling the invented name.
                 syntheticErrors.Add(new ToolResultContent(
                     call.Id,
-                    $"No tool node is wired for \"{call.Name}\".",
+                    $"The tool \"{call.Name}\" does not exist. {availableList} Call one of those instead — do not invent tool names.",
                     IsError: true));
                 continue;
             }

@@ -285,20 +285,17 @@ public sealed class Harness
     }
 
     /// <summary>
-    /// Keeps hidden members glued under the proxy when it is dragged. Cheap and safe to call
-    /// from the proxy's own layout pass: it re-pushes the collapse point only when the proxy has
-    /// actually moved, expires just the member layouts, and never refreshes the canvas (which
-    /// would loop the paint). No-op when expanded.
+    /// Keeps hidden members glued under the proxy when it is dragged, and re-hides any member whose
+    /// attributes have reverted to their native type (a wire relay recreates its own
+    /// <c>GH_RelayAttributes</c> on solve, dropping the hide swap — so without this it becomes
+    /// clickable/draggable through the collapsed proxy). Cheap and safe to call from the proxy's own
+    /// layout pass and from the document's solution end: it re-pushes the collapse point only when the
+    /// proxy has actually moved, re-hides only members that need it, expires just the member layouts,
+    /// and never refreshes the canvas (which would loop the paint). No-op when expanded.
     /// </summary>
     public void RefreshCollapsePoint()
     {
         if (!_collapsed)
-        {
-            return;
-        }
-
-        PointF point = Point;
-        if (point == _lastPoint)
         {
             return;
         }
@@ -309,6 +306,8 @@ public sealed class Harness
             return;
         }
 
+        PointF point = Point;
+        bool moved = point != _lastPoint;
         _lastPoint = point;
 
         foreach (Guid g in _members)
@@ -316,12 +315,24 @@ public sealed class Harness
             IGH_DocumentObject? obj = doc.FindObject(g, false);
             if (obj is PhyBase member)
             {
-                member.HarnessCollapsePoint = point;
-                member.Attributes?.ExpireLayout();
+                if (moved)
+                {
+                    member.HarnessCollapsePoint = point;
+                    member.Attributes?.ExpireLayout();
+                }
             }
             else if (obj?.Attributes is CollapsedProxyAttributes proxy)
             {
-                proxy.UpdatePoint(point);
+                if (moved)
+                {
+                    proxy.UpdatePoint(point);
+                }
+            }
+            else if (obj is not null)
+            {
+                // A native member whose attributes reverted to their own type (most often a wire
+                // relay) — re-hide it so it stays inert and invisible behind the collapsed proxy.
+                HideMember(obj, point);
             }
         }
     }

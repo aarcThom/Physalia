@@ -241,10 +241,11 @@
 
 	/* Physalia "/" commands, coloured in the prompt box's highlight backdrop. Defined here (not in a
 	   component-scoped <style>) because it is applied to markup injected via {@html}, which Svelte's
-	   scoped-style classes do not reach. */
+	   scoped-style classes do not reach. Colour ONLY — never a metric-affecting property (weight,
+	   size, letter-spacing): the backdrop must wrap identically to the transparent textarea over it,
+	   or the caret drifts from the visible text. */
 	.slash-cmd {
 		color: var(--slash-command);
-		font-weight: 500;
 	}
 
 	/* Pressable button: raised, lifts on hover, presses in (inset) when active / open. */

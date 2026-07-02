@@ -582,7 +582,7 @@
 			onclick={syncRefMenu}
 			onpaste={onPaste}
 			onscroll={syncScroll}
-			class="relative max-h-56 min-h-16 w-full resize-none border-none bg-transparent p-2 text-base text-transparent caret-[var(--foreground)] shadow-none focus-visible:ring-0 disabled:bg-transparent disabled:opacity-100 md:text-base dark:bg-transparent"
+			class="relative max-h-56 min-h-16 w-full resize-none border-none bg-transparent p-2 text-base break-words text-transparent caret-[var(--foreground)] shadow-none focus-visible:ring-0 disabled:bg-transparent disabled:opacity-100 md:text-base dark:bg-transparent"
 		/>
 	</div>
 

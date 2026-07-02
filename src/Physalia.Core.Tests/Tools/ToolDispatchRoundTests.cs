@@ -45,6 +45,20 @@ public class ToolDispatchRoundTests
     }
 
     [Fact]
+    public void Plan_UnknownTool_ErrorNamesTheAvailableTools()
+    {
+        // A model that invents "fetch_url" should be told the real tools so it can correct.
+        ToolDispatchPlan plan = ToolDispatchRound.Plan(
+            new[] { Call("1", "fetch_url") },
+            new[] { "read_url", "web_search" });
+
+        string content = Assert.Single(plan.SyntheticErrorResults).Content;
+        Assert.Contains("fetch_url", content);
+        Assert.Contains("read_url", content);
+        Assert.Contains("web_search", content);
+    }
+
+    [Fact]
     public void Plan_MixedMatchedAndUnknown_DispatchesMatchedAndErrorsUnknown()
     {
         ToolDispatchPlan plan = ToolDispatchRound.Plan(

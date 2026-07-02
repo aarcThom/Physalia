@@ -189,19 +189,32 @@ public sealed record CanvasInput(string Name, string TypeName);
 
 /// <summary>
 /// Grounds the model with the tools currently in use in the document — the tool nodes wired into a
-/// dispatch loop (a Router), collected by the Tools Present grounder. Unlike the other grounding
-/// kinds it contributes <b>no</b> system-prompt text: tools are advertised to the model through the
-/// provider's native tool-calling API, so folding them into the prompt as prose would double-advertise
-/// them. This record instead <i>carries</i> the live tool definitions from the grounder to the Recorder,
-/// which lifts them onto the <see cref="ConvoInstruct.Instructions.Tools"/> it mints (and surfaces their
-/// names for the chat input's <c>/t/</c> reference).
+/// dispatch loop (a Router), collected by the Tools Present grounder. It carries the live tool
+/// definitions from the grounder to the Recorder, which lifts them onto the
+/// <see cref="ConvoInstruct.Instructions.Tools"/> it mints (and surfaces their names for the chat
+/// input's <c>/t/</c> reference). It also folds an explicit list of those tool names into the system
+/// prompt: the provider's native tool-calling API already advertises them, but stating the closed set
+/// in the prompt — "call only these" — stops the model from attempting a tool that is not actually on
+/// the canvas (one it recalls from earlier in the conversation, or a built-in it might otherwise reach
+/// for). The Recorder renders this from the <i>selected</i> (advertised) tools, so the list always
+/// matches what the model can actually call.
 /// </summary>
 /// <param name="Tools">The definitions of every tool in use.</param>
 public sealed record ToolsGrounding(IReadOnlyList<ToolDefinition> Tools) : Grounding
 {
     /// <inheritdoc/>
-    /// <remarks>Empty by design — tools reach the model as native tool definitions, not prompt text.</remarks>
-    public override string ToSystemPromptSection() => string.Empty;
+    public override string ToSystemPromptSection()
+    {
+        var names = ToolNames.Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.Ordinal).ToList();
+        if (names.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return "The only tools available to you are the ones listed here. Call ONLY these tools — never "
+            + "invent a tool, and never attempt to call a tool that is not in this list:\n"
+            + string.Join(", ", names);
+    }
 
     /// <summary>
     /// Gets the names of the carried tools, for the chat input's <c>/t/&lt;toolname&gt;</c> reference.

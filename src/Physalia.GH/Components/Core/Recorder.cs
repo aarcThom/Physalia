@@ -591,15 +591,36 @@ public class Recorder : StatefulComponentBase
             return systemPrompt;
         }
 
-        var mapped = _liveGroundings
-            .Select(g => g switch
+        var mapped = new List<Grounding>();
+        bool toolsAdded = false;
+        foreach (Grounding g in _liveGroundings)
+        {
+            switch (g)
             {
-                ComponentCatalogGrounding cc => new ComponentCatalogGrounding(cc.Catalog.Filtered(_selection)),
-                ClusterCatalogGrounding cl => new ClusterCatalogGrounding(cl.Catalog.Filtered(_clusterSelection)),
-                DocumentUnitsGrounding du => _unitsOverride is { } ov ? new DocumentUnitsGrounding(ov) : du,
-                _ => g,
-            })
-            .ToList();
+                case ComponentCatalogGrounding cc:
+                    mapped.Add(new ComponentCatalogGrounding(cc.Catalog.Filtered(_selection)));
+                    break;
+                case ClusterCatalogGrounding cl:
+                    mapped.Add(new ClusterCatalogGrounding(cl.Catalog.Filtered(_clusterSelection)));
+                    break;
+                case DocumentUnitsGrounding du:
+                    mapped.Add(_unitsOverride is { } ov ? new DocumentUnitsGrounding(ov) : du);
+                    break;
+                case ToolsGrounding:
+                    // Collapse every wired tools grounding into ONE section listing the SELECTED tools
+                    // (exactly what is advertised to the model), so the prompt constrains it to that set.
+                    if (!toolsAdded)
+                    {
+                        mapped.Add(new ToolsGrounding(SelectedTools()));
+                        toolsAdded = true;
+                    }
+
+                    break;
+                default:
+                    mapped.Add(g);
+                    break;
+            }
+        }
 
         return GroundingComposer.Append(systemPrompt, mapped);
     }

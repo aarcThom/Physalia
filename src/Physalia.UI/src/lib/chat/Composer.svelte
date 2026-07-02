@@ -155,15 +155,19 @@
 		}
 	}
 
-	// "/c/<clustername>" and "/t/<toolname>" reference autocomplete. The menu opens while the user is
-	// typing a "/c/" or "/t/" token (at a word boundary) and offers the cluster / tool names the model
-	// may use; only these can be inserted, so a token always names a real, available reference. The
-	// server normalizes the token on submit.
+	// Slash-command autocomplete. Two levels:
+	//  - KIND: typing "/" (at a word boundary) offers the available command kinds — "/t Tools",
+	//    "/c Clusters" — filtered by what you have typed ("/t" narrows to Tools). Accepting inserts
+	//    the "/x/" marker and immediately opens the NAME menu.
+	//  - NAME: typing "/c/" or "/t/" offers the cluster / tool names the model may use; only these can
+	//    be inserted, so a token always names a real, available reference. The host normalizes the
+	//    token on submit.
 	let refMenuOpen = $state(false);
-	let refMatches = $state<string[]>([]);
+	let refMode = $state<'kind' | 'name'>('name');
+	let refMatches = $state<string[]>([]); // kind keys ('c' | 't') in kind mode; names in name mode
 	let refActiveIndex = $state(0);
-	let refMarker = $state<'c' | 't'>('c'); // which reference kind the open menu is completing
-	// Text range [start, end) of the "/<marker>/<query>" being typed, replaced when a name is chosen.
+	let refMarker = $state<'c' | 't'>('c'); // which reference kind the NAME menu is completing
+	// Text range [start, end) of the slash token being typed, replaced when an item is chosen.
 	let refTokenStart = 0;
 	let refTokenEnd = 0;
 
@@ -171,9 +175,21 @@
 		return marker === 'c' ? clusterNames : toolNames;
 	}
 
-	// Recomputes the autocomplete menu from the text before the caret. A "/c/" or "/t/" at the start or
-	// after whitespace, followed by any non-newline text, is the active query; matches are cluster / tool
-	// names that start with it (case-insensitive). No match (or no candidates) closes the menu.
+	function kindLabel(key: string): string {
+		return key === 't' ? 'Tools' : key === 'c' ? 'Clusters' : key;
+	}
+
+	// The command kinds that currently have candidates, in menu order.
+	function availableKinds(): string[] {
+		let kinds: string[] = [];
+		if (toolNames.length > 0) kinds.push('t');
+		if (clusterNames.length > 0) kinds.push('c');
+		return kinds;
+	}
+
+	// Recomputes the autocomplete menu from the text before the caret. A "/c/" or "/t/" (with the
+	// second slash) drives the NAME menu; a bare "/" or "/<letters>" at a word boundary drives the KIND
+	// menu. No match (or no candidates) closes the menu.
 	function syncRefMenu() {
 		let el = textareaRef;
 		if (!el) {
@@ -183,35 +199,66 @@
 
 		let caret = el.selectionStart ?? text.length;
 		let before = text.slice(0, caret);
-		let m = before.match(/(?:^|\s)\/([ct])\/([^\n]*)$/);
-		if (!m) {
-			refMenuOpen = false;
+
+		// NAME menu: "/<marker>/<query>" — takes precedence over the kind menu (has the second slash).
+		let name = before.match(/(?:^|\s)\/([ct])\/([^\n]*)$/);
+		if (name) {
+			let marker = name[1] as 'c' | 't';
+			let query = name[2];
+			let matches = namesFor(marker).filter((n) => n.toLowerCase().startsWith(query.toLowerCase()));
+			if (matches.length === 0) {
+				refMenuOpen = false;
+				return;
+			}
+
+			refMode = 'name';
+			refMarker = marker;
+			refMatches = matches;
+			refActiveIndex = 0;
+			refTokenStart = caret - query.length - 3; // back over "/<marker>/" + the query
+			refTokenEnd = caret;
+			refMenuOpen = true;
 			return;
 		}
 
-		let marker = m[1] as 'c' | 't';
-		let query = m[2];
-		let matches = namesFor(marker).filter((n) => n.toLowerCase().startsWith(query.toLowerCase()));
-		if (matches.length === 0) {
-			refMenuOpen = false;
+		// KIND menu: "/" or "/<letters>" (no second slash) at a word boundary.
+		let kind = before.match(/(?:^|\s)\/([a-zA-Z]*)$/);
+		if (kind) {
+			let typed = kind[1].toLowerCase();
+			let matches = availableKinds().filter((k) => k.startsWith(typed));
+			if (matches.length === 0) {
+				refMenuOpen = false;
+				return;
+			}
+
+			refMode = 'kind';
+			refMatches = matches;
+			refActiveIndex = 0;
+			refTokenStart = caret - typed.length - 1; // back over "/" + the typed letters
+			refTokenEnd = caret;
+			refMenuOpen = true;
 			return;
 		}
 
-		refMarker = marker;
-		refMatches = matches;
-		refActiveIndex = 0;
-		refTokenStart = caret - query.length - 3; // back over "/<marker>/" + the query
-		refTokenEnd = caret;
-		refMenuOpen = true;
+		refMenuOpen = false;
 	}
 
-	// Replaces the in-progress "/<marker>/<query>" with "/<marker>/<name>" (kept as a token so the host
-	// resolves it), adds a trailing space, and restores the caret after it.
-	async function acceptRef(name: string) {
-		let token = `/${refMarker}/${name}`;
-		let after = text.slice(refTokenEnd);
-		let trail = after.length === 0 || !/^\s/.test(after) ? ' ' : '';
-		text = text.slice(0, refTokenStart) + token + trail + after;
+	// Accepts the highlighted item. In KIND mode it inserts the "/x/" marker and re-opens the NAME menu;
+	// in NAME mode it inserts "/<marker>/<name>" (kept as a token so the host resolves it) plus a
+	// trailing space. Restores the caret after the inserted text.
+	async function acceptRef(item: string) {
+		let token: string;
+		let trail: string;
+		if (refMode === 'kind') {
+			token = `/${item}/`;
+			trail = '';
+		} else {
+			token = `/${refMarker}/${item}`;
+			let after = text.slice(refTokenEnd);
+			trail = after.length === 0 || !/^\s/.test(after) ? ' ' : '';
+		}
+
+		text = text.slice(0, refTokenStart) + token + trail + text.slice(refTokenEnd);
 		let caret = refTokenStart + token.length + trail.length;
 		refMenuOpen = false;
 
@@ -220,6 +267,11 @@
 		if (el) {
 			el.focus();
 			el.selectionStart = el.selectionEnd = caret;
+		}
+
+		// After choosing a kind, immediately offer its names.
+		if (refMode === 'kind') {
+			syncRefMenu();
 		}
 	}
 
@@ -515,7 +567,8 @@
 		<div
 			class="neu-raised absolute bottom-full left-0 z-10 mb-1.5 max-h-56 w-full overflow-y-auto rounded-lg p-1"
 		>
-			{#each refMatches as name, i (name)}
+			{#each refMatches as item, i (item)}
+				{@const key = refMode === 'kind' ? item : refMarker}
 				<button
 					type="button"
 					class={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm ${
@@ -523,16 +576,16 @@
 					}`}
 					onmousedown={(e) => {
 						e.preventDefault();
-						void acceptRef(name);
+						void acceptRef(item);
 					}}
 				>
-					{#if refMarker === 't'}
+					{#if key === 't'}
 						<WrenchIcon class="text-muted-foreground size-3.5 shrink-0" />
 					{:else}
 						<BoxIcon class="text-muted-foreground size-3.5 shrink-0" />
 					{/if}
-					<span class="flex-1 truncate">{name}</span>
-					<span class="text-muted-foreground/70 font-mono text-xs">/{refMarker}/</span>
+					<span class="flex-1 truncate">{refMode === 'kind' ? kindLabel(item) : item}</span>
+					<span class="text-muted-foreground/70 font-mono text-xs">/{key}/</span>
 				</button>
 			{/each}
 		</div>
@@ -569,7 +622,7 @@
 		<div
 			bind:this={highlightRef}
 			aria-hidden="true"
-			class="pointer-events-none absolute inset-0 max-h-56 min-h-16 overflow-hidden whitespace-pre-wrap break-words p-2 text-base text-foreground md:text-base"
+			class="pointer-events-none absolute inset-0 max-h-56 min-h-16 overflow-hidden whitespace-pre-wrap break-words p-2 font-mono text-base text-foreground md:text-base"
 		>{@html highlighted}</div>
 
 		<Textarea
@@ -577,12 +630,13 @@
 			bind:value={text}
 			{placeholder}
 			disabled={inert}
+			spellcheck={false}
 			onkeydown={onKeyDown}
 			onkeyup={onKeyUp}
 			onclick={syncRefMenu}
 			onpaste={onPaste}
 			onscroll={syncScroll}
-			class="relative max-h-56 min-h-16 w-full resize-none border-none bg-transparent p-2 text-base break-words text-transparent caret-[var(--foreground)] shadow-none focus-visible:ring-0 disabled:bg-transparent disabled:opacity-100 md:text-base dark:bg-transparent"
+			class="relative max-h-56 min-h-16 w-full resize-none border-none bg-transparent p-2 font-mono text-base break-words text-transparent caret-[var(--foreground)] shadow-none focus-visible:ring-0 disabled:bg-transparent disabled:opacity-100 md:text-base dark:bg-transparent"
 		/>
 	</div>
 

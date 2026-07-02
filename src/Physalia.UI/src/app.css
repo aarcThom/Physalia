@@ -80,9 +80,10 @@
 	/* The one accent: the primary call-to-action (Send) reads as a raised blue chip. */
 	--neu-accent: oklch(0.62 0.13 250);
 
-	/* Physalia "/" commands (e.g. /c/<cluster>, /t/<tool>, /<image alias>) are coloured purple in the
-	   prompt box so they read as references rather than literal text. */
+	/* Physalia "/" commands (e.g. /c/<cluster>, /t/<tool>, /<image alias>) are coloured purple and sit
+	   on a soft blue chip in the prompt box so they read as references rather than literal text. */
 	--slash-command: oklch(0.5 0.24 300);
+	--slash-command-bg: oklch(0.9 0.05 255);
 
 	/* Extents kept under the chat's p-4 (16px) gutter so full-width raised blocks (JSON / tool
 	   cards) fade softly instead of being hard-clipped by the scroll container's overflow. */
@@ -239,13 +240,19 @@
 		box-shadow: var(--neu-inset);
 	}
 
-	/* Physalia "/" commands, coloured in the prompt box's highlight backdrop. Defined here (not in a
-	   component-scoped <style>) because it is applied to markup injected via {@html}, which Svelte's
-	   scoped-style classes do not reach. Colour ONLY — never a metric-affecting property (weight,
-	   size, letter-spacing): the backdrop must wrap identically to the transparent textarea over it,
-	   or the caret drifts from the visible text. */
+	/* Physalia "/" commands, coloured on a soft blue chip in the prompt box's highlight backdrop.
+	   Defined here (not in a component-scoped <style>) because it is applied to markup injected via
+	   {@html}, which Svelte's scoped-style classes do not reach. NEVER give this a metric-affecting
+	   property (font-weight, font-size, letter-spacing, padding): the backdrop must wrap identically to
+	   the transparent textarea over it, or the caret drifts from the visible text. The chip is drawn
+	   with background + border-radius + a box-shadow spread (which extends the fill a couple of px
+	   around the glyphs WITHOUT reflowing them) — never padding. Monospace comes from the shared
+	   `font-mono` on both the backdrop and the textarea, so metrics stay in lock-step. */
 	.slash-cmd {
 		color: var(--slash-command);
+		background-color: var(--slash-command-bg);
+		border-radius: 4px;
+		box-shadow: 0 0 0 2px var(--slash-command-bg);
 	}
 
 	/* Pressable button: raised, lifts on hover, presses in (inset) when active / open. */

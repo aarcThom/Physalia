@@ -20,6 +20,7 @@
 	import BoxIcon from '@lucide/svelte/icons/box';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
 	import ShapesIcon from '@lucide/svelte/icons/shapes';
+	import BrainIcon from '@lucide/svelte/icons/brain';
 	import { stripDataUrl, type ComponentTabInfo, type SubmitMessage } from '$lib/bridge';
 
 	interface Props {
@@ -40,6 +41,8 @@
 		toolNames?: string[];
 		/** Grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete. */
 		componentTabs?: ComponentTabInfo[];
+		/** Memory scopes ("global", "local") for the "/m/<scope>" reference — empty when memory is off. */
+		memoryScopes?: string[];
 		onsend: (message: SubmitMessage) => void;
 		/** Called with the pasted API key when in apiKeyProvider mode. */
 		onsavekey?: (providerId: string, key: string) => void;
@@ -58,6 +61,7 @@
 		clusterNames = [],
 		toolNames = [],
 		componentTabs = [],
+		memoryScopes = [],
 		onsend,
 		onsavekey,
 		ongrounding,
@@ -207,6 +211,10 @@
 			const m = matchKnownName(value.slice(i + 3), toolNames);
 			return m !== null ? i + 3 + m.length : runEnd(value, i + 3);
 		}
+		if (three === '/m/') {
+			const m = matchKnownName(value.slice(i + 3), memoryScopes);
+			return m !== null ? i + 3 + m.length : runEnd(value, i + 3);
+		}
 		return runEnd(value, i + 1);
 	}
 
@@ -352,7 +360,7 @@
 	//  - COMP-TAB / COMP-NAME: "/c/" offers tabs, then "/c/<tab>/" offers that tab's components.
 	//  - CLUSTER / TOOL: "/cl/" and "/t/" offer cluster / tool names.
 	// Accepting a kind or a tab inserts the next marker and immediately opens the following stage.
-	type RefStage = 'kind' | 'comp-tab' | 'comp-name' | 'cluster' | 'tool';
+	type RefStage = 'kind' | 'comp-tab' | 'comp-name' | 'cluster' | 'tool' | 'memory';
 
 	let refMenuOpen = $state(false);
 	let refStage = $state<RefStage>('kind');
@@ -378,11 +386,20 @@
 		if (componentTabs.length > 0) kinds.push('c');
 		if (clusterNames.length > 0) kinds.push('cl');
 		if (toolNames.length > 0) kinds.push('t');
+		if (memoryScopes.length > 0) kinds.push('m');
 		return kinds;
 	}
 
 	function kindLabel(key: string): string {
-		return key === 'c' ? 'Components' : key === 'cl' ? 'Clusters' : key === 't' ? 'Tools' : key;
+		return key === 'c'
+			? 'Components'
+			: key === 'cl'
+				? 'Clusters'
+				: key === 't'
+					? 'Tools'
+					: key === 'm'
+						? 'Memory'
+						: key;
 	}
 
 	function startsWith(candidates: string[], q: string): string[] {
@@ -434,6 +451,13 @@
 		if ((m = before.match(/(?:^|\s)\/t\/([^\n]*)$/))) {
 			let matches = startsWith(toolNames, m[1]);
 			if (matches.length) return openMenu('tool', matches, caret - m[1].length, caret);
+			refMenuOpen = false;
+			return;
+		}
+		// /m/<scope>
+		if ((m = before.match(/(?:^|\s)\/m\/([^\n]*)$/))) {
+			let matches = startsWith(memoryScopes, m[1]);
+			if (matches.length) return openMenu('memory', matches, caret - m[1].length, caret);
 			refMenuOpen = false;
 			return;
 		}
@@ -735,6 +759,8 @@
 							<WrenchIcon class="text-muted-foreground size-3.5 shrink-0" />
 						{:else if item === 'cl'}
 							<BoxIcon class="text-muted-foreground size-3.5 shrink-0" />
+						{:else if item === 'm'}
+							<BrainIcon class="text-muted-foreground size-3.5 shrink-0" />
 						{:else}
 							<ShapesIcon class="text-muted-foreground size-3.5 shrink-0" />
 						{/if}
@@ -750,6 +776,10 @@
 						<BoxIcon class="text-muted-foreground size-3.5 shrink-0" />
 						<span class="flex-1 truncate">{item}</span>
 						<span class="text-muted-foreground/70 font-mono text-xs">/cl/</span>
+					{:else if refStage === 'memory'}
+						<BrainIcon class="text-muted-foreground size-3.5 shrink-0" />
+						<span class="flex-1 truncate">{item}</span>
+						<span class="text-muted-foreground/70 font-mono text-xs">/m/</span>
 					{:else}
 						<WrenchIcon class="text-muted-foreground size-3.5 shrink-0" />
 						<span class="flex-1 truncate">{item}</span>

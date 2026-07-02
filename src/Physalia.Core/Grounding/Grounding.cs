@@ -188,6 +188,35 @@ public sealed record CanvasInputGrounding(IReadOnlyList<CanvasInput> Inputs) : G
 public sealed record CanvasInput(string Name, string TypeName);
 
 /// <summary>
+/// Grounds the model with the fact that it has a persistent memory available through the
+/// <c>memory</c> tool, and instructs it to use that memory the way a Claude memory tool would — but as
+/// an explicit prompt section so the nudge reaches OpenAI and Gemini too, which (unlike Claude) never
+/// have memory instructions auto-injected. When this grounding is not wired, the model is told nothing
+/// about memory, so the feature is entirely opt-in: no memory grounding, no memory behaviour.
+///
+/// <para>The memory is split into two scopes the model addresses by path: <c>/memories/global</c> is
+/// shared across every Grasshopper document, and <c>/memories/local</c> is specific to the document
+/// being worked on. The user can steer a write with the chat input's <c>/m/global</c> and
+/// <c>/m/local</c> references, but the model should also decide for itself where a fact belongs.</para>
+/// </summary>
+public sealed record MemoryGrounding : Grounding
+{
+    /// <inheritdoc/>
+    public override string ToSystemPromptSection() =>
+        "You have a persistent memory that survives across conversations, provided through the "
+        + "\"memory\" tool. Treat it as your notebook for this project.\n"
+        + "- At the START of a task, view your memory (call memory with command \"view\" and path "
+        + "\"/memories\") and read any file that looks relevant before doing other work.\n"
+        + "- Record durable facts as you learn them: user preferences, project conventions, decisions, "
+        + "and anything you would want to know next time. Do NOT record transient chatter.\n"
+        + "- Memory has two scopes. Files under \"/memories/global\" are shared across every "
+        + "Grasshopper document; files under \"/memories/local\" belong only to the current document. "
+        + "Put document-specific facts in local memory and broadly useful facts in global memory.\n"
+        + "- Store memories as Markdown (.md) files with clear names, and keep them organised — edit or "
+        + "delete stale entries instead of piling on duplicates.";
+}
+
+/// <summary>
 /// Grounds the model with the tools currently in use in the document — the tool nodes wired into a
 /// dispatch loop (a Router), collected by the Tools Present grounder. It carries the live tool
 /// definitions from the grounder to the Recorder, which lifts them onto the

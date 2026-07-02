@@ -93,9 +93,20 @@
 	let unitsOverride = $state<string | null>(null);
 	let unitOptions = $state<string[]>([]);
 
+	// Memory grounding state: whether a memory grounding is wired (enables the Memory page and the
+	// "/m/global" / "/m/local" chat references) and the scopes those references offer.
+	let memoryWired = $state(false);
+	let memoryScopes = $state<string[]>([]);
+
 	// The grounding button opens the panel whenever any grounding kind is wired.
 	let groundingAvailable = $derived(
-		groundingWired || clustersWired || toolsWired || canvasInputsWired || pythonWired || unitsWired
+		groundingWired ||
+			clustersWired ||
+			toolsWired ||
+			canvasInputsWired ||
+			pythonWired ||
+			unitsWired ||
+			memoryWired
 	);
 
 	// The cluster names currently exposed to the model (selection applied), for the "/c/" autocomplete.
@@ -172,6 +183,8 @@
 				documentUnits = next.documentUnits ?? '';
 				unitsOverride = next.unitsOverride ?? null;
 				unitOptions = next.unitOptions ?? [];
+				memoryWired = next.memoryWired ?? false;
+				memoryScopes = next.memoryScopes ?? [];
 			},
 			setSetupResult: (result) => {
 				setupResult = result;
@@ -452,6 +465,7 @@
 					{documentUnits}
 					{unitsOverride}
 					{unitOptions}
+					{memoryWired}
 					onapply={setGrounding}
 					onapplyclusters={setClusters}
 					onapplytools={setTools}
@@ -523,6 +537,7 @@
 			clusterNames={includedClusterNames}
 			toolNames={includedToolNames}
 			componentTabs={availableComponents}
+			{memoryScopes}
 			onsend={send}
 			onsavekey={saveKey}
 			ongrounding={() => openPanel('grounding')}

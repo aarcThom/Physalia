@@ -35,11 +35,12 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class RhinoGeometryTool : ToolComponentBase
 {
-    // Placement layout. Referencing params land just left of the Component Transmitter's arrow tip —
-    // the point where the transmitter drops the generated graph — so they read as the graph's leftmost
-    // input sources and feed it left-to-right without the graph overlapping them. Multiple params stack
-    // downward. When no transmitter is present they fall back to sitting beside this tool node.
-    private const float TipLeftGap = 150f;
+    // Placement layout. A referencing param is placed at the Component Transmitter's arrow tip (its drop
+    // target, where the generated graph lands) with its LEFT-MIDDLE just right of the arrow head — so
+    // the arrow points straight into it and it reads as the graph's leading input source, feeding
+    // downstream to the right. Multiple params stack downward. When no transmitter is present they fall
+    // back to sitting beside this tool node.
+    private const float TipRightGap = 20f;
     private const float PlacementGapX = 220f;
     private const float PlacementGapY = 70f;
 
@@ -177,7 +178,7 @@ public class RhinoGeometryTool : ToolComponentBase
 
         PruneMissing(ghDoc);
 
-        PointF origin = PlacementOrigin(ghDoc);
+        PointF anchor = PlacementAnchor(ghDoc);
         int row = _placed.Count;
         foreach (Placement placement in batch)
         {
@@ -189,8 +190,9 @@ public class RhinoGeometryTool : ToolComponentBase
 
             param.NickName = placement.Name;
             param.CreateAttributes();
-            param.Attributes.Pivot = new PointF(origin.X, origin.Y + (row * PlacementGapY));
+            param.Attributes.Pivot = anchor; // refined to a left-middle alignment once the bounds are known
             ghDoc.AddObject(param, false);
+            AlignLeftMiddle(param, new PointF(anchor.X + TipRightGap, anchor.Y + (row * PlacementGapY)));
 
             // Register the placed input so it can be referenced (not recreated) by a later graph.
             _placed.Add(new PlacedInput(param.InstanceGuid, placement.Name, placement.IsPoint ? "Point" : "Curve"));
@@ -201,20 +203,34 @@ public class RhinoGeometryTool : ToolComponentBase
         ghDoc.NewSolution(false);
     }
 
-    // The canvas point the first placed param lands on: just left of the Component Transmitter's arrow
-    // tip (its drop target, or the default spot right of the transmitter when no arrow has been dropped),
-    // so the input sits as a leftmost source feeding the graph the transmitter drops at the tip. Falls
-    // back to sitting beside this tool node when the document has no Component Transmitter to anchor to.
-    private PointF PlacementOrigin(GH_Document doc)
+    // The anchor the first placed param's left-middle aligns just right of: the Component Transmitter's
+    // arrow tip (its drop target), or — with no arrow dropped — just right of the transmitter, vertically
+    // centred. Falls back to just right of this tool node when the document has no Component Transmitter.
+    private PointF PlacementAnchor(GH_Document doc)
     {
         ComponentTransmitter? transmitter = doc.Objects.OfType<ComponentTransmitter>().FirstOrDefault();
         if (transmitter?.Attributes is { } attr)
         {
-            PointF tip = transmitter.PlacementTarget ?? new PointF(attr.Bounds.Right + 50f, attr.Bounds.Y);
-            return new PointF(tip.X - TipLeftGap, tip.Y);
+            return transmitter.PlacementTarget
+                ?? new PointF(attr.Bounds.Right + 50f, attr.Bounds.Y + (attr.Bounds.Height / 2f));
         }
 
-        return new PointF(Attributes.Pivot.X + PlacementGapX, Attributes.Pivot.Y);
+        RectangleF bounds = Attributes.Bounds;
+        return new PointF(bounds.Right + PlacementGapX, bounds.Y + (bounds.Height / 2f));
+    }
+
+    // Positions a placed param so its left edge sits at leftMiddle.X and its vertical centre at
+    // leftMiddle.Y. A param's pivot does not map to a fixed corner, so we lay it out to read the actual
+    // bounds, then shift the pivot by the delta to land the left-middle exactly on the target.
+    private static void AlignLeftMiddle(IGH_Param param, PointF leftMiddle)
+    {
+        param.Attributes.ExpireLayout();
+        param.Attributes.PerformLayout();
+        RectangleF b = param.Attributes.Bounds;
+        float dx = leftMiddle.X - b.Left;
+        float dy = leftMiddle.Y - (b.Y + (b.Height / 2f));
+        param.Attributes.Pivot = new PointF(param.Attributes.Pivot.X + dx, param.Attributes.Pivot.Y + dy);
+        param.Attributes.ExpireLayout();
     }
 
     /// <inheritdoc/>

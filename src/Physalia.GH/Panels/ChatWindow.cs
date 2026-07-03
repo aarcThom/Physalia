@@ -116,6 +116,7 @@ public class ChatWindow : Form
     private bool? _lastCollapsed;
     private int? _lastHarnessCount;
     private string? _lastGroundingSignature;
+    private int? _lastTokenCount;
 
     // Set on a Chatbox switch: forces the next Tick to push history/stream/state unconditionally,
     // even when the newly viewed component's values equal the reset caches (e.g. a fresh component
@@ -339,6 +340,9 @@ public class ChatWindow : Form
             case "setgrounding":
                 HandleSetGrounding(uri);
                 break;
+            case "setsignatures":
+                HandleSetSignatures(uri);
+                break;
             case "setclusters":
                 HandleSetClusters(uri);
                 break;
@@ -400,6 +404,19 @@ public class ChatWindow : Form
         }
 
         recorder.SetGroundingSelection(selection);
+    }
+
+    // Applies the expose-signatures toggle from the window's grounding panel to the wired Recorder.
+    // ?on=1 folds typed component signatures into the prompt; anything else reverts to names only.
+    private void HandleSetSignatures(Uri uri)
+    {
+        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
+        if (recorder is null)
+        {
+            return;
+        }
+
+        recorder.SetExposeSignatures(GetQueryValue(uri.Query, "on") == "1");
     }
 
     // Applies a cluster selection from the window to the wired Recorder. The payload is JSON
@@ -545,9 +562,10 @@ public class ChatWindow : Form
         return (selection is null ? names : names.Where(selection.Includes)).ToList();
     }
 
-    // Rewrites "/c/<tab>/<component>", "/cl/<clustername>" and "/t/<toolname>" references in submitted
-    // prompt text into clear natural-language mentions the model understands. The markers are distinct,
-    // so the three resolvers compose in any order without interfering.
+    // Rewrites "/c/<tab>/<component>", "/cl/<clustername>" and "/t/<toolname>" references (including the
+    // memory tool's "/t/memory/global" / "/t/memory/local" scope form) in submitted prompt text into
+    // clear natural-language mentions the model understands. The markers are distinct, so the three
+    // resolvers compose in any order without interfering.
     private string NormalizeRefs(string text) =>
         PromptToolResolver.Normalize(
             PromptClusterResolver.Normalize(
@@ -890,6 +908,15 @@ public class ChatWindow : Form
             Exec($"window.physalia&&window.physalia.setStream({JsonSerializer.Serialize(stream)});");
         }
 
+        // Token counter: the estimate from a Token Estimator wired downstream of this chat's
+        // Recorder, or null (counter hidden) when none is wired or it has no count yet.
+        int? tokenCount = recorder is null ? null : PromptPipelineView.GetDownstreamTokenCount(recorder);
+        if (_forcePush || tokenCount != _lastTokenCount)
+        {
+            _lastTokenCount = tokenCount;
+            Exec($"window.physalia&&window.physalia.setTokenCount({JsonSerializer.Serialize(tokenCount)});");
+        }
+
         // Serialised form of the id list, used both as the change signature and the wire payload.
         string configuredJson = JsonSerializer.Serialize(configuredProviders, WriteOpts);
 
@@ -902,6 +929,7 @@ public class ChatWindow : Form
         // (greys the icon when not), the available tab → panels tree, and the current selection
         // (null = include everything). The selection's flat leaves are regrouped to the tree's shape.
         bool groundingWired = recorder?.HasComponentGrounding == true;
+        bool exposeSignatures = recorder?.ExposeComponentSignatures == true;
         var groundingTree = (recorder?.AvailableGroundingTree ?? Array.Empty<CatalogCategory>())
             .Select(c => new { category = c.Category, subCategories = c.SubCategories })
             .ToList();
@@ -1000,7 +1028,7 @@ public class ChatWindow : Form
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -1017,7 +1045,7 @@ public class ChatWindow : Form
             _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 

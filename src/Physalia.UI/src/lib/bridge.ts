@@ -64,6 +64,8 @@ export interface UiState {
 	groundingTree: GroundingCategory[];
 	/** The current grounding selection (included tabs/panels), or null = include everything (default). */
 	groundingSelection: GroundingCategory[] | null;
+	/** True when the grounding panel's "expose component signatures" toggle is on (typed signatures folded into the prompt instead of bare names). */
+	exposeSignatures: boolean;
 	/** The grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete. */
 	availableComponents: ComponentTabInfo[];
 	/** True when a cluster grounding is wired into the Recorder (greys the Clusters kind when false). */
@@ -192,6 +194,9 @@ export interface PhysaliaHost {
 	setStream(text: string | null): void;
 	setState(state: UiState): void;
 	setSetupResult(result: SetupResult | null): void;
+	/** Estimated token count from a Token Estimator wired downstream of the viewed Recorder,
+	 *  or null to hide the counter (no estimator wired, or no count produced yet). */
+	setTokenCount(count: number | null): void;
 	/** Bundled presets (from Files/PRESETS) for the Add-preset page. */
 	setPresets(presets: UiPreset[]): void;
 	/** Every Chatbox on the canvas, for the bottom switcher row. */

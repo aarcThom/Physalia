@@ -7,6 +7,7 @@
   "additionalProperties": false,
 
   "rules": [
+    "The grounding's installed-component list, when present, is the sole source of truth for which components may be placed: use only names it contains — plug-in components (Pufferfish, LunchBox, etc.) are allowed when listed, and unlisted components are not allowed however common. Without such a list, keep to native Grasshopper components. Never use scripting components (Python, C#, GhPython, VB).",
     "Every input parameter that receives a wire needs its own separate entry in the connections array. A component with three wired inputs (e.g. Construct Point X, Y, Z) requires three separate connection entries pointing to it.",
     "paramName values are case-sensitive and must exactly match the canonical names in componentCatalog. For components not listed, use the full GH parameter Name, not the short NickName.",
     "Do not leave required inputs unwired. An unwired Construct Point always outputs world origin (0,0,0); an unwired radius defaults to 0. Trace every component's inputs and confirm each has a connection.",
@@ -16,7 +17,7 @@
   ],
 
   "componentCatalog": {
-    "description": "Canonical paramName values for common Grasshopper components. Use these exactly in connections.",
+    "description": "Canonical paramName values for common Grasshopper components. Use these exactly in connections. This is a convenience listing, not the set of allowed components — that set comes from the grounding's installed-component list.",
     "components": [
       { "name": "Number Slider",   "inputs": [],                              "outputs": ["Number"]   },
       { "name": "Boolean Toggle",  "inputs": [],                              "outputs": ["Boolean"]  },

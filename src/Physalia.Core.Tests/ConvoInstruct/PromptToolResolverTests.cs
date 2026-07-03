@@ -11,6 +11,42 @@ public class PromptToolResolverTests
 {
     private static readonly string[] Names = { "web_search", "create", "create_rhino_geometry" };
 
+    private static readonly string[] WithMemory = { "web_search", "memory" };
+
+    [Fact]
+    public void Normalize_MemoryGlobalScope()
+    {
+        string result = PromptToolResolver.Normalize("note /t/memory/global please", WithMemory);
+        Assert.Contains("\"memory\" tool", result);
+        Assert.Contains("global memory", result);
+        Assert.Contains("/memories/global", result);
+        Assert.DoesNotContain("/t/memory", result);
+    }
+
+    [Fact]
+    public void Normalize_MemoryLocalScope()
+    {
+        string result = PromptToolResolver.Normalize("use /t/memory/local now", WithMemory);
+        Assert.Contains("local memory", result);
+        Assert.Contains("/memories/local", result);
+        Assert.DoesNotContain("/t/memory", result);
+    }
+
+    [Fact]
+    public void Normalize_MemoryWithoutScope_IsPlainToolMention()
+    {
+        string result = PromptToolResolver.Normalize("use /t/memory here", WithMemory);
+        Assert.Equal("use the \"memory\" tool here", result);
+    }
+
+    [Fact]
+    public void Normalize_ScopeSuffixOnlyAppliesToMemory()
+    {
+        // A "/global" after a non-memory tool is not consumed as a scope.
+        string result = PromptToolResolver.Normalize("call /t/web_search/global", WithMemory);
+        Assert.Equal("call the \"web_search\" tool/global", result);
+    }
+
     [Fact]
     public void Normalize_ReplacesTokenWithCanonicalPhrase()
     {

@@ -7,7 +7,9 @@ using System.Linq;
 using System.Text;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
+using Physalia.Core.Grounding;
 using Physalia.Core.Signals;
+using Physalia.GH.Generation;
 
 namespace Physalia.GH.Components;
 
@@ -83,6 +85,8 @@ public class Observer : RoutingComponentBase<string>
         var errors = new List<string>();
         var warnings = new List<string>();
         var dead = new List<string>();
+        var signatures = new List<string>();
+        var signatureNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         GH_Document? doc = OnPingDocument();
         if (doc is not null)
@@ -100,9 +104,27 @@ public class Observer : RoutingComponentBase<string>
                     errors.Add($"{ao.Name}: {message}");
                 }
 
-                foreach (string message in ao.RuntimeMessages(GH_RuntimeMessageLevel.Warning))
+                var objWarnings = ao.RuntimeMessages(GH_RuntimeMessageLevel.Warning);
+                foreach (string message in objWarnings)
                 {
                     warnings.Add($"{ao.Name}: {message}");
+                }
+
+                // GH runtime messages name the component but not the offending input (e.g. "Data
+                // conversion failed from Number to Vector"), so pair every problem-reporting
+                // component with its live input signature — the model then sees which slot expects
+                // which type. Dead components are excluded: their problem is missing data, not types.
+                if ((objErrors.Count > 0 || objWarnings.Count > 0) &&
+                    obj is IGH_Component problemComp &&
+                    signatureNames.Add(problemComp.Name))
+                {
+                    string inputs = string.Join(", ", ComponentSignatureProvider
+                        .ReadPorts(problemComp.Params.Input)
+                        .Select(p => SignatureFormat.Port(p.Name, p.TypeHint)));
+                    if (!string.IsNullOrWhiteSpace(inputs))
+                    {
+                        signatures.Add($"{problemComp.Name} inputs: {inputs}");
+                    }
                 }
 
                 // A component that produced no data on any output is "dead". Skip one that already
@@ -120,7 +142,7 @@ public class Observer : RoutingComponentBase<string>
         int total = errors.Count + warnings.Count + dead.Count;
         return total == 0
             ? RoutingResult.Ok(data)
-            : RoutingResult.Fail(BuildFeedback(errors, warnings, dead), $"{total} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
+            : RoutingResult.Fail(BuildFeedback(errors, warnings, dead, signatures), $"{total} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
     }
 
     /// <summary>
@@ -168,13 +190,14 @@ public class Observer : RoutingComponentBase<string>
         }
     }
 
-    private static string BuildFeedback(IReadOnlyList<string> errors, IReadOnlyList<string> warnings, IReadOnlyList<string> dead)
+    private static string BuildFeedback(IReadOnlyList<string> errors, IReadOnlyList<string> warnings, IReadOnlyList<string> dead, IReadOnlyList<string> signatures)
     {
         var sb = new StringBuilder();
         sb.AppendLine("The placed graph reported problems. Please correct the definition and resubmit.");
 
         AppendSection(sb, "Errors:", errors);
         AppendSection(sb, "Warnings:", warnings);
+        AppendSection(sb, "Input signatures of the components that reported problems (match your data types to these):", signatures);
         AppendSection(sb, "Components that produced no output (check their inputs and upstream wiring):", dead);
 
         return sb.ToString().TrimEnd();

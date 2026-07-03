@@ -8,7 +8,9 @@ using System.Text.Json;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
+using Physalia.Core.Grounding;
 using Physalia.Core.Grounding.Components;
+using Physalia.GH.Generation;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -29,7 +31,7 @@ public class ComponentSearch : ToolComponentBase
 
     private static readonly ToolDefinition ToolDef = new(
         "search_components",
-        "Search the user's installed Grasshopper components by keyword. Call this when you need the exact name of a component to place (for example \"loft\", \"construct point\", or \"voronoi\"). Returns matching component names with their categories.",
+        "Search the user's installed Grasshopper components by keyword. Call this when you need the exact name of a component to place (for example \"loft\", \"construct point\", or \"voronoi\"). Returns matching component names with their categories and full input/output signatures (Nickname:Type).",
         "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Keywords describing the component you are looking for.\"}},\"required\":[\"query\"]}");
 
     private ComponentCatalog? _catalog;
@@ -122,20 +124,37 @@ public class ComponentSearch : ToolComponentBase
             .Where(x => x.Score > 0)
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.Entry.Name.Length)
-            .Select(x => $"{x.Entry.Name} ({x.Entry.Category} > {x.Entry.SubCategory})")
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .GroupBy(x => x.Entry.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First().Entry)
             .Take(MaxResults)
+            .Select(FormatHit)
             .ToList();
 
         if (hits.Count == 0)
         {
             ComponentMatcher.MatchResult best = ComponentMatcher.Match(query, catalog);
             return best.Entry is not null && best.Score >= 50
-                ? $"No direct matches for \"{query}\". Closest: {best.Entry.Name} ({best.Entry.Category} > {best.Entry.SubCategory})."
+                ? $"No direct matches for \"{query}\". Closest: {FormatHit(best.Entry)}."
                 : $"No installed components matched \"{query}\".";
         }
 
         return $"Components matching \"{query}\":\n" + string.Join("\n", hits);
+    }
+
+    // Formats one hit as "Name (Category > SubCategory) — in: A:Point, G:Vector; out: C:Curve".
+    // Signature introspection is lazy and cached; when it fails the hit degrades to the
+    // name-and-category line, never an error.
+    private static string FormatHit(CatalogEntry entry)
+    {
+        string line = $"{entry.Name} ({entry.Category} > {entry.SubCategory})";
+        if (!ComponentSignatureProvider.TryGetSignature(entry.ComponentGuid, out var inputs, out var outputs))
+        {
+            return line;
+        }
+
+        string ins = string.Join(", ", inputs.Select(p => SignatureFormat.Port(p.Name, p.TypeHint)));
+        string outs = string.Join(", ", outputs.Select(p => SignatureFormat.Port(p.Name, p.TypeHint)));
+        return $"{line} — in: {ins}; out: {outs}";
     }
 
     private static int ScoreHit(string name, string normalizedQuery, IReadOnlyCollection<string> tokens)

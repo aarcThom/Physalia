@@ -43,6 +43,8 @@
 		tree: GroundingCategory[];
 		/** Current included tabs/panels, or null = include everything (default). */
 		selection: GroundingCategory[] | null;
+		/** True when typed component signatures are folded into the prompt instead of bare names. */
+		exposeSignatures: boolean;
 		/** Available clusters (from Files/CLUSTERS). */
 		clusters: ClusterInfo[];
 		/** Current included cluster names, or null = include everything (default). */
@@ -65,6 +67,8 @@
 		unitOptions: string[];
 		/** Applies a new component selection (host action). all=true returns to include-everything. */
 		onapply: (payload: GroundingSelectionPayload) => void;
+		/** Toggles typed component signatures in the grounded system prompt (host action). */
+		onapplysignatures: (on: boolean) => void;
 		/** Applies a new cluster selection (host action). all=true returns to include-everything. */
 		onapplyclusters: (payload: ClusterSelectionPayload) => void;
 		/** Applies a new tools selection (host action). all=true returns to include-everything. */
@@ -78,6 +82,7 @@
 	let {
 		tree,
 		selection,
+		exposeSignatures,
 		clusters,
 		clusterSelection,
 		tools,
@@ -89,6 +94,7 @@
 		unitsOverride,
 		unitOptions,
 		onapply,
+		onapplysignatures,
 		onapplyclusters,
 		onapplytools,
 		onapplyunits,
@@ -123,6 +129,15 @@
 
 	let included = $state(initialIncluded());
 	let expanded = $state(new Set<string>());
+
+	// Expose-signatures toggle, the local source of truth. Initialised once from props like the
+	// component tree; local edits drive the host (which echoes the same state back).
+	let signaturesOn = $state(exposeSignatures);
+
+	function toggleSignatures() {
+		signaturesOn = !signaturesOn;
+		onapplysignatures(signaturesOn);
+	}
 
 	function categoryState(cat: GroundingCategory): 'all' | 'some' | 'none' {
 		if (cat.subCategories.length === 0) {
@@ -402,6 +417,20 @@
 			Deselect a tab or panel to keep those components out of the system prompt. Everything is
 			included by default.
 		</p>
+
+		<button
+			type="button"
+			class="neu-raised-sm hover:bg-muted-foreground/10 mt-3 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm"
+			title="Folds each included component's full input/output signature (parameter nicknames and types) into the system prompt instead of just its name. This makes the prompt much larger — useful for models without tool calling but with large context windows. Prefer the search_components tool when tool calling is available."
+			onclick={toggleSignatures}
+		>
+			{#if signaturesOn}
+				<SquareCheckIcon class="text-foreground/80 size-4 shrink-0" />
+			{:else}
+				<SquareIcon class="text-muted-foreground size-4 shrink-0" />
+			{/if}
+			<span class="flex-1">Expose component signatures</span>
+		</button>
 
 		<div class="mt-4 flex flex-col gap-1">
 			{#each tree as cat (cat.category)}

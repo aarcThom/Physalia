@@ -32,11 +32,19 @@ public abstract record Grounding
 }
 
 /// <summary>
-/// Grounds the model with the names of the components installed in the user's Grasshopper, so it
-/// favours names that actually exist. Wraps the live <see cref="ComponentCatalog"/> snapshot.
+/// Grounds the model with the names of the components installed in the user's Grasshopper —
+/// native and plug-in libraries alike — and declares that list the authoritative set of what may
+/// be placed, so the preambles/schemas can defer "what is allowed" to this section instead of
+/// hard-coding a native-only policy. Wraps the live <see cref="ComponentCatalog"/> snapshot
+/// (already narrowed to the user's grounding selection when one is set).
 /// </summary>
 /// <param name="Catalog">The installed-component catalog.</param>
-public sealed record ComponentCatalogGrounding(ComponentCatalog Catalog) : Grounding
+/// <param name="IncludeSignatures">
+/// True to render each component with its typed input/output signature (one line per component)
+/// instead of the flat name list. Signature lines require enriched entries — entries whose ports
+/// were never read fall back to a name-only line.
+/// </param>
+public sealed record ComponentCatalogGrounding(ComponentCatalog Catalog, bool IncludeSignatures = false) : Grounding
 {
     /// <inheritdoc/>
     public override string ToSystemPromptSection()
@@ -46,8 +54,46 @@ public sealed record ComponentCatalogGrounding(ComponentCatalog Catalog) : Groun
             return string.Empty;
         }
 
-        return "These Grasshopper components are installed and available. Use these exact names where one fits:\n"
-            + string.Join(", ", Catalog.ComponentNames);
+        if (!IncludeSignatures)
+        {
+            return "These Grasshopper components are installed and available — native and plug-in alike. "
+                + "This list is the authoritative catalogue of what may be placed: use these exact names, "
+                + "and only components from this list:\n"
+                + string.Join(", ", Catalog.ComponentNames);
+        }
+
+        var lines = Catalog.Entries
+            .Where(e => !string.IsNullOrWhiteSpace(e.Name))
+            .GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(FormatEntry)
+            .ToList();
+
+        if (lines.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return "These Grasshopper components are installed and available — native and plug-in alike. "
+            + "This list is the authoritative catalogue of what may be placed: use these exact names, "
+            + "and only components from this list. Each entry shows its input and output parameters "
+            + "as Nickname:Type — supply data matching these types:\n"
+            + string.Join("\n", lines);
+    }
+
+    // Renders one component as "- Name(in: A:Point, G:Vector) -> (out: C:Curve)", or as a
+    // name-only "- Name" line when the entry's signature was never read.
+    private static string FormatEntry(CatalogEntry entry)
+    {
+        if (entry.Inputs is null || entry.Outputs is null)
+        {
+            return $"- {entry.Name.Trim()}";
+        }
+
+        string inputs = string.Join(", ", entry.Inputs.Select(p => SignatureFormat.Port(p.Name, p.TypeHint)));
+        string outputs = string.Join(", ", entry.Outputs.Select(p => SignatureFormat.Port(p.Name, p.TypeHint)));
+        return $"- {entry.Name.Trim()}(in: {inputs}) -> (out: {outputs})";
     }
 }
 
@@ -95,7 +141,7 @@ public sealed record ClusterCatalogGrounding(ClusterCatalog Catalog) : Grounding
     }
 
     private static string FormatPort(ClusterPort port) =>
-        string.IsNullOrWhiteSpace(port.TypeHint) ? port.Name : $"{port.Name}:{port.TypeHint}";
+        SignatureFormat.Port(port.Name, port.TypeHint);
 }
 
 /// <summary>

@@ -119,6 +119,10 @@
 	// Other full-screen pages opened from the header menu (mutually exclusive with the chat view
 	// and with setup). null = none open.
 	let panel = $state<'preset' | 'manualdef' | 'grounding' | null>(null);
+	// Estimated token count from a Token Estimator wired downstream of the viewed Recorder,
+	// pushed by the host; null = no estimator wired (or no count yet) → the counter hides.
+	let tokenCount = $state<number | null>(null);
+
 	// Bundled presets (from Files/PRESETS), pushed by the host.
 	let presets = $state<UiPreset[]>([]);
 	// Every Chatbox on the canvas (the bottom switcher row), pushed by the host.
@@ -175,6 +179,9 @@
 			},
 			setSetupResult: (result) => {
 				setupResult = result;
+			},
+			setTokenCount: (count) => {
+				tokenCount = count;
 			},
 			setPresets: (next) => {
 				presets = next ?? [];
@@ -371,7 +378,7 @@
 	});
 </script>
 
-<main class="bg-transparent text-foreground flex h-screen flex-col overflow-hidden">
+<main class="bg-transparent text-foreground relative flex h-screen flex-col overflow-hidden">
 	<!-- Header: a small menu at the very top. Its dropdown reopens the provider setup screen,
 	     opens the preset gallery, or the manual-definition page. The clear-all button on the
 	     right wipes every Physalia component's signals / conversations in the open document. -->
@@ -561,6 +568,18 @@
 					>{box.emoji}</span>
 				</button>
 			{/each}
+		</div>
+	{/if}
+
+	<!-- Token counter, pinned to the window's bottom-right corner. Shown only when a Token
+	     Estimator is wired downstream of this chat's Recorder — the host pushes null otherwise
+	     and the counter disappears. -->
+	{#if tokenCount !== null && !showSetup}
+		<div
+			class="text-muted-foreground absolute right-3 bottom-2 text-[11px] tabular-nums select-none"
+			title="Estimated tokens (Token Estimator on this chat's pipeline)"
+		>
+			{tokenCount.toLocaleString()} tokens
 		</div>
 	{/if}
 </main>

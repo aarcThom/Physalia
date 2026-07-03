@@ -192,6 +192,9 @@ export interface PhysaliaHost {
 	setStream(text: string | null): void;
 	setState(state: UiState): void;
 	setSetupResult(result: SetupResult | null): void;
+	/** Estimated token count from a Token Estimator wired downstream of the viewed Recorder,
+	 *  or null to hide the counter (no estimator wired, or no count produced yet). */
+	setTokenCount(count: number | null): void;
 	/** Bundled presets (from Files/PRESETS) for the Add-preset page. */
 	setPresets(presets: UiPreset[]): void;
 	/** Every Chatbox on the canvas, for the bottom switcher row. */

@@ -116,6 +116,7 @@ public class ChatWindow : Form
     private bool? _lastCollapsed;
     private int? _lastHarnessCount;
     private string? _lastGroundingSignature;
+    private int? _lastTokenCount;
 
     // Set on a Chatbox switch: forces the next Tick to push history/stream/state unconditionally,
     // even when the newly viewed component's values equal the reset caches (e.g. a fresh component
@@ -889,6 +890,15 @@ public class ChatWindow : Form
         {
             _lastStream = stream;
             Exec($"window.physalia&&window.physalia.setStream({JsonSerializer.Serialize(stream)});");
+        }
+
+        // Token counter: the estimate from a Token Estimator wired downstream of this chat's
+        // Recorder, or null (counter hidden) when none is wired or it has no count yet.
+        int? tokenCount = recorder is null ? null : PromptPipelineView.GetDownstreamTokenCount(recorder);
+        if (_forcePush || tokenCount != _lastTokenCount)
+        {
+            _lastTokenCount = tokenCount;
+            Exec($"window.physalia&&window.physalia.setTokenCount({JsonSerializer.Serialize(tokenCount)});");
         }
 
         // Serialised form of the id list, used both as the change signature and the wire payload.

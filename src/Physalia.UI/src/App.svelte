@@ -65,6 +65,8 @@
 	let groundingWired = $state(false);
 	let groundingTree = $state<GroundingCategory[]>([]);
 	let groundingSelection = $state<GroundingCategory[] | null>(null);
+	// Whether the component grounding folds typed signatures into the prompt instead of bare names.
+	let exposeSignatures = $state(false);
 	// Grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete.
 	let availableComponents = $state<ComponentTabInfo[]>([]);
 
@@ -161,6 +163,7 @@
 				groundingWired = next.groundingWired ?? false;
 				groundingTree = next.groundingTree ?? [];
 				groundingSelection = next.groundingSelection ?? null;
+				exposeSignatures = next.exposeSignatures ?? false;
 				availableComponents = next.availableComponents ?? [];
 				clustersWired = next.clustersWired ?? false;
 				availableClusters = next.availableClusters ?? [];
@@ -278,6 +281,11 @@
 	function setGrounding(payload: GroundingSelectionPayload) {
 		const json = JSON.stringify(payload);
 		window.location.href = `${BRIDGE_SCHEME}://setgrounding?sel=${encodeURIComponent(json)}`;
+	}
+
+	// Toggle typed component signatures in the grounded system prompt (instead of bare names).
+	function setSignatures(on: boolean) {
+		window.location.href = `${BRIDGE_SCHEME}://setsignatures?on=${on ? '1' : '0'}`;
 	}
 
 	// Apply a cluster selection to the wired Recorder. all=true returns to include-everything.
@@ -449,6 +457,7 @@
 				<Grounding
 					tree={groundingTree}
 					selection={groundingSelection}
+					{exposeSignatures}
 					clusters={availableClusters}
 					clusterSelection={clusterSelection}
 					tools={availableTools}
@@ -460,6 +469,7 @@
 					{unitsOverride}
 					{unitOptions}
 					onapply={setGrounding}
+					onapplysignatures={setSignatures}
 					onapplyclusters={setClusters}
 					onapplytools={setTools}
 					onapplyunits={setUnits}

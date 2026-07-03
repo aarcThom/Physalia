@@ -64,6 +64,8 @@ export interface UiState {
 	groundingTree: GroundingCategory[];
 	/** The current grounding selection (included tabs/panels), or null = include everything (default). */
 	groundingSelection: GroundingCategory[] | null;
+	/** True when the grounding panel's "expose component signatures" toggle is on (typed signatures folded into the prompt instead of bare names). */
+	exposeSignatures: boolean;
 	/** The grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete. */
 	availableComponents: ComponentTabInfo[];
 	/** True when a cluster grounding is wired into the Recorder (greys the Clusters kind when false). */

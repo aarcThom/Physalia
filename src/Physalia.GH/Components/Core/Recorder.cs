@@ -14,6 +14,7 @@ using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
 using Physalia.Core.Grounding.Tools;
 using Physalia.Core.Recording;
+using Physalia.GH.Generation;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
@@ -69,6 +70,12 @@ public class Recorder : StatefulComponentBase
     // (the document itself is never changed). Configuration, not conversation state — survives Clear
     // and is serialized.
     private string? _unitsOverride;
+
+    // Expose-signatures flag. False = names-only component grounding (default); true folds each
+    // included component's typed input/output signature into the prompt instead — for models
+    // without tool calling but with large contexts. Configuration, not conversation state —
+    // survives Clear and is serialized.
+    private bool _exposeSignatures;
 
     // Caches of the live grounding wired in this solve, for the prompt build and for the chat UI to
     // read. _liveCatalog is the merged catalog across all wired ComponentCatalogGroundings;
@@ -222,6 +229,12 @@ public class Recorder : StatefulComponentBase
     /// </summary>
     public string? UnitsOverrideOrNull => _unitsOverride;
 
+    /// <summary>
+    /// Gets a value indicating whether the component grounding folds typed input/output signatures
+    /// into the prompt instead of bare component names.
+    /// </summary>
+    public bool ExposeComponentSignatures => _exposeSignatures;
+
     /// <inheritdoc/>
     protected override string ClearMenuText => "Clear Conversation";
 
@@ -269,6 +282,17 @@ public class Recorder : StatefulComponentBase
     public void SetUnitsOverride(string? units)
     {
         _unitsOverride = string.IsNullOrWhiteSpace(units) ? null : units;
+        ExpireSolution(true);
+    }
+
+    /// <summary>
+    /// Sets the expose-signatures flag and re-solves so the change takes effect on the next minted
+    /// Instructions. Called from the chat window on the UI thread.
+    /// </summary>
+    /// <param name="on">True to fold typed component signatures into the prompt instead of names.</param>
+    public void SetExposeSignatures(bool on)
+    {
+        _exposeSignatures = on;
         ExpireSolution(true);
     }
 
@@ -444,6 +468,8 @@ public class Recorder : StatefulComponentBase
             writer.SetString("UnitsOverride", _unitsOverride);
         }
 
+        writer.SetBoolean("ExposeComponentSignatures", _exposeSignatures);
+
         return base.Write(writer);
     }
 
@@ -508,6 +534,9 @@ public class Recorder : StatefulComponentBase
         {
             _unitsOverride = null;
         }
+
+        // Missing key = false, so files written before the flag existed keep the names-only default.
+        _exposeSignatures = reader.ItemExists("ExposeComponentSignatures") && reader.GetBoolean("ExposeComponentSignatures");
 
         return base.Read(reader);
     }
@@ -598,7 +627,13 @@ public class Recorder : StatefulComponentBase
             switch (g)
             {
                 case ComponentCatalogGrounding cc:
-                    mapped.Add(new ComponentCatalogGrounding(cc.Catalog.Filtered(_selection)));
+                    // Signature enrichment is bounded to the filtered set and gated on the user's
+                    // expose-signatures toggle — the only place the catalog ever instantiates
+                    // components, and each type is introspected once per session (cached by GUID).
+                    ComponentCatalog filteredCatalog = cc.Catalog.Filtered(_selection);
+                    mapped.Add(_exposeSignatures
+                        ? new ComponentCatalogGrounding(ComponentSignatureProvider.EnrichWithSignatures(filteredCatalog), IncludeSignatures: true)
+                        : new ComponentCatalogGrounding(filteredCatalog));
                     break;
                 case ClusterCatalogGrounding cl:
                     mapped.Add(new ClusterCatalogGrounding(cl.Catalog.Filtered(_clusterSelection)));

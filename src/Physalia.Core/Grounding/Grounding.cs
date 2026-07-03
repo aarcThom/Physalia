@@ -32,8 +32,11 @@ public abstract record Grounding
 }
 
 /// <summary>
-/// Grounds the model with the names of the components installed in the user's Grasshopper, so it
-/// favours names that actually exist. Wraps the live <see cref="ComponentCatalog"/> snapshot.
+/// Grounds the model with the names of the components installed in the user's Grasshopper —
+/// native and plug-in libraries alike — and declares that list the authoritative set of what may
+/// be placed, so the preambles/schemas can defer "what is allowed" to this section instead of
+/// hard-coding a native-only policy. Wraps the live <see cref="ComponentCatalog"/> snapshot
+/// (already narrowed to the user's grounding selection when one is set).
 /// </summary>
 /// <param name="Catalog">The installed-component catalog.</param>
 public sealed record ComponentCatalogGrounding(ComponentCatalog Catalog) : Grounding
@@ -46,7 +49,9 @@ public sealed record ComponentCatalogGrounding(ComponentCatalog Catalog) : Groun
             return string.Empty;
         }
 
-        return "These Grasshopper components are installed and available. Use these exact names where one fits:\n"
+        return "These Grasshopper components are installed and available — native and plug-in alike. "
+            + "This list is the authoritative catalogue of what may be placed: use these exact names, "
+            + "and only components from this list:\n"
             + string.Join(", ", Catalog.ComponentNames);
     }
 }

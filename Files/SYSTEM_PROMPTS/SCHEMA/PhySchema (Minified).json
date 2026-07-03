@@ -5,6 +5,7 @@
   "required": ["schema", "components", "connections"],
   "additionalProperties": false,
   "rules": [
+    "Allowed components = the grounding's installed-component list when present (plug-in components included when listed, nothing unlisted); otherwise native components only. Never a script component.",
     "One connection entry per wired input (a component with 3 wired inputs needs 3 entries).",
     "paramName is case-sensitive; match componentCatalog exactly, else use the full GH parameter Name.",
     "Wire every required input.",

@@ -51,6 +51,11 @@ So the valuable new gates are the ones that check something **nothing currently 
    always feeds one) the Auditor already rejects malformed JSON. A standalone gate only adds value in
    the Auditor's `schema == ""` passthrough branch (prototyping with no schema yet). **Do not
    prioritize.** If wanted, it's a few lines, but it is not one of the first gates to build.
+   > **Note (2026-07-03):** this rejection covers *well-formedness* only. The inverse-polarity
+   > **JSON Presence gate** — pass anything containing attempted JSON (even malformed, so the
+   > Auditor's correction loop still fires) and route pure conversation to Fail as a quiet
+   > switch — is NOT redundant with anything, and was built as **Detect JSON**
+   > (`Components/Core/DetectJson.cs`, heuristic in `Core/Validation/JsonDetector.cs`).
 3. **Python Syntax Gate** — ⚠️ **already covered by PyTransmitter**, which pushes the code into the
    linked Script component, waits for it to re-solve, reads `GhPythonBridge.GetErrors`, and routes the
    syntax/runtime errors on Fail. A pre-execution gate only matters if you specifically want to avoid

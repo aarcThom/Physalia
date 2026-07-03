@@ -115,7 +115,7 @@ Events between pipeline components travel as **`PhySignal`s** — immutable, seq
 ### Built (`src/Physalia.GH/Components/`)
 | Folder | Components |
 |---|---|
-| **Core** | Composer (system prompt assembly; takes a `Grounding` list folded into the prompt), Prompter (chat UI entry point; Shift+Enter mints a Prompt Signal; displays the wired Recorder's conversation), Recorder (append-only conversation log; identity-based turns via three Signal inputs), Reasoner (async LLM forward pass), Auditor (JSON extraction + schema validation) |
+| **Core** | Composer (system prompt assembly; takes a `Grounding` list folded into the prompt), Prompter (chat UI entry point; Shift+Enter mints a Prompt Signal; displays the wired Recorder's conversation), Recorder (append-only conversation log; identity-based turns via three Signal inputs), Reasoner (async LLM forward pass), Detect JSON (presence gate — attempted JSON, even malformed, passes to Success; plain conversation routes to Fail as a quiet switch), Auditor (JSON extraction + schema validation) |
 | **GhPython** | PyTransmitter (pushes generated Python into a linked Script component via grip-link; routes its errors), PythonShortcut |
 | **Grounding** | ClusterGrounder (.ghx cluster — scaffold), PythonGrounder (python function — scaffold) — both emit `GH_Grounding` for Composer. `Grounding` is a Core discriminated union (`ComponentCatalogGrounding` migrated from Composer's old catalog input; `GH_Grounding.CastFrom` adapts producer goo like `GH_ComponentCatalog`) |
 | **Models** | AnthropicModel/Tweaker, GeminiModel/Tweaker, OpenAICompatibleModel/Tweaker, ModelInformation, LlamaCppModelInfo, ApiKeys (+ `ModelComponentBase`, `TweakerComponentBase<TConfig>`) |

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System.Drawing;
+using GH_IO.Serialization;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
@@ -55,6 +56,22 @@ public class CollapsedProxyAttributes : GH_Attributes<IGH_DocumentObject>
         _point = point;
         ExpireLayout();
     }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Delegates to the stashed original attributes so a save made while the harness is
+    /// collapsed persists the member's true pivot and bounds (the proxy's pivot is the collapse
+    /// point, and the base write would also skip type-specific geometry such as a Panel's
+    /// user-set bounds — losing the member's real placement from the file).
+    /// </remarks>
+    public override bool Write(GH_IWriter writer) => Original.Write(writer);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Symmetric with <see cref="Write"/>. In practice deserialization happens onto the
+    /// member's fresh native attributes before the harness re-collapses, so this rarely runs.
+    /// </remarks>
+    public override bool Read(GH_IReader reader) => Original.Read(reader);
 
     /// <inheritdoc/>
     public override bool HasInputGrip => false;

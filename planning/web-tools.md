@@ -11,7 +11,7 @@
 >
 > **Async tools:** `ToolComponentBase` now supports asynchronous tools — set `RunsAsync => true` and
 > implement `ExecuteCallAsync(call, ct)`; the base runs the call batch off the solve thread and latches
-> the result signal on a self-scheduled solve (the Reasoner async pattern: one dispatched signal at a
+> the result signal on a self-scheduled solve (the LLM Call async pattern: one dispatched signal at a
 > time, queued signals wait). So the web tools **no longer block the GH solve thread** on the network
 > (each applies its own 20s/30s timeout via a linked CTS). Synchronous tools (ComponentSearch) keep
 > `ExecuteCall` and behave exactly as before.

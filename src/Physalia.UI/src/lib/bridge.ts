@@ -54,11 +54,11 @@ export interface UiState {
 	status: string;
 	/** Setup-screen ids of every provider already configured (matches providers.ts ids). */
 	configuredProviders: string[];
-	/** True when the viewed Chatbox's harness group is collapsed (its components hidden). */
+	/** True when the viewed Chat's harness group is collapsed (its components hidden). */
 	collapsed: boolean;
-	/** How many components are in the viewed Chatbox's harness group (0 = nothing to collapse). */
+	/** How many components are in the viewed Chat's harness group (0 = nothing to collapse). */
 	harnessCount: number;
-	/** True when a component-catalog grounding is wired into the Recorder (greys the grounding icon when false). */
+	/** True when a component-catalog grounding is wired into the Conversation Log (greys the grounding icon when false). */
 	groundingWired: boolean;
 	/** The available component tabs and their panels, for the grounding selector. */
 	groundingTree: GroundingCategory[];
@@ -68,27 +68,27 @@ export interface UiState {
 	exposeSignatures: boolean;
 	/** The grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete. */
 	availableComponents: ComponentTabInfo[];
-	/** True when a cluster grounding is wired into the Recorder (greys the Clusters kind when false). */
+	/** True when a cluster grounding is wired into the Conversation Log (greys the Clusters kind when false). */
 	clustersWired: boolean;
 	/** The clusters available in Files/CLUSTERS (name, description, I/O), for the cluster selector and the "/c/" autocomplete. */
 	availableClusters: ClusterInfo[];
 	/** The current cluster selection (included cluster names), or null = include everything (default). */
 	clusterSelection: string[] | null;
-	/** True when a Tools Present grounding is wired into the Recorder. */
+	/** True when a Tools Present grounding is wired into the Conversation Log. */
 	toolsWired: boolean;
 	/** The names of the tools currently on the canvas, for the Tools page and the "/t/" autocomplete. */
 	availableTools: string[];
 	/** The current tools selection (enabled tool names), or null = include everything (default). */
 	toolsSelection: string[] | null;
-	/** True when a Canvas Inputs grounding is wired into the Recorder. */
+	/** True when a Canvas Inputs grounding is wired into the Conversation Log. */
 	canvasInputsWired: boolean;
 	/** The Rhino-referenced inputs already on the canvas, for the Canvas Inputs page. */
 	availableCanvasInputs: CanvasInputInfo[];
-	/** True when a Python Function grounding is wired into the Recorder. */
+	/** True when a Python Function grounding is wired into the Conversation Log. */
 	pythonWired: boolean;
 	/** The python functions available to the model, for the Python page. */
 	pythonFunctions: PythonFunctionInfo[];
-	/** True when a document-units grounding is wired into the Recorder (shows the Document Units pill). */
+	/** True when a document-units grounding is wired into the Conversation Log (shows the Document Units pill). */
 	unitsWired: boolean;
 	/** The active Rhino document's current unit system (what the model gets unless overridden). */
 	documentUnits: string;
@@ -168,15 +168,15 @@ export interface SetupResult {
 	message: string;
 }
 
-/** One Chatbox component on the canvas, shown as a circle in the switcher row. */
-export interface UiChatbox {
+/** One Chat component on the canvas, shown as a circle in the switcher row. */
+export interface UiChat {
 	/** The component's InstanceGuid — the wire value sent back when its circle is clicked. */
 	id: string;
-	/** True for the Chatbox the window is currently viewing (its circle reads as selected). */
+	/** True for the Chat the window is currently viewing (its circle reads as selected). */
 	active: boolean;
-	/** True when this Chatbox's wired Recorder already holds a conversation (its circle is filled). */
+	/** True when this Chat's wired Conversation Log already holds a conversation (its circle is filled). */
 	hasHistory: boolean;
-	/** The sea/ocean emoji that identifies this Chatbox — shown as its switcher dot (and canvas icon). */
+	/** The sea/ocean emoji that identifies this Chat — shown as its switcher dot (and canvas icon). */
 	emoji: string;
 }
 
@@ -194,13 +194,13 @@ export interface PhysaliaHost {
 	setStream(text: string | null): void;
 	setState(state: UiState): void;
 	setSetupResult(result: SetupResult | null): void;
-	/** Estimated token count from a Token Estimator wired downstream of the viewed Recorder,
+	/** Estimated token count from a Token Estimator wired downstream of the viewed Conversation Log,
 	 *  or null to hide the counter (no estimator wired, or no count produced yet). */
 	setTokenCount(count: number | null): void;
 	/** Bundled presets (from Files/PRESETS) for the Add-preset page. */
 	setPresets(presets: UiPreset[]): void;
-	/** Every Chatbox on the canvas, for the bottom switcher row. */
-	setChatboxes(chatboxes: UiChatbox[]): void;
+	/** Every Chat on the canvas, for the bottom switcher row. */
+	setChats(chats: UiChat[]): void;
 }
 
 /** Strips a `data:<mime>;base64,` prefix, returning the raw base64 payload. The

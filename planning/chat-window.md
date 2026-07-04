@@ -36,7 +36,7 @@ in a few specifics — those are kept for rationale):
 - **JS → C#**: page stashes `JSON.stringify({text,images})` on `window.__physaliaPending`, navigates
   `phbridge://submit`; `ChatWindow` cancels the navigation (synchronously) and, deferred via
   `Application.Instance.AsyncInvoke`, pulls it back with `__physaliaTake()` and calls
-  `Chatbox.SubmitFromWindow(text, contentBlocks)`. Payload rides on `window`, not the URL, because
+  `Chat.SubmitFromWindow(text, contentBlocks)`. Payload rides on `window`, not the URL, because
   base64 images exceed URL limits.
 
 ### Still open / Mac
@@ -70,10 +70,10 @@ The classic Prompter is already two loosely-coupled halves:
   no conversation state.
 - **UI (`PrompterAttrib.cs`)** — gets the conversation and live stream **by walking the wire
   graph, not through any input**:
-  - `FindRecorder()` → `Params.Output[0].Recipients` → the wired Recorder → `ActiveConversation`.
-  - `GetStreamingText()` → Recorder's `Output[1].Recipients` → an `IStreamingTextSource` that
+  - `FindConversationLog()` → `Params.Output[0].Recipients` → the wired Conversation Log → `ActiveConversation`.
+  - `GetStreamingText()` → Conversation Log's `Output[1].Recipients` → an `IStreamingTextSource` that
     `IsBusy` → `.StreamingText`.
-  - `IsPipelineBusy(recorder)` → busy state for the input gate.
+  - `IsPipelineBusy(conversationLog)` → busy state for the input gate.
 
 So the response/streaming channel is **pure graph traversal**. The new component reuses the
 same traversal and pushes results to a window instead of painting them. No new pipeline plumbing.
@@ -106,8 +106,8 @@ If this passes, everything below is mechanical.
 
 ## Components
 
-### New component — `Chatbox` (nickname "Chat")
-- `StatefulComponentBase`, **no inputs**, one output `Prompt Signal` (item) — wire to Recorder's
+### New component — `Chat` (nickname "Chat")
+- `StatefulComponentBase`, **no inputs**, one output `Prompt Signal` (item) — wire to Conversation Log's
   Prompt Signal input, exactly like Prompter.
 - `SolveInstance`: `EmitSignal(DA, 0, SuccessSignal)` (same pattern as Prompter).
 - Owns one window instance (open via double-click / context menu; window holds a back-reference
@@ -124,7 +124,7 @@ Both components coexist in the Core tab.
 `PrompterAttrib` currently has `FindRecorder` / `GetStreamingText` / `IsPipelineBusy` as private
 methods. Lift the graph-traversal core into a small shared static helper (e.g.
 `Components/Core/PromptPipelineView.cs`) taking the source component + its output index, so both
-`PrompterAttrib` and the new `Chatbox` window controller use one implementation. Keep behaviour
+`PrompterAttrib` and the new `Chat` window controller use one implementation. Keep behaviour
 identical; this is a pure extract-and-reuse, no logic change.
 
 ## Window + bridge protocol
@@ -132,7 +132,7 @@ identical; this is a pure extract-and-reuse, no logic change.
 Small JSON message contract over the Eto WebView bridge:
 
 - **JS → C#** (custom-URI intercept): `{ "type": "submit", "text": "...", "images": [...] }`
-  → `Chatbox.SubmitUserMessage`. `images` are base64/data-URI from paste/drop → `ImageContent`
+  → `Chat.SubmitUserMessage`. `images` are base64/data-URI from paste/drop → `ImageContent`
   blocks (`InlineImage`), reusing existing `MessageContent` types.
 - **C# → JS** (`ExecuteScript`):
   - `{ "type": "history", "messages": [...] }` — from `ActiveConversation`, pushed each solve.
@@ -142,7 +142,7 @@ Small JSON message contract over the Eto WebView bridge:
 
 ## Threading rules (the one place this bites)
 
-Three threads: window UI thread ≠ GH main thread ≠ Reasoner background thread.
+Three threads: window UI thread ≠ GH main thread ≠ LLM Call background thread.
 
 - Submit arrives on the window thread → marshal to the GH main thread before touching the
   component (or just call `ScheduleStateSolve`, already background-safe).
@@ -152,7 +152,7 @@ Three threads: window UI thread ≠ GH main thread ≠ Reasoner background threa
 ## Images — both paths offered
 
 - Classic Prompter: `Image Sources` input + `/<alias>` (unchanged).
-- New Chatbox: paste/drop in the window → inline `ImageContent` blocks via the same
+- New Chat: paste/drop in the window → inline `ImageContent` blocks via the same
   `LatchSuccess(..., contentBlocks:)` sink. No GH input wire.
 
 ## Svelte build / bundling
@@ -172,7 +172,7 @@ Three threads: window UI thread ≠ GH main thread ≠ Reasoner background threa
 
 ## Verification (end to end)
 
-1. Place `Chatbox` → Recorder → Reasoner (with a configured model). No inputs on Chatbox.
+1. Place `Chat` → Conversation Log → LLM Call (with a configured model). No inputs on Chat.
 2. Open the window (double-click), type a prompt, send → assistant response **streams** into the
    window live, then the committed turn appears in history.
 3. Paste an image into the window + text → multimodal turn reaches the model (assistant responds

@@ -15,7 +15,7 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Reads the user's <c>Files/CLUSTERS</c> folder and emits a <see cref="ClusterCatalogGrounding"/>
 /// describing every available cluster — its name, its introspected input/output signature, and the
-/// optional description from <c>clusters.json</c>. Wire its output into the Recorder's Grounding
+/// optional description from <c>clusters.json</c>. Wire its output into the Conversation Log's Grounding
 /// input; the chat window then lets the user pick which clusters the model may use. Has no inputs;
 /// right-click to refresh after adding or editing cluster files.
 /// </summary>
@@ -44,7 +44,7 @@ public class ClusterGrounder : PhyBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Cluster grounding for the Recorder.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Cluster grounding for the Conversation Log.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

@@ -35,7 +35,7 @@ public sealed record ToolDispatchPlan(
     IReadOnlyList<string> Warnings);
 
 /// <summary>
-/// Pure dispatch policy for the Router. It decides how a Reasoner's tool calls map onto the router's
+/// Pure dispatch policy for the Router. It decides how a LLM Call's tool calls map onto the router's
 /// named outputs and how the returned results combine into the single tool-result turn a provider
 /// requires after a multi-tool assistant turn. It mints no signals and touches no Grasshopper state:
 /// the host supplies the available output names, mints signals from the returned plan, and combines
@@ -121,7 +121,7 @@ public static class ToolDispatchRound
 
     /// <summary>
     /// Combines the collected tool results into the content blocks and trace payload for the single
-    /// user turn forwarded to the Recorder after the assistant tool_use turn.
+    /// user turn forwarded to the Conversation Log after the assistant tool_use turn.
     /// </summary>
     /// <param name="results">The collected tool results, in arrival order.</param>
     /// <returns>The content blocks and the newline-joined non-blank result text.</returns>

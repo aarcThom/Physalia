@@ -20,17 +20,17 @@ namespace Physalia.GH.Components;
 /// raw bytes, MIME type, and a user-entered alias. Right-click → Manage Images opens an
 /// Eto panel to add, alias, preview, and remove images. Has no inputs.
 /// </summary>
-public class ImageGatherer : PhyBase
+public class ImageSources : PhyBase
 {
     private readonly List<ImageEntry> _entries = new();
     private readonly List<string> _loadWarnings = new();
     private ManageImagesDialog? _dialog;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="ImageGatherer"/> class.
+    /// Initializes a new instance of the <see cref="ImageSources"/> class.
     /// </summary>
-    public ImageGatherer()
-        : base("Image Gatherer", "ImgGather", "Gathers images from disk or the clipboard and outputs them as image sources for multimodal models. Right-click to manage images.", "Grounding")
+    public ImageSources()
+        : base("Image Sources", "Image Sources", "Gathers images from disk or the clipboard and outputs them as image sources for multimodal models. Right-click to manage images.", "Grounding")
     {
     }
 

@@ -9,8 +9,8 @@ metadata:
 
 `PhySignal` (`Physalia.Core/Signals/PhySignal.cs`) carries exactly three things and **must not grow more**:
 - `Payload` (string) — the text trace / feedback string.
-- `ContentBlocks` (IReadOnlyList<MessageContent>) — a richer-than-text user turn (e.g. inline images): the Prompter→Recorder hop.
-- `Instructions` (Instructions?) — the full inference context (system prompt + conversation): the Recorder→Reasoner hop, where the trigger IS the data.
+- `ContentBlocks` (IReadOnlyList<MessageContent>) — a richer-than-text user turn (e.g. inline images): the Prompter→Conversation Log hop.
+- `Instructions` (Instructions?) — the full inference context (system prompt + conversation): the Conversation Log→LLM Call hop, where the trigger IS the data.
 
 **Why:** the signal is the single inter-component wire ("the signal is the event"). Each of those three is a genuine pipeline *event payload*. Adding a typed field for any other data type turns PhySignal into a god-object and dilutes the model — arbitrary data belongs on **typed wires/inputs**, not bolted onto the signal.
 

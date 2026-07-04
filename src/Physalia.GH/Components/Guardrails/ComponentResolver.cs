@@ -17,19 +17,19 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// Resolves the component names in a generated GhJSON graph (arriving as the consumed signal's
-/// payload) against a live component catalog from the Library component, rewriting each name to
+/// payload) against a live component catalog from the Component Catalog component, rewriting each name to
 /// a real installed component and stamping its type GUID so placement is exact. A fully resolved
 /// graph routes forward on the Success Signal; names that cannot be matched confidently route a
 /// description back on the Fail Signal so the model can correct them. With no catalog wired the
 /// graph passes through unchanged.
 /// </summary>
-public class Resolver : RoutingComponentBase<string>
+public class ComponentResolver : RoutingComponentBase<string>
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="Resolver"/> class.
+    /// Initializes a new instance of the <see cref="ComponentResolver"/> class.
     /// </summary>
-    public Resolver()
-        : base("Resolver", "Rslv", "Resolves generated component names to real installed components and stamps their type GUIDs; unresolved names route back as feedback.", "Deterministic Gates")
+    public ComponentResolver()
+        : base("Component Resolver", "Component Resolver", "Resolves generated component names to real installed components and stamps their type GUIDs; unresolved names route back as feedback.", "Guardrails")
     {
     }
 
@@ -42,12 +42,12 @@ public class Resolver : RoutingComponentBase<string>
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        int index = pManager.AddParameter(new Param_ComponentCatalog(), "Component Catalog", "Cat", "Installed-component catalog from the Library component.", GH_ParamAccess.item);
+        int index = pManager.AddParameter(new Param_ComponentCatalog(), "Component Catalog", "Cat", "Installed-component catalog from the Component Catalog component.", GH_ParamAccess.item);
         pManager[index].Optional = true;
     }
 
     /// <inheritdoc/>
-    /// <remarks>The generated GhJSON arrives as the consumed signal's payload (Auditor's Success Signal).</remarks>
+    /// <remarks>The generated GhJSON arrives as the consumed signal's payload (Schema Validator's Success Signal).</remarks>
     protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out string data)
     {
         data = signal.Payload;

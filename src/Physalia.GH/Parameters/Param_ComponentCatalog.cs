@@ -8,7 +8,7 @@ namespace Physalia.GH.Parameters;
 
 /// <summary>
 /// A hidden Grasshopper parameter that carries <see cref="GH_ComponentCatalog"/> values
-/// between the Library, Resolver, and Composer components.
+/// between the Component Catalog, Component Resolver, and System Prompt components.
 /// </summary>
 public class Param_ComponentCatalog : PhyParam<GH_ComponentCatalog>
 {

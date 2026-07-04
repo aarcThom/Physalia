@@ -20,12 +20,12 @@ using Physalia.GH.Parameters;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Core inference component. Receives Instructions from Recorder and performs a single
+/// Core inference component. Receives Instructions from the Conversation Log and performs a single
 /// forward pass, streaming the result. Stateless between calls — all context lives in
-/// Recorder. Routes the response forward on the Success Signal or an API error back on
+/// the Conversation Log. Routes the response forward on the Success Signal or an API error back on
 /// the Fail Signal through <see cref="RoutingComponentBase{TData}"/>.
 /// </summary>
-public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
+public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
 {
     private int _cancelIndex = -1;
     private bool _lastCancel;
@@ -36,16 +36,16 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
     private CancellationTokenSource? _cts;
 
     // Live streaming buffer: the response text accumulated so far this run. Appended on the
-    // background inference thread and read by the Chatbox window on the UI thread, so every access
+    // background inference thread and read by the Chat window on the UI thread, so every access
     // is guarded by the lock. Null between runs; the window shows it only while this is IsBusy.
     private readonly object _streamLock = new();
     private StringBuilder? _streamBuffer;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Reasoner"/> class.
+    /// Initializes a new instance of the <see cref="LlmCall"/> class.
     /// </summary>
-    public Reasoner()
-        : base("Reasoner", "Rea", "Performs a single LLM forward pass and routes the response.", "Core")
+    public LlmCall()
+        : base("LLM Call", "LLM Call", "Performs a single LLM forward pass and routes the response.", "Pipeline")
     {
     }
 
@@ -57,7 +57,7 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
 
     /// <inheritdoc/>
     /// <remarks>
-    /// The Chatbox window reads this while the component IsBusy to render the response as it streams.
+    /// The Chat window reads this while the component IsBusy to render the response as it streams.
     /// Null until the first token arrives; dropped at the start of each run by
     /// <see cref="ClearStateOutputs"/>.
     /// </remarks>
@@ -104,7 +104,7 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
 
     /// <inheritdoc/>
     /// <remarks>
-    /// The full inference context rides on the consumed signal itself (the Recorder mints a signal
+    /// The full inference context rides on the consumed signal itself (the Conversation Log mints a signal
     /// carrying Instructions; a compaction component re-emits one carrying compacted Instructions).
     /// The trigger IS the data — there is no separate Instructions input.
     /// </remarks>
@@ -113,7 +113,7 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
         data = default!;
         if (signal.Instructions is not Instructions instructions)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Signal carried no Instructions — wire a Recorder (optionally through a compaction component) into this input.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Signal carried no Instructions — wire a Conversation Log (optionally through a compaction component) into this input.");
             return false;
         }
 
@@ -140,7 +140,7 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
 
     /// <summary>
     /// Cancels the active inference call, if one is in flight. Fired by the rising edge of the
-    /// Cancel input and by the chat window's cancel button (routed through the wired Recorder via
+    /// Cancel input and by the chat window's cancel button (routed through the wired Conversation Log via
     /// <see cref="PromptPipelineView.CancelPipeline"/>). No-op when no request is running.
     /// </summary>
     public void CancelInference()
@@ -172,10 +172,10 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
         }
 
         // Stamp this component's identity so stateful providers (Claude Code's warm-process
-        // pool) can keep one long-lived session per Reasoner across forward passes.
+        // pool) can keep one long-lived session per LLM Call across forward passes.
         config = config with { SessionKey = InstanceGuid };
 
-        // The tool definitions ride on the consumed signal's Instructions (the Recorder lifts them
+        // The tool definitions ride on the consumed signal's Instructions (the Conversation Log lifts them
         // there from the Tools Present grounding), so there is no separate Tools input to read.
         StartInference(data, config, data.Tools);
     }
@@ -256,7 +256,7 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
                     {
                         if (value.ContentDelta != null)
                         {
-                            // Guarded: the Chatbox window reads this buffer from the UI thread mid-stream.
+                            // Guarded: the Chat window reads this buffer from the UI thread mid-stream.
                             lock (_streamLock)
                             {
                                 sb.Append(value.ContentDelta);

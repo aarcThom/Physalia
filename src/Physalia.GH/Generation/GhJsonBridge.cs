@@ -59,14 +59,14 @@ internal static class GhJsonBridge
     // extensions as an opaque pass-through, so this round-trips untouched.
     private const string PickerValueExtensionKey = "physalia.pickerValue";
 
-    // componentState.extensions key under which a Recorder's grounding selection is stored, so a
+    // componentState.extensions key under which a ConversationLog's grounding selection is stored, so a
     // preset carries which component-catalog tabs/panels are folded into the system prompt. Absent =
     // null selection = include everything (the default), matching the Picker's "skip when no
     // selection". Stored as benign labels (tab/panel names) — never a secret.
     private const string GroundingSelectionExtensionKey = "physalia.groundingSelection";
 
     // componentState.extensions key marking a component as a Grasshopper cluster reference rather
-    // than an installed component. The Resolver stamps it (with the cluster's name) when a generated
+    // than an installed component. The Component Resolver stamps it (with the cluster's name) when a generated
     // node name matches a cluster in Files/CLUSTERS; placement then instantiates the cluster from its
     // file instead of asking the GhJSON library to create it by componentGuid. GhJSON treats
     // extensions as an opaque pass-through, so this round-trips untouched.
@@ -102,7 +102,7 @@ internal static class GhJsonBridge
         // capture; persist it into the component's extensions so the selection survives the round-trip.
         InjectPickerValues(doc);
 
-        // A Recorder's grounding selection lives in its native Write/Read blob too; persist it so a
+        // A ConversationLog's grounding selection lives in its native Write/Read blob too; persist it so a
         // preset carries the chosen tabs/panels.
         InjectGroundingSelection(doc);
 
@@ -206,9 +206,9 @@ internal static class GhJsonBridge
     }
 
     /// <summary>
-    /// Records each exported <see cref="Recorder"/>'s grounding selection under
+    /// Records each exported <see cref="ConversationLog"/>'s grounding selection under
     /// <see cref="GroundingSelectionExtensionKey"/> in its state extensions, so a preset carries which
-    /// component-catalog tabs/panels are folded into the system prompt. Recorders with the default
+    /// component-catalog tabs/panels are folded into the system prompt. ConversationLogs with the default
     /// (null = include everything) selection are skipped, so an absent extension restores as null.
     /// </summary>
     /// <param name="doc">The freshly captured document to annotate in place.</param>
@@ -223,8 +223,8 @@ internal static class GhJsonBridge
         foreach (GhJsonComponent component in doc.Components)
         {
             if (component.InstanceGuid is not Guid guid
-                || live.FindObject(guid, false) is not Recorder recorder
-                || recorder.GroundingSelectionOrNull is not { } selection)
+                || live.FindObject(guid, false) is not ConversationLog conversationLog
+                || conversationLog.GroundingSelectionOrNull is not { } selection)
             {
                 continue;
             }
@@ -506,7 +506,7 @@ internal static class GhJsonBridge
         // the graph has been relaid out so a real component (layer 0's top node) sits at this corner.
         PointF offset = ComputeOffset(doc.Components, targetOrigin);
 
-        // Cluster nodes (stamped by the Resolver) cannot be created by the GhJSON library, so lift
+        // Cluster nodes (stamped by the Component Resolver) cannot be created by the GhJSON library, so lift
         // them out before Fix/Put: Physalia instantiates each from its file and rewires its wires.
         ClusterPlan? clusterPlan = ExtractClusters(ref doc, offset);
 
@@ -535,7 +535,7 @@ internal static class GhJsonBridge
         // Stamp a validated, non-obsolete component GUID on every node before Put. The GhJSON library
         // creates GUID-first and falls back to an UNFILTERED name lookup (CreateByName returns the first
         // proxy matching a name, obsolete or not — e.g. the colour "Multiplication" twin). Stamping here
-        // makes placement self-sufficient for pipelines with no Resolver and guarantees creation goes
+        // makes placement self-sufficient for pipelines with no Component Resolver and guarantees creation goes
         // through the correct GUID rather than that fallback.
         StampComponentGuids(doc);
 
@@ -648,7 +648,7 @@ internal static class GhJsonBridge
         doc = fixResult.Document;
         IReadOnlyList<string> unfixedIssues = fixResult.UnfixedIssues ?? (IReadOnlyList<string>)Array.Empty<string>();
 
-        // Locate the first placeholder slot (e.g. the preset's own Chatbox). With no slot to splice,
+        // Locate the first placeholder slot (e.g. the preset's own Chat). With no slot to splice,
         // fall back to ordinary placement anchored at the live component's pivot.
         GhJsonComponent? placeholder = doc.Components.FirstOrDefault(
             c => c.ComponentGuid is Guid g && g == placeholderComponentGuid);
@@ -865,7 +865,7 @@ internal static class GhJsonBridge
             : new PlaceResult(false, 0, 0, 0, result.ErrorMessage, Array.Empty<Guid>(), Array.Empty<string>(), unfixedIssues);
     }
 
-    // True when a component was stamped as a cluster reference by the Resolver (see StampClusterReference).
+    // True when a component was stamped as a cluster reference by the Component Resolver (see StampClusterReference).
     private static bool IsClusterNode(GhJsonComponent component) =>
         component.ComponentState?.Extensions is { } ext && ext.ContainsKey(ClusterExtensionKey);
 
@@ -1012,8 +1012,8 @@ internal static class GhJsonBridge
     // <paramref name="doc"/> in place to keep only the non-cluster components and the wires among them.
     // Returns null (and leaves the document untouched) when there are no cluster nodes.
     //
-    // A node is a cluster when the Resolver stamped it (physalia.cluster), OR — for pipelines with no
-    // Resolver — when it carries no real component guid and its name matches a cluster on disk. The
+    // A node is a cluster when the Component Resolver stamped it (physalia.cluster), OR — for pipelines with no
+    // Component Resolver — when it carries no real component guid and its name matches a cluster on disk. The
     // latter makes placement self-sufficient: without it, an unstamped cluster node reaches Put, which
     // cannot create it and reports its wires as failures.
     private static ClusterPlan? ExtractClusters(ref GhJsonDocument doc, PointF offset)
@@ -1628,7 +1628,7 @@ internal static class GhJsonBridge
     }
 
     /// <summary>
-    /// Restores each placed <see cref="Recorder"/>'s grounding selection from the
+    /// Restores each placed <see cref="ConversationLog"/>'s grounding selection from the
     /// <see cref="GroundingSelectionExtensionKey"/> extension written by
     /// <see cref="InjectGroundingSelection"/>. The component id is remapped to the newly-placed
     /// object's InstanceGuid via <see cref="PutResult.IdToGuidMapping"/>. Returns whether any
@@ -1663,7 +1663,7 @@ internal static class GhJsonBridge
 
             if (ext?.Leaves is null
                 || !result.IdToGuidMapping.TryGetValue(id, out Guid guid)
-                || result.PlacedObjects.FirstOrDefault(o => o.InstanceGuid == guid) is not Recorder recorder)
+                || result.PlacedObjects.FirstOrDefault(o => o.InstanceGuid == guid) is not ConversationLog conversationLog)
             {
                 continue;
             }
@@ -1672,7 +1672,7 @@ internal static class GhJsonBridge
                 .Where(l => l is not null)
                 .Select(l => (l.Category ?? string.Empty, l.SubCategory ?? string.Empty));
 
-            recorder.SetGroundingSelection(GroundingSelection.FromLeaves(leaves));
+            conversationLog.SetGroundingSelection(GroundingSelection.FromLeaves(leaves));
             restored = true;
         }
 
@@ -1725,7 +1725,7 @@ internal static class GhJsonBridge
     }
 
     /// <summary>
-    /// Serialised shape of a Recorder's grounding selection, stored under
+    /// Serialised shape of a ConversationLog's grounding selection, stored under
     /// <see cref="GroundingSelectionExtensionKey"/> in the component's state extensions.
     /// </summary>
     private sealed class GroundingSelectionExtension

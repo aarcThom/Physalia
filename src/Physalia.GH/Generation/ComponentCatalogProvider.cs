@@ -12,7 +12,7 @@ namespace Physalia.GH.Generation;
 
 /// <summary>
 /// Builds a <see cref="ComponentCatalog"/> from the live Grasshopper component server — the single
-/// place the installed-component snapshot is assembled. Used both by the Library component
+/// place the installed-component snapshot is assembled. Used both by the Component Catalog component
 /// (toggle-aware) and by GhJSON placement (default filtering), so both share one filter and
 /// de-duplication policy and can never diverge.
 /// </summary>

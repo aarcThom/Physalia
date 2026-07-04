@@ -2,7 +2,7 @@ Ocean emoji bitmaps in this folder are from the Noto Emoji project
 (https://github.com/googlefonts/noto-emoji), licensed under the
 Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0).
 
-They are used as per-instance Chatbox component icons because GDI / System.Drawing
+They are used as per-instance Chat component icons because GDI / System.Drawing
 cannot colour-render an emoji font to the Grasshopper canvas.
 
 Files are named emoji_u<codepoint>.png (lowercase hex Unicode code point), e.g.

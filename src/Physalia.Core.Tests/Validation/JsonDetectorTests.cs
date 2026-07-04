@@ -72,7 +72,7 @@ public class JsonDetectorTests
     [Fact]
     public void ContainsJson_JsonFenceWithGarbageContents_ReturnsTrue()
     {
-        // A ```json fence is a declaration of intent — pass it through and let the Auditor judge it.
+        // A ```json fence is a declaration of intent — pass it through and let the Schema Validator judge it.
         Assert.True(JsonDetector.ContainsJson("```json\nnot really json\n```"));
     }
 
@@ -92,7 +92,7 @@ public class JsonDetectorTests
     public void ContainsJson_GenericFenceWithDictLiteral_ReturnsTrue()
     {
         // Accepted pass-through bias: a Python dict has the same key signature as JSON. Forwarding
-        // it reproduces today's behavior (Auditor rejects it) rather than risking a false negative.
+        // it reproduces today's behavior (Schema Validator rejects it) rather than risking a false negative.
         Assert.True(JsonDetector.ContainsJson("Try this:\n```\nconfig = {\"a\": 1}\n```"));
     }
 

@@ -15,12 +15,12 @@ namespace Physalia.GH.Components;
 /// Grounds the model with the inputs already on the canvas — the Rhino-referenced parameters dropped by
 /// the <see cref="RhinoGeometryTool"/> — so a graph the model generates can wire onto an existing input
 /// (by its name) instead of duplicating it. Emits a single <see cref="CanvasInputGrounding"/>; wire the
-/// output into a Recorder's Grounding input alongside any other grounding.
+/// output into a Conversation Log's Grounding input alongside any other grounding.
 ///
 /// <para>The list refreshes live as inputs are created or removed: the geometry tool places its
 /// parameters on <c>RhinoApp.Idle</c> (outside a solve), which triggers a new solution, so this
 /// component watches the document's solution end and re-solves itself only when the referenceable set
-/// actually changes — the new grounding reaches the Recorder without a runaway solve loop.</para>
+/// actually changes — the new grounding reaches the Conversation Log without a runaway solve loop.</para>
 /// </summary>
 public class CanvasInputGrounder : PhyBase
 {
@@ -32,7 +32,7 @@ public class CanvasInputGrounder : PhyBase
     /// Initializes a new instance of the <see cref="CanvasInputGrounder"/> class.
     /// </summary>
     public CanvasInputGrounder()
-        : base("Canvas Inputs", "CvsIn", "Grounds the model with the Rhino-referenced inputs already on the canvas so it can reference them by name instead of recreating them. Wire into a Recorder's Grounding input.", "Grounding")
+        : base("Canvas Inputs", "CvsIn", "Grounds the model with the Rhino-referenced inputs already on the canvas so it can reference them by name instead of recreating them. Wire into a Conversation Log's Grounding input.", "Grounding")
     {
     }
 
@@ -70,7 +70,7 @@ public class CanvasInputGrounder : PhyBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Grounding listing the Rhino-referenced inputs already on the canvas. Wire into the Recorder's Grounding input.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Grounding listing the Rhino-referenced inputs already on the canvas. Wire into the Conversation Log's Grounding input.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -96,7 +96,7 @@ public class CanvasInputGrounder : PhyBase
     {
         // An input may have been placed (on Idle) or deleted during this solution, which does not
         // re-solve this source component. Re-solve only when the referenceable set actually changed, so
-        // the refreshed grounding reaches the Recorder and the comparison breaks any solve loop once it
+        // the refreshed grounding reaches the Conversation Log and the comparison breaks any solve loop once it
         // converges.
         if (Signature(CanvasInputs(OnPingDocument())) != _lastSignature)
         {

@@ -24,7 +24,7 @@ Marshalling architecture history on the `dev` branch:
   everything reopens Empty). GH_Signal casts to text (= payload). New `Physalia > Signals`
   components: Construct Signal (manual mint, immediate latch, Failure flag) and
   Deconstruct Signal (passive tap, never consumes). FOUR RoutingComponentBase subclasses
-  exist: Auditor, PyTransmitter, Reasoner, **SchemaTranslator** (Serializers/ — easy to
+  exist: Schema Validator, PyTransmitter, LLM Call, **SchemaTranslator** (Serializers/ — easy to
   forget). Authoritative doc: `planning/data-marshalling.md`.
 
 Decisions Thomas locked (don't relitigate):
@@ -32,9 +32,9 @@ Decisions Thomas locked (don't relitigate):
   Buttons/Toggles still work via a non-minting cast sentinel + consumer edge detection
   (empty payload → payload-fed components warn and drop; use Construct Signal).
 - Signal payload is the ONLY data carrier between pipeline components — never add a
-  parallel string wire. Reasoner keeps its typed Instructions input (ignores payload).
+  parallel string wire. LLM Call keeps its typed Instructions input (ignores payload).
 - Nothing in the lifecycle persists; components always reopen Empty.
-- Recorder: three dedicated signal inputs (Prompt/Response/Feedback) — turn type from
+- Conversation Log: three dedicated signal inputs (Prompt/Response/Feedback) — turn type from
   input identity, never conversation parity; quiet (no-signal) latch on assistant turns.
 - Feedback arriving when last turn is already User → merge into last user message
   (`Conversation.MergeIntoLastUserMessage`).
@@ -42,6 +42,6 @@ Decisions Thomas locked (don't relitigate):
   Signal deliberately latches with NO delay (source, not hop).
 
 Status: builds clean. Manual Rhino verification has NOT been run for either the Signal
-rework or the payload-only simplification (race/retry loop, Construct→Auditor standalone,
+rework or the payload-only simplification (race/retry loop, Construct→Schema Validator standalone,
 text cast, busy lossless, Toggle semantics, reopen-Empty). No automated tests exist.
 See [[physalia-repo-gotchas]].

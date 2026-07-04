@@ -42,7 +42,7 @@ of consumed sequences: re-emitting the same signal on idle solves or document re
 can never re-fire anything.
 
 **Wires are inspectable:** `GH_Signal.ToString()` renders
-`#42 Success from Reasoner @ 14:03:21.187 — "payload preview"`, so a panel on any Signal
+`#42 Success from LLM Call @ 14:03:21.187 — "payload preview"`, so a panel on any Signal
 wire is a live ordering trace.
 
 **Interop / escape hatches:**
@@ -51,7 +51,7 @@ wire is a live ordering trace.
 - **Deconstruct Signal** (passive, never consumes) breaks a signal into
   Sequence / Success / Payload / Source / Time.
 - **Construct Signal** mints a signal from a text payload + trigger — the manual entry
-  point for running any pipeline component standalone (e.g. Panel of JSON → Auditor).
+  point for running any pipeline component standalone (e.g. Panel of JSON → Schema Validator).
 - A latched signal casts to bool **true** (a level, not a pulse) for native bool inputs.
 
 **Ephemeral:** signals never serialize (`GH_Signal.Write/Read` are no-ops). A reopened
@@ -132,7 +132,7 @@ callback re-arms for the remainder instead of acting (`ScheduleStateSolve`).
 | `ObserveButtonPress(da, boolIndex)` | edge-detect a native Boolean trigger input; true once per false→true press (first observation baselines). The sanctioned Button path — Construct Signal |
 | `HasUnconsumedSignals(…)` | peek — used post-latch to schedule the follow-up solve |
 | `TryConsumeOldestSignal(idx, out s)` | one event, oldest first (routing components) |
-| `ConsumeAllSignals(indices…)` | drain all, **global sequence order** (Recorder) |
+| `ConsumeAllSignals(indices…)` | drain all, **global sequence order** (Conversation Log) |
 | `ScheduleStateSolve(ms, action)` | wall-clock honest scheduling funnel; safe from background threads |
 | `EmitSignal(da, idx, signal)` | emit helper; skips SetData when null so wires are genuinely empty |
 | Clear menu (`ClearMenuText`), `ClearStateOutputs` (virtual) / `OnCleared` hooks | Clear never resets consume-once bookkeeping (no replay) |
@@ -155,36 +155,36 @@ Inputs                                 Outputs
 
 Subclasses implement `TryGetData(PhySignal signal, da, out TData)` — most take
 `signal.Payload`; components whose context arrives on a typed input read that instead
-(Reasoner reads Instructions and ignores the payload) — plus `ReadSolve` (sync), plus
+(LLM Call reads Instructions and ignores the payload) — plus `ReadSolve` (sync), plus
 `PushSolve`/`IsReadReady` (two-pass) or `AutoScheduleRead => false` + `RequestReadPass()`
 from a completion callback (async). `OnSolveTick` for per-solve inputs outside the
-lifecycle (Reasoner's Cancel — a plain bool by design: it is a human abort, not a
+lifecycle (LLM Call's Cancel — a plain bool by design: it is a human abort, not a
 pipeline event).
 
 ### Current implementations
 
 | Component | Shape | Data in |
 |---|---|---|
-| **Auditor** | sync | signal payload (raw LLM text); Schema input for validation |
+| **Schema Validator** | sync | signal payload (raw LLM text); Schema input for validation |
 | **Schema Translator** | sync | signal payload (PhySchema JSON); Schema In input for validation |
 | **PyTransmitter** | two-pass | signal payload (PythonComponent JSON); pushes into the linked Python component |
-| **Reasoner** | async | Instructions input (typed); signal payload ignored |
-| **Recorder** | Layer 1 | dedicated signal inputs, identity-based turns (below) |
-| **Prompter** | Layer 1 (source) | chat UI; each Shift+Enter submit mints one Prompt Signal (payload = prompt text); upper panel displays the wired Recorder's active conversation |
+| **LLM Call** | async | Instructions input (typed); signal payload ignored |
+| **Conversation Log** | Layer 1 | dedicated signal inputs, identity-based turns (below) |
+| **Prompter** | Layer 1 (source) | chat UI; each Shift+Enter submit mints one Prompt Signal (payload = prompt text); upper panel displays the wired Conversation Log's active conversation |
 | **Feedback / FeedbackCollector** | Layer 1 | wireless signal transport (below) |
 | **Construct / Deconstruct Signal** | Layer 1 / plain | manual mint / passive inspect |
 
 ---
 
-## Recorder: identity-based turns
+## Conversation Log: identity-based turns
 
-Recorder consumes events from **three dedicated Signal inputs** — the turn type comes
+Conversation Log consumes events from **three dedicated Signal inputs** — the turn type comes
 from which input the signal arrived on, never from conversation parity:
 
 | Input | Records | Text source |
 |---|---|---|
 | `Prompt Signal` | user turn | signal payload (the prompt text), from Prompter or Construct Signal; an empty payload warns and is dropped |
-| `Response Signal` (from Reasoner Success Signal) | assistant turn | Tool Calls list (priority), else payload |
+| `Response Signal` (from LLM Call Success Signal) | assistant turn | Tool Calls list (priority), else payload |
 | `Feedback Signal` (from Collector(s)) | user turn | payload |
 
 - `ConsumeAllSignals` processes everything waiting in **global sequence order** — a
@@ -197,11 +197,11 @@ from which input the signal arrived on, never from conversation parity:
   double prompts.
 - Appends happen on the consume solve; only the latch + outgoing signal wait out the
   visible delay. Outgoing signal is minted **only for user turns** — assistant turns
-  latch quietly, so `Reasoner.Success Signal → Recorder.Response Signal` plus
-  `Recorder.Signal → Reasoner.Signal` cannot loop.
+  latch quietly, so `LLM Call.Success Signal → Conversation Log.Response Signal` plus
+  `Conversation Log.Signal → LLM Call.Signal` cannot loop.
 - A consumed signal with nothing recordable latches a quiet failure with a warning.
 - Clear Conversation resets the log and outputs to Empty; consume-once bookkeeping is
-  kept (no replay). Conversation is not serialized → Recorder always reopens Empty.
+  kept (no replay). Conversation is not serialized → Conversation Log always reopens Empty.
 
 ## Feedback / FeedbackCollector: wireless signal transport
 
@@ -212,7 +212,7 @@ from which input the signal arrived on, never from conversation parity:
   in one solution aggregates; injections during an active run wait. After the visible
   delay it mints ONE outgoing signal per batch — payload = newline-joined feedback,
   fresh sequence necessarily greater than every cause. The minted signal carries
-  `Failure` if any injected signal was a failure (trace truthfulness; Recorder ignores
+  `Failure` if any injected signal was a failure (trace truthfulness; Conversation Log ignores
   outcome on its Feedback input).
 
 ## Signals utilities
@@ -227,23 +227,23 @@ from which input the signal arrived on, never from conversation parity:
 ## Canonical wiring (one wire per hop; no OR gates, no bool trigger wires)
 
 ```
-Prompter.Prompt Signal ────► Recorder.Prompt Signal       (payload = prompt text; Shift+Enter mints)
+Prompter.Prompt Signal ────► Conversation Log.Prompt Signal       (payload = prompt text; Shift+Enter mints)
   (manual alternative: Panel ► Construct Signal.Payload, Button ► Construct Signal.Trigger,
-   Construct Signal.Signal ► Recorder.Prompt Signal)
-Recorder.Signal ───────────► Reasoner.Signal
-Recorder.Instructions ─────► Reasoner.Instructions
-Reasoner.Success Signal ───► Auditor.Signal    AND ► Recorder.Response Signal
-Auditor.Success Signal ────► PyTransmitter.Signal         (payload = validated JSON)
-Auditor.Fail Signal ───────► Feedback.Signal
+   Construct Signal.Signal ► Conversation Log.Prompt Signal)
+Conversation Log.Signal ───────────► LLM Call.Signal
+Conversation Log.Instructions ─────► LLM Call.Instructions
+LLM Call.Success Signal ───► Schema Validator.Signal    AND ► Conversation Log.Response Signal
+Schema Validator.Success Signal ────► PyTransmitter.Signal         (payload = validated JSON)
+Schema Validator.Fail Signal ───────► Feedback.Signal
 PyTransmitter.Fail Signal ─► Feedback.Signal
 Feedback (grip) ~~~~~~~~~~~► FeedbackCollector            (wireless)
-Collector.Signal ──────────► Recorder.Feedback Signal
+Collector.Signal ──────────► Conversation Log.Feedback Signal
 ```
 
 There is no separate data wire between pipeline components — the response text, the
 validated JSON, and the feedback all travel as signal payloads.
 
-## Tool calling: Reasoner → Router → tool nodes → Recorder
+## Tool calling: LLM Call → Router → tool nodes → Conversation Log
 
 The provider contract (Anthropic/OpenAI/Gemini) is strict: an assistant turn that
 contains N `tool_use` blocks **must** be followed by exactly **one** user turn carrying a
@@ -251,19 +251,19 @@ contains N `tool_use` blocks **must** be followed by exactly **one** user turn c
 pipeline preserves this by identity, not timing.
 
 ```
-Reasoner.Tool Calls (aux) ──► Router.Tool Calls          (assistant turn: text + tool_use blocks)
+LLM Call.Tool Calls (aux) ──► Router.Tool Calls          (assistant turn: text + tool_use blocks)
 Router.<tool> output ────────► ToolNode.Signal           (dispatched call(s) as tool_use blocks)
-Router.Feedback ─► Feedback ~► FeedbackCollector ─► Recorder.Tool Signal
+Router.Feedback ─► Feedback ~► FeedbackCollector ─► Conversation Log.Tool Signal
 ToolNode.Result ─► Feedback ~► FeedbackCollector ─► Router.Results
 ```
 
-- **Reasoner** routes a tool-call response on its **aux** `Tool Calls` output (not Success):
+- **LLM Call** routes a tool-call response on its **aux** `Tool Calls` output (not Success):
   one assistant turn = optional `TextContent` + one `ToolCallContent` per call. A plain
   answer routes on Success as usual.
 - **Router** has one variable output per tool (auto-named from the wired tool node's
   `Tool Definition`; see the component). It:
-  1. forwards the whole assistant turn on its fixed **Feedback** output so the Recorder
-     logs the request (recorded as a *quiet* assistant turn — must not re-fire the Reasoner);
+  1. forwards the whole assistant turn on its fixed **Feedback** output so the Conversation Log
+     logs the request (recorded as a *quiet* assistant turn — must not re-fire the LLM Call);
   2. **groups calls by target output** and dispatches all calls for one tool as a **single**
      signal carrying multiple `ToolCallContent` blocks — a single output holds only one
      latched signal, so parallel calls to the *same* tool cannot ride separate signals;
@@ -271,7 +271,7 @@ ToolNode.Result ─► Feedback ~► FeedbackCollector ─► Router.Results
      accumulates returning `ToolResultContent` blocks (matched by `tool_use_id`), and
      forwards **one** combined Feedback signal only once the whole set is satisfied
      (`ResultsReady()`). That becomes the single user turn the provider requires, firing the
-     Reasoner exactly once. A call with no matching output is answered with a synthetic
+     LLM Call exactly once. A call with no matching output is answered with a synthetic
      `is_error` result so the round can still complete.
 
 - **Tool nodes inherit `ToolComponentBase`** (`Components/Tools/ToolComponentBase.cs`), which
@@ -304,13 +304,13 @@ ToolNode.Result ─► Feedback ~► FeedbackCollector ─► Router.Results
 
 1. **Routes a result forward/back on a signal?** Inherit `RoutingComponentBase<TData>`
    — the full contract is free. Take the working data from `signal.Payload` unless it
-   genuinely needs a typed input (the Reasoner pattern).
+   genuinely needs a typed input (the LLM Call pattern).
 2. **Signal-driven with bespoke outputs or quiet outcomes?** Inherit
-   `StatefulComponentBase` (the Recorder pattern): `ObserveSignalInputs` every solve →
+   `StatefulComponentBase` (the Conversation Log pattern): `ObserveSignalInputs` every solve →
    consume → `EnterActive` → work → `ScheduleStateSolve(SolveDelayMs, …)` →
    `LatchSuccess/LatchFailure` (use `emitSignal:false` for quiet outcomes) → post-latch
    `HasUnconsumedSignals` follow-up check.
-3. **No events, purely deterministic?** Plain `PhyBase` (the Composer / Deconstruct
+3. **No events, purely deterministic?** Plain `PhyBase` (the System Prompt / Deconstruct
    Signal pattern).
 
 Rules that keep the system race-free — follow them in every new component:

@@ -15,12 +15,12 @@ using Physalia.GH.Parameters;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Dispatches a Reasoner's tool calls to tool nodes and forwards both the model's request and the
-/// returned results back toward the Recorder. Each user-added output receives the calls whose name
+/// Dispatches a LLM Call's tool calls to tool nodes and forwards both the model's request and the
+/// returned results back toward the Conversation Log. Each user-added output receives the calls whose name
 /// matches it; an output's name updates automatically to the tool it is wired into (the tool node's
 /// advertised <c>Tool Definition</c>), so dispatch matches without a manual rename. A fixed Feedback
 /// output (always last) carries the assistant tool-call request and, later, the collected tool
-/// results — wire it through a Feedback component into a Feedback Collector and on to the Recorder's
+/// results — wire it through a Feedback component into a Feedback Collector and on to the Conversation Log's
 /// Tool input.
 ///
 /// <para>Tool results return wirelessly: each tool node's result goes through a Feedback component
@@ -29,7 +29,7 @@ namespace Physalia.GH.Components;
 ///
 /// <para>When the model calls several tools at once, each result returns independently. The Router
 /// holds them until every dispatched <c>tool_use</c> id has a matching result, then forwards one
-/// combined signal so the Recorder logs a single user turn carrying all <c>tool_result</c> blocks —
+/// combined signal so the Conversation Log logs a single user turn carrying all <c>tool_result</c> blocks —
 /// which is what the provider requires after a multi-tool assistant turn. A call with no matching
 /// output is answered with an error result so that round can still complete.</para>
 /// </summary>
@@ -55,7 +55,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     /// Initializes a new instance of the <see cref="Router"/> class.
     /// </summary>
     public Router()
-        : base("Router", "Rtr", "Dispatches tool calls to named outputs and routes the request and results back to the Recorder.", "Tools")
+        : base("Router", "Rtr", "Dispatches tool calls to named outputs and routes the request and results back to the Conversation Log.", "Tools")
     {
     }
 
@@ -90,8 +90,8 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Tool Calls", "TC", "Tool-call signal from a Reasoner's Tool Calls output. Each call is dispatched to the output whose nickname matches the tool's name.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_Signal(), "Results", "R", "Tool results returning through a Feedback Collector. Forwarded to the Recorder via the Feedback output.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "Tool Calls", "TC", "Tool-call signal from a LLM Call's Tool Calls output. Each call is dispatched to the output whose nickname matches the tool's name.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "Results", "R", "Tool results returning through a Feedback Collector. Forwarded to the Conversation Log via the Feedback output.", GH_ParamAccess.list);
         pManager[InToolCalls].Optional = true;
         pManager[InResults].Optional = true;
     }
@@ -104,7 +104,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     /// </remarks>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Feedback", "F", "Carries the assistant tool-call request and the collected results back to the Recorder. Wire through a Feedback component into a Feedback Collector, then into the Recorder's Tool input.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Feedback", "F", "Carries the assistant tool-call request and the collected results back to the Conversation Log. Wire through a Feedback component into a Feedback Collector, then into the Conversation Log's Tool input.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -165,7 +165,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
         ObserveSignalInputs(DA, InToolCalls, InResults);
 
         // Consume in global sequence order: a tool-call request is always minted before the
-        // results it provokes, so the request reaches the Recorder before the results.
+        // results it provokes, so the request reaches the Conversation Log before the results.
         bool dispatched = false;
         foreach (ConsumedSignal item in ConsumeAllSignals(InToolCalls, InResults))
         {
@@ -223,7 +223,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
         _collectedResults.Clear();
         _awaitingResults = true;
 
-        // Forward the whole assistant turn (text + tool_use blocks) to the Recorder so the model's
+        // Forward the whole assistant turn (text + tool_use blocks) to the Conversation Log so the model's
         // request is logged before any result.
         _feedbackSignal = PhySignal.Mint(SignalOutcome.Success, signal.Payload, InstanceGuid, Name, signal.ContentBlocks);
 
@@ -259,7 +259,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     private void CollectResults(PhySignal signal)
     {
         // Accumulate (never forward per-result): each independent tool node returns its own
-        // tool_result, but they must arrive at the Recorder as ONE user turn. Match by tool_use_id
+        // tool_result, but they must arrive at the Conversation Log as ONE user turn. Match by tool_use_id
         // so the dispatched set drains regardless of arrival order.
         foreach (ToolResultContent result in signal.ContentBlocks.OfType<ToolResultContent>())
         {
@@ -274,7 +274,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     private void ForwardCollectedResults()
     {
         // One combined signal carrying every tool_result — recorded as the single user turn the
-        // provider requires after the assistant tool_use turn, firing the Reasoner exactly once.
+        // provider requires after the assistant tool_use turn, firing the LLM Call exactly once.
         _awaitingResults = false;
         (IReadOnlyList<MessageContent> blocks, string payload) = ToolDispatchRound.CombineResults(_collectedResults);
 

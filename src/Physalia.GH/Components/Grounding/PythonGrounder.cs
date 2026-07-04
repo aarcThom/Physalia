@@ -11,7 +11,7 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// Scaffold producer: emits a <see cref="PythonFunctionGrounding"/> describing a python function
-/// so the Composer can ground the model with it. Wire its output into the Composer's Grounding
+/// so the System Prompt can ground the model with it. Wire its output into the System Prompt's Grounding
 /// input.
 /// </summary>
 /// <remarks>
@@ -45,7 +45,7 @@ public class PythonGrounder : PhyBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Python-function grounding for the Composer.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Python-function grounding for the System Prompt.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

@@ -11,11 +11,11 @@ metadata:
 
 The bool-trigger / momentary-pulse / SHA-256-signature system this file used to describe is **gone**. Events now travel as latched, sequence-numbered, consume-once `PhySignal`s whose payload is the only data carrier between pipeline components (one wire per hop; Success Signal(0) / Fail Signal(1); nothing in the lifecycle serializes — components reopen Empty).
 
-**Authoritative reference: `planning/data-marshalling.md` in the repo** (signal semantics, the StatefulComponentBase → RoutingComponentBase two-layer architecture, solve rhythm, Recorder identity-based turns, wiring diagram, rules for new components). CLAUDE.md carries a condensed version (updated 2026-06-11). Don't re-derive from this memory — read the repo doc.
+**Authoritative reference: `planning/data-marshalling.md` in the repo** (signal semantics, the StatefulComponentBase → RoutingComponentBase two-layer architecture, solve rhythm, Conversation Log identity-based turns, wiring diagram, rules for new components). CLAUDE.md carries a condensed version (updated 2026-06-11). Don't re-derive from this memory — read the repo doc.
 
 Non-obvious facts NOT in the repo docs:
 
-- **PyTransmitter deliberately does not clear its linked target** on Clear Outputs / unlink — the pushed Python code stays in the target component. This is a requirement (vs Auditor/SchemaTranslator which only own their latches), not an omission.
+- **PyTransmitter deliberately does not clear its linked target** on Clear Outputs / unlink — the pushed Python code stays in the target component. This is a requirement (vs Schema Validator/SchemaTranslator which only own their latches), not an omission.
 - **`PythonComponent.json` lives in repo-root `Files/`** (canonical — `CopyLibraryFiles` globs `..\..\Files\**\*`); a stale duplicate tree exists at `src/Physalia.GH/Files/`, flagged but never reconciled.
 - Old serialization keys from the trigger era (`State`, `DataOut`, `FeedbackOut`, `LastTrigger`) are intentionally ignored on load — don't "fix" old files that contain them.
 

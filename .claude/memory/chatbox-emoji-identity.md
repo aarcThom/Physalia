@@ -1,20 +1,20 @@
 ---
-name: chatbox-emoji-identity
-description: Each Chatbox gets a random ocean emoji as its canvas icon + switcher-row dot
+name: Chat-emoji-identity
+description: Each Chat gets a random ocean emoji as its canvas icon + switcher-row dot
 metadata:
   node_type: memory
   type: project
   originSessionId: 709e481c-1f44-4e56-9f70-49eb73fe5ebc
 ---
 
-Each `Chatbox` is assigned a stable, randomly-chosen sea/ocean emoji as its visual
+Each `Chat` is assigned a stable, randomly-chosen sea/ocean emoji as its visual
 identity, so users can pair a switcher-row dot in the chat window with the component on
 canvas. Landed 2026-06-24, builds clean (`dotnet build src/Physalia.slnx -c Debug`); live
 Rhino test of the colour icons pending.
 
-- `Chatbox.cs`: `OceanEmoji` palette (~21 single-glyph emojis, `🌊` first), `_emoji` field
+- `Chat.cs`: `OceanEmoji` palette (~21 single-glyph emojis, `🌊` first), `_emoji` field
   seeded random in ctor, deduped against canvas siblings in `AddedToDocument` (skipped when
-  `_loaded`, i.e. restored from file). Persisted via `Write`/`Read` key `"ChatboxEmoji"`.
+  `_loaded`, i.e. restored from file). Persisted via `Write`/`Read` key `"ChatEmoji"`.
   `Emoji` public getter.
 - **Icon = bundled colour PNG, NOT a drawn font glyph.** GDI / `System.Drawing` (and the GH
   canvas, which paints objects to an off-screen GDI buffer) can only render the *monochrome
@@ -27,8 +27,8 @@ Rhino test of the colour icons pending.
   (HighQualityBicubic). Ribbon proxy (no document) shows `OceanEmoji[0]` (🌊); brain fallback if
   a resource is missing. `ResetEmojiIcon` nulls the cache + `DestroyIconCache()` (real
   GH_DocumentObject method); called on emoji change and in `AddedToDocument`.
-- `ChatWindow.MaybePushChatboxes` adds `emoji = cb.Emoji` to the pushed JSON; `bridge.ts`
-  `UiChatbox.emoji`; `App.svelte` switcher row renders the glyph (HTML → colour native) instead
+- `ChatWindow.MaybePushChats` adds `emoji = cb.Emoji` to the pushed JSON; `bridge.ts`
+  `UiChat.emoji`; `App.svelte` switcher row renders the glyph (HTML → colour native) instead
   of a coloured dot (active = raised neu ring `--neu-shadow-sm`, no-history = `opacity-40`).
 - Dead end tried first: rendering the emoji with `TextRenderer.DrawText` (Segoe UI Emoji) into a
   bitmap *and* live on the canvas DC — both monochrome. To colour-render a system emoji font you

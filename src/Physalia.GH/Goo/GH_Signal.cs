@@ -97,7 +97,7 @@ public class GH_Signal : PhyGoo<GH_Signal, PhySignal>
             return true;
         }
 
-        // A signal carrying full Instructions (the Recorder→Reasoner inference event) casts straight
+        // A signal carrying full Instructions (the Conversation Log→LLM Call inference event) casts straight
         // to Instructions or to its Conversation, so a typed input consumes it without a manual
         // Deconstruct Signal → Deconstruct Instructions. Null Instructions falls through to the
         // payload escape hatch below.

@@ -28,7 +28,7 @@ public sealed record PhySchemaDocument(
     /// <summary>
     /// Deserialises a validated PhySchema JSON string into a document model.
     /// </summary>
-    /// <param name="json">The PhySchema JSON string (e.g. the Auditor's validated output).</param>
+    /// <param name="json">The PhySchema JSON string (e.g. the Schema Validator's validated output).</param>
     /// <returns>The parsed document, or null if deserialisation yields no object.</returns>
     public static PhySchemaDocument? FromJson(string json)
     {

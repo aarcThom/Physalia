@@ -12,7 +12,7 @@ namespace Physalia.Core.Providers;
 
 /// <summary>
 /// Common contract for all LLM providers.
-/// Implemented by each protocol base class so the factory and Reasoner
+/// Implemented by each protocol base class so the factory and LLM Call
 /// can work against a single type regardless of wire format.
 /// </summary>
 public interface ILlmProvider

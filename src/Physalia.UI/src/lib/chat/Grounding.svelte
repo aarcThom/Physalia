@@ -395,8 +395,8 @@
 			<div class="mt-6 flex flex-col items-center gap-4">
 				<HappyFace />
 				<p class="text-muted-foreground text-center text-sm">
-					No grounding wired. Connect a <strong>Library</strong> (component catalog) or a
-					<strong>Cluster Grounding</strong> to the Recorder's Grounding input to choose what's
+					No grounding wired. Connect a <strong>Component Catalog</strong> or a
+					<strong>Cluster Grounding</strong> to the Conversation Log's Grounding input to choose what's
 					available.
 				</p>
 			</div>

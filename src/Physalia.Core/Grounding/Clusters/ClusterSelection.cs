@@ -14,7 +14,7 @@ namespace Physalia.Core.Grounding.Clusters;
 /// <see cref="ClusterCatalogGrounding"/> is folded into the system prompt. Keyed by cluster name.
 ///
 /// <para>A <see langword="null"/> selection (handled by the callers, never an instance of this class)
-/// means "include everything" — the default for a never-configured Recorder. An instance with zero
+/// means "include everything" — the default for a never-configured Conversation Log. An instance with zero
 /// names means "include nothing". Unknown names (referencing a cluster absent from the current
 /// folder) are simply never matched, so a selection from another machine degrades gracefully.</para>
 /// </summary>

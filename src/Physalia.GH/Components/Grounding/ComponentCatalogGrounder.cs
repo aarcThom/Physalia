@@ -15,11 +15,11 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Reads the live Grasshopper component server and outputs a snapshot of the installed,
 /// non-obsolete components — their names, type GUIDs, and category placement. Downstream, the
-/// Resolver uses it to map an LLM's component names to real installed components, and the
-/// Composer can fold the available names into the system prompt. Has no inputs; right-click to
+/// Component Resolver uses it to map an LLM's component names to real installed components, and the
+/// System Prompt can fold the available names into the system prompt. Has no inputs; right-click to
 /// refresh after installing plug-ins.
 /// </summary>
-public class Library : PhyBase
+public class ComponentCatalogGrounder : PhyBase
 {
     private ComponentCatalog? _catalog;
 
@@ -31,10 +31,10 @@ public class Library : PhyBase
     private bool _includeLegacy;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Library"/> class.
+    /// Initializes a new instance of the <see cref="ComponentCatalogGrounder"/> class.
     /// </summary>
-    public Library()
-        : base("Library", "Lib", "Snapshots the installed Grasshopper components (names and type GUIDs) for resolving and grounding generated graphs. Right-click to refresh.", "Grounding")
+    public ComponentCatalogGrounder()
+        : base("Component Catalog", "Component Catalog", "Snapshots the installed Grasshopper components (names and type GUIDs) for resolving and grounding generated graphs. Right-click to refresh.", "Grounding")
     {
     }
 

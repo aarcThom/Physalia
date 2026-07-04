@@ -8,7 +8,7 @@ namespace Physalia.GH.Parameters;
 
 /// <summary>
 /// A hidden Grasshopper parameter that carries <see cref="GH_Grounding"/> values into the
-/// Composer's Grounding input. Accepts any grounding producer's goo via
+/// System Prompt's Grounding input. Accepts any grounding producer's goo via
 /// <see cref="GH_Grounding.CastFrom"/>.
 /// </summary>
 public class Param_Grounding : PhyParam<GH_Grounding>

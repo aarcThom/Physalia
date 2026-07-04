@@ -31,7 +31,7 @@ public class CollapsedProxyAttributes : GH_Attributes<IGH_DocumentObject>
     /// </summary>
     /// <param name="owner">The native document object being hidden.</param>
     /// <param name="original">The original attributes to restore on expand.</param>
-    /// <param name="point">The shared collapse point (the proxy Chatbox pivot).</param>
+    /// <param name="point">The shared collapse point (the proxy Chat pivot).</param>
     public CollapsedProxyAttributes(IGH_DocumentObject owner, IGH_Attributes original, PointF point)
         : base(owner)
     {
@@ -47,7 +47,7 @@ public class CollapsedProxyAttributes : GH_Attributes<IGH_DocumentObject>
     public IGH_Attributes Original { get; }
 
     /// <summary>
-    /// Moves the collapse point so a hidden native member tracks the proxy Chatbox if it is
+    /// Moves the collapse point so a hidden native member tracks the proxy Chat if it is
     /// dragged. Expires the layout so the new point takes effect.
     /// </summary>
     /// <param name="point">The new shared collapse point.</param>

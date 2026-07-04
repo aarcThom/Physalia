@@ -12,13 +12,13 @@ using Physalia.GH.Components;
 namespace Physalia.GH.Panels;
 
 /// <summary>
-/// Modeless Eto panel for managing an <see cref="ImageGatherer"/>'s image list: a table of
+/// Modeless Eto panel for managing an <see cref="ImageSources"/>'s image list: a table of
 /// path / editable alias / preview / remove, plus Add Image and Paste buttons. Every edit is
 /// pushed back to the component, which re-solves live.
 /// </summary>
 public class ManageImagesDialog : Form
 {
-    private readonly ImageGatherer _component;
+    private readonly ImageSources _component;
     private readonly ObservableCollection<ImageEntry> _rows;
     private readonly GridView _grid;
     private readonly GridColumn _aliasColumn;
@@ -29,7 +29,7 @@ public class ManageImagesDialog : Form
     /// Initializes a new instance of the <see cref="ManageImagesDialog"/> class.
     /// </summary>
     /// <param name="component">The component whose images this panel manages.</param>
-    public ManageImagesDialog(ImageGatherer component)
+    public ManageImagesDialog(ImageSources component)
     {
         _component = component ?? throw new ArgumentNullException(nameof(component));
 
@@ -247,7 +247,7 @@ public class ManageImagesDialog : Form
 
         foreach (string path in dialog.Filenames)
         {
-            string? mime = ImageGatherer.MimeFromExtension(path);
+            string? mime = ImageSources.MimeFromExtension(path);
             if (mime is null)
             {
                 MessageBox.Show(this, $"Unsupported image type: {path}", "Add Image", MessageBoxButtons.OK, MessageBoxType.Warning);
@@ -268,7 +268,7 @@ public class ManageImagesDialog : Form
             var entry = new ImageEntry
             {
                 FilePath = path,
-                Alias = ImageGatherer.UniqueAlias(ImageGatherer.SanitizeAlias(Path.GetFileNameWithoutExtension(path)), _rows),
+                Alias = ImageSources.UniqueAlias(ImageSources.SanitizeAlias(Path.GetFileNameWithoutExtension(path)), _rows),
                 Data = data,
                 MimeType = mime,
             };
@@ -305,7 +305,7 @@ public class ManageImagesDialog : Form
         var entry = new ImageEntry
         {
             FilePath = null,
-            Alias = ImageGatherer.UniqueAlias("pasted", _rows),
+            Alias = ImageSources.UniqueAlias("pasted", _rows),
             Data = data,
             MimeType = "image/png",
         };

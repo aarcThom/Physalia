@@ -15,7 +15,7 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// A model-invoked tool node that searches the internet via the Tavily API. It advertises a
-/// <c>web_search</c> tool (wire its Tool output into the Reasoner's Tools input); when the model calls
+/// <c>web_search</c> tool (wire its Tool output into the LLM Call's Tools input); when the model calls
 /// it, the dispatched signal arrives from a Router, the node queries Tavily, and it emits the result
 /// as a tool result (wire its Result output through a Feedback component into a Feedback Collector and
 /// back to the Router's Results input).

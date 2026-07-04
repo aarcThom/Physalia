@@ -121,7 +121,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// <summary>
     /// Produces the working data for a run from the consumed signal and/or the
     /// component's own inputs. Most components take the signal's payload; components
-    /// whose context arrives on a typed input (e.g. Reasoner's Instructions) read that
+    /// whose context arrives on a typed input (e.g. LLM Call's Instructions) read that
     /// instead. Returns false when nothing usable is available, in which case the
     /// consumed signal is dropped with a warning (there is nothing to process).
     /// </summary>
@@ -427,7 +427,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         /// <summary>
         /// Gets the full inference context carried by the minted success signal, or null when the
         /// result carries only a text payload. Set by compaction components re-emitting compacted
-        /// Instructions on the forward path to the Reasoner.
+        /// Instructions on the forward path to the LLM Call.
         /// </summary>
         public Instructions? Instructions { get; }
 
@@ -456,7 +456,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         /// <summary>
         /// Creates a result that emits a caller-minted signal on the subclass's aux output
         /// (<see cref="AuxOutputIndex"/>) instead of Success/Fail. Used for a third outcome
-        /// such as the Reasoner's tool-call route. The caller mints the signal so it can carry
+        /// such as the LLM Call's tool-call route. The caller mints the signal so it can carry
         /// structured content (e.g. tool-call blocks).
         /// </summary>
         /// <param name="signal">The pre-minted signal to latch and re-emit on the aux output.</param>

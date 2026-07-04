@@ -13,15 +13,15 @@ using Physalia.GH.Components;
 namespace Physalia.GH.Harness;
 
 /// <summary>
-/// Manages a collapsible group of pipeline components behind a single proxy node (a Chatbox).
+/// Manages a collapsible group of pipeline components behind a single proxy node (a Chat).
 /// Holds the member set, the collapsed state, and the bookkeeping to hide and restore members
 /// in place: Physalia (<see cref="PhyBase"/>) members are flagged and their own attributes
 /// shrink them to the proxy; non-Physalia members have their attributes swapped for a
 /// <see cref="CollapsedProxyAttributes"/> stand-in and restored on expand. Members are never
 /// moved or removed, so they stay wired and keep solving while hidden.
 ///
-/// <para>All the group/collapse logic lives here so the Chatbox stays a thin proxy that merely
-/// delegates. The member set and collapsed flag persist with the Chatbox; the swapped-attribute
+/// <para>All the group/collapse logic lives here so the Chat stays a thin proxy that merely
+/// delegates. The member set and collapsed flag persist with the Chat; the swapped-attribute
 /// map is session-only and rebuilt by re-applying the collapsed state after a load.</para>
 /// </summary>
 public sealed class Harness
@@ -43,7 +43,7 @@ public sealed class Harness
     /// <summary>
     /// Initializes a new instance of the <see cref="Harness"/> class.
     /// </summary>
-    /// <param name="owner">The proxy node (Chatbox) that owns and represents the group.</param>
+    /// <param name="owner">The proxy node (Chat) that owns and represents the group.</param>
     public Harness(IGH_DocumentObject owner)
     {
         _owner = owner ?? throw new ArgumentNullException(nameof(owner));
@@ -129,17 +129,17 @@ public sealed class Harness
     }
 
     /// <summary>
-    /// Whether a component is already a member of some Chatbox's harness other than the one
+    /// Whether a component is already a member of some Chat's harness other than the one
     /// identified by <paramref name="exceptOwnerGuid"/>. Keeps each component in at most one
-    /// harness and stops a chatbox that is itself a member from starting its own (no nesting).
+    /// harness and stops a chat that is itself a member from starting its own (no nesting).
     /// </summary>
     /// <param name="doc">The document to scan.</param>
     /// <param name="memberGuid">The candidate component's InstanceGuid.</param>
-    /// <param name="exceptOwnerGuid">A Chatbox owner to ignore (usually the asking harness).</param>
+    /// <param name="exceptOwnerGuid">A Chat owner to ignore (usually the asking harness).</param>
     /// <returns>true when another harness already owns the component.</returns>
     public static bool IsMemberOfAnyHarness(GH_Document doc, Guid memberGuid, Guid exceptOwnerGuid)
     {
-        foreach (Chatbox cb in doc.Objects.OfType<Chatbox>())
+        foreach (Chat cb in doc.Objects.OfType<Chat>())
         {
             if (cb.InstanceGuid != exceptOwnerGuid && cb.Group.Contains(memberGuid))
             {
@@ -150,9 +150,9 @@ public sealed class Harness
         return false;
     }
 
-    // Whether a candidate may join this harness: not a Chatbox that already owns a harness (no
-    // nesting), and not already a member of another Chatbox's harness (single membership). A plain
-    // chatbox with no members of its own may still be added.
+    // Whether a candidate may join this harness: not a Chat that already owns a harness (no
+    // nesting), and not already a member of another Chat's harness (single membership). A plain
+    // chat with no members of its own may still be added.
     private bool CanContain(GH_Document? doc, Guid g)
     {
         if (doc is null)
@@ -166,7 +166,7 @@ public sealed class Harness
             return false;
         }
 
-        if (obj is Chatbox cb && cb.Group.Count > 0)
+        if (obj is Chat cb && cb.Group.Count > 0)
         {
             return false;
         }
@@ -338,7 +338,7 @@ public sealed class Harness
     }
 
     /// <summary>
-    /// Persists the member set and collapsed flag with the owning Chatbox.
+    /// Persists the member set and collapsed flag with the owning Chat.
     /// </summary>
     /// <param name="writer">The writer to persist into.</param>
     public void Write(GH_IWriter writer)

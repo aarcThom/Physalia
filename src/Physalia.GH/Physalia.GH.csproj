@@ -130,7 +130,7 @@
 	  <EmbeddedResource Include="Resources\*.png" Exclude="Resources\sprite_*.png" />
 	</ItemGroup>
 
-	<!-- Bundled colour emoji bitmaps (Noto Emoji, Apache-2.0) used as per-instance Chatbox
+	<!-- Bundled colour emoji bitmaps (Noto Emoji, Apache-2.0) used as per-instance Chat
 	     icons, since GDI cannot colour-render an emoji font. Named emoji_u<codepoint>.png;
 	     resource name = Physalia.GH.Resources.emoji.emoji_u<codepoint>.png. See Resources/emoji/NOTICE. -->
 	<ItemGroup>

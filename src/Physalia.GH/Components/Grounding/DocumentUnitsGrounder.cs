@@ -12,7 +12,7 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Emits a <see cref="DocumentUnitsGrounding"/> describing the active Rhino document's unit system,
 /// so the model produces numeric values and geometry consistent with the document's units. Wire its
-/// output into the Recorder's Grounding input; the chat window then shows the current units and lets
+/// output into the Conversation Log's Grounding input; the chat window then shows the current units and lets
 /// the user override the value handed to the model (the override never changes the document). Has no
 /// inputs — it reads the active document's units on every solve.
 /// </summary>
@@ -41,7 +41,7 @@ public class DocumentUnitsGrounder : PhyBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Document-units grounding for the Recorder.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Document-units grounding for the Conversation Log.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

@@ -33,7 +33,7 @@ public class GroundingComposerTests
 
         string result = GroundingComposer.Append("BASE PROMPT", groundings);
 
-        // Same shape as the old Composer.AppendCatalog: base, blank line, header line, CSV of sorted names.
+        // Same shape as the old System Prompt component's catalog append: base, blank line, header line, CSV of sorted names.
         Assert.Equal(
             "BASE PROMPT\n\nThese Grasshopper components are installed and available — native and plug-in alike. This list is the authoritative catalogue of what may be placed: use these exact names, and only components from this list:\nConstruct Point, Move",
             result);

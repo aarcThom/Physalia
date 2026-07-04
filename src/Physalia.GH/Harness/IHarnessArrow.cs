@@ -9,7 +9,7 @@ namespace Physalia.GH.Harness;
 
 /// <summary>
 /// A harness member that exposes a bottom-centre drag arrow (the transmitters). When such a
-/// member is the sole arrow-bearing component in a collapsed harness, the Chatbox proxy draws
+/// member is the sole arrow-bearing component in a collapsed harness, the Chat proxy draws
 /// the arrow from its own bottom and delegates the drag through this interface, so the real
 /// link/placement is updated and survives expansion. Hides the two transmitters' different
 /// interaction models (link-to-object vs drop-to-point) behind common operations.

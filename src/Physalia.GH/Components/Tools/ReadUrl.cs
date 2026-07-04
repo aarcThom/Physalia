@@ -16,7 +16,7 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// A model-invoked tool node that reads a web page: it fetches a URL through the Jina Reader
 /// (<c>r.jina.ai</c>) and returns the main content as clean markdown. It advertises a <c>read_url</c>
-/// tool (wire its Tool output into the Reasoner's Tools input); when the model calls it, the dispatched
+/// tool (wire its Tool output into the LLM Call's Tools input); when the model calls it, the dispatched
 /// signal arrives from a Router, the node fetches the page, and it emits the content as a tool result
 /// (wire its Result output through a Feedback component into a Feedback Collector and back to the
 /// Router's Results input). The natural follow-up to web_search.

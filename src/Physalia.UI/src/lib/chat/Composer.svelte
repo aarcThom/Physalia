@@ -24,7 +24,7 @@
 	import { stripDataUrl, type ComponentTabInfo, type SubmitMessage } from '$lib/bridge';
 
 	interface Props {
-		/** No Recorder wired — shown as a hint, but the box stays usable (sending
+		/** No Conversation Log wired — shown as a hint, but the box stays usable (sending
 		 *  still mints a Prompt Signal). */
 		disconnected: boolean;
 		/** Pipeline is mid-run — block input until it settles, to avoid re-submitting. */
@@ -72,7 +72,7 @@
 		filename: string;
 	}
 
-	// Block while the pipeline is busy, during setup (no provider yet), or while no Recorder is wired —
+	// Block while the pipeline is busy, during setup (no provider yet), or while no Conversation Log is wired —
 	// EXCEPT in API-key mode, where the box stays live so the user can paste their key.
 	let inert = $derived(busy || ((disabled || disconnected) && !apiKeyProvider));
 
@@ -802,7 +802,7 @@
 				disabled={inert || !!apiKeyProvider || !groundingWired}
 				title={groundingWired
 					? 'Grounding — choose what context is available to the model'
-					: 'Grounding — wire a grounding into the Recorder to enable'}
+					: 'Grounding — wire a grounding into the Conversation Log to enable'}
 			>
 				<LayersIcon />
 			</Button>

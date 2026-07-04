@@ -9,8 +9,8 @@ namespace Physalia.GH.Goo;
 
 /// <summary>
 /// Grasshopper goo wrapping a <see cref="ComponentCatalog"/> — the snapshot of installed
-/// components produced by the Library component and consumed by the Resolver (and, optionally,
-/// the Composer for prompt grounding).
+/// components produced by the Component Catalog component and consumed by the Component Resolver (and, optionally,
+/// the System Prompt for prompt grounding).
 /// </summary>
 public class GH_ComponentCatalog : PhyGoo<GH_ComponentCatalog, ComponentCatalog>
 {
@@ -42,12 +42,12 @@ public class GH_ComponentCatalog : PhyGoo<GH_ComponentCatalog, ComponentCatalog>
         Value is null ? "(empty component catalog)" : $"Component Catalog ({Value.Count} components)";
 
     /// <inheritdoc/>
-    /// <remarks>Intentional no-op: the Library component rebuilds the catalog from the live
+    /// <remarks>Intentional no-op: the Component Catalog component rebuilds the catalog from the live
     /// component server, so the goo itself stores nothing.</remarks>
     public override bool Write(GH_IWriter writer) => true;
 
     /// <inheritdoc/>
-    /// <remarks>Intentional no-op: the Library component rebuilds the catalog from the live
+    /// <remarks>Intentional no-op: the Component Catalog component rebuilds the catalog from the live
     /// component server, so the goo itself stores nothing.</remarks>
     public override bool Read(GH_IReader reader) => true;
 }

@@ -14,4 +14,4 @@ The model addresses these through a virtual `/memories` path: `/memories/global/
 `/memories/local/...`. Memories are plain Markdown (`.md`) files.
 
 The Memory tool only informs the model that this memory exists when a **Memory Grounding** component is
-wired into the Recorder. Without that grounding, the model is told nothing about memory.
+wired into the Conversation Log. Without that grounding, the model is told nothing about memory.

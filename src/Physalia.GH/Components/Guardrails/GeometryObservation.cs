@@ -24,9 +24,9 @@ namespace Physalia.GH.Components;
 /// preview geometry) and captures a viewport snapshot. It then mints a single signal carrying the
 /// user's <c>Message</c> as its payload plus the snapshot image as an inline content block, and
 /// latches that <em>same</em> signal on both the Success and Fail outputs so either downstream
-/// branch (forward to a Recorder, or back to the Reasoner as feedback) receives identical content.
+/// branch (forward to a Conversation Log, or back to the LLM Call as feedback) receives identical content.
 /// </summary>
-public class OutputSnapshot : RoutingComponentBase<string>
+public class GeometryObservation : RoutingComponentBase<string>
 {
     /// <summary>Index of the subclass-owned Message input (registered before the base Signal input).</summary>
     private const int MessageInputIndex = 0;
@@ -39,14 +39,14 @@ public class OutputSnapshot : RoutingComponentBase<string>
     private string? _captureError;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="OutputSnapshot"/> class.
+    /// Initializes a new instance of the <see cref="GeometryObservation"/> class.
     /// </summary>
-    public OutputSnapshot()
+    public GeometryObservation()
         : base(
-            "Output Snapshot",
-            "Snap",
+            "Geometry Observation",
+            "Geometry Observation",
             "Zooms the Rhino viewport onto the upstream geometry and captures a snapshot. Emits the Message plus the snapshot image on both outputs.",
-            "Deterministic Gates")
+            "Guardrails")
     {
     }
 

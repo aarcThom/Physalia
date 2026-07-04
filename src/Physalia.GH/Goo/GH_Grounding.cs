@@ -11,12 +11,12 @@ namespace Physalia.GH.Goo;
 /// <summary>
 /// Grasshopper goo wrapping a <see cref="Grounding"/> — a piece of model-grounding context
 /// (today an installed-component catalog; in future a Grasshopper cluster or python function)
-/// folded into the system prompt by the Composer.
+/// folded into the system prompt by the System Prompt.
 ///
 /// <para><see cref="CastFrom"/> adapts the producer goo of each grounding source so existing
-/// wiring keeps working without producer changes: a Library's <see cref="GH_ComponentCatalog"/>
-/// casts straight into a <see cref="ComponentCatalogGrounding"/> on the Composer's Grounding
-/// input, while the Library still emits the raw catalog the Resolver needs.</para>
+/// wiring keeps working without producer changes: a Component Catalog's <see cref="GH_ComponentCatalog"/>
+/// casts straight into a <see cref="ComponentCatalogGrounding"/> on the System Prompt's Grounding
+/// input, while the Component Catalog still emits the raw catalog the Component Resolver needs.</para>
 /// </summary>
 public class GH_Grounding : PhyGoo<GH_Grounding, Grounding>
 {
@@ -59,9 +59,9 @@ public class GH_Grounding : PhyGoo<GH_Grounding, Grounding>
                 Value = goo.Value;
                 return true;
 
-            // Adapt the catalog producer (Library) so its existing wire casts onto a Grounding
-            // input. The Library still emits GH_ComponentCatalog for the Resolver; only the
-            // Composer's input surface changed.
+            // Adapt the catalog producer (Component Catalog) so its existing wire casts onto a Grounding
+            // input. The Component Catalog still emits GH_ComponentCatalog for the Component Resolver; only the
+            // System Prompt's input surface changed.
             case GH_ComponentCatalog catalogGoo when catalogGoo.Value is not null:
                 Value = new ComponentCatalogGrounding(catalogGoo.Value);
                 return true;

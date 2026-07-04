@@ -13,7 +13,7 @@ namespace Physalia.GH.Attributes;
 /// start points via a parameter attribute's
 /// <see cref="GH_Attributes{T}.HasInputGrip"/>/<see cref="GH_Attributes{T}.HasOutputGrip"/>
 /// (see <c>GH_Document.RelevantObjectAtPoint</c>), so reporting no grips makes a collapsed
-/// harness — both its proxy Chatbox and every hidden member piled at the proxy point —
+/// harness — both its proxy Chat and every hidden member piled at the proxy point —
 /// non-wireable, while leaving the nodes draggable and their existing connections intact (wire
 /// rendering reads the grip <em>positions</em>, not these flags).
 /// </summary>

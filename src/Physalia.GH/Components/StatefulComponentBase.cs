@@ -99,7 +99,7 @@ public abstract class StatefulComponentBase : PhyBase
     /// <summary>
     /// Gets a value indicating whether the component is currently Active (a run is in
     /// flight, including the visible end-of-solve delay). Public so other components'
-    /// attributes can reflect pipeline activity (e.g. the Chatbox's busy animation).
+    /// attributes can reflect pipeline activity (e.g. the Chat's busy animation).
     /// </summary>
     public bool IsBusy => State == SolveState.Active;
 
@@ -311,7 +311,7 @@ public abstract class StatefulComponentBase : PhyBase
     /// <param name="payload">The event payload carried by the minted signal (the data string).</param>
     /// <param name="emitSignal">
     /// When false, state and caption update but no signal is minted — a quiet success
-    /// that must not fire downstream (e.g. Recorder recording an assistant turn).
+    /// that must not fire downstream (e.g. Conversation Log recording an assistant turn).
     /// </param>
     /// <param name="outcome">
     /// Outcome stamped on the minted signal. Defaults to Success; pass-through components
@@ -319,11 +319,11 @@ public abstract class StatefulComponentBase : PhyBase
     /// though their own run succeeded.
     /// </param>
     /// <param name="contentBlocks">
-    /// Optional resolved content blocks carried alongside the payload — e.g. a Chatbox user
+    /// Optional resolved content blocks carried alongside the payload — e.g. a Chat user
     /// turn with inline images. Null/empty for the common text-only case.
     /// </param>
     /// <param name="instructions">
-    /// Optional full inference context carried by the minted signal — the Recorder→Reasoner hop, and a
+    /// Optional full inference context carried by the minted signal — the Conversation Log→LLM Call hop, and a
     /// compaction component re-emitting compacted context. Null for the common case.
     /// </param>
     protected void LatchSuccess(string payload, bool emitSignal = true, SignalOutcome outcome = SignalOutcome.Success, IReadOnlyList<MessageContent>? contentBlocks = null, Instructions? instructions = null)

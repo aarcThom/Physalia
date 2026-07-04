@@ -11,10 +11,10 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// Base for the deterministic compaction components. Each is an inline forward-path
-/// <see cref="RoutingComponentBase{TData}"/>: it consumes a Recorder's Signal — which <b>carries the
+/// <see cref="RoutingComponentBase{TData}"/>: it consumes a Conversation Log's Signal — which <b>carries the
 /// full Instructions</b> — compacts the conversation, and re-emits a Signal carrying the compacted
-/// Instructions on its <b>Success Signal</b>, wired straight to the Reasoner
-/// (<c>Recorder → Compactor → Reasoner</c>). No loop-back: the Recorder stays the uncompacted source
+/// Instructions on its <b>Success Signal</b>, wired straight to the LLM Call
+/// (<c>Conversation Log → Compactor → LLM Call</c>). No loop-back: the Conversation Log stays the uncompacted source
 /// of truth; the compactor only transforms the copy on the signal.
 ///
 /// <para>The <see cref="Instructions"/> carry the system prompt + conversation: the system prompt is
@@ -68,15 +68,15 @@ public abstract class CompactionComponentBase : RoutingComponentBase<Instruction
 
     /// <inheritdoc/>
     /// <remarks>
-    /// The Instructions to compact ride on the consumed signal itself (the Recorder mints a signal
-    /// carrying them) — the trigger IS the data, exactly as the Reasoner now reads it.
+    /// The Instructions to compact ride on the consumed signal itself (the Conversation Log mints a signal
+    /// carrying them) — the trigger IS the data, exactly as the LLM Call now reads it.
     /// </remarks>
     protected sealed override bool TryGetData(PhySignal signal, IGH_DataAccess da, out Instructions data)
     {
         data = default!;
         if (signal.Instructions is not Instructions instructions)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Signal carried no Instructions — wire a Recorder into this input.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Signal carried no Instructions — wire a Conversation Log into this input.");
             return false;
         }
 
@@ -113,7 +113,7 @@ public abstract class CompactionComponentBase : RoutingComponentBase<Instruction
 
     /// <summary>
     /// Builds the success routing result that carries the compacted Instructions (original system
-    /// prompt + compacted conversation) on the minted Success Signal, forwarded to the Reasoner.
+    /// prompt + compacted conversation) on the minted Success Signal, forwarded to the LLM Call.
     /// </summary>
     /// <param name="source">The source instructions, for the preserved system prompt.</param>
     /// <param name="result">The compaction result.</param>
@@ -124,7 +124,7 @@ public abstract class CompactionComponentBase : RoutingComponentBase<Instruction
         return RoutingResult.Ok(
             trace,
             // Carry the source tools forward unchanged — compaction shrinks the conversation, not the
-            // set of tools advertised to the model, so the Reasoner still sees them past a compactor.
+            // set of tools advertised to the model, so the LLM Call still sees them past a compactor.
             instructions: new Instructions(source.SystemPrompt, result.Conversation) { Tools = source.Tools },
             message: $"{trace} ({result.DroppedMessageCount} dropped).",
             level: GH_RuntimeMessageLevel.Remark);

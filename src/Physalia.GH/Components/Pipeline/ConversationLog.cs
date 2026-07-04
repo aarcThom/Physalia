@@ -23,9 +23,9 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Maintains the full conversation history as an append-only log and emits it as a single Signal
 /// that <b>carries the full Instructions</b> (system prompt + conversation) for inference — the
-/// trigger and the data are one event. The Recorder is the uncompacted source of truth: a compaction
-/// component sits on the forward path (<c>Recorder → Compactor → Reasoner</c>) and only transforms the
-/// copy on the signal; the Reasoner's response flows back (wirelessly, via Feedback Collector) and
+/// trigger and the data are one event. The Conversation Log is the uncompacted source of truth: a compaction
+/// component sits on the forward path (<c>Conversation Log → Compactor → LLM Call</c>) and only transforms the
+/// copy on the signal; the LLM Call's response flows back (wirelessly, via Feedback Collector) and
 /// appends to this full log.
 ///
 /// <para>Events arrive on dedicated Signal inputs — Prompt, Response, Feedback, Tool — so the turn
@@ -34,9 +34,9 @@ namespace Physalia.GH.Components;
 /// provoked even when both arrive in the same solve. User-side text arriving while the last turn is
 /// already a user message merges into that message, preserving the role alternation providers require.
 /// The outgoing Signal is minted only when a user turn was recorded — assistant turns latch quietly so
-/// a Reasoner wired off this output cannot re-fire itself in an infinite loop.</para>
+/// an LLM Call wired off this output cannot re-fire itself in an infinite loop.</para>
 /// </summary>
-public class Recorder : StatefulComponentBase
+public class ConversationLog : StatefulComponentBase
 {
     private const int InSystemPrompt = 0;
     private const int InGrounding = 1;
@@ -49,7 +49,7 @@ public class Recorder : StatefulComponentBase
 
     private Conversation _conversation = Conversation.Empty;
 
-    // Grounding settings. Null = include everything (default for a never-configured Recorder);
+    // Grounding settings. Null = include everything (default for a never-configured Conversation Log);
     // a non-null selection narrows which component-catalog tabs/panels are folded into the prompt.
     // This is configuration, NOT conversation state — it survives Clear and is serialized.
     private GroundingSelection? _selection;
@@ -87,7 +87,7 @@ public class Recorder : StatefulComponentBase
     private DocumentUnitsGrounding? _liveUnitsGrounding;
 
     // The tool definitions carried by every wired ToolsGrounding (the Tools Present grounder), merged.
-    // Lifted onto the Instructions minted for inference so the Reasoner advertises them to the model,
+    // Lifted onto the Instructions minted for inference so the LLM Call advertises them to the model,
     // and their names feed the chat input's "/t/" reference. Empty when no tools grounding is wired.
     private IReadOnlyList<ToolDefinition> _liveTools = Array.Empty<ToolDefinition>();
 
@@ -103,10 +103,10 @@ public class Recorder : StatefulComponentBase
     private string _pendingUserText = string.Empty;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Recorder"/> class.
+    /// Initializes a new instance of the <see cref="ConversationLog"/> class.
     /// </summary>
-    public Recorder()
-        : base("Recorder", "Rec", "Maintains the conversation history and emits it as a Signal carrying the full Instructions for inference.", "Core")
+    public ConversationLog()
+        : base("Conversation Log", "Conversation Log", "Maintains the conversation history and emits it as a Signal carrying the full Instructions for inference.", "Pipeline")
     {
     }
 
@@ -117,7 +117,7 @@ public class Recorder : StatefulComponentBase
     public override Guid ComponentGuid => new Guid("43A02F6D-D97D-4241-B4DD-067D7AE0D75E");
 
     /// <summary>
-    /// Gets the active conversation, for display only — e.g. the Chatbox window. Always the full
+    /// Gets the active conversation, for display only — e.g. the Chat window. Always the full
     /// uncompacted log (compaction happens downstream, never here). Conversation is immutable, so
     /// callers cannot corrupt the log, but they must never hold the reference across solves (it is
     /// replaced on every append).
@@ -302,10 +302,10 @@ public class Recorder : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("System Prompt", "S", "System prompt from Composer.", GH_ParamAccess.item, string.Empty);
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Optional grounding context (e.g. the Library's component catalog); each grounding's section is folded into the system prompt. Narrow what is included via the chat window's grounding panel.", GH_ParamAccess.list);
+        pManager.AddTextParameter("System Prompt", "S", "System prompt from the System Prompt component.", GH_ParamAccess.item, string.Empty);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Optional grounding context (e.g. the Component Catalog); each grounding's section is folded into the system prompt. Narrow what is included via the chat window's grounding panel.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn; the signal payload is the prompt text. Use Construct Signal to combine a text payload with a manual trigger.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the Reasoner's Success Signal.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the LLM Call's Success Signal.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Records feedback as a user turn. Wire one or more Feedback Collectors directly — no OR gate needed.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Tool Signal", "TS", "Records tool turns from a Router (via Feedback Collector): a signal whose content blocks carry tool_use is logged as an assistant turn; one whose blocks carry tool_result is logged as a user turn.", GH_ParamAccess.list);
 
@@ -319,7 +319,7 @@ public class Recorder : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Signal", "Sig", "Latched signal minted when a user turn was recorded; it carries the full Instructions (system prompt + conversation) for inference. Wire into a Reasoner (optionally through a compaction component). Casts to Instructions/Conversation/text. Assistant turns latch quietly.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Signal", "Sig", "Latched signal minted when a user turn was recorded; it carries the full Instructions (system prompt + conversation) for inference. Wire into an LLM Call (optionally through a compaction component). Casts to Instructions/Conversation/text. Assistant turns latch quietly.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -354,14 +354,14 @@ public class Recorder : StatefulComponentBase
             {
                 case RecordOutcome.UserTurn:
                     // The minted signal carries the full Instructions: the trigger IS the data. The
-                    // tools wired in as grounding ride on Instructions.Tools so the Reasoner advertises
+                    // tools wired in as grounding ride on Instructions.Tools so the LLM Call advertises
                     // them to the model without a separate wire.
                     LatchSuccess(
                         _pendingUserText,
                         instructions: new Instructions(BuildGroundedSystemPrompt(systemPrompt), _conversation) { Tools = SelectedTools() });
                     break;
                 case RecordOutcome.AssistantTurn:
-                    // Quiet success: a Reasoner wired off the outgoing signal must not
+                    // Quiet success: an LLM Call wired off the outgoing signal must not
                     // re-fire after its own response is recorded.
                     LatchSuccess(string.Empty, emitSignal: false);
                     break;
@@ -403,7 +403,7 @@ public class Recorder : StatefulComponentBase
                     }
                 }
 
-                RecordResult result = ConversationRecorder.Record(_conversation, events);
+                RecordResult result = ConversationLogBuilder.Record(_conversation, events);
                 _conversation = result.Conversation;
                 _pendingOutcome = result.Outcome;
                 _pendingUserText = result.UserTraceText;

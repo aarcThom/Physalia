@@ -14,7 +14,7 @@ namespace Physalia.Core.Grounding.Tools;
 /// to the model. Keyed by tool name.
 ///
 /// <para>A <see langword="null"/> selection (handled by the callers, never an instance of this class)
-/// means "include every tool present on the canvas" — the default for a never-configured Recorder. An
+/// means "include every tool present on the canvas" — the default for a never-configured Conversation Log. An
 /// instance with zero names means "include none". Unknown names (a tool since removed from the canvas)
 /// are simply never matched, so a selection degrades gracefully as the document changes.</para>
 /// </summary>

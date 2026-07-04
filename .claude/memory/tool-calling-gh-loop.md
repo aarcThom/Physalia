@@ -1,13 +1,13 @@
 ---
 name: tool-calling-gh-loop
-description: GH tool-calling loop (Reasoner/Router/tool nodes) and the multi-call tool-node contract
+description: GH tool-calling loop (LLM Call/Router/tool nodes) and the multi-call tool-node contract
 metadata: 
   node_type: memory
   type: project
   originSessionId: efe44c97-79d9-42d6-9249-0aad3c5a6e2f
 ---
 
-The GH visible tool-calling loop: Reasoner routes a tool-call response on its **aux** `Tool Calls` output (assistant turn = optional TextContent + one ToolCallContent per call), not Success. Router has one variable output per tool (auto-named from the wired tool node's Tool Definition) and a fixed Feedback output. Router → tool node `Signal`; tool node `Result` → Feedback → FeedbackCollector → Router `Results`; Router `Feedback` → Feedback → FeedbackCollector → Recorder `Tool Signal`.
+The GH visible tool-calling loop: LLM Call routes a tool-call response on its **aux** `Tool Calls` output (assistant turn = optional TextContent + one ToolCallContent per call), not Success. Router has one variable output per tool (auto-named from the wired tool node's Tool Definition) and a fixed Feedback output. Router → tool node `Signal`; tool node `Result` → Feedback → FeedbackCollector → Router `Results`; Router `Feedback` → Feedback → FeedbackCollector → Conversation Log `Tool Signal`.
 
 **Provider contract:** an assistant turn with N `tool_use` blocks must be followed by exactly ONE user turn carrying a `tool_result` for every id, before any further assistant turn. The Router enforces this by identity: it holds all dispatched ids in `_pendingToolUseIds`, accumulates returning `ToolResultContent` (matched by `tool_use_id`), and forwards ONE combined Feedback signal only when the whole set is satisfied (`ResultsReady()`). Undispatchable calls get a synthetic `is_error` result so the round still completes.
 

@@ -11,7 +11,7 @@ namespace Physalia.GH.Attributes.UiElements;
 /// <summary>
 /// Supplies an <see cref="ArrowGrip"/> with everything it needs to draw and commit a drag arrow.
 /// Implemented by the host attribute (Feedback/PyTransmitter/ZoomGuid via <c>GripLinkAttrib</c>,
-/// the Component Transmitter, and the collapsed-harness Chatbox proxy), which keeps only the parts
+/// the Component Transmitter, and the collapsed-harness Chat proxy), which keeps only the parts
 /// that genuinely differ — where the arrow starts, what colour and head it uses, where its settled
 /// ends land, and what a drop means.
 /// </summary>

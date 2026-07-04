@@ -25,7 +25,7 @@ public static class ArrowStyles
     public static readonly WireGradient ZoomGuid = new(Color.Gold, Color.RoyalBlue);
 
     /// <summary>
-    /// The Chatbox proxy's delegated arrow, drawn while collapsed over a single transmitter. Uses
+    /// The Chat proxy's delegated arrow, drawn while collapsed over a single transmitter. Uses
     /// the Feedback blue→purple regardless of which transmitter the proxy stands in for.
     /// </summary>
     public static readonly WireGradient Proxy = new(Color.Blue, Color.Purple);

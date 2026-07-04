@@ -20,7 +20,7 @@ namespace Physalia.GH.Components;
 /// Feedback Collector and back to the Router's Results input).
 ///
 /// <para>Memory operations are fast local file I/O, so this tool runs synchronously within the
-/// dispatch solve. Pair it with a Memory Grounding wired into the Recorder so the model is told the
+/// dispatch solve. Pair it with a Memory Grounding wired into the Conversation Log so the model is told the
 /// memory exists and is nudged to consult it — without that grounding the model is never informed of
 /// the feature.</para>
 /// </summary>

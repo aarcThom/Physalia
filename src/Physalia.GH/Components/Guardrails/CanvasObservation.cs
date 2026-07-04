@@ -20,20 +20,20 @@ namespace Physalia.GH.Components;
 /// back on the Fail Signal.
 ///
 /// <para>The scan is scoped by the incoming payload. A Component Transmitter forwards the GUIDs of
-/// the components it placed (newline-separated) as its Success payload; Observer parses those and
+/// the components it placed (newline-separated) as its Success payload; CanvasObservation parses those and
 /// scans <b>only</b> that placed graph, so it never flags idle pipeline components. When the
 /// payload carries no GUIDs it falls back to scanning the whole document (errors/warnings only),
 /// preserving use as a standalone canvas probe. Wiring it after the Component Transmitter (and its
-/// Fail Signal back through Feedback to the Recorder) turns the place → read → correct loop into a
+/// Fail Signal back through Feedback to the Conversation Log) turns the place → read → correct loop into a
 /// visible cycle on the canvas.</para>
 /// </summary>
-public class Observer : RoutingComponentBase<string>
+public class CanvasObservation : RoutingComponentBase<string>
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="Observer"/> class.
+    /// Initializes a new instance of the <see cref="CanvasObservation"/> class.
     /// </summary>
-    public Observer()
-        : base("Observer", "Obs", "Scans the placed graph (or whole document) for errors, warnings, and dead components and routes a report back on the Fail Signal; a clean scan passes the signal through.", "Deterministic Gates")
+    public CanvasObservation()
+        : base("Canvas Observation", "Canvas Observation", "Scans the placed graph (or whole document) for errors, warnings, and dead components and routes a report back on the Fail Signal; a clean scan passes the signal through.", "Guardrails")
     {
     }
 
@@ -150,7 +150,7 @@ public class Observer : RoutingComponentBase<string>
 
     /// <summary>
     /// The objects to scan: the components named by the incoming GUID payload, or every object on
-    /// the document (except this Observer) when the payload carries no parseable GUIDs.
+    /// the document (except this CanvasObservation) when the payload carries no parseable GUIDs.
     /// </summary>
     /// <param name="doc">The active document.</param>
     /// <param name="payload">The incoming signal payload (newline-separated GUIDs, or anything else).</param>

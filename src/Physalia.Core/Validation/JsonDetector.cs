@@ -9,9 +9,9 @@ namespace Physalia.Core.Validation;
 /// <summary>
 /// Permissive heuristic for deciding whether raw LLM output contains attempted JSON at all —
 /// even malformed or truncated JSON. This is a presence check, not a validator: parsing and
-/// schema validation stay in <see cref="SchemaValidator"/> (the Auditor). The bias is
+/// schema validation stay in <see cref="SchemaValidator"/> (the Schema Validator). The bias is
 /// deliberate — when in doubt, report JSON present — because a false positive merely forwards
-/// text the Auditor will reject with feedback, while a false negative would silently drop a
+/// text the Schema Validator will reject with feedback, while a false negative would silently drop a
 /// real-but-broken response out of the correction loop.
 /// </summary>
 public static class JsonDetector

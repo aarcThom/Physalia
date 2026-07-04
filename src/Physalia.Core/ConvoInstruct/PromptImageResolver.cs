@@ -98,7 +98,7 @@ public static class PromptImageResolver
                 continue;
             }
 
-            // Case-insensitive to match the Image Gatherer's case-insensitive alias uniqueness,
+            // Case-insensitive to match the Image Sources' case-insensitive alias uniqueness,
             // so "/Diagram" resolves the alias "diagram".
             if (string.Compare(prompt, startIndex, alias, 0, alias.Length, StringComparison.OrdinalIgnoreCase) != 0)
             {

@@ -21,13 +21,13 @@ namespace Physalia.GH.Components;
 /// Standalone-window chat entry point — the pipeline's sole prompt source. A signal source
 /// with one Prompt Signal output and no conversation state of its own; it drives a separate
 /// Eto WebView window hosting a web chat UI. Each send from the window mints one Prompt Signal
-/// whose payload is the prompt text — wire it to Recorder's Prompt Signal input.
+/// whose payload is the prompt text — wire it to Conversation Log's Prompt Signal input.
 /// </summary>
-public class Chatbox : StatefulComponentBase
+public class Chat : StatefulComponentBase
 {
-    // Single-glyph sea/ocean emojis used as a Chatbox's visual identity — shown in place of
+    // Single-glyph sea/ocean emojis used as a Chat's visual identity — shown in place of
     // its canvas icon and as its circle in the chat window's switcher row, so the user can
-    // tell which Chatbox a given dot belongs to. Kept to plain single-codepoint glyphs (no
+    // tell which Chat a given dot belongs to. Kept to plain single-codepoint glyphs (no
     // ZWJ sequences or variation selectors) so TextRenderer paints them predictably.
     private static readonly string[] OceanEmoji =
     {
@@ -35,20 +35,20 @@ public class Chatbox : StatefulComponentBase
         "🦑", "🐳", "🐋", "🐬", "🦭", "🐢", "🪼", "🐧", "🦦", "⚓", "🪸",
     };
 
-    // Only one chat window may exist per Rhino session, across every Chatbox instance.
-    // Static so a second Chatbox switches the single window to its own view rather than
+    // Only one chat window may exist per Rhino session, across every Chat instance.
+    // Static so a second Chat switches the single window to its own view rather than
     // spawning another. Session-only — nothing here serializes.
     private static ChatWindow? _activeWindow;
 
-    // The collapsible group of pipeline components this Chatbox proxies. All group/collapse
-    // logic lives in HarnessGroup; the Chatbox just delegates.
+    // The collapsible group of pipeline components this Chat proxies. All group/collapse
+    // logic lives in HarnessGroup; the Chat just delegates.
     private readonly HarnessGroup _group;
 
     // Set after a Read so the collapsed state is re-applied to members once the whole
     // document has finished loading (deferred to the next solve / idle pass).
     private bool _pendingApply;
 
-    // This Chatbox's assigned ocean emoji (its identity). Always non-empty — seeded randomly
+    // This Chat's assigned ocean emoji (its identity). Always non-empty — seeded randomly
     // in the constructor, deduped against canvas siblings on first placement, and persisted.
     private string _emoji;
 
@@ -57,10 +57,10 @@ public class Chatbox : StatefulComponentBase
     private Bitmap? _iconBitmap;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Chatbox"/> class.
+    /// Initializes a new instance of the <see cref="Chat"/> class.
     /// </summary>
-    public Chatbox()
-        : base("Chatbox", "Chat", "Standalone chat window driving the pipeline. Double-click to open the window; send a message to mint a Prompt Signal.", "Core")
+    public Chat()
+        : base("Chat", "Chat", "Standalone chat window driving the pipeline. Double-click to open the window; send a message to mint a Prompt Signal.", "Pipeline")
     {
         _group = new HarnessGroup(this);
         _emoji = OceanEmoji[Random.Shared.Next(OceanEmoji.Length)];
@@ -73,13 +73,13 @@ public class Chatbox : StatefulComponentBase
     public override Guid ComponentGuid => new Guid("B7E4B6F2-3C2A-4D71-9E0A-7F1C2D3E4A5B");
 
     /// <summary>
-    /// Gets the ocean emoji that identifies this Chatbox on the canvas (as its icon) and in
+    /// Gets the ocean emoji that identifies this Chat on the canvas (as its icon) and in
     /// the chat window's switcher row. Stable for the life of the component and persisted.
     /// </summary>
     public string Emoji => _emoji;
 
     /// <summary>
-    /// Gets the collapsible harness group this Chatbox represents. The proxy renders a
+    /// Gets the collapsible harness group this Chat represents. The proxy renders a
     /// distinct collapsed capsule while the group is collapsed; the chat window and canvas
     /// menu drive it through here.
     /// </summary>
@@ -91,7 +91,7 @@ public class Chatbox : StatefulComponentBase
     /// <inheritdoc/>
     public override void CreateAttributes()
     {
-        m_attributes = new ChatboxAttrib(this);
+        m_attributes = new ChatAttrib(this);
 
         // Give the output its harness-aware param attributes so the proxy drops its grips while
         // collapsed (no wires can be pulled), staying draggable. GH only auto-creates linked
@@ -103,8 +103,8 @@ public class Chatbox : StatefulComponentBase
     }
 
     /// <summary>
-    /// Gets the component icon — this Chatbox's assigned ocean emoji as a bundled colour bitmap
-    /// (Noto Emoji), so each Chatbox reads as a distinct node. GDI cannot colour-render an emoji
+    /// Gets the component icon — this Chat's assigned ocean emoji as a bundled colour bitmap
+    /// (Noto Emoji), so each Chat reads as a distinct node. GDI cannot colour-render an emoji
     /// font, so a pre-made image is used rather than drawn glyphs. The ribbon/palette proxy (no
     /// document) shows the palette's first emoji as a stable, recognisable button.
     /// </summary>
@@ -145,7 +145,7 @@ public class Chatbox : StatefulComponentBase
 
     /// <summary>
     /// Opens the chat window, or brings the existing one to the front. Only one chat window
-    /// exists session-wide: if it is already open, it is switched to view this Chatbox (the
+    /// exists session-wide: if it is already open, it is switched to view this Chat (the
     /// same as clicking this component's circle in the window's switcher row) and brought
     /// forward rather than torn down and reopened.
     /// </summary>
@@ -200,8 +200,8 @@ public class Chatbox : StatefulComponentBase
 
     /// <summary>
     /// Notifies the chat window when this component is removed from the document. If the
-    /// window is currently viewing this Chatbox it switches to another one still on the
-    /// canvas, or closes if this was the last; a circle for an unrelated removed Chatbox
+    /// window is currently viewing this Chat it switches to another one still on the
+    /// canvas, or closes if this was the last; a circle for an unrelated removed Chat
     /// simply drops out of the switcher row on the next tick.
     /// </summary>
     /// <param name="document">The document the component was removed from.</param>
@@ -217,7 +217,7 @@ public class Chatbox : StatefulComponentBase
     private void OnDocumentSolutionEnd(object sender, GH_SolutionEventArgs e) => _group.RefreshCollapsePoint();
 
     /// <summary>
-    /// Reassigns this Chatbox's emoji to one not already used by another Chatbox on the canvas,
+    /// Reassigns this Chat's emoji to one not already used by another Chat on the canvas,
     /// so placed boxes are visually distinct. The reassign is collision-based, so a clean file
     /// load (where every persisted emoji is already unique) leaves persisted emojis untouched,
     /// while an on-canvas duplicate (copy-paste / duplicate, which also runs through Read) is
@@ -241,7 +241,7 @@ public class Chatbox : StatefulComponentBase
         var used = new HashSet<string>();
         foreach (IGH_DocumentObject obj in document.Objects)
         {
-            if (obj is Chatbox cb && !ReferenceEquals(cb, this) && !string.IsNullOrEmpty(cb._emoji))
+            if (obj is Chat cb && !ReferenceEquals(cb, this) && !string.IsNullOrEmpty(cb._emoji))
             {
                 used.Add(cb._emoji);
             }
@@ -266,11 +266,11 @@ public class Chatbox : StatefulComponentBase
         base.AppendAdditionalMenuItems(menu);
         Menu_AppendSeparator(menu);
 
-        // A Chatbox is a harness only once it owns members. While it has none, only the entry
+        // A Chat is a harness only once it owns members. While it has none, only the entry
         // items show; the collapse/expand and remove items appear once it is a harness.
         bool hasMembers = _group.Count > 0;
 
-        // A Chatbox that is itself a member of another harness must not start or extend its own,
+        // A Chat that is itself a member of another harness must not start or extend its own,
         // so harnesses can never nest — the entry items are greyed out in that case.
         bool isMember = IsMemberOfAnotherHarness();
 
@@ -307,8 +307,8 @@ public class Chatbox : StatefulComponentBase
     }
 
     /// <summary>
-    /// Adds the document's currently selected objects (other than this Chatbox) to the harness
-    /// group and collapses it — "collapse these into my Chatbox". The membership change is
+    /// Adds the document's currently selected objects (other than this Chat) to the harness
+    /// group and collapses it — "collapse these into my Chat". The membership change is
     /// recorded for undo/redo.
     /// </summary>
     public void CollapseSelectedIntoHarness()
@@ -372,7 +372,7 @@ public class Chatbox : StatefulComponentBase
         doc?.UndoServer.PushUndoRecord(name, new Physalia.GH.Harness.HarnessMembershipUndoAction(InstanceGuid, changed, added));
     }
 
-    // Whether this Chatbox is itself a member of another Chatbox's harness — in which case it may
+    // Whether this Chat is itself a member of another Chat's harness — in which case it may
     // not start or extend its own (no nested harnesses).
     private bool IsMemberOfAnotherHarness()
     {
@@ -380,7 +380,7 @@ public class Chatbox : StatefulComponentBase
         return doc is not null && HarnessGroup.IsMemberOfAnyHarness(doc, InstanceGuid, InstanceGuid);
     }
 
-    // The selected document objects other than this Chatbox itself.
+    // The selected document objects other than this Chat itself.
     private IReadOnlyList<Guid> SelectedGuids()
     {
         GH_Document? doc = OnPingDocument();
@@ -404,7 +404,7 @@ public class Chatbox : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Latched signal minted per sent message; its payload is the prompt text. Wire to Recorder's Prompt Signal.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Latched signal minted per sent message; its payload is the prompt text. Wire to Conversation Log's Prompt Signal.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

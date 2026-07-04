@@ -15,13 +15,13 @@ namespace Physalia.GH.Components;
 /// against the provided schema, and routes the clean JSON forward on the Success Signal
 /// or the validation feedback back on the Fail Signal.
 /// </summary>
-public class Auditor : RoutingComponentBase<string>
+public class SchemaValidator : RoutingComponentBase<string>
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="Auditor"/> class.
+    /// Initializes a new instance of the <see cref="SchemaValidator"/> class.
     /// </summary>
-    public Auditor()
-        : base("Auditor", "Aud", "Strips LLM prose, validates JSON against schema, and passes clean output forward.", "Deterministic Gates")
+    public SchemaValidator()
+        : base("Schema Validator", "Schema Validator", "Strips LLM prose, validates JSON against schema, and passes clean output forward.", "Guardrails")
     {
     }
 
@@ -34,11 +34,11 @@ public class Auditor : RoutingComponentBase<string>
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Schema", "Sc", "JSON schema string from Composer.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Schema", "Sc", "JSON schema string from System Prompt.", GH_ParamAccess.item, string.Empty);
     }
 
     /// <inheritdoc/>
-    /// <remarks>The raw LLM output arrives as the consumed signal's payload (Reasoner's Success Signal).</remarks>
+    /// <remarks>The raw LLM output arrives as the consumed signal's payload (LLM Call's Success Signal).</remarks>
     protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out string data)
     {
         data = signal.Payload;
@@ -66,7 +66,7 @@ public class Auditor : RoutingComponentBase<string>
             return RoutingResult.Ok(extracted);
         }
 
-        return SchemaValidator.Validate(extracted, schema) switch
+        return Physalia.Core.Validation.SchemaValidator.Validate(extracted, schema) switch
         {
             Result<string, ValidationError>.Ok ok => RoutingResult.Ok(JsonExtractor.PrettyPrint(ok.Value)),
             Result<string, ValidationError>.Err err => RoutingResult.Fail(

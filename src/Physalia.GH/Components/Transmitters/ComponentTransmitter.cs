@@ -23,7 +23,7 @@ namespace Physalia.GH.Components;
 /// This component reports only <b>mechanical</b> placement problems — invalid GhJSON, a failed
 /// placement, wires the library could not create, and structural issues the fixer could not
 /// repair — back on the Fail Signal so the model can fix and resubmit. A clean placement routes
-/// the placed components' GUIDs forward on the Success Signal; an Observer wired downstream
+/// the placed components' GUIDs forward on the Success Signal; a Canvas Observation wired downstream
 /// scopes its runtime-health scan (errors, warnings, dead components) to exactly those GUIDs.
 /// Each run removes the previous placement before placing the new graph.
 /// </summary>
@@ -48,7 +48,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
         : base(
             "Component Transmitter",
             "CompTx",
-            "Places an LLM-generated GhJSON graph on the canvas. Clean placement routes the placed components' GUIDs forward (for an Observer to scan); mechanical placement problems route a description back.",
+            "Places an LLM-generated GhJSON graph on the canvas. Clean placement routes the placed components' GUIDs forward (for a Canvas Observation to scan); mechanical placement problems route a description back.",
             "Transmitters")
     {
     }
@@ -94,7 +94,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
         _placementOffset = null;
     }
 
-    // IHarnessArrow — lets a collapsed Chatbox proxy delegate its bottom arrow to this transmitter.
+    // IHarnessArrow — lets a collapsed Chat proxy delegate its bottom arrow to this transmitter.
     // The wire lands on the stored placement point; a drop simply stores the new point.
 
     /// <inheritdoc/>
@@ -158,7 +158,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
     /// <inheritdoc/>
     /// <remarks>
     /// Reports only mechanical placement outcomes (known as soon as placement finishes), so it
-    /// need not wait for the placed components to solve — an Observer wired downstream owns the
+    /// need not wait for the placed components to solve — a Canvas Observation wired downstream owns the
     /// runtime-health gate and scan.
     /// </remarks>
     protected override RoutingResult ReadSolve(string data, IGH_DataAccess da)
@@ -293,7 +293,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 
     /// <summary>
     /// Serialises the placed components' GUIDs as newline-separated values for the Success
-    /// payload, so a downstream Observer can scope its runtime-health scan to exactly this
+    /// payload, so a downstream Canvas Observation can scope its runtime-health scan to exactly this
     /// placement.
     /// </summary>
     /// <returns>The placed GUIDs, one per line.</returns>

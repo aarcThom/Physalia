@@ -38,7 +38,7 @@
 		SetupResult,
 		SubmitMessage,
 		ToolsSelectionPayload,
-		UiChatbox,
+		UiChat,
 		UiMessage,
 		UiPreset,
 		UiState,
@@ -54,7 +54,7 @@
 	let needsSetup = $state(false);
 	let status = $state('');
 	let configuredProviders = $state<string[]>([]);
-	// Harness collapse state for the viewed Chatbox: whether its component group is hidden,
+	// Harness collapse state for the viewed Chat: whether its component group is hidden,
 	// and how many components it holds (0 hides the show/hide-harness control).
 	let collapsed = $state(false);
 	let harnessCount = $state(0);
@@ -121,14 +121,14 @@
 	// Other full-screen pages opened from the header menu (mutually exclusive with the chat view
 	// and with setup). null = none open.
 	let panel = $state<'preset' | 'manualdef' | 'grounding' | null>(null);
-	// Estimated token count from a Token Estimator wired downstream of the viewed Recorder,
+	// Estimated token count from a Token Estimator wired downstream of the viewed ConversationLog,
 	// pushed by the host; null = no estimator wired (or no count yet) → the counter hides.
 	let tokenCount = $state<number | null>(null);
 
 	// Bundled presets (from Files/PRESETS), pushed by the host.
 	let presets = $state<UiPreset[]>([]);
-	// Every Chatbox on the canvas (the bottom switcher row), pushed by the host.
-	let chatboxes = $state<UiChatbox[]>([]);
+	// Every Chat on the canvas (the bottom switcher row), pushed by the host.
+	let chats = $state<UiChat[]>([]);
 
 	let showSetup = $derived(needsSetup || manualSetup);
 	// Only offer "Back to chat" when setup was opened manually (a provider already exists);
@@ -189,8 +189,8 @@
 			setPresets: (next) => {
 				presets = next ?? [];
 			},
-			setChatboxes: (next) => {
-				chatboxes = next ?? [];
+			setChats: (next) => {
+				chats = next ?? [];
 			}
 		};
 
@@ -235,7 +235,7 @@
 		window.location.href = `${BRIDGE_SCHEME}://submit?images=1`;
 	}
 
-	// Ask the host to cancel the active inference on the wired pipeline's Reasoner. The composer's
+	// Ask the host to cancel the active inference on the wired pipeline's LLM Call. The composer's
 	// cancel button is enabled only while `busy`, so this fires only when a request is in flight.
 	function cancel() {
 		window.location.href = `${BRIDGE_SCHEME}://cancel`;
@@ -246,10 +246,10 @@
 		window.location.href = `${BRIDGE_SCHEME}://open?url=${encodeURIComponent(url)}`;
 	}
 
-	// Ask the host to place a Recorder on the canvas and wire it to this Chatbox. The next state
+	// Ask the host to place a ConversationLog on the canvas and wire it to this Chat. The next state
 	// tick reports `connected`, which dismisses the connect screen on its own.
-	function connectRecorder() {
-		window.location.href = `${BRIDGE_SCHEME}://connectrecorder`;
+	function connectConversationLog() {
+		window.location.href = `${BRIDGE_SCHEME}://connectconversationlog`;
 	}
 
 	// Ask the host to place the chosen bundled preset (.ghjson) on the canvas, then return to chat.
@@ -264,19 +264,19 @@
 		window.location.href = `${BRIDGE_SCHEME}://clearall`;
 	}
 
-	// Ask the host to collapse/expand the viewed Chatbox's harness group on the canvas. The next
+	// Ask the host to collapse/expand the viewed Chat's harness group on the canvas. The next
 	// state tick reports the new `collapsed` flag, which updates the menu label.
 	function toggleHarness() {
 		window.location.href = `${BRIDGE_SCHEME}://togglecollapse`;
 	}
 
-	// Switch the window to view another Chatbox component (its recorder history, or the default
+	// Switch the window to view another Chat component (its conversation log history, or the default
 	// screen when it has none). The next state tick re-pushes that component's history/state.
-	function selectChatbox(id: string) {
-		window.location.href = `${BRIDGE_SCHEME}://selectchatbox?id=${encodeURIComponent(id)}`;
+	function selectChat(id: string) {
+		window.location.href = `${BRIDGE_SCHEME}://selectchat?id=${encodeURIComponent(id)}`;
 	}
 
-	// Apply a grounding selection to the wired Recorder. The payload {all, leaves} is small enough to
+	// Apply a grounding selection to the wired ConversationLog. The payload {all, leaves} is small enough to
 	// carry in the URL query (unlike image payloads). all=true returns to include-everything.
 	function setGrounding(payload: GroundingSelectionPayload) {
 		const json = JSON.stringify(payload);
@@ -288,19 +288,19 @@
 		window.location.href = `${BRIDGE_SCHEME}://setsignatures?on=${on ? '1' : '0'}`;
 	}
 
-	// Apply a cluster selection to the wired Recorder. all=true returns to include-everything.
+	// Apply a cluster selection to the wired ConversationLog. all=true returns to include-everything.
 	function setClusters(payload: ClusterSelectionPayload) {
 		const json = JSON.stringify(payload);
 		window.location.href = `${BRIDGE_SCHEME}://setclusters?sel=${encodeURIComponent(json)}`;
 	}
 
-	// Apply a tools selection to the wired Recorder. all=true returns to include-every-present-tool.
+	// Apply a tools selection to the wired ConversationLog. all=true returns to include-every-present-tool.
 	function setTools(payload: ToolsSelectionPayload) {
 		const json = JSON.stringify(payload);
 		window.location.href = `${BRIDGE_SCHEME}://settools?sel=${encodeURIComponent(json)}`;
 	}
 
-	// Apply a document-units override to the wired Recorder. reset=true returns to the live doc units.
+	// Apply a document-units override to the wired ConversationLog. reset=true returns to the live doc units.
 	function setUnits(payload: UnitsOverridePayload) {
 		const json = JSON.stringify(payload);
 		window.location.href = `${BRIDGE_SCHEME}://setunits?sel=${encodeURIComponent(json)}`;
@@ -344,8 +344,8 @@
 	}
 
 	let isEmpty = $derived(messages.length === 0 && !stream);
-	// Provider configured (not setup) but no Recorder wired and nothing said yet: offer the
-	// connect-a-recorder / workflow / configure options instead of a bare empty conversation.
+	// Provider configured (not setup) but no ConversationLog wired and nothing said yet: offer the
+	// connect-a-conversation log / workflow / configure options instead of a bare empty conversation.
 	let showConnect = $derived(!showSetup && !connected && isEmpty);
 
 	// Group the flat message list into render units: each user message stands alone, while
@@ -479,7 +479,7 @@
 				<ManualDefinition onclose={closePanel} />
 			{:else if showConnect}
 				<ConnectOptions
-						onconnectrecorder={connectRecorder}
+						onconnectconversationlog={connectConversationLog}
 						onpreset={() => openPanel('preset')}
 						onconfigure={openSetup}
 					/>
@@ -547,17 +547,17 @@
 		/>
 	</div>
 
-	<!-- Switcher row at the very bottom: one emoji per Chatbox on the canvas — its assigned
+	<!-- Switcher row at the very bottom: one emoji per Chat on the canvas — its assigned
 	     sea/ocean glyph, matching the component's canvas icon so the two are easy to pair. The
 	     active chat sits on a raised accent ring; a chat with no recorded history is dimmed.
-	     Clicking an emoji views that Chatbox's recorder history (or the default screen when it
-	     has none). New emojis appear as Chatboxes are placed. -->
-	{#if chatboxes.length > 0}
+	     Clicking an emoji views that Chat's conversation log history (or the default screen when it
+	     has none). New emojis appear as Chats are placed. -->
+	{#if chats.length > 0}
 		<div class="flex shrink-0 items-center justify-center gap-1 pb-2">
-			{#each chatboxes as box (box.id)}
+			{#each chats as box (box.id)}
 				<button
 					type="button"
-					onclick={() => selectChatbox(box.id)}
+					onclick={() => selectChat(box.id)}
 					aria-pressed={box.active}
 					title={box.active
 						? 'Current chat'
@@ -582,7 +582,7 @@
 	{/if}
 
 	<!-- Token counter, pinned to the window's bottom-right corner. Shown only when a Token
-	     Estimator is wired downstream of this chat's Recorder — the host pushes null otherwise
+	     Estimator is wired downstream of this chat's ConversationLog — the host pushes null otherwise
 	     and the counter disappears. -->
 	{#if tokenCount !== null && !showSetup}
 		<div

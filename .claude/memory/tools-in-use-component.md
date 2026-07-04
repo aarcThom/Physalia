@@ -1,13 +1,13 @@
 ---
 name: tools-in-use-component
-description: "Tools In Use GH component — scans doc for tool nodes wired to a Router, emits their definitions as one list into Reasoner.Tools (replaces manual per-tool fan-in)"
+description: "Tools In Use GH component — scans doc for tool nodes wired to a Router, emits their definitions as one list into LLM Call.Tools (replaces manual per-tool fan-in)"
 metadata: 
   node_type: memory
   type: project
   originSessionId: f7bcfc55-648d-4e1a-a389-c7f91f9456cd
 ---
 
-New GH component **Tools In Use** (`src/Physalia.GH/Components/Tools/ToolsInUse.cs`, `: PhyBase`, subcategory `Tools`, GUID `E3A7C612-9F84-4B0D-A5E1-7C2D8F61B934`) replaces the clunky fan-in where each tool node's `Tool` output was wired into `Reasoner.Tools` by hand. Now one wire: `Tools In Use.Tools → Reasoner.Tools`.
+New GH component **Tools In Use** (`src/Physalia.GH/Components/Tools/ToolsInUse.cs`, `: PhyBase`, subcategory `Tools`, GUID `E3A7C612-9F84-4B0D-A5E1-7C2D8F61B934`) replaces the clunky fan-in where each tool node's `Tool` output was wired into `LLM Call.Tools` by hand. Now one wire: `Tools In Use.Tools → LLM Call.Tools`.
 
 **What it does:** no inputs; one `Param_ToolDefinition` list output. `SolveInstance` scans `doc.Objects.OfType<ToolComponentBase>()` and keeps only tools whose **Signal input (index 0) has a source owned by a `Router`** (`IsDispatchedFromRouter`) — that is the "in use" criterion (chosen over auto-scope-to-pipeline and all-tools-on-canvas). Stray/unwired tool nodes are excluded.
 
@@ -15,7 +15,7 @@ New GH component **Tools In Use** (`src/Physalia.GH/Components/Tools/ToolsInUse.
 
 **Supporting change:** `ToolComponentBase` (`Components/Tools/ToolComponentBase.cs`) gained `public ToolDefinition AdvertisedDefinition => Definition;` so the scanner reads each tool's definition without depending on the node having solved.
 
-**Unchanged:** Reasoner (`Tools` is already a `GH_ParamAccess.list` input; manual per-tool wires still work alongside Tools In Use — additive). Router (still reads each tool's `Tool` output volatile data for its output-name sync, so that output stays).
+**Unchanged:** LLM Call (`Tools` is already a `GH_ParamAccess.list` input; manual per-tool wires still work alongside Tools In Use — additive). Router (still reads each tool's `Tool` output volatile data for its output-name sync, so that output stays).
 
 **Known limitation:** with two independent pipelines on one canvas, a single Tools In Use merges all Router-wired tools across both (auto-scoping was explicitly declined). Fine for single-pipeline use.
 

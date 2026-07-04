@@ -12,7 +12,7 @@ public static class ConversationHelpers
 {
     /// <summary>
     /// Returns a human-readable representation of the conversation suitable for display
-    /// (e.g. the Recorder component's canvas output). Not intended for API serialisation.
+    /// (e.g. the Conversation Log component's canvas output). Not intended for API serialisation.
     /// </summary>
     /// <param name="conversation">The conversation to format.</param>
     /// <returns>A formatted string with each turn labelled by role.</returns>

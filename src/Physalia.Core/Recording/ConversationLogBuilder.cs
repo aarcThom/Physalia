@@ -63,7 +63,7 @@ public sealed record RecordResult(
     IReadOnlyList<string> Warnings);
 
 /// <summary>
-/// Pure turn-assembly policy for the Recorder. Given the current conversation and a batch of events
+/// Pure turn-assembly policy for the Conversation Log. Given the current conversation and a batch of events
 /// in causal (sequence) order, it appends each as the right kind of turn — merging consecutive
 /// user-side turns to preserve the strict role alternation providers require, recording an
 /// assistant tool-call request before its user tool-result, and reporting whether a user turn (which
@@ -71,7 +71,7 @@ public sealed record RecordResult(
 /// performs no I/O and touches no Grasshopper state; the host maps inputs to <see cref="RecordEvent"/>
 /// and surfaces the returned warnings.
 /// </summary>
-public static class ConversationRecorder
+public static class ConversationLogBuilder
 {
     /// <summary>
     /// Records a batch of events onto a conversation.
@@ -115,7 +115,7 @@ public static class ConversationRecorder
                     break;
 
                 case RecordedTurnKind.Prompt:
-                    // A Chatbox turn may carry resolved content blocks (text + inline images);
+                    // A Chat turn may carry resolved content blocks (text + inline images);
                     // a Construct Signal carries only the text payload. An images-only prompt has
                     // blocks but a blank payload, so check blocks first.
                     if (signal.ContentBlocks.Count > 0)
@@ -134,7 +134,7 @@ public static class ConversationRecorder
                     break;
 
                 case RecordedTurnKind.Feedback:
-                    // Feedback may carry resolved content blocks (e.g. an Output Snapshot's image
+                    // Feedback may carry resolved content blocks (e.g. a Geometry Observation's image
                     // alongside its message) just like a prompt; record them so the image survives.
                     // An image-only feedback turn has blocks but a blank payload, so check blocks first.
                     if (signal.ContentBlocks.Count > 0)
@@ -231,7 +231,7 @@ public static class ConversationRecorder
                 Conversation = Conversation.Append(message);
 
                 // Quiet: recording the model's tool-call request must not fire the outgoing Signal
-                // (the Reasoner re-runs only once the tool results are recorded as a user turn).
+                // (the LLM Call re-runs only once the tool results are recorded as a user turn).
                 if (Outcome == RecordOutcome.Nothing)
                 {
                     Outcome = RecordOutcome.AssistantTurn;

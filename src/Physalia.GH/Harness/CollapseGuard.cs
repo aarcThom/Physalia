@@ -11,7 +11,7 @@ namespace Physalia.GH.Harness;
 
 /// <summary>
 /// Shared collapse rendering for Physalia (<see cref="PhyBase"/>) harness members. When a
-/// member is collapsed its node and wires must visually disappear into the proxy Chatbox
+/// member is collapsed its node and wires must visually disappear into the proxy Chat
 /// without the component being moved or removed — its <see cref="GH_Component.Params"/> stay
 /// wired and it keeps solving. This helper, called from each Physalia component-attribute's
 /// <c>Layout</c>/<c>Render</c>, shrinks the component and every parameter grip to a zero-size
@@ -58,7 +58,7 @@ internal static class CollapseGuard
     /// restores the original layout.
     /// </summary>
     /// <param name="attr">The component attributes to collapse.</param>
-    /// <param name="point">The shared collapse point (the proxy Chatbox pivot).</param>
+    /// <param name="point">The shared collapse point (the proxy Chat pivot).</param>
     private static void Collapse(GH_ComponentAttributes attr, PointF point)
     {
         attr.Bounds = new RectangleF(point, SizeF.Empty);
@@ -72,7 +72,7 @@ internal static class CollapseGuard
     /// <see cref="CollapsedProxyAttributes"/>.
     /// </summary>
     /// <param name="component">The component whose parameter grips collapse.</param>
-    /// <param name="point">The shared collapse point (the proxy Chatbox pivot).</param>
+    /// <param name="point">The shared collapse point (the proxy Chat pivot).</param>
     public static void CollapseParams(IGH_Component component, PointF point)
     {
         var zero = new RectangleF(point, SizeF.Empty);

@@ -9,11 +9,11 @@ agents, and (2) the compaction subsystem implemented for Physalia: a family of d
 transforms plus one LLM-backed summarizer (the spec's `Distiller`).
 
 > **Note (architecture reworked 2026-06-27):** compaction is now an **inline forward-path**
-> transform — the Recorder emits a Signal carrying the full Instructions, a compactor sits on
-> `Recorder → Compactor → Reasoner` and re-emits compacted Instructions, and the Recorder stays the
+> transform — the Conversation Log emits a Signal carrying the full Instructions, a compactor sits on
+> `Conversation Log → Compactor → LLM Call` and re-emits compacted Instructions, and the Conversation Log stays the
 > uncompacted source of truth. The earlier design (a `Conversation` override input + a wireless
 > loop-back) was removed. Part 2/3 below describe the current model; some Part 1 research framing still
-> references "feed the compacted view back to the Recorder" — read it as the forward-path model.
+> references "feed the compacted view back to the Conversation Log" — read it as the forward-path model.
 
 ---
 
@@ -229,17 +229,17 @@ research flags as the cross-cutting correctness invariant.
    UI styles it as machine-generated) followed by the recent turns verbatim → `Reassemble`.
 
 Nothing old enough to summarize ⇒ returned unchanged. The orchestration is in Core; only the
-provider call crosses the boundary, mirroring how `Reasoner` already streams.
+provider call crosses the boundary, mirroring how `LLM Call` already streams.
 
 ## GH — `src/Physalia.GH/Components/Compaction/` (new "Compaction" ribbon tab)
 
 > **Architecture reworked 2026-06-27 (per Thomas): Instructions ride the signal; compaction is an
-> inline forward-path transform.** The Recorder emits a **Signal carrying the full `Instructions`**;
-> a compactor sits inline on `Recorder → Compactor → Reasoner`, consuming that signal and re-emitting
+> inline forward-path transform.** The Conversation Log emits a **Signal carrying the full `Instructions`**;
+> a compactor sits inline on `Conversation Log → Compactor → LLM Call`, consuming that signal and re-emitting
 > one carrying the compacted Instructions. No loop-back, no Conversation override, no
-> wireless-conversation machinery. The Recorder is the uncompacted source of truth (its
+> wireless-conversation machinery. The Conversation Log is the uncompacted source of truth (its
 > `ActiveConversation` is always the full log); the compactor only transforms the copy on the signal.
-> The earlier loop-back design (compactor → Feedback Collector → Recorder override) is gone.
+> The earlier loop-back design (compactor → Feedback Collector → Conversation Log override) is gone.
 
 The compaction components are **routing components** (`RoutingComponentBase<Instructions>`). The signal
 carries the `Instructions` (system prompt + conversation): the system prompt is **always included** when
@@ -251,7 +251,7 @@ deterministic four: the subclass's own params (index 0+) + the base-owned `Signa
 last); `TryGetData` reads `signal.Instructions` (the trigger *is* the data — no typed input);
 `PushSolve` is empty (synchronous); `ReadSolve` calls the subclass's `Compact(Instructions)` — which
 compacts `instructions.Conversation` — and returns a success result **carrying the compacted Instructions
-on the minted Success Signal**, wired straight to the Reasoner. Outputs are the standard
+on the minted Success Signal**, wired straight to the LLM Call. Outputs are the standard
 `Success Signal` (0) / `Fail Signal` (1).
 
 | Component | Nick | GUID | Strategy |
@@ -269,7 +269,7 @@ on the minted Success Signal**, wired straight to the Reasoner. Outputs are the 
   inference completion callback). It stamps `config.SessionKey = InstanceGuid` and cancels on
   `RemovedFromDocument`. Standalone `RoutingComponentBase<Instructions>` (not `CompactionComponentBase`).
   Physalia's concrete **Distiller**.
-- **Token Threshold** keeps a typed `Instructions` input; a Recorder's signal feeds it via the
+- **Token Threshold** keeps a typed `Instructions` input; a Conversation Log's signal feeds it via the
   `Signal → Instructions` cast (it measures, it doesn't consume).
 
 ### Signal-plumbing changes that make this work
@@ -280,11 +280,11 @@ discipline: `Payload` + `ContentBlocks` + `Instructions`, and nothing more):
 - **`PhySignal`** carries an optional `Instructions` (this replaced the short-lived `Conversation`
   carrier). `Mint`, `StatefulComponentBase.LatchSuccess`, and `RoutingComponentBase.RoutingResult.Ok`
   thread an `instructions:` arg onto the minted Success Signal.
-- **`Recorder`** outputs a **Signal only**, minted on a user/feedback/tool-result turn, carrying
+- **`Conversation Log`** outputs a **Signal only**, minted on a user/feedback/tool-result turn, carrying
   `new Instructions(systemPrompt, fullConversation)`. Its typed Instructions output and Recorded
   History output were removed; the Conversation override input and `ApplyConversationOverride` were
   removed; `FeedbackCollector`'s conversation preservation was reverted.
-- **`Reasoner`** dropped its typed Instructions input and reads `signal.Instructions`.
+- **`LLM Call`** dropped its typed Instructions input and reads `signal.Instructions`.
 - **`GH_Signal.CastTo`** casts a signal to `Instructions`/`Conversation`/text; **`DeconstructSignal`**
   surfaces an Instructions output; **`TokenInputHelper`** resolves a signal's Instructions — so a
   signal wire drops into any typed Instructions/Conversation input without manual deconstruction.
@@ -296,30 +296,30 @@ discipline: `Payload` + `ContentBlocks` + `Instructions`, and nothing more):
 ## The compaction path (no cycle, no loop-back)
 
 ```
-Prompter ─(Prompt Signal)→ Recorder ─(Signal w/ full Instructions)→ [Compactor] → Reasoner
+Prompter ─(Prompt Signal)→ Conversation Log ─(Signal w/ full Instructions)→ [Compactor] → LLM Call
                               ▲                                                       │
                               └──── Feedback ┄┄▶ FeedbackCollector ←─────────────────┘  (response, wireless)
 ```
-The forward path `Recorder → Compactor → Reasoner` is plain wires; the only loop back to the Recorder is
-the existing **wireless** response link (`Reasoner → Feedback →(grip-link)→ FeedbackCollector →
-Recorder.Response`), so nothing forms an illegal cycle. The compactor consumes the Recorder's signal,
+The forward path `Conversation Log → Compactor → LLM Call` is plain wires; the only loop back to the Conversation Log is
+the existing **wireless** response link (`LLM Call → Feedback →(grip-link)→ FeedbackCollector →
+Conversation Log.Response`), so nothing forms an illegal cycle. The compactor consumes the Conversation Log's signal,
 compacts the carried Instructions, and re-emits a signal carrying the compacted Instructions to the
-Reasoner. The Recorder keeps the full uncompacted log (the Reasoner's response appends to it); compaction
-only ever transforms the copy on the signal. Without a compactor, `Recorder → Reasoner` directly.
+LLM Call. The Conversation Log keeps the full uncompacted log (the LLM Call's response appends to it); compaction
+only ever transforms the copy on the signal. Without a compactor, `Conversation Log → LLM Call` directly.
 
 ## Triggering
 
-A compactor placed directly on the path (`Recorder → Compactor → Reasoner`) runs **every turn**. To
+A compactor placed directly on the path (`Conversation Log → Compactor → LLM Call`) runs **every turn**. To
 compact only when the context is actually large, gate it with the **Token Threshold** (`TokGate`) — a
-**router**, not a trigger-minter. It consumes the Recorder's Signal, estimates the size of the carried
+**router**, not a trigger-minter. It consumes the Conversation Log's Signal, estimates the size of the carried
 Instructions, and re-emits that same signal (Instructions intact) on one of two outputs:
 
 ```
-Recorder.Signal → Token Threshold ─ Under Limit ────────────────→ Reasoner
-                                   └ Over Limit → Compactor ─────→ Reasoner
+Conversation Log.Signal → Token Threshold ─ Under Limit ────────────────→ LLM Call
+                                   └ Over Limit → Compactor ─────→ LLM Call
 ```
-Both branches carry the Instructions, so **every turn reaches the Reasoner exactly once** (consume-once
-on the Reasoner's Signal input dedupes), and compaction runs only on over-budget turns. Set the Threshold
+Both branches carry the Instructions, so **every turn reaches the LLM Call exactly once** (consume-once
+on the LLM Call's Signal input dedupes), and compaction runs only on over-budget turns. Set the Threshold
 to ~80% of the model's context window. Needs a synchronous estimator (Heuristic/Tiktoken). The async
 **Summarizer**, if placed inline without a gate, should self-gate (pass through unchanged under a
 threshold) so it does not fire an LLM call every turn.

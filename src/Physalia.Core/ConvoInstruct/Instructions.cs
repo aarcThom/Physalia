@@ -18,9 +18,9 @@ public record Instructions(string SystemPrompt, Conversation Conversation)
 {
     /// <summary>
     /// Gets the tool definitions advertised to the model for this call, or an empty list for plain
-    /// inference. Rides on the Instructions so the full inference context is one object: the Recorder
+    /// inference. Rides on the Instructions so the full inference context is one object: the Conversation Log
     /// folds the tools wired in as grounding (via the Tools Present grounder) into this field, and a
-    /// compaction component carries it forward unchanged, so the Reasoner reads its tools here rather
+    /// compaction component carries it forward unchanged, so the LLM Call reads its tools here rather
     /// than from a separate input.
     /// </summary>
     public IReadOnlyList<ToolDefinition> Tools { get; init; } = Array.Empty<ToolDefinition>();

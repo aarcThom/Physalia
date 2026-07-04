@@ -8,7 +8,7 @@ namespace Physalia.GH.Panels;
 
 /// <summary>
 /// Mutable working record for one gathered image, shared between the
-/// <see cref="Physalia.GH.Components.ImageGatherer"/> component (source of truth) and the Manage Images panel.
+/// <see cref="Physalia.GH.Components.ImageSources"/> component (source of truth) and the Manage Images panel.
 /// Raises <see cref="INotifyPropertyChanged"/> on <see cref="Alias"/> so the grid can
 /// refresh a single cell without a full collection refresh (which WPF forbids mid-edit).
 /// </summary>

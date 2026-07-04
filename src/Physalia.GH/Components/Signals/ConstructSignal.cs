@@ -11,7 +11,7 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Mints a signal carrying an arbitrary text payload, one per Button press. The manual
 /// entry point into the signal pipeline: a Panel of text plus a Button lets any
-/// signal-driven component (e.g. Auditor) be run standalone, without the upstream chain.
+/// signal-driven component (e.g. Schema Validator) be run standalone, without the upstream chain.
 /// The Trigger is a native Boolean input (not a Signal) — it is the one sanctioned place a
 /// Button drives the pipeline, since Signal inputs themselves accept only signals.
 /// </summary>

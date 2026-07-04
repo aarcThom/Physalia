@@ -21,7 +21,7 @@ namespace Physalia.GH.Components;
 /// injections during an active run wait their turn). The collector mints one fresh
 /// outgoing signal per batch — its payload is the newline-joined feedback text and its
 /// sequence is necessarily greater than every cause, preserving global causal order for
-/// downstream consumers like Recorder.</para>
+/// downstream consumers like Conversation Log.</para>
 /// </summary>
 public class FeedbackCollector : StatefulComponentBase
 {

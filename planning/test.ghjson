@@ -85,7 +85,7 @@
       }
     },
     {
-      "name": "Composer",
+      "name": "System Prompt",
       "library": "Physalia",
       "componentGuid": "ba4fcd24-96db-4b2b-b7f7-e756a98bc185",
       "instanceGuid": "6bfee578-40c8-4c27-8e09-2f7688f7366b",
@@ -172,7 +172,7 @@
       }
     },
     {
-      "name": "Reasoner",
+      "name": "LLM Call",
       "library": "Physalia",
       "componentGuid": "f1097b2b-564a-43f8-8f70-ba6961f00e00",
       "instanceGuid": "ed1a800b-cc7c-49a6-9b48-afcc4570ba94",
@@ -213,7 +213,7 @@
       }
     },
     {
-      "name": "Recorder",
+      "name": "Conversation Log",
       "library": "Physalia",
       "componentGuid": "43a02f6d-d97d-4241-b4dd-067d7ae0d75e",
       "instanceGuid": "e9a7ee83-e779-4166-bc3e-bbcc4a8fb8a0",

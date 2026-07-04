@@ -2,13 +2,13 @@
 Source: `planning/physalia-primitives.md` + `planning/api_research.md`
 
 ## Design Philosophy
-v0.2 decomposes the monolithic Composer/Transmitter/Receiver into a proper pipeline with strict separation of concerns. Each component owns exactly one responsibility.
+v0.2 decomposes the monolithic System Prompt/Transmitter/Receiver into a proper pipeline with strict separation of concerns. Each component owns exactly one responsibility.
 
 ---
 
 ## Core Pipeline (linear, left-to-right)
 
-### Composer
+### System Prompt
 - Assembles system prompt from discrete inputs: `preamble`, `schema`, `tool descriptions`
 - Output: `system prompt` (string)
 - Right-click: Save/append `.composer` file
@@ -21,31 +21,31 @@ v0.2 decomposes the monolithic Composer/Transmitter/Receiver into a proper pipel
 - Right-click: `Open Chat` — Eto chat window as alternative UI
 - **Deterministic**
 
-### Recorder
-- Append-only conversation log; sole source of truth for Reasoner
-- Inputs: `system prompt` (from Composer), `prompt` (from Prompter), `feedback` (N inputs from Feedback components), `trigger`
+### Conversation Log
+- Append-only conversation log; sole source of truth for LLM Call
+- Inputs: `system prompt` (from System Prompt), `prompt` (from Prompter), `feedback` (N inputs from Feedback components), `trigger`
 - Outputs: `conversation` (full history string), `reference` (passthrough), `trigger`
 - Arbitrates between forward flow and incoming Feedback signals (blocks one when other is active)
 - Right-click: Save/Load/Clear conversation (.convo JSON)
 - **Deterministic**
 
-### Reasoner
-- Core LLM inference — stateless; all context lives in Recorder
-- Inputs: `instructions` (from Recorder), `model` (Model record), `reference` (file path, optional), `trigger`, `cancel` (button)
+### LLM Call
+- Core LLM inference — stateless; all context lives in Conversation Log
+- Inputs: `instructions` (from Conversation Log), `model` (Model record), `reference` (file path, optional), `trigger`, `cancel` (button)
 - Outputs: `response` (raw LLM string), `trigger`, `feedback` (same as response if successful, null if API call failed)
-- Alternate use cases via Library: Distiller, Reflector, Interpreter, Encoder, Curator, Critic, Translator, Educator
+- Alternate use cases via Component Catalog: Distiller, Reflector, Interpreter, Encoder, Curator, Critic, Translator, Educator
 - **LLM-driven**
 
-### Auditor
+### Schema Validator
 - Strips non-essential content from LLM response; validates JSON against schema (NJsonSchema or JsonSchema.Net)
-- Inputs: `data` (raw LLM output), `schema` (from Library), `trigger`
+- Inputs: `data` (raw LLM output), `schema` (from Component Catalog), `trigger`
 - Outputs: `data` (clean JSON), `trigger`, `feedback` (error info, user role)
-- Alternate use cases via Library: Monitor (structural connection validity)
+- Alternate use cases via Component Catalog: Monitor (structural connection validity)
 - **Deterministic**
-- ⚠️ SUPERSEDED (2026-06-04): Auditor now inherits `RoutingComponentBase<string>` — **no input `trigger`** (re-runs on any input change), outputs are Data / Success Trigger / Feedback / Fail Trigger (momentary pulses), and they latch. See [routing-trigger-system.md](routing-trigger-system.md). The same model will likely apply to PyValidator/Transmitter below when built.
+- ⚠️ SUPERSEDED (2026-06-04): Schema Validator now inherits `RoutingComponentBase<string>` — **no input `trigger`** (re-runs on any input change), outputs are Data / Success Trigger / Feedback / Fail Trigger (momentary pulses), and they latch. See [routing-trigger-system.md](routing-trigger-system.md). The same model will likely apply to PyValidator/Transmitter below when built.
 
 ### PyValidator
-- Python-specific pre-assembly validator; sits between Auditor and Transmitter on Python path
+- Python-specific pre-assembly validator; sits between Schema Validator and Transmitter on Python path
 - Inputs: `data` (validated Python script JSON), `trigger`
 - Outputs: `data` (passthrough if valid), `trigger`, `feedback` (error info)
 - Validation sequence:
@@ -57,7 +57,7 @@ v0.2 decomposes the monolithic Composer/Transmitter/Receiver into a proper pipel
 
 ### Transmitter
 - Junction between correctness layer and execution layer
-- Inputs: `data` (JSON from Auditor/PyValidator), `trigger`
+- Inputs: `data` (JSON from Schema Validator/PyValidator), `trigger`
 - Outputs: Galapagos-style connector to Receiver, `trigger`, `feedback` (errors)
 - Right-click: save/autosave receiver config, clear/detach receiver
 - **Deterministic**
@@ -103,7 +103,7 @@ v0.2 decomposes the monolithic Composer/Transmitter/Receiver into a proper pipel
 - Inputs: `trigger`
 - Outputs: `data` (description string), `trigger`
 
-### Observer
+### Canvas Observation
 - Captures Rhino viewport screenshots
 - Inputs: `target` (GH geo for camera zoom, optional), `trigger`
 - Outputs: `screenshot` (file path), `trigger`
@@ -112,7 +112,7 @@ v0.2 decomposes the monolithic Composer/Transmitter/Receiver into a proper pipel
 
 ## Configuration
 
-### Library
+### Component Catalog
 - References files in `/SKILLS` and `/SCHEMAS` folders
 - Inputs: `folder` (path), `file` (value picker)
 - Outputs: vary per file spec
@@ -129,7 +129,7 @@ v0.2 decomposes the monolithic Composer/Transmitter/Receiver into a proper pipel
 ## Utility
 
 ### Aggregator
-- Combines N perception outputs into one structured observation for Recorder
+- Combines N perception outputs into one structured observation for Conversation Log
 - Inputs: `data` (N string inputs), `trigger`
 - Outputs: `aggregated` (string), `trigger`
 
@@ -148,8 +148,8 @@ v0.2 decomposes the monolithic Composer/Transmitter/Receiver into a proper pipel
     /Runtime          (the plugin)
     /Files
         API_KEY_CONFIG.YAML
-        /SKILLS       (.skill files — prompts for Reasoner)
-        /SCHEMAS      (.schema files — for Auditor)
+        /SKILLS       (.skill files — prompts for LLM Call)
+        /SCHEMAS      (.schema files — for Schema Validator)
         /CLUSTERS     (.ghcluster files)
         /RECEIVERS    (.receiver files)
 ```

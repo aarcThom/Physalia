@@ -11,13 +11,13 @@
 >   tests for Conversation, PromptImageResolver, JsonExtractor, SchemaValidator, CompactionInvariants,
 >   PythonOutputAccessInference, SignalSequencer; provider streaming golden fixtures (Anthropic/OpenAI/
 >   Gemini) driven through the real `ParseSseStreamAsync` via a `MemoryStream` (no HTTP).
-> - Cleanups: removed the dead `update_model_info.py` PreBuild target and the unimplemented Composer
+> - Cleanups: removed the dead `update_model_info.py` PreBuild target and the unimplemented System Prompt
 >   `.composer` menu items.
 > - Phase 1 (token estimator only): `ITokenEstimator` is now a method-less marker root; new
 >   `ISyncTokenEstimator` (carries `Estimate`) + `IAsyncTokenEstimator` (marker); `AsyncMarkerTokenEstimator`
 >   deleted. Synchronous misuse of an API-backed estimator is now a compile error, not a runtime throw.
-> - Phase 4 (the three extractions): `ConversationRecorder` (Core/Recording), `ToolDispatchRound` and
->   `ToolBatchRunner` (Core/Tools). The GH components (`Recorder`, `Router`, `ToolComponentBase`) now
+> - Phase 4 (the three extractions): `ConversationLogBuilder` (Core/Recording), `ToolDispatchRound` and
+>   `ToolBatchRunner` (Core/Tools). The GH components (`ConversationLog`, `Router`, `ToolComponentBase`) now
 >   delegate; their solve/latch/async lifecycle stayed in place.
 >
 > **Deferred (Tier 2, not started):** the 4-assembly split (Phase 1 packaging, Phase 2 DTOs), splitting
@@ -50,7 +50,7 @@ The biggest maintainability issues are:
 
 1. There are no tracked tests, despite many pure algorithms and state transitions.
 2. `Physalia.Core` is documented as pure domain code, but it currently owns HTTP, file-system, environment, process, CLI, and catalog-fetching concerns.
-3. Several classes have accumulated too many responsibilities: `ChatWindow`, `GhJsonBridge`, `StatefulComponentBase`, `RoutingComponentBase<TData>`, `Recorder`, `Reasoner`, `Router`, and `ToolComponentBase`.
+3. Several classes have accumulated too many responsibilities: `ChatWindow`, `GhJsonBridge`, `StatefulComponentBase`, `RoutingComponentBase<TData>`, `ConversationLog`, `LlmCall`, `Router`, and `ToolComponentBase`.
 4. Provider request construction, response streaming, error mapping, tool-call parsing, and transport live in the same classes.
 5. The Svelte bridge is typed on the TypeScript side, but the C# host mirrors the contract manually and routes commands through ad hoc URI parsing.
 6. Async execution patterns are repeated across GH components, tools, model discovery, summarization, and provider integration.
@@ -154,7 +154,7 @@ Good first tests:
 - `PythonOutputAccessInference` catches known output access patterns and ignores comments/strings where intended.
 - `ComponentMatcher` confidence thresholds are stable.
 - `Router` dispatch policy handles multiple calls to the same tool, missing tool outputs, and out-of-order results.
-- `Recorder` turn-building policy handles prompt, assistant response, feedback, and tool-result ordering.
+- `ConversationLog` turn-building policy handles prompt, assistant response, feedback, and tool-result ordering.
 - `ToolComponentBase` batch policy returns one result per tool call.
 - `content.ts` splits thinking blocks and large JSON consistently.
 
@@ -502,7 +502,7 @@ instead of participating in the base class lifecycle.
 
 ## Phase 4: Extract Pure Policies From GH Components
 
-### `Recorder`
+### `ConversationLog`
 
 Current issue:
 
@@ -512,10 +512,10 @@ Current issue:
 
 Recommendation:
 
-- Extract `ConversationRecorder`.
+- Extract `ConversationLogBuilder`.
 - Inputs: current conversation plus ordered signal events.
 - Output: new conversation, emitted signal, warnings.
-- Keep GH data access and Goo conversion in `Recorder`.
+- Keep GH data access and Goo conversion in `ConversationLog`.
 
 Good tests:
 
@@ -525,7 +525,7 @@ Good tests:
 - Tool-call assistant turn is recorded before tool-result user turn.
 - Instructions are carried forward only when expected.
 
-### `Reasoner`
+### `LlmCall`
 
 Current issue:
 
@@ -577,7 +577,7 @@ Recommendation:
 - Extract `ToolBatchRunner`.
 - Keep `ExecuteCall` and `ExecuteCallAsync` as subclass hooks.
 - Centralize "one result block per call" enforcement.
-- Make async cancellation behavior shared with Reasoner and Summarizer.
+- Make async cancellation behavior shared with LLM Call and Summarizer.
 
 Good tests:
 
@@ -586,7 +586,7 @@ Good tests:
 - Cancellation prevents late emission.
 - Empty dispatch signal produces a warning and no new result.
 
-### `Chatbox`
+### `Chat`
 
 Current issue:
 
@@ -601,7 +601,7 @@ Recommendation:
 
 This will also make the panel and component less tightly coupled.
 
-### `Composer`
+### `SystemPrompt`
 
 Current issue:
 
@@ -630,8 +630,8 @@ Recommendation:
 - Polling the GH pipeline.
 - Conversation-to-UI projection.
 - Preset discovery and placement.
-- Chatbox switching.
-- Recorder placement and wiring.
+- Chat switching.
+- Conversation Log placement and wiring.
 - Clear-all behavior.
 - Host script execution.
 
@@ -653,7 +653,7 @@ ChatPayloadParser
   Parses text and image submit payloads.
 
 UiStateProjector
-  Converts Conversation, stream text, busy state, provider setup state, and chatbox list to UI DTOs.
+  Converts Conversation, stream text, busy state, provider setup state, and chat list to UI DTOs.
 
 ProviderSetupService
   Saves API keys, probes configured providers, and reports setup results.
@@ -665,10 +665,10 @@ PresetPlacementService
   Places bundled ghjson presets and wires anchors.
 
 ChatboxRegistry
-  Enumerates chatboxes and handles active chatbox switching.
+  Enumerates chats and handles active chat switching.
 
 RecorderPlacementService
-  Places/wires a Recorder for the active Chatbox.
+  Places/wires a Conversation Log for the active Chat.
 
 GhWindowHost
   Owns Windows-specific z-order/owner/position logic.
@@ -809,7 +809,7 @@ src/lib/chat/ChatView.svelte
   conversation rendering and composer.
 
 src/lib/chat/ChatboxSwitcher.svelte
-  bottom chatbox selector.
+  bottom chat selector.
 ```
 
 `App.svelte` should mostly compose these pieces.
@@ -904,7 +904,7 @@ tree). Generated-output policy is now unambiguous:
 
 Async work appears in:
 
-- `Reasoner`.
+- `LlmCall`.
 - `Summarizer`.
 - `ToolComponentBase`.
 - model discovery components.
@@ -934,7 +934,7 @@ internal sealed class GhAsyncRun<TResult>
 }
 ```
 
-This reduces subtle differences across Reasoner, Summarizer, model info fetches, and tools.
+This reduces subtle differences across LLM Call, Summarizer, model info fetches, and tools.
 
 ### Error handling rules
 
@@ -957,7 +957,7 @@ Current static state includes:
 
 - `SignalSequencer`.
 - Claude Code session pool and reaper.
-- active chat window in `Chatbox`.
+- active chat window in `Chat`.
 - model-list caches in model components.
 - static `HttpClient`s.
 - RhinoCommon index cache.
@@ -1081,12 +1081,12 @@ Suggested rule of thumb:
 | `src/Physalia.Core/Validation/JsonExtractor.cs` | Add fixture tests; keep heuristic behavior documented with examples. |
 | `src/Physalia.GH/Components/StatefulComponentBase.cs` | Extract signal tracking, lifecycle state, edge detection, and scheduling helpers. |
 | `src/Physalia.GH/Components/RoutingComponentBase.cs` | Extract push/read/latch state machine into a pure `RoutingRunState<TData>`. |
-| `src/Physalia.GH/Components/Core/Recorder.cs` | Extract `ConversationRecorder` policy and test turn ordering. |
-| `src/Physalia.GH/Components/Core/Reasoner.cs` | Extract `InferenceRunner` and async run state; keep GH code as adapter. |
+| `src/Physalia.GH/Components/Core/ConversationLog.cs` | Extract `ConversationLogBuilder` policy and test turn ordering. |
+| `src/Physalia.GH/Components/Core/LlmCall.cs` | Extract `InferenceRunner` and async run state; keep GH code as adapter. |
 | `src/Physalia.GH/Components/Regulators/Router.cs` | Extract `ToolDispatchRound`; test multi-tool and missing-tool behavior. |
 | `src/Physalia.GH/Components/Tools/ToolComponentBase.cs` | Extract `ToolBatchRunner`; share async/cancellation pattern. |
-| `src/Physalia.GH/Components/Core/Chatbox.cs` | Split signal source, window registry, harness controller, and identity/icon logic. |
-| `src/Physalia.GH/Components/Core/Composer.cs` | Split file-definition loading from canvas placement; implement or remove unfinished menu items. |
+| `src/Physalia.GH/Components/Core/Chat.cs` | Split signal source, window registry, harness controller, and identity/icon logic. |
+| `src/Physalia.GH/Components/Core/SystemPrompt.cs` | Split file-definition loading from canvas placement; implement or remove unfinished menu items. |
 | `src/Physalia.GH/Generation/GhJsonBridge.cs` | Keep facade, split exporter/importer/extensions/placement/variable-param restoration. |
 | `src/Physalia.GH/Panels/ChatWindow.cs` | Split view shell, bridge dispatcher, state projector, provider setup, preset placement, and window host logic. |
 | `src/Physalia.UI/src/App.svelte` | Move bridge sending and host callbacks into `hostBridge.ts`; split header/chat/switcher state. |
@@ -1116,7 +1116,7 @@ These should test extracted policies without loading Rhino:
 
 - Signal consumption order.
 - Routing state transitions.
-- Recorder turn assembly.
+- Conversation Log turn assembly.
 - Router dispatch/result aggregation.
 - Tool batch result mapping.
 - UI message projection.
@@ -1128,7 +1128,7 @@ These should test extracted policies without loading Rhino:
 These still need Rhino/Grasshopper:
 
 - Open chat window.
-- Connect recorder.
+- Connect conversation log.
 - Send text-only prompt.
 - Send image prompt.
 - Stream assistant response.
@@ -1152,7 +1152,7 @@ These still need Rhino/Grasshopper:
 1. Add test projects and a minimal CI/local test script.
 2. Add tests for the already-pure Core helpers: conversation, compaction, validation, content parsing.
 3. Extract and test provider request builders and streaming parsers.
-4. Extract `ConversationRecorder` from `Recorder`.
+4. Extract `ConversationLogBuilder` from `ConversationLog`.
 5. Extract `ToolDispatchRound` from `Router`.
 6. Extract `ToolBatchRunner` from `ToolComponentBase`.
 7. Extract `SignalInputTracker` from `StatefulComponentBase`.

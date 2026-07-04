@@ -11,10 +11,10 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Presence gate that routes a response by whether it contains attempted JSON at all. A response
 /// carrying any JSON — even malformed or truncated — passes through untouched on the Success
-/// Signal so the Auditor can validate it and the correction loop keeps working. A response with
+/// Signal so the Schema Validator can validate it and the correction loop keeps working. A response with
 /// no JSON attempt (plain conversation) routes its raw text to the Fail Signal, which acts as a
 /// quiet switch: left unwired, casual chat dead-ends there instead of triggering validation
-/// feedback. Not a validator — well-formedness and schema checks stay in the Auditor.
+/// feedback. Not a validator — well-formedness and schema checks stay in the Schema Validator.
 /// </summary>
 public class DetectJson : RoutingComponentBase<string>
 {
@@ -22,7 +22,7 @@ public class DetectJson : RoutingComponentBase<string>
     /// Initializes a new instance of the <see cref="DetectJson"/> class.
     /// </summary>
     public DetectJson()
-        : base("Detect JSON", "DJson", "Passes responses containing JSON (even malformed) to Success; routes plain conversation to Fail so it never triggers validation feedback.", "Deterministic Gates")
+        : base("Detect JSON", "DJson", "Passes responses containing JSON (even malformed) to Success; routes plain conversation to Fail so it never triggers validation feedback.", "Regulators")
     {
     }
 
@@ -34,7 +34,7 @@ public class DetectJson : RoutingComponentBase<string>
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Accepts even a blank payload — unlike the Auditor's non-blank guard — because a blank
+    /// Accepts even a blank payload — unlike the Schema Validator's non-blank guard — because a blank
     /// response is still a real event and should route to Fail, not be dropped with a warning.
     /// </remarks>
     protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out string data)

@@ -290,7 +290,7 @@ internal sealed class ClaudeCodeSession : IDisposable
         // Match the Anthropic API provider, which sends no thinking config at all: disable extended
         // thinking. Left on, a real generation prompt makes the CLI spend 50–90s emitting only
         // thinking deltas — which this provider filters out — before the first token of the answer,
-        // so the Reasoner sits dead with no output. That invisible stall is the apparent "freeze".
+        // so the LLM Call sits dead with no output. That invisible stall is the apparent "freeze".
         startInfo.Environment["MAX_THINKING_TOKENS"] = "0";
 
         // Streaming both ways keeps the process alive between turns; --include-partial-messages

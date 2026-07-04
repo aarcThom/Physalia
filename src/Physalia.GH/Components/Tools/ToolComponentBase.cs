@@ -18,7 +18,7 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// Base for model-invoked tool nodes. Advertises a <see cref="ToolDefinition"/> on the Tool output
-/// (wire into the Reasoner's Tools input), receives dispatched tool-call signals from a Router on the
+/// (wire into the LLM Call's Tools input), receives dispatched tool-call signals from a Router on the
 /// Signal input, and emits a single tool-result signal on the Result output (wire through a Feedback
 /// component into a Feedback Collector and back to the Router's Results input).
 ///
@@ -146,7 +146,7 @@ public abstract class ToolComponentBase : StatefulComponentBase
     /// <inheritdoc/>
     protected sealed override void SolveInstance(IGH_DataAccess DA)
     {
-        // Always advertise the tool so the Reasoner sees it regardless of run state.
+        // Always advertise the tool so the LLM Call sees it regardless of run state.
         DA.SetData(OutTool, new GH_ToolDefinition(Definition));
 
         OnSolveTick(DA);

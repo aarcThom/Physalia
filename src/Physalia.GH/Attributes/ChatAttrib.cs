@@ -16,13 +16,13 @@ using Physalia.GH.Harness;
 namespace Physalia.GH.Attributes;
 
 /// <summary>
-/// Attributes for the Chatbox component. The chat UI lives in a standalone window (opened on
-/// double-click); on the canvas the Chatbox doubles as the proxy node for its collapsible
+/// Attributes for the Chat component. The chat UI lives in a standalone window (opened on
+/// double-click); on the canvas the Chat doubles as the proxy node for its collapsible
 /// harness group. Once it owns members, the node takes on a distinct look — a light-blue
-/// body with a lavender-pink edge — so a harness Chatbox reads distinctly from a plain one.
+/// body with a lavender-pink edge — so a harness Chat reads distinctly from a plain one.
 /// Collapse is driven from the right-click menu and the chat window.
 /// </summary>
-public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
+public class ChatAttrib : PhyComponentAttributes, IArrowHost
 {
     // Harness tint: light-blue body, black capsule edge, dark-purple text. A secondary outline
     // (HarnessGlow → white, top-to-bottom) is traced just outside the black edge.
@@ -34,12 +34,12 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
     // Width of the secondary gradient outline; ~half straddles outside the 1px black edge.
     private const float GlowWidth = 1f;
 
-    private readonly Chatbox _chatbox;
+    private readonly Chat _chat;
 
     // The delegated bottom arrow, drawn only while collapsed with exactly one transmitter member
     // (see Harness.TryGetSoleArrow). The proxy hosts the grip + wires and forwards the drag to the
     // real transmitter through IHarnessArrow, so the link/placement is real and survives expansion.
-    // The Chatbox is a bespoke proxy (not a BottomGripAttributes), so it owns its own grip dot.
+    // The Chat is a bespoke proxy (not a BottomGripAttributes), so it owns its own grip dot.
     private readonly CanvasGrip _grip = new(PointF.Empty);
     private readonly ArrowGrip _arrow = new();
 
@@ -49,13 +49,13 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
     private RectangleF _gripBounds;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="ChatboxAttrib"/> class.
+    /// Initializes a new instance of the <see cref="ChatAttrib"/> class.
     /// </summary>
-    /// <param name="chatbox">The Chatbox component that owns these attributes.</param>
-    public ChatboxAttrib(Chatbox chatbox)
-        : base(chatbox)
+    /// <param name="chat">The Chat component that owns these attributes.</param>
+    public ChatAttrib(Chat chat)
+        : base(chat)
     {
-        _chatbox = chatbox;
+        _chat = chat;
     }
 
     /// <inheritdoc/>
@@ -75,7 +75,7 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
     /// <inheritdoc/>
     public IEnumerable<PointF> SettledEndpoints(GH_Document doc)
     {
-        if (_chatbox.Group.TryGetSoleArrow(out IHarnessArrow? source) && source is not null)
+        if (_chat.Group.TryGetSoleArrow(out IHarnessArrow? source) && source is not null)
         {
             return source.GetArrowEndpoints(doc);
         }
@@ -86,7 +86,7 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
     /// <inheritdoc/>
     public void OnDrop(GH_Document doc, PointF dropPoint, bool ctrl)
     {
-        if (_chatbox.Group.TryGetSoleArrow(out IHarnessArrow? source) && source is not null)
+        if (_chat.Group.TryGetSoleArrow(out IHarnessArrow? source) && source is not null)
         {
             source.HandleDrop(doc, dropPoint, ctrl);
         }
@@ -95,7 +95,7 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
     /// <inheritdoc/>
     protected override void Layout()
     {
-        // PhyComponentAttributes handles the collapse guard and the normal GH layout. This Chatbox
+        // PhyComponentAttributes handles the collapse guard and the normal GH layout. This Chat
         // may itself be a (plain) member of another harness — when that harness is collapsed, hide
         // it like any member: shrink to the collapse point and skip the proxy chrome.
         base.Layout();
@@ -109,7 +109,7 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
 
         // While collapsed (as a proxy over its own group), keep the hidden members glued under this
         // (possibly moved) proxy.
-        _chatbox.Group.RefreshCollapsePoint();
+        _chat.Group.RefreshCollapsePoint();
 
         // When collapsed over a single transmitter, expand the pick region 10px downward so the
         // delegated bottom grip is hittable; otherwise the bounds are unchanged.
@@ -130,7 +130,7 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
     private bool ShowsArrow(out IHarnessArrow? arrow)
     {
         arrow = null;
-        return _chatbox.Group.Collapsed && _chatbox.Group.TryGetSoleArrow(out arrow);
+        return _chat.Group.Collapsed && _chat.Group.TryGetSoleArrow(out arrow);
     }
 
     // Bottom-centre of the visible capsule — the origin of the delegated arrow.
@@ -146,10 +146,10 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
             return;
         }
 
-        bool harnessTint = channel == GH_CanvasChannel.Objects && _chatbox.Group.Count > 0;
+        bool harnessTint = channel == GH_CanvasChannel.Objects && _chat.Group.Count > 0;
         bool arrow = ShowsArrow(out _);
 
-        // A plain Chatbox (no members), and the channels where neither the tint nor the arrow
+        // A plain Chat (no members), and the channels where neither the tint nor the arrow
         // apply, render as a normal node.
         if (!harnessTint && !(arrow && channel == GH_CanvasChannel.Wires))
         {
@@ -172,7 +172,7 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
             }
 
             // Render the capsule ourselves for a clean chat look: GH would force a jagged
-            // "no inputs" left edge and (because the Chatbox is not preview-capable) the Hidden
+            // "no inputs" left edge and (because the Chat is not preview-capable) the Hidden
             // palette. Rounding both edges and driving fill/edge/text from our own style sidesteps
             // both. The output grip shows only while expanded; a collapsed proxy carries no grips.
             var style = new GH_PaletteStyle(HarnessFill, HarnessEdge, HarnessText);
@@ -212,9 +212,9 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
             capsule.SetJaggedEdges(false, false);
 
             // No inputs ever; the output grip is the proxy's only grip and is hidden while collapsed.
-            if (!_chatbox.Group.Collapsed)
+            if (!_chat.Group.Collapsed)
             {
-                foreach (IGH_Param output in _chatbox.Params.Output)
+                foreach (IGH_Param output in _chat.Params.Output)
                 {
                     capsule.AddOutputGrip(output.Attributes.OutputGrip.Y);
                 }
@@ -223,19 +223,19 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
             graphics.SmoothingMode = SmoothingMode.HighQuality;
             canvas.SetSmartTextRenderingHint();
 
-            if (!string.IsNullOrWhiteSpace(_chatbox.Message))
+            if (!string.IsNullOrWhiteSpace(_chat.Message))
             {
-                capsule.RenderEngine.RenderMessage(graphics, _chatbox.Message, style);
+                capsule.RenderEngine.RenderMessage(graphics, _chat.Message, style);
             }
 
             capsule.Render(graphics, style);
 
-            bool iconMode = _chatbox.IconDisplayMode == GH_IconDisplayMode.icon
-                || (_chatbox.IconDisplayMode == GH_IconDisplayMode.application && Grasshopper.CentralSettings.CanvasObjectIcons);
+            bool iconMode = _chat.IconDisplayMode == GH_IconDisplayMode.icon
+                || (_chat.IconDisplayMode == GH_IconDisplayMode.application && Grasshopper.CentralSettings.CanvasObjectIcons);
 
             if (iconMode)
             {
-                Image? icon = _chatbox.Locked ? _chatbox.Icon_24x24_Locked : _chatbox.Icon_24x24;
+                Image? icon = _chat.Locked ? _chat.Icon_24x24_Locked : _chat.Icon_24x24;
                 if (icon != null)
                 {
                     capsule.RenderEngine.RenderIcon(graphics, icon, m_innerBounds);
@@ -244,13 +244,13 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
             else
             {
                 var text = GH_Capsule.CreateTextCapsule(
-                    m_innerBounds, m_innerBounds, GH_Palette.Black, _chatbox.NickName,
+                    m_innerBounds, m_innerBounds, GH_Palette.Black, _chat.NickName,
                     GH_FontServer.LargeAdjusted, GH_Orientation.vertical_center, 3, 6);
-                text.Render(graphics, Selected, _chatbox.Locked, hidden: false);
+                text.Render(graphics, Selected, _chat.Locked, hidden: false);
                 text.Dispose();
             }
 
-            RenderComponentParameters(canvas, graphics, _chatbox, style);
+            RenderComponentParameters(canvas, graphics, _chat, style);
         }
         finally
         {
@@ -369,8 +369,8 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
     /// <returns>Handled — the double-click is consumed to open the window.</returns>
     public override GH_ObjectResponse RespondToMouseDoubleClick(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
-        _chatbox.OpenWindow();
-        _chatbox.Attributes.Selected = false;
+        _chat.OpenWindow();
+        _chat.Attributes.Selected = false;
         sender.Refresh();
         return GH_ObjectResponse.Handled;
     }

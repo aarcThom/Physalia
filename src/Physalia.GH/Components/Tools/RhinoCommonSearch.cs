@@ -18,7 +18,7 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// A model-invoked tool node that searches the RhinoCommon API (Rhino's .NET SDK) by keyword or
 /// symbol name. It advertises a <c>search_rhinocommon</c> tool (wire its Tool output into the
-/// Reasoner's Tools input); when the model calls it, the dispatched signal arrives from a Router, the
+/// LLM Call's Tools input); when the model calls it, the dispatched signal arrives from a Router, the
 /// node searches the API index, and it emits the matches as a tool result (wire its Result output
 /// through a Feedback component into a Feedback Collector and back to the Router's Results input).
 ///

@@ -24,7 +24,7 @@ namespace Physalia.GH.Components;
 /// consumed signal's payload) and pushes its code, inputs, and outputs into a linked GH
 /// Python Script component, then reads back the target's runtime errors. On clean
 /// execution it routes the linked Python component's GUID forward on the Success Signal
-/// (so a downstream Observer or Output Snapshot can scope to it); on genuine errors it
+/// (so a downstream Canvas Observation or Geometry Observation can scope to it); on genuine errors it
 /// routes the messages back on the Fail Signal. Errors caused purely by unconnected
 /// inputs are ignored. Link to the target via the bottom-centre bezier grip.
 /// </summary>
@@ -87,7 +87,7 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
         _linkedGuid = Guid.Empty;
     }
 
-    // IHarnessArrow — lets a collapsed Chatbox proxy delegate its bottom arrow to this transmitter.
+    // IHarnessArrow — lets a collapsed Chat proxy delegate its bottom arrow to this transmitter.
     // The wire lands on the linked target; a drop links the script under the point (or unlinks on Ctrl).
 
     /// <inheritdoc/>
@@ -125,7 +125,7 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
     /// <inheritdoc/>
     /// <remarks>
     /// The validated PythonComponent JSON ({ code, inputs[], outputs[] }) arrives as the
-    /// consumed signal's payload (Auditor's Success Signal).
+    /// consumed signal's payload (Schema Validator's Success Signal).
     /// </remarks>
     protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out string data)
     {

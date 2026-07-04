@@ -16,7 +16,7 @@ namespace Physalia.GH.Components;
 /// Each section can be supplied as a filename resolved from the Files/SYSTEM_PROMPTS folder,
 /// or as inline text wired directly.
 /// </summary>
-public class Composer : PhyBase, IPickableValuesSource
+public class SystemPrompt : PhyBase, IPickableValuesSource
 {
     private const string SubfolderPreamble = "PREAMBLE";
     private const string SubfolderSchema = "SCHEMA";
@@ -28,10 +28,10 @@ public class Composer : PhyBase, IPickableValuesSource
     private List<string> _schemaFiles = new();
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="Composer"/> class.
+    /// Initializes a new instance of the <see cref="SystemPrompt"/> class.
     /// </summary>
-    public Composer()
-        : base("Composer", "Cmp", "Assembles a system prompt from a preamble and a JSON schema.", "Core")
+    public SystemPrompt()
+        : base("System Prompt", "System Prompt", "Assembles a system prompt from a preamble and a JSON schema.", "Pipeline")
     {
     }
 
@@ -75,8 +75,8 @@ public class Composer : PhyBase, IPickableValuesSource
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("Schema", "S", "Resolved schema string for Auditor.", GH_ParamAccess.item);
-        pManager.AddTextParameter("System Prompt", "SP", "Assembled system prompt for Recorder.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Schema", "S", "Resolved schema string for Schema Validator.", GH_ParamAccess.item);
+        pManager.AddTextParameter("System Prompt", "SP", "Assembled system prompt for Conversation Log.", GH_ParamAccess.item);
     }
 
     /// <summary>

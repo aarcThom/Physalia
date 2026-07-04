@@ -59,7 +59,7 @@ internal static class ComponentSignatureProvider
     /// <summary>
     /// Reads ports from live parameters: nickname preferred (the short label shown on the canvas,
     /// e.g. <c>G</c>), full name as fallback, <c>TypeName</c> as the type hint. Shared with the
-    /// Observer, which reads placed components directly and so reflects their actual (zui) state.
+    /// Canvas Observation, which reads placed components directly and so reflects their actual (zui) state.
     /// </summary>
     /// <param name="params">The parameters to read.</param>
     /// <returns>One port per parameter, in order.</returns>

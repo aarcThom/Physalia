@@ -9,7 +9,7 @@ using System.Collections.Generic;
 namespace Physalia.Core.Grounding;
 
 /// <summary>
-/// Pure assembler that folds grounding sections into a system prompt. Keeps the Composer
+/// Pure assembler that folds grounding sections into a system prompt. Keeps the System Prompt
 /// component thin and the assembly logic testable without a Grasshopper dependency.
 /// </summary>
 public static class GroundingComposer

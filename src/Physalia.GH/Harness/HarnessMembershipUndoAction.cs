@@ -19,19 +19,19 @@ namespace Physalia.GH.Harness;
 /// </summary>
 internal sealed class HarnessMembershipUndoAction : GH_UndoAction
 {
-    private readonly Guid _chatboxId;
+    private readonly Guid _chatId;
     private readonly List<Guid> _members;
     private readonly bool _added;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HarnessMembershipUndoAction"/> class.
     /// </summary>
-    /// <param name="chatboxId">The InstanceGuid of the Chatbox whose group changed.</param>
+    /// <param name="chatId">The InstanceGuid of the Chat whose group changed.</param>
     /// <param name="members">The members the edit actually added or removed.</param>
     /// <param name="added">true if the edit added these members; false if it removed them.</param>
-    public HarnessMembershipUndoAction(Guid chatboxId, IEnumerable<Guid> members, bool added)
+    public HarnessMembershipUndoAction(Guid chatId, IEnumerable<Guid> members, bool added)
     {
-        _chatboxId = chatboxId;
+        _chatId = chatId;
         _members = members.ToList();
         _added = added;
     }
@@ -45,7 +45,7 @@ internal sealed class HarnessMembershipUndoAction : GH_UndoAction
     // Undo of an add removes; redo of an add re-adds; remove is the mirror.
     private void Reverse(GH_Document doc, bool undo)
     {
-        if (doc?.FindObject(_chatboxId, false) is not Chatbox chatbox)
+        if (doc?.FindObject(_chatId, false) is not Chat chat)
         {
             return;
         }
@@ -53,11 +53,11 @@ internal sealed class HarnessMembershipUndoAction : GH_UndoAction
         bool add = _added ? !undo : undo;
         if (add)
         {
-            chatbox.Group.Add(_members);
+            chat.Group.Add(_members);
         }
         else
         {
-            chatbox.Group.Remove(_members);
+            chat.Group.Remove(_members);
         }
     }
 }

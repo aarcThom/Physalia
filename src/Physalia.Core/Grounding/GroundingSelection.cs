@@ -17,7 +17,7 @@ namespace Physalia.Core.Grounding;
 /// tabs — a flat sub-category set would wrongly include same-named panels under other tabs.
 ///
 /// <para>A <see langword="null"/> selection (handled by the callers, never an instance of this class)
-/// means "include everything" — the default for a never-configured Recorder. An instance with zero
+/// means "include everything" — the default for a never-configured Conversation Log. An instance with zero
 /// leaves means "include nothing". Unknown leaves (referencing a tab/panel absent from the current
 /// install) are simply never matched, so a selection from another machine degrades gracefully.</para>
 /// </summary>

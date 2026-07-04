@@ -14,8 +14,8 @@ namespace Physalia.Core.Signals;
 ///
 /// <para><b>Carrier discipline (do not erode).</b> The signal carries exactly three things:
 /// <see cref="Payload"/> (the text trace / feedback string), <see cref="ContentBlocks"/> (a
-/// richer-than-text user turn, e.g. inline images — the Chatbox→Recorder hop), and
-/// <see cref="Instructions"/> (the full inference context — the Recorder→Reasoner hop). These are
+/// richer-than-text user turn, e.g. inline images — the Chat→Conversation Log hop), and
+/// <see cref="Instructions"/> (the full inference context — the Conversation Log→LLM Call hop). These are
 /// the inter-component <em>events</em> the pipeline is built on. Do NOT add further typed carrier
 /// fields: arbitrary data belongs on typed wires/inputs, not bolted onto the signal. Every new field
 /// here makes the signal a god-object and dilutes "the signal is the event".</para>
@@ -36,7 +36,7 @@ public sealed record PhySignal(
 {
     /// <summary>
     /// Gets the resolved content blocks for the event, when it carries richer-than-text data
-    /// (e.g. a Chatbox user turn with inline images). Empty for the common text-only case, in
+    /// (e.g. a Chat user turn with inline images). Empty for the common text-only case, in
     /// which <see cref="Payload"/> is the sole carrier. A deliberate multimodal extension to the
     /// payload-only contract: the only wire between pipeline components is the signal, so an
     /// assembled multimodal turn must ride on it.
@@ -45,7 +45,7 @@ public sealed record PhySignal(
 
     /// <summary>
     /// Gets the full inference context (system prompt + conversation) carried by the event, when one
-    /// applies — the Recorder→Reasoner hop, where the trigger signal <em>is</em> the data. Null for
+    /// applies — the Conversation Log→LLM Call hop, where the trigger signal <em>is</em> the data. Null for
     /// every other signal (feedback, tool results, manual triggers). A compaction component consumes a
     /// signal carrying these Instructions and re-emits one carrying the compacted Instructions. The
     /// conversation is reachable via <c>Instructions.Conversation</c>; the goo casts a signal straight
@@ -62,7 +62,7 @@ public sealed record PhySignal(
     /// <param name="sourceId">Instance GUID of the emitting component.</param>
     /// <param name="sourceName">Display name of the emitting component.</param>
     /// <param name="contentBlocks">Optional resolved content blocks; null is normalised to empty.</param>
-    /// <param name="instructions">Optional full inference context carried by the event (Recorder→Reasoner); null otherwise.</param>
+    /// <param name="instructions">Optional full inference context carried by the event (Conversation Log→LLM Call); null otherwise.</param>
     /// <returns>A freshly sequenced signal.</returns>
     public static PhySignal Mint(SignalOutcome outcome, string? payload, Guid sourceId, string sourceName, IReadOnlyList<MessageContent>? contentBlocks = null, Instructions? instructions = null) =>
         new(SignalSequencer.Next(), outcome, payload ?? string.Empty, sourceId, sourceName, DateTime.UtcNow)

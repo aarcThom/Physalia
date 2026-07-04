@@ -8,7 +8,7 @@ namespace Physalia.GH.Goo;
 
 /// <summary>
 /// Grasshopper goo wrapping a <see cref="ToolDefinition"/> — a tool a tool node advertises to the
-/// model. Tool nodes output it; the Reasoner collects the wired definitions and sends them to the
+/// model. Tool nodes output it; the LLM Call collects the wired definitions and sends them to the
 /// provider so the model can call the tool.
 /// </summary>
 public class GH_ToolDefinition : PhyGoo<GH_ToolDefinition, ToolDefinition>

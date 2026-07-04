@@ -24,9 +24,9 @@ namespace Physalia.GH.Components;
 /// meaning of dropped turns instead of forgetting them, at the cost of one inference call.
 ///
 /// <para>An inline forward-path compactor (like the deterministic windows, but asynchronous): it
-/// consumes a Recorder's Signal carrying the full Instructions, summarizes the older conversation, and
+/// consumes a Conversation Log's Signal carrying the full Instructions, summarizes the older conversation, and
 /// re-emits a Signal carrying the compacted Instructions on its <b>Success Signal</b>, wired straight
-/// to the Reasoner (<c>Recorder → Summarizer → Reasoner</c>). The call runs asynchronously
+/// to the LLM Call (<c>Conversation Log → Summarizer → LLM Call</c>). The call runs asynchronously
 /// (<see cref="AutoScheduleRead"/> is false; the read pass fires from the completion callback). The
 /// system prompt is preserved (never summarized); only the conversation is.</para>
 /// </summary>
@@ -71,13 +71,13 @@ public class Summarizer : RoutingComponentBase<Instructions>
     }
 
     /// <inheritdoc/>
-    /// <remarks>The Instructions to compact ride on the consumed signal itself (from the Recorder).</remarks>
+    /// <remarks>The Instructions to compact ride on the consumed signal itself (from the Conversation Log).</remarks>
     protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out Instructions data)
     {
         data = default!;
         if (signal.Instructions is not Instructions instructions)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Signal carried no Instructions — wire a Recorder into this input.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Signal carried no Instructions — wire a Conversation Log into this input.");
             return false;
         }
 
@@ -110,7 +110,7 @@ public class Summarizer : RoutingComponentBase<Instructions>
         // keeps one session per Summarizer rather than cold-starting each compaction.
         config = config with { SessionKey = InstanceGuid };
 
-        // Compact only the conversation; the system prompt rides through the Recorder untouched.
+        // Compact only the conversation; the system prompt rides through the Conversation Log untouched.
         StartSummarization(data.Conversation, config, instruction, keepRecent);
     }
 
@@ -131,7 +131,7 @@ public class Summarizer : RoutingComponentBase<Instructions>
         return RoutingResult.Ok(
             trace,
             // Carry the source tools forward unchanged — summarization shrinks the conversation, not
-            // the set of tools advertised to the model, so the Reasoner still sees them past this node.
+            // the set of tools advertised to the model, so the LLM Call still sees them past this node.
             instructions: new Instructions(data.SystemPrompt, _result.Conversation) { Tools = data.Tools },
             message: $"{trace} ({_result.DroppedMessageCount} folded into the summary).",
             level: GH_RuntimeMessageLevel.Remark);

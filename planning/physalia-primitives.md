@@ -17,18 +17,18 @@ Pipeline components share an explicit state machine (`StatefulComponentBase`) so
 
 - The signal **is** the data carrier: its payload holds the result string on success or the feedback string on failure, so each hop between pipeline components is one wire. Signals cast to text (the payload) for native GH interop; **Deconstruct Signal** taps any wire passively and **Construct Signal** mints one by hand.
 - A component is **empty** when fresh on canvas, never yet run, manually cleared via its right-click Clear item, or freshly loaded from a file (lifecycle state never persists).
-- Consuming an incoming signal enters **active**: stale outgoing signals blank immediately, the component does its work (instant for Auditor, an API call for Reasoner), then holds a visible delay (`SolveDelayMs`, currently 500 ms, wall-clock honest) before latching, so the hop is traceable by eye. Signals arriving while busy wait on the wire and are serviced afterwards — nothing is ever dropped.
+- Consuming an incoming signal enters **active**: stale outgoing signals blank immediately, the component does its work (instant for Schema Validator, an API call for LLM Call), then holds a visible delay (`SolveDelayMs`, currently 500 ms, wall-clock honest) before latching, so the hop is traceable by eye. Signals arriving while busy wait on the wire and are serviced afterwards — nothing is ever dropped.
 - The outcome latches into **solve success** or **solve failure**: one signal is minted carrying the payload, and it persists until the next run or a clear. Downstream components consume the signal exactly once — recomputes and replays never re-fire a chain, and processing order follows the global sequence (causal order), not solve timing.
 - Signal inputs accept only signals; a bare Button/Toggle has no payload and is a hard error there. Multiple signal sources wire into one input directly — no OR gates. For a manual run, use Construct Signal, whose dedicated native Boolean Trigger input mints a payload-carrying signal on each Button press.
 
-Routing components (Reasoner, Auditor, Transmitter, Schema Translator) layer the standard contract on top: Signal in (payload = working data), Success Signal out, Fail Signal out. Recorder participates in the same state machine with dedicated Prompt/Response/Feedback Signal inputs and emits its signal only on user-turn appends (see below).
+Routing components (LLM Call, Schema Validator, Transmitter, Schema Translator) layer the standard contract on top: Signal in (payload = working data), Success Signal out, Fail Signal out. Conversation Log participates in the same state machine with dedicated Prompt/Response/Feedback Signal inputs and emits its signal only on user-turn appends (see below).
 
 ---
 
 ## Core Pipeline
 
-### Composer
-**Role:** Assembles the system prompt from modular parts at runtime from plain string inputs plus a list of **Grounding** values. Accepts discrete inputs — preamble, format instructions (from schema), and grounding context — and concatenates them into a single instruction passed to Recorder. (Images are *not* grounding — they remain a per-turn concern of the Prompter / chat UI.)
+### System Prompt
+**Role:** Assembles the system prompt from modular parts at runtime from plain string inputs plus a list of **Grounding** values. Accepts discrete inputs — preamble, format instructions (from schema), and grounding context — and concatenates them into a single instruction passed to Conversation Log. (Images are *not* grounding — they remain a per-turn concern of the Prompter / chat UI.)
 
 **Deterministic.**
 
@@ -51,7 +51,7 @@ Right Clicks:
 ---
 
 ### Prompter
-**Role:** The sole entry point for human intent into the pipeline. Accepts user text input and emits it as a `PromptInfo` to Recorder. In its simplest form a GH text parameter with a button trigger. In its most complete form the Eto chat window — but either way it is a distinct primitive because it is the only component whose trigger is a human, not a pipeline signal. Prompter owns nothing except the act of capturing and forwarding user input; it does not manage history, does not modify the system prompt, and does not interpret the input in any way.
+**Role:** The sole entry point for human intent into the pipeline. Accepts user text input and emits it as a `PromptInfo` to Conversation Log. In its simplest form a GH text parameter with a button trigger. In its most complete form the Eto chat window — but either way it is a distinct primitive because it is the only component whose trigger is a human, not a pipeline signal. Prompter owns nothing except the act of capturing and forwarding user input; it does not manage history, does not modify the system prompt, and does not interpret the input in any way.
 
 The `reference` input is a simple filepath and is used to reference images.
 
@@ -67,7 +67,7 @@ Inputs:
 
 Outputs:
 - `prompt` — string
-- `reference` — file path string, optional, passed through to Recorder
+- `reference` — file path string, optional, passed through to Conversation Log
 - `trigger` — boolean, fires on user submission, initiates downstream solve
 
 Right Click:
@@ -75,28 +75,28 @@ Right Click:
 
 ---
 
-### Recorder
-**Role:** Maintains the full conversation history as an append-only log. Every component in the pipeline that produces an observation — errors, user input, perception output, system prompt — appends to Recorder. It is the sole source of truth the Reasoner sees on each call. Recorder is the only component that understands the feedback topology — it arbitrates between forward data flow and incoming Feedback signals, blocking one when the other is active.
+### Conversation Log
+**Role:** Maintains the full conversation history as an append-only log. Every component in the pipeline that produces an observation — errors, user input, perception output, system prompt — appends to Conversation Log. It is the sole source of truth the LLM Call sees on each call. Conversation Log is the only component that understands the feedback topology — it arbitrates between forward data flow and incoming Feedback signals, blocking one when the other is active.
 
 **Deterministic.**
 
 **I/O:**
 
 Inputs:
-- `system prompt` — string from Composer
+- `system prompt` — string from System Prompt
 - `prompt` — string; recorded when a Prompt Signal with an empty payload arrives (e.g. a Button press)
 - `prompt signal` — records a user turn (payload = prompt text, falls back to `prompt`)
-- `response signal` — records an assistant turn (from Reasoner's Success Signal; Tool Calls take priority over the payload)
+- `response signal` — records an assistant turn (from LLM Call's Success Signal; Tool Calls take priority over the payload)
 - `feedback signal` — records feedback as a user turn (from one or more Feedback Collectors, wired directly)
 - `tool calls` — list, optional
 - `conversation` — optional compacted conversation override
 
 Outputs:
 - `instructions` — system prompt + conversation bundled for inference, latched after each run
-- `signal` — minted **only when a user message was appended/merged** (payload = the user text). Assistant turns latch quietly (no signal) so a Reasoner wired off this output cannot re-fire itself after its own response is recorded.
+- `signal` — minted **only when a user message was appended/merged** (payload = the user text). Assistant turns latch quietly (no signal) so a LLM Call wired off this output cannot re-fire itself after its own response is recorded.
 - `recorded history` — full conversation including all messages before and after compaction
 
-**Lifecycle:** Recorder shares the component state machine but not the routing contract. It has three dedicated Signal inputs — `Prompt Signal`, `Response Signal`, `Feedback Signal` — so the turn type comes from event identity, never from conversation parity. Waiting signals are consumed in global sequence order (causal order), guaranteeing a response is recorded before the feedback it provoked even when both arrive in the same solve. User-side text arriving when the last turn is already a user message merges into that message (providers require role alternation). Appends happen on the consume solve; outputs latch after the visible delay. A signal with nothing new to record latches as a quiet failure with a warning.
+**Lifecycle:** Conversation Log shares the component state machine but not the routing contract. It has three dedicated Signal inputs — `Prompt Signal`, `Response Signal`, `Feedback Signal` — so the turn type comes from event identity, never from conversation parity. Waiting signals are consumed in global sequence order (causal order), guaranteeing a response is recorded before the feedback it provoked even when both arrive in the same solve. User-side text arriving when the last turn is already a user message merges into that message (providers require role alternation). Appends happen on the consume solve; outputs latch after the visible delay. A signal with nothing new to record latches as a quiet failure with a warning.
 
 Right Click
 - `Save Conversation` - saves conversation to .convo file in JSON format
@@ -105,39 +105,39 @@ Right Click
 
 ---
 
-### Reasoner
+### LLM Call
 **LLM-driven.**
 
-**Role:** The core inference component. Receives the full conversation history from Recorder and performs a single forward pass to produce structured output — a JSON node graph, a Python script, or any other structured format defined by the active Composer configuration. Used in cunjunction with **Library** component if not hooked up to a recorder. Stateless between calls; all context lives in Recorder. The model API and any additional instruction are parameters.
+**Role:** The core inference component. Receives the full conversation history from Conversation Log and performs a single forward pass to produce structured output — a JSON node graph, a Python script, or any other structured format defined by the active System Prompt configuration. Used in cunjunction with **Component Catalog** component if not hooked up to a conversation log. Stateless between calls; all context lives in Conversation Log. The model API and any additional instruction are parameters.
 
 **I/O:**
 
 Inputs:
-- `instructions` — typed Instructions (most probably from recorder or library); this is the context — the trigger signal's payload is ignored
+- `instructions` — typed Instructions (most probably from conversation log or library); this is the context — the trigger signal's payload is ignored
 - `model` — Model record, provider, model id, API key, inference parameters
 - `cancel` - boolean from button - sends cancel token (a human abort, deliberately not a signal)
-- `signal` — run signal from Recorder
+- `signal` — run signal from Conversation Log
 
 Outputs:
-- `success signal` — payload = raw LLM response; consumed by Auditor and Recorder
+- `success signal` — payload = raw LLM response; consumed by Schema Validator and Conversation Log
 - `fail signal` — payload = API error text
 
 **Alternate Use Cases**
 
-These use cases are to be retrieved with the **Library** component.
-- *Distiller* — Reasoner with a compaction instruction: "summarize this conversation history into a concise document state"
-- *Reflector* — Reasoner with a reflection instruction: "explain what went wrong and what you will fix before retrying"
-- *Interpreter* — Reasoner with a vision-capable model and instruction: "describe this image as a structured text observation"
-- *Encoder* — Reasoner with instruction: "convert this structured geometry data into a plain English description"
-- *Curator* — Reasoner with instruction: "extract only the unresolved issues from this observation"
-- *Critic* — Reasoner with instruction: "evaluate this output against the following design criteria and return a pass/fail with reasoning"
-- *Translator* — Reasoner with instruction: "translate this error message into a concise observation suitable for appending to conversation history"
-- *Educator* - Reasoner with instruction: "explain what's happening with these components / code."
+These use cases are to be retrieved with the **Component Catalog** component.
+- *Distiller* — LLM Call with a compaction instruction: "summarize this conversation history into a concise document state"
+- *Reflector* — LLM Call with a reflection instruction: "explain what went wrong and what you will fix before retrying"
+- *Interpreter* — LLM Call with a vision-capable model and instruction: "describe this image as a structured text observation"
+- *Encoder* — LLM Call with instruction: "convert this structured geometry data into a plain English description"
+- *Curator* — LLM Call with instruction: "extract only the unresolved issues from this observation"
+- *Critic* — LLM Call with instruction: "evaluate this output against the following design criteria and return a pass/fail with reasoning"
+- *Translator* — LLM Call with instruction: "translate this error message into a concise observation suitable for appending to conversation history"
+- *Educator* - LLM Call with instruction: "explain what's happening with these components / code."
 
 ---
 
-### Auditor
-**Role:** Strips out all non-essential information from the LLM response (such as human friendly message, white spaces, etc.) and tests that the provided JSON matches the provided schema retrieved from a **Library** file. Returns either a successfully parsed json string sends an error message via feedback. Auditor first performs a parsing pass to detect structural problems with the JSON; it then performs a semantic validation via Libraries like NJsonSchema or JsonSchema.Net against the provided schema file.
+### Schema Validator
+**Role:** Strips out all non-essential information from the LLM response (such as human friendly message, white spaces, etc.) and tests that the provided JSON matches the provided schema retrieved from a **Component Catalog** file. Returns either a successfully parsed json string sends an error message via feedback. Schema Validator first performs a parsing pass to detect structural problems with the JSON; it then performs a semantic validation via Libraries like NJsonSchema or JsonSchema.Net against the provided schema file.
 
 **Deterministic**
 
@@ -145,7 +145,7 @@ These use cases are to be retrieved with the **Library** component.
 
 Inputs:
 - `schema` — user-defined schema for runtime deserialization
-- `signal` — from Reasoner's Success Signal; the payload is the raw LLM output to validate
+- `signal` — from LLM Call's Success Signal; the payload is the raw LLM output to validate
 
 Outputs:
 - `success signal` — payload = properly formatted JSON string
@@ -153,20 +153,20 @@ Outputs:
 
 **Alternate Use Cases**
 
-These use cases are to be retrieved with the **Library** component. The RulesEngine can enforce these.
+These use cases are to be retrieved with the **Component Catalog** component. The RulesEngine can enforce these.
 - *Monitor* — Checks the the structural validity of connection validity.
 
 ---
 
 ### PyValidator
-**Role:** A pre-assembly validator specific to the Python pipeline. Runs two sequential checks against the generated script before Receiver touches the GH document — static analysis via pyflakes, RhinoCommon type checking and a dry-run execution with typed dummy inputs. Only fires on the Python path; the Cluster path uses Auditor's rule schema for equivalent validation. Sits between Auditor and Transmitter in the Python pipeline.
+**Role:** A pre-assembly validator specific to the Python pipeline. Runs two sequential checks against the generated script before Receiver touches the GH document — static analysis via pyflakes, RhinoCommon type checking and a dry-run execution with typed dummy inputs. Only fires on the Python path; the Cluster path uses Schema Validator's rule schema for equivalent validation. Sits between Schema Validator and Transmitter in the Python pipeline.
  
 **Deterministic.**
  
 **I/O:**
  
 Inputs:
-- `data` — string, validated Python script JSON from Auditor
+- `data` — string, validated Python script JSON from Schema Validator
 - `trigger` — boolean
 Outputs:
 - `data` — string, passed through unchanged if all checks pass
@@ -215,14 +215,14 @@ The existing `CodeChecker.cs` and `ScriptRunner.cs` cover static analysis and re
 ---
 
 ### Transmitter
-**Role:** The junction point between the correctness layer and the execution layer. Receives validated output from Auditor and/or PyValidator. Has a two-directional connection with a Receiver component (represented by a galapagos style wire). Triggers the receiver to build and receives the output - errors, warnings, null output (if inputs present). Passes the output to feedback if error.
+**Role:** The junction point between the correctness layer and the execution layer. Receives validated output from Schema Validator and/or PyValidator. Has a two-directional connection with a Receiver component (represented by a galapagos style wire). Triggers the receiver to build and receives the output - errors, warnings, null output (if inputs present). Passes the output to feedback if error.
 
 **Deterministic.**
 
 **I/O:**
 
 Inputs:
-- `signal` — from Auditor's Success Signal; the payload is the validated JSON to push
+- `signal` — from Schema Validator's Success Signal; the payload is the validated JSON to push
 
 Outputs:
 - **galapagos style connector** - to receiver
@@ -289,7 +289,7 @@ Outputs:
 ## Signals Utilities
 
 ### Construct Signal
-**Role:** Mints a signal carrying an arbitrary text payload, once per Button press — the manual entry point into the pipeline. A Panel of text plus a Button lets any signal-driven component (e.g. Auditor) be run standalone. The Trigger is a native Boolean input (not a Signal): it is the one sanctioned place a Button drives the pipeline, since Signal inputs themselves accept only signals. Latches immediately (a source, not a processing hop — no visible delay).
+**Role:** Mints a signal carrying an arbitrary text payload, once per Button press — the manual entry point into the pipeline. A Panel of text plus a Button lets any signal-driven component (e.g. Schema Validator) be run standalone. The Trigger is a native Boolean input (not a Signal): it is the one sanctioned place a Button drives the pipeline, since Signal inputs themselves accept only signals. Latches immediately (a source, not a processing hop — no visible delay).
 
 **Deterministic.**
 
@@ -375,8 +375,8 @@ Output:
 - `trigger` — boolean, passes through
 
 
-### Observer
-**Role:** Captures viewport screenshots from the Rhino viewport. Output is raw image data passed to Interpreter (a Reasoner instance) for conversion to text before entering Recorder.
+### Geometry Observation
+**Role:** Captures viewport screenshots from the Rhino viewport. Output is raw image data passed to Interpreter (a LLM Call instance) for conversion to text before entering Conversation Log.
 
 **Deterministic.**
 
@@ -417,8 +417,8 @@ Physalia will be bundled with a bunch of plain text files that a user can modify
             example1.receiver
             example2.receiver
 ```
-### Library
-**Role:** References files within the skills and schemas folders to pass values to Reasoner, Parser, Auditor. The files are formatted as JSON and **Library** adjusts its outputs as per specification in the file.
+### Component Catalog
+**Role:** References files within the skills and schemas folders to pass values to LLM Call, Parser, Schema Validator. The files are formatted as JSON and **Component Catalog** adjusts its outputs as per specification in the file.
 
 **I/O:**
 
@@ -430,15 +430,15 @@ Outputs:
 - ***VARIES*** - output will depend on specs in file.
 
 ### Grounding
-**Role:** A foundational type — a discriminated union of model-grounding context that the Composer folds into the system prompt. Every variant grounds the model the same way: by contributing a labelled section of **text** (so there is no images-as-grounding path — images stay per-turn on the Prompter / chat UI). New grounding kinds are added by writing one record (`Physalia.Core/Grounding/Grounding.cs`) that overrides `ToSystemPromptSection()`; `GroundingComposer.Append` joins the non-empty sections. The GH goo `GH_Grounding` adapts each producer's goo via `CastFrom` (e.g. the Library's `GH_ComponentCatalog` casts straight onto a Grounding input), so producers need no changes.
+**Role:** A foundational type — a discriminated union of model-grounding context that the System Prompt folds into the system prompt. Every variant grounds the model the same way: by contributing a labelled section of **text** (so there is no images-as-grounding path — images stay per-turn on the Prompter / chat UI). New grounding kinds are added by writing one record (`Physalia.Core/Grounding/Grounding.cs`) that overrides `ToSystemPromptSection()`; `GroundingComposer.Append` joins the non-empty sections. The GH goo `GH_Grounding` adapts each producer's goo via `CastFrom` (e.g. the Component Catalog's `GH_ComponentCatalog` casts straight onto a Grounding input), so producers need no changes.
 
 **Variants:**
-- `ComponentCatalogGrounding` — installed-component names from the **Library** (migrated from Composer's old Component Catalog input).
+- `ComponentCatalogGrounding` — installed-component names from the **Component Catalog** (migrated from System Prompt's old Component Catalog input).
 - `ClusterGrounding` *(scaffold)* — a Grasshopper cluster (.ghx), produced by the **Cluster Grounding** component. TODO: extract real cluster I/O.
 - `PythonFunctionGrounding` *(scaffold)* — a python function, produced by the **Python Grounding** component. TODO: parse real signature/docstring.
 
 ### Model
-**Role:** A configuration record that carries everything needed to make an authenticated LLM API call — provider, model identifier, API key, and inference parameters. Wired as an input into any LLM-driven component (Reasoner, Router). API key resolution happens inside Model at instantiation from either a registered environment variable or a user-provided YAML file; downstream components receive a fully configured Model and call it without knowing where the key came from. Multiple Model components can exist in the same pipeline, each configured differently, enabling heterogeneous agent pipelines where different components use different providers or models.
+**Role:** A configuration record that carries everything needed to make an authenticated LLM API call — provider, model identifier, API key, and inference parameters. Wired as an input into any LLM-driven component (LLM Call, Router). API key resolution happens inside Model at instantiation from either a registered environment variable or a user-provided YAML file; downstream components receive a fully configured Model and call it without knowing where the key came from. Multiple Model components can exist in the same pipeline, each configured differently, enabling heterogeneous agent pipelines where different components use different providers or models.
 
 **Deterministic.**
 
@@ -477,7 +477,7 @@ public record Model(
 ## Utility
 
 ### Aggregator
-**Role:** Combines multiple Info outputs from the perception layer into a single structured observation before passing to Recorder in one call. Ensures Recorder's interface stays simple — it always receives a single input per cycle regardless of how many perception components fired. Order and formatting of aggregated inputs is a parameter.
+**Role:** Combines multiple Info outputs from the perception layer into a single structured observation before passing to Conversation Log in one call. Ensures Conversation Log's interface stays simple — it always receives a single input per cycle regardless of how many perception components fired. Order and formatting of aggregated inputs is a parameter.
 
 **Deterministic.**
 
@@ -496,7 +496,7 @@ Outputs:
 ### Router
 **LLM-driven.**
 
-**Role:** Receives N inputs, evaluates them using a classification LLM call, and activates one of N output paths based on the decision. Structurally distinct from Reasoner — its job is to decide, not to generate. The LLM call inside Router is a classification call with minimal output (a path identifier), not a generation call. Well-suited to small local models regardless of what model is behind Reasoner.
+**Role:** Receives N inputs, evaluates them using a classification LLM call, and activates one of N output paths based on the decision. Structurally distinct from LLM Call — its job is to decide, not to generate. The LLM call inside Router is a classification call with minimal output (a path identifier), not a generation call. Well-suited to small local models regardless of what model is behind LLM Call.
 
 **I/O:**
 

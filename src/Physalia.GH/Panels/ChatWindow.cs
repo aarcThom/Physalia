@@ -27,7 +27,7 @@ namespace Physalia.GH.Panels;
 
 /// <summary>
 /// Standalone Eto window hosting the Svelte chat UI (Physalia.UI) for a <see
-/// cref="Chatbox"/> component. The UI is a single self-contained HTML file built by
+/// cref="Chat"/> component. The UI is a single self-contained HTML file built by
 /// Physalia.UI and embedded in this assembly (Physalia.GH.chat.html); <see cref="LoadUi"/>
 /// extracts it to a temp file and loads it via file:// (the bundle inlines all JS/CSS, so
 /// there are no cross-origin module fetches).
@@ -36,7 +36,7 @@ namespace Physalia.GH.Panels;
 ///              navigates to phbridge://submit; this class cancels that navigation and
 ///              pulls the JSON back with __physaliaTake() (the payload is far larger
 ///              than a URL can carry once images are attached).
-///   C# -> JS : on a UI timer this class reads the wired Recorder's conversation, live
+///   C# -> JS : on a UI timer this class reads the wired ConversationLog's conversation, live
 ///              stream, and busy state (via <see cref="PromptPipelineView"/>) and pushes
 ///              the changed parts to window.physalia.{setHistory,setStream,setState}.
 /// </summary>
@@ -94,10 +94,10 @@ public class ChatWindow : Form
         + "Build the <b>Physalia.UI</b> project (<code>npm run build</code>, or "
         + "<code>dotnet build -p:BuildUI=true</code>) to generate it.</p></body></html>";
 
-    // The Chatbox this window is currently viewing. Mutable: the switcher row at the bottom of
-    // the window (and a double-click on another Chatbox) rebinds it to a different component,
-    // so one window can move between every Chatbox on the canvas. Always non-null.
-    private Chatbox _component;
+    // The Chat this window is currently viewing. Mutable: the switcher row at the bottom of
+    // the window (and a double-click on another Chat) rebinds it to a different component,
+    // so one window can move between every Chat on the canvas. Always non-null.
+    private Chat _component;
     private readonly WebView _webView;
     private readonly UITimer _timer;
     private bool _loaded;
@@ -112,13 +112,13 @@ public class ChatWindow : Form
     private string? _lastStatus;
     private string? _lastConfigured;
     private string? _lastPresetSignature;
-    private string? _lastChatboxes;
+    private string? _lastChats;
     private bool? _lastCollapsed;
     private int? _lastHarnessCount;
     private string? _lastGroundingSignature;
     private int? _lastTokenCount;
 
-    // Set on a Chatbox switch: forces the next Tick to push history/stream/state unconditionally,
+    // Set on a Chat switch: forces the next Tick to push history/stream/state unconditionally,
     // even when the newly viewed component's values equal the reset caches (e.g. a fresh component
     // with no conversation pushes null == null, which change-detection would otherwise suppress —
     // leaving the previous component's messages on screen). Cleared after that one push.
@@ -134,8 +134,8 @@ public class ChatWindow : Form
     /// <summary>
     /// Initializes a new instance of the <see cref="ChatWindow"/> class.
     /// </summary>
-    /// <param name="component">The Chatbox component this window drives.</param>
-    public ChatWindow(Chatbox component)
+    /// <param name="component">The Chat component this window drives.</param>
+    public ChatWindow(Chat component)
     {
         _component = component ?? throw new ArgumentNullException(nameof(component));
 
@@ -155,7 +155,7 @@ public class ChatWindow : Form
         Content = _webView;
 
         // GH never re-solves on a wire connection, so polling is the simplest correct
-        // refresh (same cadence as the Chatbox's busy animation). Ticks run on the UI thread.
+        // refresh (same cadence as the Chat's busy animation). Ticks run on the UI thread.
         _timer = new UITimer { Interval = 0.15 };
         _timer.Elapsed += (_, _) => Tick();
 
@@ -322,8 +322,8 @@ public class ChatWindow : Form
             case "savekey":
                 HandleSaveKey(uri);
                 break;
-            case "connectrecorder":
-                HandleConnectRecorder();
+            case "connectconversationlog":
+                HandleConnectConversationLog();
                 break;
             case "placepreset":
                 HandlePlacePreset(uri);
@@ -331,8 +331,8 @@ public class ChatWindow : Form
             case "clearall":
                 HandleClearAll();
                 break;
-            case "selectchatbox":
-                HandleSelectChatbox(uri);
+            case "selectchat":
+                HandleSelectChat(uri);
                 break;
             case "togglecollapse":
                 _component.ToggleCollapse();
@@ -358,26 +358,26 @@ public class ChatWindow : Form
         }
     }
 
-    // Cancels the active inference on the wired pipeline's Reasoner(s). Fired by the chat window's
+    // Cancels the active inference on the wired pipeline's LLM Call(s). Fired by the chat window's
     // cancel button, which the UI enables only while the pipeline is busy. Runs on the UI thread.
     private void HandleCancel()
     {
-        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
-        if (recorder is null)
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
         {
             return;
         }
 
-        PromptPipelineView.CancelPipeline(recorder);
+        PromptPipelineView.CancelPipeline(conversationLog);
     }
 
-    // Applies a grounding selection from the window to the wired Recorder. The payload is JSON
+    // Applies a grounding selection from the window to the wired ConversationLog. The payload is JSON
     // {all:bool, leaves:[[category,subCategory],...]} passed in the ?sel= query. all:true (or a
     // missing payload) clears the selection back to null = include everything.
     private void HandleSetGrounding(Uri uri)
     {
-        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
-        if (recorder is null)
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
         {
             return;
         }
@@ -403,29 +403,29 @@ public class ChatWindow : Form
             }
         }
 
-        recorder.SetGroundingSelection(selection);
+        conversationLog.SetGroundingSelection(selection);
     }
 
-    // Applies the expose-signatures toggle from the window's grounding panel to the wired Recorder.
+    // Applies the expose-signatures toggle from the window's grounding panel to the wired ConversationLog.
     // ?on=1 folds typed component signatures into the prompt; anything else reverts to names only.
     private void HandleSetSignatures(Uri uri)
     {
-        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
-        if (recorder is null)
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
         {
             return;
         }
 
-        recorder.SetExposeSignatures(GetQueryValue(uri.Query, "on") == "1");
+        conversationLog.SetExposeSignatures(GetQueryValue(uri.Query, "on") == "1");
     }
 
-    // Applies a cluster selection from the window to the wired Recorder. The payload is JSON
+    // Applies a cluster selection from the window to the wired ConversationLog. The payload is JSON
     // {all:bool, names:[...]} passed in the ?sel= query. all:true (or a missing payload) clears the
     // selection back to null = include every available cluster.
     private void HandleSetClusters(Uri uri)
     {
-        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
-        if (recorder is null)
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
         {
             return;
         }
@@ -448,16 +448,16 @@ public class ChatWindow : Form
             }
         }
 
-        recorder.SetClusterSelection(selection);
+        conversationLog.SetClusterSelection(selection);
     }
 
-    // Applies a tools selection from the window to the wired Recorder. The payload is JSON
+    // Applies a tools selection from the window to the wired ConversationLog. The payload is JSON
     // {all:bool, names:[...]} passed in the ?sel= query. all:true (or a missing payload) clears the
     // selection back to null = advertise every tool present on the canvas.
     private void HandleSetTools(Uri uri)
     {
-        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
-        if (recorder is null)
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
         {
             return;
         }
@@ -480,16 +480,16 @@ public class ChatWindow : Form
             }
         }
 
-        recorder.SetToolsSelection(selection);
+        conversationLog.SetToolsSelection(selection);
     }
 
-    // Applies a document-units override from the window to the wired Recorder. The payload is JSON
+    // Applies a document-units override from the window to the wired ConversationLog. The payload is JSON
     // {reset:bool, units:string} passed in the ?sel= query. reset:true (or a missing payload) clears
     // the override back to null = use the live document units. The document itself is never changed.
     private void HandleSetUnits(Uri uri)
     {
-        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
-        if (recorder is null)
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
         {
             return;
         }
@@ -512,20 +512,20 @@ public class ChatWindow : Form
             }
         }
 
-        recorder.SetUnitsOverride(units);
+        conversationLog.SetUnitsOverride(units);
     }
 
     // The names of the components currently exposed to the model (the grounded catalog with the
     // grounding selection applied). Used to normalize "/c/<tab>/<name>" prompt tokens at submit time.
     private IReadOnlyCollection<string> IncludedComponentNames()
     {
-        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
-        if (recorder is null)
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
         {
             return Array.Empty<string>();
         }
 
-        return recorder.IncludedComponentEntries
+        return conversationLog.IncludedComponentEntries
             .Select(e => e.Name)
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -536,14 +536,14 @@ public class ChatWindow : Form
     // no selection is set). Used to normalize "/cl/<name>" prompt tokens at submit time.
     private IReadOnlyCollection<string> IncludedClusterNames()
     {
-        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
-        if (recorder is null)
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
         {
             return Array.Empty<string>();
         }
 
-        IEnumerable<string> names = recorder.AvailableClusters.Select(c => c.Name);
-        ClusterSelection? selection = recorder.ClusterSelectionOrNull;
+        IEnumerable<string> names = conversationLog.AvailableClusters.Select(c => c.Name);
+        ClusterSelection? selection = conversationLog.ClusterSelectionOrNull;
         return (selection is null ? names : names.Where(selection.Includes)).ToList();
     }
 
@@ -551,14 +551,14 @@ public class ChatWindow : Form
     // when no selection is set). Used to normalize "/t/<name>" prompt tokens at submit time.
     private IReadOnlyCollection<string> IncludedToolNames()
     {
-        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
-        if (recorder is null)
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
         {
             return Array.Empty<string>();
         }
 
-        IEnumerable<string> names = recorder.AvailableToolNames;
-        ToolsSelection? selection = recorder.ToolsSelectionOrNull;
+        IEnumerable<string> names = conversationLog.AvailableToolNames;
+        ToolsSelection? selection = conversationLog.ToolsSelectionOrNull;
         return (selection is null ? names : names.Where(selection.Includes)).ToList();
     }
 
@@ -864,10 +864,10 @@ public class ChatWindow : Form
             return;
         }
 
-        Recorder? recorder = PromptPipelineView.FindRecorder(_component, 0);
-        Conversation? convo = recorder?.ActiveConversation;
-        bool busy = recorder is not null && PromptPipelineView.IsPipelineBusy(recorder);
-        bool connected = recorder is not null;
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        Conversation? convo = conversationLog?.ActiveConversation;
+        bool busy = conversationLog is not null && PromptPipelineView.IsPipelineBusy(conversationLog);
+        bool connected = conversationLog is not null;
 
         // First-run setup state: no LLM provider is configured at all (no API key, no Claude Code
         // CLI, no local llama-server). It takes precedence over the wiring hints below — there is
@@ -880,18 +880,18 @@ public class ChatWindow : Form
         // once the probe has landed and no chat-model provider is configured.
         bool needsSetup = _configuredProviders is not null && !HasLlmProvider();
 
-        // Once a provider is known to exist (chat mode, not setup), drop this window's Chatbox
+        // Once a provider is known to exist (chat mode, not setup), drop this window's Chat
         // onto the canvas if it isn't there yet — so the window is backed by a real component
         // immediately, without waiting for the first message.
         MaybePlaceComponent();
 
-        // Pipeline-wiring readiness: chat needs Recorder -> [compactor…] -> Reasoner -> Model. Shown
+        // Pipeline-wiring readiness: chat needs ConversationLog -> [compactor…] -> LLM Call -> Model. Shown
         // as a hint once a provider exists but the graph isn't fully wired.
         bool ready = PromptPipelineView.IsPipelineReady(_component, 0);
         string status = needsSetup ? "Setup mode"
             : busy ? "Working…"
-            : recorder is null ? "Choose an option above, or connect a recorder to begin."
-            : !ready ? "Add a Reasoner with a Model — directly or through a compactor — to begin."
+            : conversationLog is null ? "Choose an option above, or connect a Conversation Log to begin."
+            : !ready ? "Add an LLM Call with a Model — directly or through a compactor — to begin."
             : string.Empty;
 
         if (_forcePush || !ReferenceEquals(convo, _lastConversation))
@@ -901,7 +901,7 @@ public class ChatWindow : Form
             Exec($"window.physalia&&window.physalia.setHistory({payload});");
         }
 
-        string? stream = busy ? PromptPipelineView.GetStreamingText(recorder!) : null;
+        string? stream = busy ? PromptPipelineView.GetStreamingText(conversationLog!) : null;
         if (_forcePush || stream != _lastStream)
         {
             _lastStream = stream;
@@ -909,8 +909,8 @@ public class ChatWindow : Form
         }
 
         // Token counter: the estimate from a Token Estimator wired downstream of this chat's
-        // Recorder, or null (counter hidden) when none is wired or it has no count yet.
-        int? tokenCount = recorder is null ? null : PromptPipelineView.GetDownstreamTokenCount(recorder);
+        // ConversationLog, or null (counter hidden) when none is wired or it has no count yet.
+        int? tokenCount = conversationLog is null ? null : PromptPipelineView.GetDownstreamTokenCount(conversationLog);
         if (_forcePush || tokenCount != _lastTokenCount)
         {
             _lastTokenCount = tokenCount;
@@ -920,7 +920,7 @@ public class ChatWindow : Form
         // Serialised form of the id list, used both as the change signature and the wire payload.
         string configuredJson = JsonSerializer.Serialize(configuredProviders, WriteOpts);
 
-        // Harness collapse state: whether the viewed Chatbox's group is collapsed and how many
+        // Harness collapse state: whether the viewed Chat's group is collapsed and how many
         // components it hides — drives the show/hide-harness button in the window.
         bool collapsed = _component.Group.Collapsed;
         int harnessCount = _component.Group.Count;
@@ -928,13 +928,13 @@ public class ChatWindow : Form
         // Grounding state for the window's grounding panel: whether a component catalog is wired
         // (greys the icon when not), the available tab → panels tree, and the current selection
         // (null = include everything). The selection's flat leaves are regrouped to the tree's shape.
-        bool groundingWired = recorder?.HasComponentGrounding == true;
-        bool exposeSignatures = recorder?.ExposeComponentSignatures == true;
-        var groundingTree = (recorder?.AvailableGroundingTree ?? Array.Empty<CatalogCategory>())
+        bool groundingWired = conversationLog?.HasComponentGrounding == true;
+        bool exposeSignatures = conversationLog?.ExposeComponentSignatures == true;
+        var groundingTree = (conversationLog?.AvailableGroundingTree ?? Array.Empty<CatalogCategory>())
             .Select(c => new { category = c.Category, subCategories = c.SubCategories })
             .ToList();
         object? groundingSelection = null;
-        if (recorder?.GroundingSelectionOrNull is { } sel)
+        if (conversationLog?.GroundingSelectionOrNull is { } sel)
         {
             groundingSelection = sel.Leaves
                 .GroupBy(l => l.Category, StringComparer.OrdinalIgnoreCase)
@@ -952,7 +952,7 @@ public class ChatWindow : Form
         // Grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete. Kept
         // out of the change-detection signature below (it can be large): it changes only when the
         // component tree or its selection changes, both of which ARE in the signature.
-        var availableComponents = (recorder?.IncludedComponentEntries ?? Array.Empty<CatalogEntry>())
+        var availableComponents = (conversationLog?.IncludedComponentEntries ?? Array.Empty<CatalogEntry>())
             .Where(e => !string.IsNullOrWhiteSpace(e.Category) && !string.IsNullOrWhiteSpace(e.Name))
             .GroupBy(e => e.Category, StringComparer.OrdinalIgnoreCase)
             .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
@@ -969,8 +969,8 @@ public class ChatWindow : Form
         // Cluster grounding state for the window's cluster selector and the "/cl/" autocomplete: whether
         // any cluster grounding is wired, the available clusters (name + I/O + description), and the
         // current selection (null = include everything).
-        bool clustersWired = recorder?.HasClusterGrounding == true;
-        var availableClusters = (recorder?.AvailableClusters ?? Array.Empty<ClusterEntry>())
+        bool clustersWired = conversationLog?.HasClusterGrounding == true;
+        var availableClusters = (conversationLog?.AvailableClusters ?? Array.Empty<ClusterEntry>())
             .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
             .Select(c => new
             {
@@ -981,42 +981,42 @@ public class ChatWindow : Form
             })
             .ToList();
         object? clusterSelection = null;
-        if (recorder?.ClusterSelectionOrNull is { } csel)
+        if (conversationLog?.ClusterSelectionOrNull is { } csel)
         {
             clusterSelection = csel.Names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
         // Tool grounding state for the Tools page + "/t/" autocomplete: whether any tools grounding is
         // wired, the tools currently on the canvas, and the current selection (null = include all).
-        bool toolsWired = recorder?.HasToolsGrounding == true;
-        var availableTools = (recorder?.AvailableToolNames ?? Array.Empty<string>())
+        bool toolsWired = conversationLog?.HasToolsGrounding == true;
+        var availableTools = (conversationLog?.AvailableToolNames ?? Array.Empty<string>())
             .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
             .ToList();
         object? toolsSelection = null;
-        if (recorder?.ToolsSelectionOrNull is { } tsel)
+        if (conversationLog?.ToolsSelectionOrNull is { } tsel)
         {
             toolsSelection = tsel.Names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
         // Canvas-inputs grounding state (read-only page): the Rhino-referenced inputs on the canvas.
-        bool canvasInputsWired = recorder?.HasCanvasInputGrounding == true;
-        var canvasInputs = (recorder?.AvailableCanvasInputs ?? Array.Empty<CanvasInput>())
+        bool canvasInputsWired = conversationLog?.HasCanvasInputGrounding == true;
+        var canvasInputs = (conversationLog?.AvailableCanvasInputs ?? Array.Empty<CanvasInput>())
             .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
             .Select(i => new { name = i.Name, type = i.TypeName })
             .ToList();
 
         // Python-function grounding state (read-only page): the available python functions.
-        bool pythonWired = recorder?.HasPythonGrounding == true;
-        var pythonFunctions = (recorder?.AvailablePythonFunctions ?? Array.Empty<PythonFunctionGrounding>())
+        bool pythonWired = conversationLog?.HasPythonGrounding == true;
+        var pythonFunctions = (conversationLog?.AvailablePythonFunctions ?? Array.Empty<PythonFunctionGrounding>())
             .Select(p => new { signature = p.Signature, docstring = p.Docstring })
             .ToList();
 
         // Document-units grounding state: whether a units grounding is wired, the live document units,
         // the current override (null = use the document units), and the unit choices for the dropdown.
         // The live document value is always present in the options so the dropdown can show it.
-        bool unitsWired = recorder?.HasUnitsGrounding == true;
-        string documentUnits = recorder?.DocumentUnits ?? string.Empty;
-        string? unitsOverride = recorder?.UnitsOverrideOrNull;
+        bool unitsWired = conversationLog?.HasUnitsGrounding == true;
+        string documentUnits = conversationLog?.DocumentUnits ?? string.Empty;
+        string? unitsOverride = conversationLog?.UnitsOverrideOrNull;
         var unitOptions = UnitOptions
             .Concat(new[] { documentUnits, unitsOverride ?? string.Empty })
             .Where(u => !string.IsNullOrWhiteSpace(u))
@@ -1055,8 +1055,8 @@ public class ChatWindow : Form
         // Bundled presets for the "Add preset" page — pushed once and whenever the set changes.
         MaybePushPresets();
 
-        // Switcher row: one circle per Chatbox on the canvas, pushed when the set/active changes.
-        MaybePushChatboxes();
+        // Switcher row: one circle per Chat on the canvas, pushed when the set/active changes.
+        MaybePushChats();
     }
 
     // Pushes the bundled presets (file name + metadata.description) to the page, but only when the
@@ -1094,44 +1094,44 @@ public class ChatWindow : Form
         Exec($"window.physalia&&window.physalia.setPresets&&window.physalia.setPresets({json});");
     }
 
-    // Pushes the switcher list — one entry per Chatbox on the canvas, in left-to-right canvas order —
+    // Pushes the switcher list — one entry per Chat on the canvas, in left-to-right canvas order —
     // marking which is active and which already has recorded history. Pushed only when the serialised
-    // list changes (a Chatbox added/removed/moved, the active one switched, or a history appearing).
-    private void MaybePushChatboxes()
+    // list changes (a Chat added/removed/moved, the active one switched, or a history appearing).
+    private void MaybePushChats()
     {
-        var list = EnumerateChatboxes()
+        var list = EnumerateChats()
             .Select(cb => new
             {
                 id = cb.InstanceGuid.ToString(),
                 active = ReferenceEquals(cb, _component),
-                hasHistory = ChatboxHasHistory(cb),
+                hasHistory = ChatHasHistory(cb),
                 emoji = cb.Emoji,
             })
             .ToList();
 
         string json = JsonSerializer.Serialize(list, WriteOpts);
-        if (json == _lastChatboxes)
+        if (json == _lastChats)
         {
             return;
         }
 
-        _lastChatboxes = json;
-        Exec($"window.physalia&&window.physalia.setChatboxes&&window.physalia.setChatboxes({json});");
+        _lastChats = json;
+        Exec($"window.physalia&&window.physalia.setChats&&window.physalia.setChats({json});");
     }
 
-    // Every Chatbox on the canvas, ordered left-to-right then top-to-bottom by canvas position for a
+    // Every Chat on the canvas, ordered left-to-right then top-to-bottom by canvas position for a
     // stable, intuitive circle sequence. The viewed component is always included even when it is not
     // on a document yet (created by the widget, awaiting its provider-gated placement), so its circle
     // is present and selectable from the first tick.
-    private List<Chatbox> EnumerateChatboxes()
+    private List<Chat> EnumerateChats()
     {
-        var result = new List<Chatbox>();
+        var result = new List<Chat>();
         GH_Document? doc = _component.OnPingDocument() ?? Instances.ActiveCanvas?.Document;
         if (doc is not null)
         {
             foreach (IGH_DocumentObject obj in doc.Objects)
             {
-                if (obj is Chatbox cb)
+                if (obj is Chat cb)
                 {
                     result.Add(cb);
                 }
@@ -1154,18 +1154,18 @@ public class ChatWindow : Form
         return result;
     }
 
-    // True when a Chatbox's wired Recorder holds a non-empty conversation — used to fill its circle.
-    private static bool ChatboxHasHistory(Chatbox chatbox)
+    // True when a Chat's wired ConversationLog holds a non-empty conversation — used to fill its circle.
+    private static bool ChatHasHistory(Chat chat)
     {
-        Conversation? convo = PromptPipelineView.FindRecorder(chatbox, 0)?.ActiveConversation;
+        Conversation? convo = PromptPipelineView.FindConversationLog(chat, 0)?.ActiveConversation;
         return convo is { Messages.Count: > 0 };
     }
 
-    // Switches the window to view a different Chatbox (from the switcher row, a double-click, or a
+    // Switches the window to view a different Chat (from the switcher row, a double-click, or a
     // fallback after the viewed one is deleted). Resets the per-component change-detection caches so
     // the new component's history and state push fresh on the next tick rather than being suppressed
     // as "unchanged". No-op when already viewing it. Runs on the UI thread.
-    public void SetActiveComponent(Chatbox component)
+    public void SetActiveComponent(Chat component)
     {
         if (component is null || ReferenceEquals(component, _component))
         {
@@ -1176,10 +1176,10 @@ public class ChatWindow : Form
         ResetPushedState();
     }
 
-    // Called when any Chatbox is removed from the document. If the viewed one was deleted, switch to
-    // another Chatbox still on the canvas, or close the window when none remain. An unrelated removal
+    // Called when any Chat is removed from the document. If the viewed one was deleted, switch to
+    // another Chat still on the canvas, or close the window when none remain. An unrelated removal
     // needs nothing here — the switcher row drops its circle on the next tick. Runs on the UI thread.
-    public void OnComponentRemoved(Chatbox removed)
+    public void OnComponentRemoved(Chat removed)
     {
         if (!ReferenceEquals(removed, _component))
         {
@@ -1187,12 +1187,12 @@ public class ChatWindow : Form
         }
 
         GH_Document? doc = Instances.ActiveCanvas?.Document;
-        Chatbox? next = null;
+        Chat? next = null;
         if (doc is not null)
         {
             foreach (IGH_DocumentObject obj in doc.Objects)
             {
-                if (obj is Chatbox cb && !ReferenceEquals(cb, removed))
+                if (obj is Chat cb && !ReferenceEquals(cb, removed))
                 {
                     next = cb;
                     break;
@@ -1210,9 +1210,9 @@ public class ChatWindow : Form
         }
     }
 
-    // Resolves a switcher-circle click (?id=<InstanceGuid>) to its Chatbox and views it. Runs on the
+    // Resolves a switcher-circle click (?id=<InstanceGuid>) to its Chat and views it. Runs on the
     // UI thread (bridge dispatch).
-    private void HandleSelectChatbox(Uri uri)
+    private void HandleSelectChat(Uri uri)
     {
         string id = GetQueryValue(uri.Query, "id");
         if (string.IsNullOrEmpty(id) || !Guid.TryParse(id, out Guid guid))
@@ -1220,7 +1220,7 @@ public class ChatWindow : Form
             return;
         }
 
-        foreach (Chatbox cb in EnumerateChatboxes())
+        foreach (Chat cb in EnumerateChats())
         {
             if (cb.InstanceGuid == guid)
             {
@@ -1230,8 +1230,8 @@ public class ChatWindow : Form
         }
     }
 
-    // Drops the per-component last-pushed caches so a freshly viewed Chatbox re-pushes its full
-    // history/state next tick. The preset and chatbox-list signatures are global (not per viewed
+    // Drops the per-component last-pushed caches so a freshly viewed Chat re-pushes its full
+    // history/state next tick. The preset and chat-list signatures are global (not per viewed
     // component), so they are left intact.
     private void ResetPushedState()
     {
@@ -1296,9 +1296,9 @@ public class ChatWindow : Form
     private bool HasLlmProvider() =>
         _configuredProviders is { } configured && configured.Any(id => !ToolProviderIds.Contains(id));
 
-    // Drops this window's Chatbox onto the canvas, to the right of the window and vertically
+    // Drops this window's Chat onto the canvas, to the right of the window and vertically
     // centred on it, the moment a provider becomes available — but only when the component isn't
-    // already on a document. A Chatbox loaded from a saved file or hand-placed by the user is left
+    // already on a document. A Chat loaded from a saved file or hand-placed by the user is left
     // exactly where it is (we never move it); and while in first-run setup (no provider) nothing is
     // placed, so the canvas isn't littered with an unusable component. If no document is open (the
     // window was opened from the widget with an empty canvas), a fresh document is created to host
@@ -1331,7 +1331,7 @@ public class ChatWindow : Form
         DropComponent(canvas, doc);
     }
 
-    // Adds this window's Chatbox to the document and positions it a few pixels right of the window,
+    // Adds this window's Chat to the document and positions it a few pixels right of the window,
     // vertically centred on it. Split out of MaybePlaceComponent so preset placement can guarantee
     // the component is on the canvas before anchoring a workflow to it (see EnsureComponentPlaced).
     // Runs on the UI thread.
@@ -1369,10 +1369,10 @@ public class ChatWindow : Form
         canvas.Refresh();
     }
 
-    // Guarantees this window's Chatbox is on a canvas, dropping it if it isn't yet (e.g. a preset is
+    // Guarantees this window's Chat is on a canvas, dropping it if it isn't yet (e.g. a preset is
     // placed before MaybePlaceComponent's provider-gated tick has run). Unlike MaybePlaceComponent it
     // does not gate on configured providers — the user has explicitly asked to place a workflow that
-    // the Chatbox anchors. Returns the hosting document, or null if no canvas/document is available.
+    // the Chat anchors. Returns the hosting document, or null if no canvas/document is available.
     // Runs on the UI thread (bridge dispatch).
     private GH_Document? EnsureComponentPlaced()
     {
@@ -1398,7 +1398,7 @@ public class ChatWindow : Form
     }
 
     // Creates a fresh, empty document and makes it the canvas's active one, so a chat started with
-    // no file open has a real canvas to drop the Chatbox onto. Returns null if the document server
+    // no file open has a real canvas to drop the Chat onto. Returns null if the document server
     // is unavailable. Runs on the UI thread (Tick), so touching the canvas/document is safe.
     private static GH_Document? CreateActiveDocument(GH_Canvas canvas)
     {
@@ -1414,14 +1414,14 @@ public class ChatWindow : Form
         return doc;
     }
 
-    // Places a Recorder on the canvas and wires this Chatbox's Prompt Signal output into it, so a
+    // Places a ConversationLog on the canvas and wires this Chat's Prompt Signal output into it, so a
     // freshly opened chat gets the start of a pipeline without hand-wiring (the connect screen's
-    // top option). Idempotent: does nothing if a Recorder is already wired. Runs on the UI thread
+    // top option). Idempotent: does nothing if a ConversationLog is already wired. Runs on the UI thread
     // (bridge dispatch), so editing the document and forcing a solve is safe. A reported "connected"
     // on the next state tick dismisses the connect screen on its own.
-    private void HandleConnectRecorder()
+    private void HandleConnectConversationLog()
     {
-        if (PromptPipelineView.FindRecorder(_component, 0) is not null)
+        if (PromptPipelineView.FindConversationLog(_component, 0) is not null)
         {
             return; // already wired — nothing to do
         }
@@ -1429,22 +1429,22 @@ public class ChatWindow : Form
         GH_Document? doc = _component.OnPingDocument();
         if (doc is null)
         {
-            return; // Chatbox isn't on a canvas yet (shouldn't happen past the provider-setup gate)
+            return; // Chat isn't on a canvas yet (shouldn't happen past the provider-setup gate)
         }
 
-        var recorder = new Recorder();
-        recorder.CreateAttributes();
+        var conversationLog = new ConversationLog();
+        conversationLog.CreateAttributes();
 
-        // Drop it to the right of the Chatbox, level with its top, so the wire runs left-to-right.
+        // Drop it to the right of the Chat, level with its top, so the wire runs left-to-right.
         System.Drawing.RectangleF cb = _component.Attributes.Bounds;
-        recorder.Attributes.Pivot = new System.Drawing.PointF(cb.Right + 120f, cb.Top);
+        conversationLog.Attributes.Pivot = new System.Drawing.PointF(cb.Right + 120f, cb.Top);
 
-        doc.AddObject(recorder, false);
-        ComponentHelpers.ApplyNickNameDisplay(recorder);
+        doc.AddObject(conversationLog, false);
+        ComponentHelpers.ApplyNickNameDisplay(conversationLog);
 
-        // Wire Chatbox Prompt Signal (its sole output) into the Recorder's Prompt Signal input,
+        // Wire Chat Prompt Signal (its sole output) into the ConversationLog's Prompt Signal input,
         // matched by name so it survives any future parameter reordering.
-        IGH_Param? promptInput = FindInputByName(recorder, "Prompt Signal");
+        IGH_Param? promptInput = FindInputByName(conversationLog, "Prompt Signal");
         promptInput?.AddSource(_component.Params.Output[0]);
 
         doc.NewSolution(false);
@@ -1455,7 +1455,7 @@ public class ChatWindow : Form
     // latched signals and wiping recorded conversations / histories — then recomputes once so the
     // cleared state propagates and the canvas redraws. The whole-document analogue of a single
     // component's right-click "Clear" menu item. Runs on the UI thread (bridge dispatch), so
-    // editing the document and forcing a solve is safe (same as HandleConnectRecorder).
+    // editing the document and forcing a solve is safe (same as HandleConnectConversationLog).
     private void HandleClearAll()
     {
         GH_Document? doc = _component.OnPingDocument() ?? Instances.ActiveCanvas?.Document;
@@ -1485,7 +1485,7 @@ public class ChatWindow : Form
     // current view. The requested file name is validated against the presets directory (only a
     // bare file name from the enumerated set is honoured — no path traversal). Runs on the UI
     // thread (bridge dispatch); GhJsonBridge.LoadAndPlace -> Put mutates the document and triggers
-    // its own solution, which is safe here (outside any active solve, as in HandleConnectRecorder).
+    // its own solution, which is safe here (outside any active solve, as in HandleConnectConversationLog).
     private void HandlePlacePreset(Uri uri)
     {
         string file = Path.GetFileName(GetQueryValue(uri.Query, "file"));
@@ -1502,16 +1502,16 @@ public class ChatWindow : Form
             return;
         }
 
-        // The first Chatbox in the preset is a placeholder slot: this window's live Chatbox is spliced
-        // in for it and the rest of the workflow is laid out relative to where the Chatbox sits. Make
-        // sure the Chatbox is on the canvas first so there is something to anchor to.
+        // The first Chat in the preset is a placeholder slot: this window's live Chat is spliced
+        // in for it and the rest of the workflow is laid out relative to where the Chat sits. Make
+        // sure the Chat is on the canvas first so there is something to anchor to.
         GH_Document? doc = EnsureComponentPlaced();
         if (doc is null)
         {
             return;
         }
 
-        // Force a layout so the Chatbox's pivot is valid (GH lays attributes out lazily) before it is
+        // Force a layout so the Chat's pivot is valid (GH lays attributes out lazily) before it is
         // used as the placement anchor.
         _component.Attributes.ExpireLayout();
         _component.Attributes.PerformLayout();
@@ -1525,18 +1525,18 @@ public class ChatWindow : Form
                 return;
             }
 
-            // The preset's components become the Chatbox's harness group, so the whole workflow
-            // can be collapsed behind the single proxy node it was anchored to. A second Chatbox in
+            // The preset's components become the Chat's harness group, so the whole workflow
+            // can be collapsed behind the single proxy node it was anchored to. A second Chat in
             // the preset is a peer entry point, never a member, so it is excluded.
             List<Guid> seed = result.PlacedGuids
-                .Where(g => doc.FindObject(g, false) is not Chatbox)
+                .Where(g => doc.FindObject(g, false) is not Chat)
                 .ToList();
             _component.Group.Add(seed);
 
             doc.NewSolution(false); // register the re-wired sources, then redraw
             Instances.ActiveCanvas?.Refresh();
 
-            // A predefined workflow lands collapsed behind the Chatbox proxy (deferred to idle so
+            // A predefined workflow lands collapsed behind the Chat proxy (deferred to idle so
             // the placement solution has settled and the members are laid out first).
             if (_component.Group.Count > 0)
             {

@@ -5,8 +5,8 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// Implemented by a component that produces an LLM response incrementally and exposes the
-/// text accumulated so far while a run is in flight. The Chatbox window reads this from the busy
-/// component wired to its Recorder to render the response live as it streams — purely a
+/// text accumulated so far while a run is in flight. The Chat window reads this from the busy
+/// component wired to its Conversation Log to render the response live as it streams — purely a
 /// paint-time read, with no output set and no signal minted until the run actually completes.
 /// </summary>
 public interface IStreamingTextSource

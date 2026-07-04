@@ -15,7 +15,7 @@ public abstract record ModelConfig(string ModelId, string ApiKey, int MaxTokens)
     /// <summary>
     /// Gets an optional caller-supplied identity used by stateful providers to pool a
     /// long-lived session across calls. The Claude Code warm-process provider keys its
-    /// persistent CLI process on this (the Reasoner stamps its <c>InstanceGuid</c>).
+    /// persistent CLI process on this (the LLM Call stamps its <c>InstanceGuid</c>).
     /// Null for stateless providers, which ignore it.
     /// </summary>
     public Guid? SessionKey { get; init; }

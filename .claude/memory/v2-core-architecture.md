@@ -31,7 +31,7 @@ public record ConversationMessage(Role Role, IReadOnlyList<MessageContent> Conte
 - `Conversation` is a **Core class** (not a record) with `Append(ConversationMessage)` returning a new `Conversation` and enforcing invariants (e.g. no consecutive same-role turns)
 - GH replaces its reference on each append — Core never mutates in place
 - System prompt is a `string` passed at call time, NOT stored in `Conversation`
-- Images travel inside `ConversationMessage` (not as a side-channel to Reasoner)
+- Images travel inside `ConversationMessage` (not as a side-channel to LLM Call)
 
 ---
 
@@ -105,7 +105,7 @@ IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
 
 ---
 
-## Validation (Auditor)
+## Validation (Schema Validator)
 
 Pure function: `(string json, string schema) → Result<string, ValidationError>`
 

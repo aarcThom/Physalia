@@ -8,7 +8,7 @@ namespace Physalia.GH.Parameters;
 
 /// <summary>
 /// A hidden Grasshopper parameter that carries <see cref="GH_ToolDefinition"/> values from tool
-/// nodes into the Reasoner's Tools input.
+/// nodes into the LLM Call's Tools input.
 /// </summary>
 public class Param_ToolDefinition : PhyParam<GH_ToolDefinition>
 {

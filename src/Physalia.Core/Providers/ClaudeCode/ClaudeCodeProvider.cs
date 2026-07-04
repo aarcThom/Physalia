@@ -18,10 +18,10 @@ namespace Physalia.Core.Providers.ClaudeCode;
 /// <remarks>
 /// Rather than cold-starting a fresh <c>claude</c> subprocess per call, this provider keeps one
 /// <see cref="ClaudeCodeSession"/> warm per conversation (keyed on <see cref="ModelConfig.SessionKey"/>,
-/// which the Reasoner stamps with its instance GUID). The harness cold start is paid once on the
+/// which the LLM Call stamps with its instance GUID). The harness cold start is paid once on the
 /// seed turn; subsequent turns send only the new user message and reuse the live process, which
 /// also lets the CLI's prompt cache cut latency. A session is dropped when its conversation resets,
-/// its model or system prompt changes, it errors, or the Reasoner is removed
+/// its model or system prompt changes, it errors, or the LLM Call is removed
 /// (<see cref="EndSession"/>); an idle reaper kills abandoned sessions.
 /// </remarks>
 public sealed class ClaudeCodeProvider : ILlmProvider
@@ -63,7 +63,7 @@ public sealed class ClaudeCodeProvider : ILlmProvider
         }
 
         // The session also accounts for the assistant turn the model is about to generate (the CLI
-        // appends it internally; Recorder appends it to the Physalia conversation after this call),
+        // appends it internally; Conversation Log appends it to the Physalia conversation after this call),
         // so a completed turn brings the session up to conversation.Count + 1 messages.
         int consumedAfter = conversation.Count + 1;
 
@@ -152,10 +152,10 @@ public sealed class ClaudeCodeProvider : ILlmProvider
     public static bool IsCliAvailable() => ClaudeCodeSession.IsCliAvailable();
 
     /// <summary>
-    /// Kills and removes the warm session for the given key, if any. Called by the Reasoner when
+    /// Kills and removes the warm session for the given key, if any. Called by the LLM Call when
     /// it is removed from the document so its CLI process does not leak.
     /// </summary>
-    /// <param name="sessionKey">The session key (the Reasoner's instance GUID).</param>
+    /// <param name="sessionKey">The session key (the LLM Call's instance GUID).</param>
     public static void EndSession(Guid sessionKey)
     {
         if (_sessions.TryRemove(sessionKey, out ClaudeCodeSession? session))

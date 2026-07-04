@@ -18,7 +18,7 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// A model-invoked tool node that searches the user's installed Grasshopper components by keyword.
-/// It advertises a <c>search_components</c> tool (wire its Tool output into the Reasoner's Tools
+/// It advertises a <c>search_components</c> tool (wire its Tool output into the LLM Call's Tools
 /// input); when the model calls it, the dispatched signal arrives from a Router, the node searches a
 /// wired Component Catalog, and it emits the matches as a tool result (wire its Result output through
 /// a Feedback component into a Feedback Collector and back to the Router's Results input).
@@ -56,7 +56,7 @@ public class ComponentSearch : ToolComponentBase
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ComponentCatalog(), "Component Catalog", "Cat", "Installed-component catalog from a Library component, searched on each call.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ComponentCatalog(), "Component Catalog", "Cat", "Installed-component catalog from a Component Catalog component, searched on each call.", GH_ParamAccess.item);
         pManager[InCatalog].Optional = true;
     }
 
@@ -72,7 +72,7 @@ public class ComponentSearch : ToolComponentBase
     {
         if (_catalog is null)
         {
-            return ToolCallResult.Error("No component catalog is wired into the search tool — connect a Library component.");
+            return ToolCallResult.Error("No component catalog is wired into the search tool — connect a Component Catalog component.");
         }
 
         string query = ExtractQuery(call.InputJson);

@@ -8,7 +8,7 @@ using Xunit;
 
 namespace Physalia.Core.Tests.Recording;
 
-public class ConversationRecorderTests
+public class ConversationLogBuilderTests
 {
     private static PhySignal Text(string payload) =>
         PhySignal.Mint(SignalOutcome.Success, payload, Guid.NewGuid(), "test");
@@ -17,7 +17,7 @@ public class ConversationRecorderTests
         PhySignal.Mint(SignalOutcome.Success, payload, Guid.NewGuid(), "test", contentBlocks: blocks);
 
     private static RecordResult Record(Conversation start, params RecordEvent[] events) =>
-        ConversationRecorder.Record(start, events);
+        ConversationLogBuilder.Record(start, events);
 
     [Fact]
     public void Prompt_StartsUserTurn_AndFiresInference()
@@ -46,7 +46,7 @@ public class ConversationRecorderTests
     public void ResponseThenFeedback_InOneBatch_RecordsAssistantFirst_OutcomeIsUserTurn()
     {
         // Sequence order: the response that provoked the feedback is recorded before the feedback,
-        // and the final outcome is a user turn (which fires the Reasoner again).
+        // and the final outcome is a user turn (which fires the LLM Call again).
         Conversation start = Conversation.Empty.Append(new ConversationMessage(Role.User, "q"));
 
         RecordResult result = Record(

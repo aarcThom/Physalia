@@ -7,14 +7,14 @@
 
 A tool is a `ToolComponentBase` subclass (`src/Physalia.GH/Components/Tools/`). It advertises a
 `ToolDefinition(Name, Description, InputSchemaJson)` on its **Tool** output (collected by `ToolsInUse`
-→ `Reasoner.Tools`); receives dispatched `ToolCallContent` blocks on its **Signal** input from a
+→ `LlmCall.Tools`); receives dispatched `ToolCallContent` blocks on its **Signal** input from a
 `Router`; implements `ExecuteCall(ToolCallContent)` → `ToolCallResult.Ok(string)` / `.Error(string)`,
 returning one result string per call; and may override `OnSolveTick` to read a per-solve context input
 once (as `ComponentSearch` reads its wired Catalog). Existing: `ComponentSearch` (`search_components`);
-`OutputSnapshot` (signal-driven viewport capture, not a tool). Reusable bridges: `GhJsonBridge`
+`Geometry Observation` (signal-driven viewport capture, not a tool). Reusable bridges: `GhJsonBridge`
 (place/validate/resolve graphs), `GhPythonBridge` (drive a Python Script component).
 
-**Key design principle.** Physalia already has a full deterministic build pipeline (Reasoner → Auditor
+**Key design principle.** Physalia already has a full deterministic build pipeline (LLM Call → Schema Validator
 → Transmitter → Receiver) that places whole graphs as the primary output. Tools should therefore be
 mostly **read/sense + targeted action + verify** — how the model gathers grounding *before* it emits
 its structured graph, and inspects *after* — not a second whole-graph builder competing with the
@@ -27,13 +27,13 @@ The model already builds and inspects via existing machinery; a tool is only wor
 gives the model a capability it has **no other way to get**. Watch these overlaps:
 
 - **`place_graph` ↔ ComponentTransmitter + the whole structured-output pipeline.** The model's primary
-  output already *is* a GhJSON graph: Reasoner → Auditor → **ComponentTransmitter** places it and routes
+  output already *is* a GhJSON graph: LLM Call → Schema Validator → **ComponentTransmitter** places it and routes
   placement errors back. A `place_graph` tool is a second whole-graph builder competing with the
   pipeline — exactly what the design principle above warns against. Its only non-redundant sliver is
   tiny *incremental* edits mid-conversation, and even that mostly overlaps. **Demoted from the top set.**
-- **`capture_viewport` ↔ OutputSnapshot.** OutputSnapshot already zooms to the produced geometry,
+- **`capture_viewport` ↔ Geometry Observation.** Geometry Observation already zooms to the produced geometry,
   captures the viewport, and emits the image as an inline content block into the loop (Success *and*
-  Fail). The model already sees its result. A tool only adds *on-demand* timing — wrap OutputSnapshot's
+  Fail). The model already sees its result. A tool only adds *on-demand* timing — wrap Geometry Observation's
   capture if that's wanted; it's not new capability. **Demoted.**
 - **`run_python` ↔ PyTransmitter** for *building* a Python component (the pipeline path). Genuinely new
   only as an *ephemeral eval* (compute a hull, count intersections) that returns a value rather than
@@ -84,7 +84,7 @@ gives the model a capability it has **no other way to get**. Watch these overlap
 ### Priority 4 — vision (mostly built; wrap it)
 
 11. **`capture_viewport`** — *medium; most exists.* Let the model request a fresh screenshot and
-    receive it as an inline image observation. `OutputSnapshot` already zooms, captures, bounds to
+    receive it as an inline image observation. `Geometry Observation` already zooms, captures, bounds to
     1568 px, and emits an `ImageContent` block; `PhySignal.ContentBlocks` carries images. Caveat:
     `ToolCallResult` is text-only today — image-returning tools need a richer result shape or a
     content-block convention.
@@ -97,14 +97,14 @@ gives the model a capability it has **no other way to get**. Watch these overlap
 
 ## Recommended first five
 
-The pipeline already *builds* graphs (Reasoner → Auditor → ComponentTransmitter) and OutputSnapshot
+The pipeline already *builds* graphs (LLM Call → Schema Validator → ComponentTransmitter) and Geometry Observation
 already shows the result, so the highest-value tools are the **sensing** ones the model has no other
 way to obtain, plus the one *action* the pipeline does **not** cover (tweaking an existing node).
-`place_graph` (overlaps the pipeline) and `capture_viewport` (overlaps OutputSnapshot) are
+`place_graph` (overlaps the pipeline) and `capture_viewport` (overlaps Geometry Observation) are
 deliberately **not** in this set.
 
 1. **`get_document_summary`** — the model must see the canvas. Foundational, pure read.
-2. **`inspect_component`** — read a specific node's values + errors on demand (Observer only routes
+2. **`inspect_component`** — read a specific node's values + errors on demand (Canvas Observation only routes
    errors as loop feedback; the model can't *query* a node). Reuses `GhPythonBridge` readers.
 3. **`query_geometry`** — numerically "see" produced geometry (bounds/area/validity); pure RhinoCommon.
    Nothing else gives the model this.
@@ -114,13 +114,13 @@ deliberately **not** in this set.
 
 Strong next: **`calculate`** (units conversion against the doc unit system), **`read_file`** (bundled
 references, path-allow-listed), then **`run_python`** (ephemeral eval, gated). `search_components`
-already exists. Vision is already in the loop via OutputSnapshot — only wrap it as `capture_viewport`
+already exists. Vision is already in the loop via Geometry Observation — only wrap it as `capture_viewport`
 if on-demand timing proves necessary (and once `ToolCallResult` can carry an image block).
 
 ## Implementation gotchas
 - **Result shape:** `ToolCallResult` is text-only today — image-returning tools need a richer result.
 - **Deferred mutation:** any tool that mutates the doc or solves must defer to `RhinoApp.Idle`
-  (`GhJsonGrasshopper.Put` and `ExpireSolution` both kick `NewSolution`; `OutputSnapshot` sets the pattern).
+  (`GhJsonGrasshopper.Put` and `ExpireSolution` both kick `NewSolution`; `Geometry Observation` sets the pattern).
 - **Context inputs:** tools needing the catalog or files read them in `OnSolveTick` once per solve.
 - **Safety:** `run_python` (and future delete/run-command tools) is arbitrary execution — gate behind
   explicit opt-in; `read_file` must be path-allow-listed to `Files/`.
@@ -128,7 +128,7 @@ if on-demand timing proves necessary (and once `ToolCallResult` can carry an ima
 ## Key files
 `Components/Tools/ToolComponentBase.cs`, `ComponentSearch.cs`, `ToolsInUse.cs`,
 `Components/Regulators/Router.cs`, `Core/Common/ToolDefinition.cs`, `Generation/GhJsonBridge.cs`,
-`Generation/GhPythonBridge.cs`, `Components/Perception/OutputSnapshot.cs`, `Core/Catalog/`,
+`Generation/GhPythonBridge.cs`, `Components/Guardrails/GeometryObservation.cs`, `Core/Catalog/`,
 `planning/physalia-primitives.md`.
 
 ## Sources

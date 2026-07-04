@@ -39,7 +39,7 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
 /// <summary>
 /// Canvas widget pinned to the bottom-right of the Grasshopper canvas, above the compass.
 /// Clicking it opens the Physalia chat window — even when no document is open. If the document
-/// has no Chatbox component to drive the pipeline (or there is no document at all), one is
+/// has no Chat component to drive the pipeline (or there is no document at all), one is
 /// created and the window places it onto the canvas (to its right) once a provider is
 /// available, creating a new document first if needed — so it isn't dropped during first-run
 /// setup. Grasshopper
@@ -148,31 +148,31 @@ public sealed class ChatWidget : GH_Widget
         return GH_ObjectResponse.Ignore;
     }
 
-    // Opens (or focuses) the single shared chat window. Reuses a Chatbox already on the canvas;
+    // Opens (or focuses) the single shared chat window. Reuses a Chat already on the canvas;
     // otherwise creates one but does NOT place it — the window drops it onto the document itself,
     // to its right, once a provider is available (so first-run setup never litters the canvas).
-    // Works even with no document open: the new Chatbox stays detached until the window places it,
+    // Works even with no document open: the new Chat stays detached until the window places it,
     // at which point the window creates a document for it.
     private static void OpenChat(GH_Canvas canvas)
     {
         GH_Document? doc = canvas?.Document;
-        Chatbox? chatbox = doc is null ? null : FindChatbox(doc);
-        if (chatbox is null)
+        Chat? chat = doc is null ? null : FindChat(doc);
+        if (chat is null)
         {
-            chatbox = new Chatbox();
-            chatbox.CreateAttributes();
+            chat = new Chat();
+            chat.CreateAttributes();
         }
 
-        chatbox.OpenWindow();
+        chat.OpenWindow();
     }
 
-    private static Chatbox? FindChatbox(GH_Document doc)
+    private static Chat? FindChat(GH_Document doc)
     {
         foreach (IGH_DocumentObject obj in doc.Objects)
         {
-            if (obj is Chatbox chatbox)
+            if (obj is Chat chat)
             {
-                return chatbox;
+                return chat;
             }
         }
 

@@ -54,7 +54,7 @@ public record Instructions(string SystemPrompt, Conversation Conversation);
 ```
 
 - `Conversation` is a **class** (not record) — `Append()` returns a new `Conversation`, enforces invariants (no consecutive same-role turns); `MergeIntoLastUserMessage()` handles user-side text when the last turn is already a user message (providers require strict role alternation).
-- `Instructions` bundles conversation + system prompt for one inference call (Recorder → Reasoner).
+- `Instructions` bundles conversation + system prompt for one inference call (Conversation Log → LLM Call).
 - Images travel inside `ConversationMessage`, not as a side-channel.
 
 ### Provider Hierarchy
@@ -85,7 +85,7 @@ public record LlmResponseChunk(string? ContentDelta, bool IsLast, LlmUsage? Usag
 public record LlmUsage(int InputTokens, int OutputTokens);
 ```
 
-### Validation (Auditor)
+### Validation (Schema Validator)
 Pure functions: `JsonExtractor.ExtractJson/PrettyPrint` (strip LLM prose / markdown fences) and `SchemaValidator.Validate(string json, string schema) → Result<string, ValidationError>`.
 
 ### API Key Resolution (`Config/`)
@@ -98,12 +98,12 @@ Fail explicitly if neither source has the key. No third fallback. **API keys are
 
 ## Signals & Component Lifecycle (reworked 2026-06; authoritative doc: `planning/data-marshalling.md`)
 
-Events between pipeline components travel as **`PhySignal`s** — immutable, sequence-numbered, **latched** (no momentary pulses, no pulse-reset solves). One wire per hop, never a parallel data wire: the signal carries the event AND its data. **Carrier discipline (do not erode):** a signal holds exactly `Payload` (text trace / feedback string), `ContentBlocks` (a richer-than-text user turn, e.g. inline images — the Prompter→Recorder hop), and `Instructions` (the full inference context — the Recorder→Reasoner hop, where the trigger IS the data: the Recorder mints a signal carrying Instructions, a compaction component re-emits one carrying compacted Instructions, the Reasoner reads `signal.Instructions`). **No other typed carrier fields** — arbitrary data stays on typed wires/inputs; every field added here turns the signal into a god-object. `GH_Signal` casts to Instructions/Conversation/text so a typed input can consume a signal without manual deconstruction.
+Events between pipeline components travel as **`PhySignal`s** — immutable, sequence-numbered, **latched** (no momentary pulses, no pulse-reset solves). One wire per hop, never a parallel data wire: the signal carries the event AND its data. **Carrier discipline (do not erode):** a signal holds exactly `Payload` (text trace / feedback string), `ContentBlocks` (a richer-than-text user turn, e.g. inline images — the Prompter→Conversation Log hop), and `Instructions` (the full inference context — the Conversation Log→LLM Call hop, where the trigger IS the data: the Conversation Log mints a signal carrying Instructions, a compaction component re-emits one carrying compacted Instructions, the LLM Call reads `signal.Instructions`). **No other typed carrier fields** — arbitrary data stays on typed wires/inputs; every field added here turns the signal into a god-object. `GH_Signal` casts to Instructions/Conversation/text so a typed input can consume a signal without manual deconstruction.
 
 - `SignalSequencer` issues process-wide monotonic sequences; **sequence order is causal order**. Receivers keep a per-input consumed high-water mark, so each signal is consumed **exactly once** — idle re-solves, recomputes, and coalesced schedules can never re-fire, reorder, duplicate, or drop events. Correctness is by identity, not timing.
 - **Two-layer base classes** (`src/Physalia.GH/Components/`):
   - `StatefulComponentBase : PhyBase` — solve state machine (`Empty / Active / SolveSuccess / SolveFailure` + canvas caption), `ObserveSignalInputs` (call every solve, even while Active), `TryConsumeOldestSignal` / `ConsumeAllSignals` (global sequence order), `LatchSuccess/LatchFailure` (mint latched outgoing signal; `emitSignal:false` = quiet), and `ScheduleStateSolve` — the **single scheduling funnel**, wall-clock honest (re-arms when GH's one collapsing document schedule flushes early), safe from background threads.
-  - `RoutingComponentBase<TData> : StatefulComponentBase` — the routing contract. Base-owned `Signal` input (list, optional, registered last); outputs `Success Signal`(0) / `Fail Signal`(1). Subclasses implement `TryGetData` (usually `signal.Payload`), `PushSolve` (side effects), `ReadSolve` (result), optionally `IsReadReady` (settle gate, bounded retries). Async components (Reasoner) set `AutoScheduleRead => false` and call `RequestReadPass()` from their completion callback.
+  - `RoutingComponentBase<TData> : StatefulComponentBase` — the routing contract. Base-owned `Signal` input (list, optional, registered last); outputs `Success Signal`(0) / `Fail Signal`(1). Subclasses implement `TryGetData` (usually `signal.Payload`), `PushSolve` (side effects), `ReadSolve` (result), optionally `IsReadReady` (settle gate, bounded retries). Async components (LLM Call) set `AutoScheduleRead => false` and call `RequestReadPass()` from their completion callback.
 - Signal inputs accept **only** signals. A bare bool (Button/Toggle) has no payload, so wiring one into a Signal input is a hard error — same as text, numbers, or geometry. `ObserveSignalInputs` detects a foreign source by inspecting the source goo directly (it keeps its original type after the failed cast), so a null/empty wire is tolerated and only a genuinely foreign source fails loudly. Manual runs go through ConstructSignal, whose dedicated native Boolean Trigger input (`ObserveButtonPress` — one mint per false→true press, nothing on load/paste) mints a payload-carrying signal. That is the one sanctioned place a Button drives the pipeline.
 - **Nothing in the lifecycle persists** — state, signals, and consume-once bookkeeping are session-only; every component reopens Empty.
 - Rules for new components: never gate on bool edges between Physalia components; never encode ordering in `ScheduleSolution` delays; observe signal inputs every solve; the signal carries the data (Payload / ContentBlocks / Instructions) — never a parallel data wire, and never add a new carrier field for arbitrary types.
@@ -115,18 +115,19 @@ Events between pipeline components travel as **`PhySignal`s** — immutable, seq
 ### Built (`src/Physalia.GH/Components/`)
 | Folder | Components |
 |---|---|
-| **Core** | Composer (system prompt assembly; takes a `Grounding` list folded into the prompt), Prompter (chat UI entry point; Shift+Enter mints a Prompt Signal; displays the wired Recorder's conversation), Recorder (append-only conversation log; identity-based turns via three Signal inputs), Reasoner (async LLM forward pass), Detect JSON (presence gate — attempted JSON, even malformed, passes to Success; plain conversation routes to Fail as a quiet switch), Auditor (JSON extraction + schema validation) |
+| **Pipeline** | System Prompt (system prompt assembly; takes a `Grounding` list folded into the prompt), Prompter (chat UI entry point; Shift+Enter mints a Prompt Signal; displays the wired Conversation Log's conversation), Conversation Log (append-only conversation log; identity-based turns via three Signal inputs), LLM Call (async LLM forward pass) |
+| **Guardrails** | Schema Validator (JSON extraction + schema validation), Component Resolver, Canvas Observation, Geometry Observation |
 | **GhPython** | PyTransmitter (pushes generated Python into a linked Script component via grip-link; routes its errors), PythonShortcut |
-| **Grounding** | ClusterGrounder (.ghx cluster — scaffold), PythonGrounder (python function — scaffold) — both emit `GH_Grounding` for Composer. `Grounding` is a Core discriminated union (`ComponentCatalogGrounding` migrated from Composer's old catalog input; `GH_Grounding.CastFrom` adapts producer goo like `GH_ComponentCatalog`) |
+| **Grounding** | ClusterGrounder (.ghx cluster — scaffold), PythonGrounder (python function — scaffold) — both emit `GH_Grounding` for System Prompt. `Grounding` is a Core discriminated union (`ComponentCatalogGrounding` migrated from System Prompt's old catalog input; `GH_Grounding.CastFrom` adapts producer goo like `GH_ComponentCatalog`) |
 | **Models** | AnthropicModel/Tweaker, GeminiModel/Tweaker, OpenAICompatibleModel/Tweaker, ModelInformation, LlamaCppModelInfo, ApiKeys (+ `ModelComponentBase`, `TweakerComponentBase<TConfig>`) |
-| **Regulators** | Feedback, FeedbackCollector (wireless signal transport via grip-link; deliberately breaks the GH DAG) |
+| **Regulators** | Feedback, FeedbackCollector (wireless signal transport via grip-link; deliberately breaks the GH DAG), Detect JSON (presence gate — attempted JSON, even malformed, passes to Success; plain conversation routes to Fail as a quiet switch) |
 | **Serializers** | Serializer / Deserializer (.ghjson canvas export/import via `GhJsonBridge`), SchemaTranslator |
 | **Signals** | ConstructSignal (manual mint), DeconstructSignal (passive inspect — never consumes) |
 | **Tokens** | TokenEstimator |
 | **Utility** | Picker, Conversation/Message/Instructions Compositors + Decompositors |
 
 ### Planned, not yet built (spec: `planning/physalia-primitives.md`)
-PyValidator, Receiver, Counter, Meter, Monitor, Observer, Library, Aggregator, Router — plus Reasoner alternate roles via `.skill` files (Distiller, Reflector, Interpreter, etc.).
+PyValidator, Receiver, Counter, Meter, Monitor, Canvas Observation, Component Catalog, Aggregator, Router — plus LLM Call alternate roles via `.skill` files (Distiller, Reflector, Interpreter, etc.).
 
 ---
 
@@ -201,7 +202,7 @@ Other: `Colour`
         api_research.md
     /Files
         API_KEY_CONFIG.YAML (+ .example)
-        /SKILLS           ← .skill files (Reasoner instructions)
+        /SKILLS           ← .skill files (LLM Call instructions)
         /SYSTEM_PROMPTS
         /PROMPTS
         /RECEIVERS        ← .receiver files

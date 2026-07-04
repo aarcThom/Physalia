@@ -13,7 +13,7 @@ namespace Physalia.GH.Attributes;
 /// Default attributes for Physalia components that have no custom drawing of their own.
 /// Behaves exactly like <see cref="GH_ComponentAttributes"/> except it honours the harness
 /// collapse state: when the owning component is a collapsed harness member it shrinks to a
-/// point at the proxy Chatbox and draws nothing (see <see cref="CollapseGuard"/>). Components
+/// point at the proxy Chat and draws nothing (see <see cref="CollapseGuard"/>). Components
 /// with bespoke attributes call the same guard from their own <c>Layout</c>/<c>Render</c>.
 /// </summary>
 public class PhyComponentAttributes : GH_ComponentAttributes

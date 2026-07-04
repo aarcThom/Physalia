@@ -18,7 +18,7 @@ namespace Physalia.GH.Attributes;
 /// <summary>
 /// Attributes for the Chatbox component. The chat UI lives in a standalone window (opened on
 /// double-click); on the canvas the Chatbox doubles as the proxy node for its collapsible
-/// harness group. Once it owns members, the node takes on the Prompter's look — a light-blue
+/// harness group. Once it owns members, the node takes on a distinct look — a light-blue
 /// body with a lavender-pink edge — so a harness Chatbox reads distinctly from a plain one.
 /// Collapse is driven from the right-click menu and the chat window.
 /// </summary>
@@ -171,7 +171,7 @@ public class ChatboxAttrib : PhyComponentAttributes, IArrowHost
                 _grip.Draw(graphics);
             }
 
-            // Render the capsule ourselves so it reads like the Prompter: GH would force a jagged
+            // Render the capsule ourselves for a clean chat look: GH would force a jagged
             // "no inputs" left edge and (because the Chatbox is not preview-capable) the Hidden
             // palette. Rounding both edges and driving fill/edge/text from our own style sidesteps
             // both. The output grip shows only while expanded; a collapsed proxy carries no grips.

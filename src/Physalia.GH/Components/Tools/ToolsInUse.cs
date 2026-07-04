@@ -34,9 +34,12 @@ public class ToolsInUse : PhyBase
     /// Initializes a new instance of the <see cref="ToolsInUse"/> class.
     /// </summary>
     public ToolsInUse()
-        : base("Tools Present", "ToolsUsed", "Grounds the model with every tool node wired into a Router. Wire into a Recorder's Grounding input.", "Grounding")
+        : base("Tools Present", "ToolsUsed", "Grounds the model with every tool node wired into a Router. Wire into a Recorder's Grounding input.", "Tools")
     {
     }
+
+    /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.secondary;
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("E3A7C612-9F84-4B0D-A5E1-7C2D8F61B934");

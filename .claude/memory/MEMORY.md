@@ -82,6 +82,9 @@ Codebase-wide dedup; all GUIDs/param names/serialization keys preserved. New sha
 - **Deleted dead code:** `PythonTest.cs` + `PythonTestAttrib.cs` (superseded by PyTransmitter).
 - Tweaker/Model nicknames unified to uppercase (t/p/k → T/P/K) per convention. llama.cpp count_tokens non-success now maps status codes (was always Network).
 
+## Component reorg
+- [Component reorg 2026-07](component-reorg-2026-07.md) — GH components regrouped into new ribbon sections (subCategory) + matching folders; Prompter/PythonShortcut/SchemaTranslator deleted; per-component GH_Exposure forces intra-tab order (tab order itself is alphabetical, not controllable). Builds clean, live test pending.
+
 ## API Key goo (2026-06-13)
 - [GH_ApiKey goo](gh-apikey-goo.md) — API keys flow as a typed label-only goo (never serialized), not plain text; consumers (ApiKeys/ModelComponentBase/OpenAICompatibleModel) all switched to Param_ApiKey.
 

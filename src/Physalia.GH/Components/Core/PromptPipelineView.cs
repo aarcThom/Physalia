@@ -10,8 +10,8 @@ using Physalia.GH.Parameters;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Read-only views of the prompt pipeline by wire-graph traversal, shared by the prompt
-/// entry points (Prompter's canvas panel and Chatbox's window). A prompt source mints a
+/// Read-only views of the prompt pipeline by wire-graph traversal, used by the Chatbox
+/// window (the prompt entry point). A prompt source mints a
 /// signal to a Recorder; the Recorder's Signal fans out — directly to a Reasoner, or through
 /// one or more compaction components / gates that forward the Instructions-carrying signal on
 /// toward a Reasoner. None of these links are inputs, so connecting a wire never re-solves;
@@ -25,7 +25,7 @@ internal static class PromptPipelineView
     /// <summary>
     /// Finds the Recorder wired to the given output of a prompt source, or null when none.
     /// </summary>
-    /// <param name="source">The prompt source component (Prompter or Chatbox).</param>
+    /// <param name="source">The prompt source component (Chatbox).</param>
     /// <param name="outputIndex">The Prompt Signal output index on the source.</param>
     /// <returns>The wired Recorder, or null.</returns>
     public static Recorder? FindRecorder(IGH_Component source, int outputIndex)
@@ -88,7 +88,7 @@ internal static class PromptPipelineView
     /// component / gate — that has a Model (LLM) connected. Used by the chat window to choose
     /// between the setup state and the normal chat state.
     /// </summary>
-    /// <param name="source">The prompt source component (Prompter or Chatbox).</param>
+    /// <param name="source">The prompt source component (Chatbox).</param>
     /// <param name="outputIndex">The Prompt Signal output index on the source.</param>
     /// <returns>true when the Recorder -> [compactor…] -> Reasoner -> Model chain is fully wired.</returns>
     public static bool IsPipelineReady(IGH_Component source, int outputIndex)

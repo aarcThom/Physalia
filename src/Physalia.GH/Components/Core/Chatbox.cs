@@ -18,11 +18,10 @@ using HarnessGroup = Physalia.GH.Harness.Harness;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Standalone-window chat entry point. Like Prompter it is a signal source with one
-/// Prompt Signal output and no conversation state of its own, but instead of a canvas
-/// panel it drives a separate Eto WebView window hosting a web chat UI. Each send from
-/// the window mints one Prompt Signal whose payload is the prompt text — wire it to
-/// Recorder's Prompt Signal input. The classic Prompter remains available alongside it.
+/// Standalone-window chat entry point — the pipeline's sole prompt source. A signal source
+/// with one Prompt Signal output and no conversation state of its own; it drives a separate
+/// Eto WebView window hosting a web chat UI. Each send from the window mints one Prompt Signal
+/// whose payload is the prompt text — wire it to Recorder's Prompt Signal input.
 /// </summary>
 public class Chatbox : StatefulComponentBase
 {
@@ -66,6 +65,9 @@ public class Chatbox : StatefulComponentBase
         _group = new HarnessGroup(this);
         _emoji = OceanEmoji[Random.Shared.Next(OceanEmoji.Length)];
     }
+
+    /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.primary;
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("B7E4B6F2-3C2A-4D71-9E0A-7F1C2D3E4A5B");
@@ -179,7 +181,7 @@ public class Chatbox : StatefulComponentBase
     /// <param name="text">The prompt text entered in the window; used as the signal payload.</param>
     /// <param name="contentBlocks">
     /// Interleaved text/image content blocks when the turn carries images, else null to
-    /// use the plain text path (matches the classic Prompter contract).
+    /// use the plain text path.
     /// </param>
     public void SubmitFromWindow(string text, IReadOnlyList<MessageContent>? contentBlocks = null)
     {

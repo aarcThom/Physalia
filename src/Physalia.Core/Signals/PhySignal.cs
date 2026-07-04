@@ -14,7 +14,7 @@ namespace Physalia.Core.Signals;
 ///
 /// <para><b>Carrier discipline (do not erode).</b> The signal carries exactly three things:
 /// <see cref="Payload"/> (the text trace / feedback string), <see cref="ContentBlocks"/> (a
-/// richer-than-text user turn, e.g. inline images — the Prompter→Recorder hop), and
+/// richer-than-text user turn, e.g. inline images — the Chatbox→Recorder hop), and
 /// <see cref="Instructions"/> (the full inference context — the Recorder→Reasoner hop). These are
 /// the inter-component <em>events</em> the pipeline is built on. Do NOT add further typed carrier
 /// fields: arbitrary data belongs on typed wires/inputs, not bolted onto the signal. Every new field
@@ -36,7 +36,7 @@ public sealed record PhySignal(
 {
     /// <summary>
     /// Gets the resolved content blocks for the event, when it carries richer-than-text data
-    /// (e.g. a Prompter user turn with inline images). Empty for the common text-only case, in
+    /// (e.g. a Chatbox user turn with inline images). Empty for the common text-only case, in
     /// which <see cref="Payload"/> is the sole carrier. A deliberate multimodal extension to the
     /// payload-only contract: the only wire between pipeline components is the signal, so an
     /// assembled multimodal turn must ride on it.

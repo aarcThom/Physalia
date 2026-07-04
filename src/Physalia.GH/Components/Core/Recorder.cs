@@ -111,10 +111,13 @@ public class Recorder : StatefulComponentBase
     }
 
     /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.quarternary;
+
+    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("43A02F6D-D97D-4241-B4DD-067D7AE0D75E");
 
     /// <summary>
-    /// Gets the active conversation, for display only — e.g. Prompter's chat panel. Always the full
+    /// Gets the active conversation, for display only — e.g. the Chatbox window. Always the full
     /// uncompacted log (compaction happens downstream, never here). Conversation is immutable, so
     /// callers cannot corrupt the log, but they must never hold the reference across solves (it is
     /// replaced on every append).

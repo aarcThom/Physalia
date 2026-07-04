@@ -155,7 +155,7 @@ public class ChatWindow : Form
         Content = _webView;
 
         // GH never re-solves on a wire connection, so polling is the simplest correct
-        // refresh (same cadence as Prompter's busy animation). Ticks run on the UI thread.
+        // refresh (same cadence as the Chatbox's busy animation). Ticks run on the UI thread.
         _timer = new UITimer { Interval = 0.15 };
         _timer.Elapsed += (_, _) => Tick();
 

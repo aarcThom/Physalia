@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using Grasshopper.Kernel;
 using Physalia.GH.Attributes.UiElements;
-using Physalia.GH.Components.GhPython;
+using Physalia.GH.Components;
 using Physalia.GH.Generation;
 
 namespace Physalia.GH.Attributes;

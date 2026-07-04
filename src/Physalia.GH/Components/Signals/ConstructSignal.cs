@@ -30,6 +30,9 @@ public class ConstructSignal : StatefulComponentBase
     }
 
     /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.primary;
+
+    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("A1B7E2C9-5D38-4F61-9E0A-7C42D8B5F316");
 
     /// <inheritdoc/>

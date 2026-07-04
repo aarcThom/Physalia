@@ -25,6 +25,9 @@ public class DeconstructSignal : PhyBase
     }
 
     /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.secondary;
+
+    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("B6D91A45-3E7F-4C28-8B5A-1F9E6D072C84");
 
     /// <inheritdoc/>

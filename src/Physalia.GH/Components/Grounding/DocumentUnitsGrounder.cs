@@ -22,9 +22,12 @@ public class DocumentUnitsGrounder : PhyBase
     /// Initializes a new instance of the <see cref="DocumentUnitsGrounder"/> class.
     /// </summary>
     public DocumentUnitsGrounder()
-        : base("Document Units Grounding", "UnGnd", "Grounds the model with the active Rhino document's unit system.", "Resources")
+        : base("Document Units Grounding", "UnGnd", "Grounds the model with the active Rhino document's unit system.", "Grounding")
     {
     }
+
+    /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.quarternary;
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("6F1B3E82-9C4A-4D57-8E2B-1A7D5C0F9B34");

@@ -25,9 +25,12 @@ public class ClusterGrounder : PhyBase
     /// Initializes a new instance of the <see cref="ClusterGrounder"/> class.
     /// </summary>
     public ClusterGrounder()
-        : base("Cluster Grounding", "ClGnd", "Grounds the model with the Grasshopper clusters in Files/CLUSTERS. Right-click to refresh.", "Resources")
+        : base("Cluster Grounding", "ClGnd", "Grounds the model with the Grasshopper clusters in Files/CLUSTERS. Right-click to refresh.", "Grounding")
     {
     }
+
+    /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.tertiary;
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("A7E2D9C4-1F36-4B8A-B0E5-2C9D4F8A3B61");

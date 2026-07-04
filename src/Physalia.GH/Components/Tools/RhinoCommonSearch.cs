@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Grasshopper.Kernel;
 using Physalia.Core.Api;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
@@ -43,6 +44,9 @@ public class RhinoCommonSearch : ToolComponentBase
         : base("RhinoCommon Search", "RC Search", "A tool the model calls to search the RhinoCommon API for exact signatures and docs.")
     {
     }
+
+    /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.senary;
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("7A3C1E92-5D44-4B8F-9C21-3E6A8F0D1B57");

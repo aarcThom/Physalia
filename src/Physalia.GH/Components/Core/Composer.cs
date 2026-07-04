@@ -36,6 +36,9 @@ public class Composer : PhyBase, IPickableValuesSource
     }
 
     /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.secondary;
+
+    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("BA4FCD24-96DB-4B2B-B7F7-E756A98BC185");
 
     /// <inheritdoc/>

@@ -45,6 +45,9 @@ public class ComponentSearch : ToolComponentBase
     }
 
     /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.tertiary;
+
+    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("C5F2A9D4-6B81-4E37-A0C2-9D4F1B6E8350");
 
     /// <inheritdoc/>

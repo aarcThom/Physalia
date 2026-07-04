@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Drawing;
 using Grasshopper;
 using Grasshopper.Kernel;
-using Physalia.GH.Components.Utility;
 
 namespace Physalia.GH.Components;
 

@@ -36,8 +36,8 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
     private CancellationTokenSource? _cts;
 
     // Live streaming buffer: the response text accumulated so far this run. Appended on the
-    // background inference thread and read by the Prompter on the UI thread, so every access is
-    // guarded by the lock. Null between runs; the Prompter shows it only while this is IsBusy.
+    // background inference thread and read by the Chatbox window on the UI thread, so every access
+    // is guarded by the lock. Null between runs; the window shows it only while this is IsBusy.
     private readonly object _streamLock = new();
     private StringBuilder? _streamBuffer;
 
@@ -50,11 +50,14 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
     }
 
     /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.tertiary;
+
+    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("F1097B2B-564A-43F8-8F70-BA6961F00E00");
 
     /// <inheritdoc/>
     /// <remarks>
-    /// The Prompter reads this while the component IsBusy to render the response as it streams.
+    /// The Chatbox window reads this while the component IsBusy to render the response as it streams.
     /// Null until the first token arrives; dropped at the start of each run by
     /// <see cref="ClearStateOutputs"/>.
     /// </remarks>
@@ -253,7 +256,7 @@ public class Reasoner : RoutingComponentBase<Instructions>, IStreamingTextSource
                     {
                         if (value.ContentDelta != null)
                         {
-                            // Guarded: the Prompter reads this buffer from the UI thread mid-stream.
+                            // Guarded: the Chatbox window reads this buffer from the UI thread mid-stream.
                             lock (_streamLock)
                             {
                                 sb.Append(value.ContentDelta);

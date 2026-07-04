@@ -99,7 +99,7 @@ public abstract class StatefulComponentBase : PhyBase
     /// <summary>
     /// Gets a value indicating whether the component is currently Active (a run is in
     /// flight, including the visible end-of-solve delay). Public so other components'
-    /// attributes can reflect pipeline activity (e.g. Prompter's busy animation).
+    /// attributes can reflect pipeline activity (e.g. the Chatbox's busy animation).
     /// </summary>
     public bool IsBusy => State == SolveState.Active;
 
@@ -319,7 +319,7 @@ public abstract class StatefulComponentBase : PhyBase
     /// though their own run succeeded.
     /// </param>
     /// <param name="contentBlocks">
-    /// Optional resolved content blocks carried alongside the payload — e.g. a Prompter user
+    /// Optional resolved content blocks carried alongside the payload — e.g. a Chatbox user
     /// turn with inline images. Null/empty for the common text-only case.
     /// </param>
     /// <param name="instructions">

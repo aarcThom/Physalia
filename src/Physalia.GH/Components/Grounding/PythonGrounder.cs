@@ -24,9 +24,12 @@ public class PythonGrounder : PhyBase
     /// Initializes a new instance of the <see cref="PythonGrounder"/> class.
     /// </summary>
     public PythonGrounder()
-        : base("Python Grounding", "PyGnd", "Grounds the model with an available python function. WIP scaffold.", "Resources")
+        : base("Python Grounding", "PyGnd", "Grounds the model with an available python function. WIP scaffold.", "Grounding")
     {
     }
+
+    /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.quinary;
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("B8F3E0D5-2A47-4C9B-A1F6-3D0E5A9B4C72");

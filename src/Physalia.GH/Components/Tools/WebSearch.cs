@@ -47,6 +47,9 @@ public class WebSearch : ToolComponentBase
     }
 
     /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.obscure;
+
+    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("02315974-8633-4BCF-B4B3-9C33DC193778");
 
     /// <inheritdoc/>

@@ -115,7 +115,7 @@ public static class ConversationRecorder
                     break;
 
                 case RecordedTurnKind.Prompt:
-                    // A Prompter turn may carry resolved content blocks (text + inline images);
+                    // A Chatbox turn may carry resolved content blocks (text + inline images);
                     // a Construct Signal carries only the text payload. An images-only prompt has
                     // blocks but a blank payload, so check blocks first.
                     if (signal.ContentBlocks.Count > 0)

@@ -17,7 +17,6 @@ using Physalia.Core.Grounding;
 using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
 using Physalia.GH.Components;
-using Physalia.GH.Components.Utility;
 using GHClusterObject = Grasshopper.Kernel.Special.GH_Cluster;
 
 namespace Physalia.GH.Generation;

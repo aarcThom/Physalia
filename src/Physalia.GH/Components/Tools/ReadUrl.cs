@@ -48,6 +48,9 @@ public class ReadUrl : ToolComponentBase
     }
 
     /// <inheritdoc/>
+    public override GH_Exposure Exposure => GH_Exposure.quinary;
+
+    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("7F8E6EB2-B012-4068-A90B-D9EF87229B7F");
 
     /// <inheritdoc/>

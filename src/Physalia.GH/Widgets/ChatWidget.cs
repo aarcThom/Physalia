@@ -40,8 +40,10 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
 }
 
 /// <summary>
-/// Canvas widget pinned to the bottom-right of the Grasshopper canvas, above the compass.
-/// Clicking it opens the Physalia chat window — even when no document is open. If the document
+/// Canvas widget docked to the bottom-right of the Grasshopper canvas by default, above the
+/// compass, and draggable like the built-in widgets (click-and-hold to move; the position
+/// persists across restarts). Double-clicking it opens the Physalia chat window — even when no
+/// document is open. If the document
 /// has no Chat component to drive the pipeline (or there is no document at all), one is
 /// created and the window places it onto the canvas (to its right) once a provider is
 /// available, creating a new document first if needed — so it isn't dropped during first-run
@@ -54,21 +56,42 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
 /// </summary>
 public sealed class ChatWidget : GH_Widget
 {
-    // Settings key backing the Widgets-menu checkbox so the choice survives a restart.
+    // Settings keys backing the Widgets-menu checkbox and drag position so they survive a restart.
     private const string VisibleKey = "Physalia.ChatWidget.Visible";
+    private const string RightOffsetKey = "Physalia.ChatWidget.RightOffset";
+    private const string BottomOffsetKey = "Physalia.ChatWidget.BottomOffset";
 
     // Embedded PNG rasterized from Images/logo.svg (portrait jellyfish, 215x256).
     private const string LogoResource = "Physalia.GH.Resources.logo.png";
 
-    // Widget geometry, in device (screen) pixels. Tunable; BottomOffset clears the compass.
+    // Widget geometry, in device (screen) pixels. The default docks it bottom-right, above the
+    // compass; the offsets are the gap from the canvas right/bottom edge to the widget's edge, and
+    // become mutable once the user drags the widget.
     private const int BoxSize = 108;
-    private const int RightMargin = 14;
-    private const int BottomOffset = 84;
+    private const int DefaultRightOffset = 14;
+    private const int DefaultBottomOffset = 84;
+
+    // Pixels the cursor must travel with the button held before a press turns into a drag.
+    private const int DragThreshold = 4;
+
+    // Sentinel meaning "offsets not yet loaded from settings"; real offsets are always >= 0 after clamp.
+    private const int Unloaded = int.MinValue;
 
     // Last-rendered frame in device pixels; reused for hit-testing in Contains/RespondToMouseDown.
     private Rectangle _frame;
     private Bitmap? _icon;
     private Bitmap? _logo;
+
+    // Live drag position (gap from the canvas right/bottom edge to the widget's edge), loaded lazily
+    // from settings and persisted on drag end.
+    private int _rightOffset = Unloaded;
+    private int _bottomOffset = Unloaded;
+
+    // Drag state machine across Down/Move/Up.
+    private bool _pressed;
+    private bool _dragging;
+    private Point _pressOrigin;   // control-space point where the press began (drag-threshold anchor)
+    private Point _grabOffset;    // cursor position relative to the widget's top-left at press time
 
     /// <inheritdoc/>
     public override string Name => "Physalia Chat";
@@ -93,7 +116,8 @@ public sealed class ChatWidget : GH_Widget
     public override Bitmap Icon_24x24 => _icon ??= CreateIcon();
 
     /// <summary>
-    /// Draws the Physalia logo pinned to the bottom-right corner of the canvas window.
+    /// Draws the Physalia logo at its current position (docked bottom-right by default, or wherever
+    /// the user dragged it), clamped inside the canvas window.
     /// </summary>
     /// <param name="canvas">The canvas being painted.</param>
     public override void Render(GH_Canvas canvas)
@@ -103,9 +127,8 @@ public sealed class ChatWidget : GH_Widget
             return;
         }
 
-        int x = canvas.Width - BoxSize - RightMargin;
-        int y = canvas.Height - BoxSize - BottomOffset;
-        _frame = new Rectangle(x, y, BoxSize, BoxSize);
+        EnsureOffsetsLoaded();
+        _frame = ComputeFrame(canvas.Width, canvas.Height);
 
         Bitmap? logo = Logo;
         if (logo is null)
@@ -143,20 +166,122 @@ public sealed class ChatWidget : GH_Widget
         => Visible && _frame.Contains(pt_control);
 
     /// <summary>
-    /// Opens the chat window on a left-click inside the widget.
+    /// Begins a potential drag on a left-press inside the widget. The press only becomes a drag
+    /// once the cursor moves past <see cref="DragThreshold"/>; opening is handled by double-click.
     /// </summary>
     /// <param name="sender">The canvas the mouse event originated from.</param>
     /// <param name="e">The mouse event.</param>
-    /// <returns>Handled when the click opened the window, otherwise Ignore.</returns>
+    /// <returns>Handled when the press landed on the widget, otherwise Ignore.</returns>
     public override GH_ObjectResponse RespondToMouseDown(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
-        if (e.Button == MouseButtons.Left && _frame.Contains(e.ControlLocation))
+        if (Visible && e.Button == MouseButtons.Left && _frame.Contains(e.ControlLocation))
         {
+            _pressed = true;
+            _dragging = false;
+            _pressOrigin = e.ControlLocation;
+            _grabOffset = new Point(e.ControlLocation.X - _frame.X, e.ControlLocation.Y - _frame.Y);
+
+            // Become the canvas's active widget so GH routes every subsequent move/up straight to us
+            // (bypassing the Contains() hit-test) — otherwise a fast drag that outruns the icon bounds
+            // stops receiving move events and the widget is dropped mid-drag.
+            if (sender is not null)
+            {
+                sender.ActiveWidget = this;
+            }
+
+            return GH_ObjectResponse.Handled;
+        }
+
+        return GH_ObjectResponse.Ignore;
+    }
+
+    /// <summary>
+    /// Drags the widget once the cursor moves past the threshold, repositioning it under the cursor
+    /// and clamping it inside the canvas.
+    /// </summary>
+    /// <param name="sender">The canvas the mouse event originated from.</param>
+    /// <param name="e">The mouse event.</param>
+    /// <returns>Handled while a drag is in progress, otherwise Ignore.</returns>
+    public override GH_ObjectResponse RespondToMouseMove(GH_Canvas sender, GH_CanvasMouseEvent e)
+    {
+        // Gate on _pressed only (set on left-down, cleared on up). While pressed we are the canvas's
+        // active widget, so every move routes here; on hover _pressed is false and we ignore, so the
+        // icon never follows the cursor unless it was actually picked up.
+        if (!_pressed || sender is null)
+        {
+            return GH_ObjectResponse.Ignore;
+        }
+
+        if (!_dragging &&
+            (Math.Abs(e.ControlLocation.X - _pressOrigin.X) > DragThreshold ||
+             Math.Abs(e.ControlLocation.Y - _pressOrigin.Y) > DragThreshold))
+        {
+            _dragging = true;
+        }
+
+        if (_dragging)
+        {
+            MoveTo(e.ControlLocation, sender.Width, sender.Height);
+            sender.Invalidate();
+            return GH_ObjectResponse.Handled;
+        }
+
+        return GH_ObjectResponse.Ignore;
+    }
+
+    /// <summary>
+    /// Ends a drag (persisting the new position) or completes a plain press.
+    /// </summary>
+    /// <param name="sender">The canvas the mouse event originated from.</param>
+    /// <param name="e">The mouse event.</param>
+    /// <returns>Handled when the press/drag was ours, otherwise Ignore.</returns>
+    public override GH_ObjectResponse RespondToMouseUp(GH_Canvas sender, GH_CanvasMouseEvent e)
+    {
+        if (!_pressed)
+        {
+            return GH_ObjectResponse.Ignore;
+        }
+
+        bool wasDragging = _dragging;
+        _pressed = false;
+        _dragging = false;
+        ReleaseCapture(sender);
+
+        if (wasDragging)
+        {
+            PersistOffsets();
+        }
+
+        return GH_ObjectResponse.Handled;
+    }
+
+    /// <summary>
+    /// Opens the chat window on a left double-click inside the widget.
+    /// </summary>
+    /// <param name="sender">The canvas the mouse event originated from.</param>
+    /// <param name="e">The mouse event.</param>
+    /// <returns>Handled when the double-click opened the window, otherwise Ignore.</returns>
+    public override GH_ObjectResponse RespondToMouseDoubleClick(GH_Canvas sender, GH_CanvasMouseEvent e)
+    {
+        if (Visible && e.Button == MouseButtons.Left && _frame.Contains(e.ControlLocation))
+        {
+            _pressed = false;
+            _dragging = false;
+            ReleaseCapture(sender);
             OpenChat(sender);
             return GH_ObjectResponse.Handled;
         }
 
         return GH_ObjectResponse.Ignore;
+    }
+
+    // Relinquishes the canvas's active-widget capture if we currently hold it.
+    private void ReleaseCapture(GH_Canvas? canvas)
+    {
+        if (canvas is not null && ReferenceEquals(canvas.ActiveWidget, this))
+        {
+            canvas.ActiveWidget = null;
+        }
     }
 
     // Opens (or focuses) the single shared chat window. Reuses a Chat already on the canvas;
@@ -188,6 +313,47 @@ public sealed class ChatWidget : GH_Widget
         }
 
         return null;
+    }
+
+    // Loads the persisted drag offsets on first use (defaulting to the docked bottom-right corner).
+    private void EnsureOffsetsLoaded()
+    {
+        if (_rightOffset == Unloaded)
+        {
+            _rightOffset = Instances.Settings.GetValue(RightOffsetKey, DefaultRightOffset);
+            _bottomOffset = Instances.Settings.GetValue(BottomOffsetKey, DefaultBottomOffset);
+        }
+    }
+
+    // The widget rectangle for the given canvas size, positioned from the offsets and clamped so it
+    // stays fully on-screen (a shrunk window can otherwise push a corner-anchored widget off-canvas).
+    private Rectangle ComputeFrame(int canvasWidth, int canvasHeight)
+    {
+        int x = canvasWidth - BoxSize - _rightOffset;
+        int y = canvasHeight - BoxSize - _bottomOffset;
+        x = Math.Max(0, Math.Min(x, Math.Max(0, canvasWidth - BoxSize)));
+        y = Math.Max(0, Math.Min(y, Math.Max(0, canvasHeight - BoxSize)));
+        return new Rectangle(x, y, BoxSize, BoxSize);
+    }
+
+    // Repositions the widget so its top-left tracks the cursor (minus the grab offset), clamped to
+    // the canvas, and recomputes the edge offsets from the new position.
+    private void MoveTo(Point cursor, int canvasWidth, int canvasHeight)
+    {
+        int x = cursor.X - _grabOffset.X;
+        int y = cursor.Y - _grabOffset.Y;
+        x = Math.Max(0, Math.Min(x, Math.Max(0, canvasWidth - BoxSize)));
+        y = Math.Max(0, Math.Min(y, Math.Max(0, canvasHeight - BoxSize)));
+        _rightOffset = canvasWidth - BoxSize - x;
+        _bottomOffset = canvasHeight - BoxSize - y;
+        _frame = new Rectangle(x, y, BoxSize, BoxSize);
+    }
+
+    // Writes the current offsets to settings so the position survives a restart.
+    private void PersistOffsets()
+    {
+        Instances.Settings.SetValue(RightOffsetKey, _rightOffset);
+        Instances.Settings.SetValue(BottomOffsetKey, _bottomOffset);
     }
 
     // The embedded logo bitmap, loaded once and cached. Null if the resource is missing.

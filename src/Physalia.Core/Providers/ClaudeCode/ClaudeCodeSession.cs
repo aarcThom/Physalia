@@ -27,9 +27,23 @@ namespace Physalia.Core.Providers.ClaudeCode;
 /// </remarks>
 internal sealed class ClaudeCodeSession : IDisposable
 {
+    /// <summary>
+    /// The lowest Claude Code CLI version that understands the <c>--safe-mode</c> flag. Older
+    /// installs reject the flag and exit immediately, so this session drops it below this version.
+    /// </summary>
+    internal static readonly Version MinSafeModeVersion = new(2, 1, 169);
+
     // A dedicated empty directory the CLI runs in, so its workspace / CLAUDE.md auto-discovery finds
     // nothing to load. Created once and reused across every session's process.
     private static readonly Lazy<string> _isolatedWorkingDir = new(CreateIsolatedWorkingDirectory);
+
+    // A dedicated empty CLAUDE_CONFIG_DIR used as the --safe-mode fallback on older CLIs, so global
+    // CLAUDE.md / plugin / hook auto-discovery finds nothing. Created once and reused.
+    private static readonly Lazy<string> _isolatedConfigDir = new(CreateIsolatedConfigDirectory);
+
+    // The installed CLI's version (from `claude --version`), detected once per process and cached.
+    // Null when detection failed for any reason (missing binary, parse failure, timeout).
+    private static readonly Lazy<Version?> _cliVersion = new(DetectCliVersion);
 
     // The CLI emits UTF-8 NDJSON and reads UTF-8 on stdin; pin both pipes so multibyte characters in
     // the prompt or the generated JSON survive. No BOM — a BOM would corrupt the first stdin line.
@@ -41,6 +55,11 @@ internal sealed class ClaudeCodeSession : IDisposable
     private Task? _stderrPump;
     private volatile string _stderr = string.Empty;
     private bool _disposed;
+
+    // Set when the detected CLI version is present but below MinSafeModeVersion, so BuildStartInfo
+    // dropped --safe-mode. Used to explain an immediate process failure as an out-of-date CLI. A
+    // null (undetermined) version does NOT set this — the generic error is kept in that case.
+    private bool _staleCliFallback;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ClaudeCodeSession"/> class. The process is
@@ -109,7 +128,9 @@ internal sealed class ClaudeCodeSession : IDisposable
                 if (raw is null)
                 {
                     // The process ended in the middle of a turn — treat the session as dead.
-                    yield return Fail(LlmErrorKind.Network, $"The Claude Code CLI ended unexpectedly. {Summarise(_stderr)}");
+                    yield return Fail(
+                        LlmErrorKind.Network,
+                        DescribeStartupFailure($"The Claude Code CLI ended unexpectedly. {Summarise(_stderr)}"));
                     yield break;
                 }
 
@@ -232,18 +253,28 @@ internal sealed class ClaudeCodeSession : IDisposable
             File.WriteAllText(_systemPromptFile, SystemPrompt);
         }
 
-        var process = new Process { StartInfo = BuildStartInfo(_systemPromptFile, ModelId) };
+        // Only pass --safe-mode to a CLI new enough to understand it; older installs reject it and
+        // exit immediately. An undetermined (null) version is treated as unsupported too, but is not
+        // flagged stale, so its errors stay generic rather than claiming a specific mismatch.
+        Version? cliVersion = _cliVersion.Value;
+        bool safeModeSupported = cliVersion is not null && cliVersion >= MinSafeModeVersion;
+        _staleCliFallback = cliVersion is not null && cliVersion < MinSafeModeVersion;
+
+        var process = new Process { StartInfo = BuildStartInfo(_systemPromptFile, ModelId, safeModeSupported) };
         try
         {
             if (!process.Start())
             {
-                throw new InvalidOperationException("Failed to start the Claude Code CLI process.");
+                throw new InvalidOperationException(
+                    DescribeStartupFailure("Failed to start the Claude Code CLI process."));
             }
         }
         catch (Exception ex) when (ex is not InvalidOperationException)
         {
             throw new InvalidOperationException(
-                $"Could not launch the Claude Code CLI: {ex.Message}. Install Claude Code and run `claude auth login`.", ex);
+                DescribeStartupFailure(
+                    $"Could not launch the Claude Code CLI: {ex.Message}. Install Claude Code and run `claude auth login`."),
+                ex);
         }
 
         _process = process;
@@ -263,7 +294,7 @@ internal sealed class ClaudeCodeSession : IDisposable
         });
     }
 
-    private static ProcessStartInfo BuildStartInfo(string? systemPromptFile, string modelId)
+    private static ProcessStartInfo BuildStartInfo(string? systemPromptFile, string modelId, bool safeModeSupported)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -317,10 +348,21 @@ internal sealed class ClaudeCodeSession : IDisposable
         // hooks, MCP servers, output styles, workflows) while keeping auth and model selection
         // working — so the user's `claude auth login` OAuth session still authenticates with no API
         // key. (--bare is leaner but reads auth only from ANTHROPIC_API_KEY, breaking that promise.)
+        // The flag only exists on v2.1.169+; on older installs it is dropped and CLAUDE_CONFIG_DIR
+        // is pointed at an empty directory instead, a best-effort way to suppress the same
+        // CLAUDE.md / plugin / hook auto-discovery.
+        if (safeModeSupported)
+        {
+            startInfo.ArgumentList.Add("--safe-mode");
+        }
+        else
+        {
+            startInfo.Environment["CLAUDE_CONFIG_DIR"] = _isolatedConfigDir.Value;
+        }
+
         // --no-session-persistence drops the per-turn session disk write; Physalia owns the history.
         // --strict-mcp-config is redundant under --safe-mode but kept explicit. The default agentic
         // tools are denied so the process never runs tools of its own — Physalia owns its tool loop.
-        startInfo.ArgumentList.Add("--safe-mode");
         startInfo.ArgumentList.Add("--no-session-persistence");
         startInfo.ArgumentList.Add("--strict-mcp-config");
         startInfo.ArgumentList.Add("--disallowed-tools");
@@ -338,6 +380,111 @@ internal sealed class ClaudeCodeSession : IDisposable
         string dir = Path.Combine(Path.GetTempPath(), "physalia-claudecode");
         Directory.CreateDirectory(dir);
         return dir;
+    }
+
+    private static string CreateIsolatedConfigDirectory()
+    {
+        // A stable, empty CLAUDE_CONFIG_DIR. CreateDirectory is idempotent; an empty config dir
+        // gives an older CLI (no --safe-mode) nothing to auto-discover.
+        string dir = Path.Combine(Path.GetTempPath(), "physalia-claudecode-config");
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    // Runs `claude --version` once per process and parses the leading version number out of its
+    // output (e.g. "2.1.169" from "2.1.169 (Claude Code)"). Returns null if the binary is missing,
+    // the output cannot be parsed, or the check does not complete within the short timeout — the
+    // caller treats a null version as "--safe-mode unsupported" without claiming a version mismatch.
+    private static Version? DetectCliVersion()
+    {
+        try
+        {
+            if (!TryResolveExecutable(out string executable))
+            {
+                // On Unix the bare name resolves at exec time from a richer login PATH; on Windows
+                // an unresolved binary means we genuinely cannot determine a version.
+                if (OperatingSystem.IsWindows())
+                {
+                    return null;
+                }
+
+                executable = "claude";
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = executable,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            startInfo.ArgumentList.Add("--version");
+
+            using var process = new Process { StartInfo = startInfo };
+            if (!process.Start())
+            {
+                return null;
+            }
+
+            // A short timeout so a hung CLI can never block startup. --version writes one short
+            // line, well within the pipe buffer, so waiting before reading cannot deadlock.
+            if (!process.WaitForExit(3000))
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                    // Best effort — the process may already have exited.
+                }
+
+                return null;
+            }
+
+            return ParseVersion(process.StandardOutput.ReadToEnd());
+        }
+        catch
+        {
+            // Any failure (missing binary, launch error) leaves the version undetermined.
+            return null;
+        }
+    }
+
+    private static Version? ParseVersion(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return null;
+        }
+
+        // The first whitespace-delimited token that parses as a version wins, e.g. "2.1.169".
+        foreach (string token in output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (Version.TryParse(token, out Version? version))
+            {
+                return version;
+            }
+        }
+
+        return null;
+    }
+
+    // Turns a generic startup-failure message into an out-of-date-CLI message when this session fell
+    // back off --safe-mode because the detected version was too old. When the version is undetermined
+    // the generic message is kept, so we never claim a specific mismatch we cannot substantiate.
+    private string DescribeStartupFailure(string generic)
+    {
+        if (!_staleCliFallback)
+        {
+            return generic;
+        }
+
+        Version? found = _cliVersion.Value;
+        string foundText = found is null ? "unknown" : $"v{found}";
+        return $"Claude Code CLI is out of date — v{MinSafeModeVersion}+ required for --safe-mode; found {foundText}. "
+            + "Upgrade with: npm install -g @anthropic-ai/claude-code";
     }
 
     /// <summary>

@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #if WINDOWS
+using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.IO;
+using System.Reflection;
 using System.Windows.Forms;
 using Grasshopper;
 using Grasshopper.GUI;
@@ -46,22 +49,26 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
 /// auto-discovers the widget and lists it (with a visibility checkbox) in the canvas
 /// Widgets right-click menu; the visibility choice persists in the GH settings.
 ///
-/// The drawn graphic is a placeholder square — real artwork is swapped in later.
+/// The drawn graphic is the Physalia logo (the same jellyfish shown in the chat window),
+/// rasterized from Images/logo.svg into the embedded Resources/logo.png.
 /// </summary>
 public sealed class ChatWidget : GH_Widget
 {
     // Settings key backing the Widgets-menu checkbox so the choice survives a restart.
     private const string VisibleKey = "Physalia.ChatWidget.Visible";
 
-    // Placeholder geometry, in device (screen) pixels. Tunable; BottomOffset clears the compass.
-    private const int BoxSize = 32;
+    // Embedded PNG rasterized from Images/logo.svg (portrait jellyfish, 215x256).
+    private const string LogoResource = "Physalia.GH.Resources.logo.png";
+
+    // Widget geometry, in device (screen) pixels. Tunable; BottomOffset clears the compass.
+    private const int BoxSize = 108;
     private const int RightMargin = 14;
     private const int BottomOffset = 84;
-    private const int CornerRadius = 6;
 
     // Last-rendered frame in device pixels; reused for hit-testing in Contains/RespondToMouseDown.
     private Rectangle _frame;
     private Bitmap? _icon;
+    private Bitmap? _logo;
 
     /// <inheritdoc/>
     public override string Name => "Physalia Chat";
@@ -83,10 +90,10 @@ public sealed class ChatWidget : GH_Widget
     }
 
     /// <inheritdoc/>
-    public override Bitmap Icon_24x24 => _icon ??= CreatePlaceholderIcon();
+    public override Bitmap Icon_24x24 => _icon ??= CreateIcon();
 
     /// <summary>
-    /// Draws the placeholder square pinned to the bottom-right corner of the canvas window.
+    /// Draws the Physalia logo pinned to the bottom-right corner of the canvas window.
     /// </summary>
     /// <param name="canvas">The canvas being painted.</param>
     public override void Render(GH_Canvas canvas)
@@ -100,23 +107,27 @@ public sealed class ChatWidget : GH_Widget
         int y = canvas.Height - BoxSize - BottomOffset;
         _frame = new Rectangle(x, y, BoxSize, BoxSize);
 
+        Bitmap? logo = Logo;
+        if (logo is null)
+        {
+            return;
+        }
+
         Graphics g = canvas.Graphics;
 
         // Widget Render runs under the canvas pan/zoom transform — reset to device space so the
-        // square is pinned to the window corner regardless of pan/zoom (same as SerializeWidget).
+        // logo is pinned to the window corner regardless of pan/zoom (same as SerializeWidget).
         Matrix oldTransform = g.Transform;
         SmoothingMode oldMode = g.SmoothingMode;
+        InterpolationMode oldInterp = g.InterpolationMode;
         g.ResetTransform();
         g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
 
-        using (GraphicsPath path = RoundedRect(_frame, CornerRadius))
-        using (var fill = new SolidBrush(Color.FromArgb(235, 45, 45, 45)))
-        using (var border = new Pen(Color.FromArgb(255, 255, 191, 0), 1.5f))
-        {
-            g.FillPath(fill, path);
-            g.DrawPath(border, path);
-        }
+        // Fit the portrait logo inside the square frame, preserving aspect ratio and centring.
+        g.DrawImage(logo, FitCentred(logo.Size, _frame));
 
+        g.InterpolationMode = oldInterp;
         g.SmoothingMode = oldMode;
         g.Transform = oldTransform;
         oldTransform.Dispose();
@@ -179,30 +190,43 @@ public sealed class ChatWidget : GH_Widget
         return null;
     }
 
-    // Placeholder menu/tooltip icon — a filled rounded square. Replaced by real artwork later.
-    private static Bitmap CreatePlaceholderIcon()
+    // The embedded logo bitmap, loaded once and cached. Null if the resource is missing.
+    private Bitmap? Logo => _logo ??= LoadLogo();
+
+    private static Bitmap? LoadLogo()
+    {
+        Assembly assembly = typeof(ChatWidget).Assembly;
+        using Stream? stream = assembly.GetManifestResourceStream(LogoResource);
+        return stream is null ? null : new Bitmap(stream);
+    }
+
+    // Menu/tooltip icon — the logo scaled into a 24x24 transparent bitmap, aspect preserved.
+    private static Bitmap CreateIcon()
     {
         var bitmap = new Bitmap(24, 24);
+        using Bitmap? logo = LoadLogo();
+        if (logo is null)
+        {
+            return bitmap;
+        }
+
         using Graphics g = Graphics.FromImage(bitmap);
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        using GraphicsPath path = RoundedRect(new Rectangle(2, 2, 20, 20), 4);
-        using var fill = new SolidBrush(Color.FromArgb(45, 45, 45));
-        using var border = new Pen(Color.FromArgb(255, 191, 0), 1.5f);
-        g.FillPath(fill, path);
-        g.DrawPath(border, path);
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        g.DrawImage(logo, FitCentred(logo.Size, new Rectangle(0, 0, 24, 24)));
         return bitmap;
     }
 
-    private static GraphicsPath RoundedRect(Rectangle rect, int radius)
+    // Scales source into bounds preserving aspect ratio and centres the result.
+    private static Rectangle FitCentred(Size source, Rectangle bounds)
     {
-        int d = radius * 2;
-        var path = new GraphicsPath();
-        path.AddArc(rect.X, rect.Y, d, d, 180, 90);
-        path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
-        path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
-        path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
-        path.CloseFigure();
-        return path;
+        float scale = Math.Min((float)bounds.Width / source.Width, (float)bounds.Height / source.Height);
+        int w = (int)Math.Round(source.Width * scale);
+        int h = (int)Math.Round(source.Height * scale);
+        int x = bounds.X + ((bounds.Width - w) / 2);
+        int y = bounds.Y + ((bounds.Height - h) / 2);
+        return new Rectangle(x, y, w, h);
     }
 }
 #endif

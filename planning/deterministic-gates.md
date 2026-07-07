@@ -55,7 +55,7 @@ So the valuable new gates are the ones that check something **nothing currently 
    > **JSON Presence gate** — pass anything containing attempted JSON (even malformed, so the
    > Schema Validator's correction loop still fires) and route pure conversation to Fail as a quiet
    > switch — is NOT redundant with anything, and was built as **Detect JSON**
-   > (`Components/Regulators/DetectJson.cs`, heuristic in `Core/Validation/JsonDetector.cs`).
+   > (`Components/ControlFlow/DetectJson.cs`, heuristic in `Core/Validation/JsonDetector.cs`).
 3. **Python Syntax Gate** — ⚠️ **already covered by PyTransmitter**, which pushes the code into the
    linked Script component, waits for it to re-solve, reads `GhPythonBridge.GetErrors`, and routes the
    syntax/runtime errors on Fail. A pre-execution gate only matters if you specifically want to avoid

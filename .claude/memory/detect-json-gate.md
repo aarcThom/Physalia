@@ -7,7 +7,7 @@ metadata:
   originSessionId: a585e471-72d4-4dbc-91c6-8dd9058ed1c6
 ---
 
-**Detect JSON gate** (2026-07-03, branch feat/memory-tool): new Regulators-tab component `src/Physalia.GH/Components/Regulators/DetectJson.cs` (`RoutingComponentBase<string>`, Component Resolver shape, GUID 85E51782-BA18-4B96-9488-B574950F2963) + pure heuristic `src/Physalia.Core/Validation/JsonDetector.ContainsJson` + 15 xUnit tests.
+**Detect JSON gate** (2026-07-03, branch feat/memory-tool): new Control Flow-tab component `src/Physalia.GH/Components/ControlFlow/DetectJson.cs` (`RoutingComponentBase<string>`, Component Resolver shape, GUID 85E51782-BA18-4B96-9488-B574950F2963) + pure heuristic `src/Physalia.Core/Validation/JsonDetector.ContainsJson` + 15 xUnit tests.
 
 Purpose: sits between LLM Call and Schema Validator so casual chat ("hello") no longer fires "Your previous response failed validation" feedback. It is a **presence/intent** gate, NOT well-formedness (the gate `planning/deterministic-gates.md` rejected — doc amended with a note):
 - Any attempted JSON, even malformed/truncated → **Success** (Schema Validator still judges it; correction loop intact).

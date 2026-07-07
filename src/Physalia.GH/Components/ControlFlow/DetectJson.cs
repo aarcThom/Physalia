@@ -22,7 +22,7 @@ public class DetectJson : RoutingComponentBase<string>
     /// Initializes a new instance of the <see cref="DetectJson"/> class.
     /// </summary>
     public DetectJson()
-        : base("Detect JSON", "DJson", "Passes responses containing JSON (even malformed) to Success; routes plain conversation to Fail so it never triggers validation feedback.", "Regulators")
+        : base("Detect JSON", "DJson", "Passes responses containing JSON (even malformed) to Success; routes plain conversation to Fail so it never triggers validation feedback.", "Control Flow")
     {
     }
 

@@ -35,7 +35,7 @@ public class SignalLimiter : StatefulComponentBase
     /// Initializes a new instance of the <see cref="SignalLimiter"/> class.
     /// </summary>
     public SignalLimiter()
-        : base("Signal Limiter", "SigLim", "Routes the first N new signals through the Within Limit output and any beyond N through the Over Limit output. Reset zeroes the count.", "Regulators")
+        : base("Signal Limiter", "SigLim", "Routes the first N new signals through the Within Limit output and any beyond N through the Over Limit output. Reset zeroes the count.", "Control Flow")
     {
     }
 

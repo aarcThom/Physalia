@@ -1083,7 +1083,7 @@ Suggested rule of thumb:
 | `src/Physalia.GH/Components/RoutingComponentBase.cs` | Extract push/read/latch state machine into a pure `RoutingRunState<TData>`. |
 | `src/Physalia.GH/Components/Core/ConversationLog.cs` | Extract `ConversationLogBuilder` policy and test turn ordering. |
 | `src/Physalia.GH/Components/Core/LlmCall.cs` | Extract `InferenceRunner` and async run state; keep GH code as adapter. |
-| `src/Physalia.GH/Components/Regulators/Router.cs` | Extract `ToolDispatchRound`; test multi-tool and missing-tool behavior. |
+| `src/Physalia.GH/Components/Tools/Router.cs` | Extract `ToolDispatchRound`; test multi-tool and missing-tool behavior. |
 | `src/Physalia.GH/Components/Tools/ToolComponentBase.cs` | Extract `ToolBatchRunner`; share async/cancellation pattern. |
 | `src/Physalia.GH/Components/Core/Chat.cs` | Split signal source, window registry, harness controller, and identity/icon logic. |
 | `src/Physalia.GH/Components/Core/SystemPrompt.cs` | Split file-definition loading from canvas placement; implement or remove unfinished menu items. |

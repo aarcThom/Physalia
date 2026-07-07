@@ -31,7 +31,7 @@ public class Feedback : StatefulComponentBase
     /// Initializes a new instance of the <see cref="Feedback"/> class.
     /// </summary>
     public Feedback()
-        : base("Feedback", "FB", "Routes signals wirelessly to paired Feedback Collectors.", "Regulators")
+        : base("Feedback", "FB", "Routes signals wirelessly to paired Feedback Collectors.", "Control Flow")
     {
     }
 

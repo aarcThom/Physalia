@@ -71,7 +71,7 @@ v0.2 decomposes the monolithic System Prompt/Transmitter/Receiver into a proper 
 
 ---
 
-## Regulators
+## Control Flow
 
 ### Feedback
 - Routes data wirelessly to a paired Feedback Collector (breaks GH's acyclic constraint — intentional)

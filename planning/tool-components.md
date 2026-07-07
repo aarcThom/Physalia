@@ -127,7 +127,7 @@ if on-demand timing proves necessary (and once `ToolCallResult` can carry an ima
 
 ## Key files
 `Components/Tools/ToolComponentBase.cs`, `ComponentSearch.cs`, `ToolsInUse.cs`,
-`Components/Regulators/Router.cs`, `Core/Common/ToolDefinition.cs`, `Generation/GhJsonBridge.cs`,
+`Components/Tools/Router.cs`, `Core/Common/ToolDefinition.cs`, `Generation/GhJsonBridge.cs`,
 `Generation/GhPythonBridge.cs`, `Components/Guardrails/GeometryObservation.cs`, `Core/Catalog/`,
 `planning/physalia-primitives.md`.
 

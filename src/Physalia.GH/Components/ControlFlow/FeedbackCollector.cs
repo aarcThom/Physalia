@@ -35,7 +35,7 @@ public class FeedbackCollector : StatefulComponentBase
     /// Initializes a new instance of the <see cref="FeedbackCollector"/> class.
     /// </summary>
     public FeedbackCollector()
-        : base("Feedback Collector", "FC", "Collects wireless Feedback signals and re-emits them into the pipeline.", "Regulators")
+        : base("Feedback Collector", "FC", "Collects wireless Feedback signals and re-emits them into the pipeline.", "Control Flow")
     {
     }
 

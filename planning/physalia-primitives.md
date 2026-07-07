@@ -254,7 +254,7 @@ Outputs:
 
 ---
 
-## Regulators
+## Control Flow
 
 ### Feedback
 **Role:** Routes data wirelessly back to Feedback Collector without participating in GH's normal DAG execution model. Click-to-pair interaction connects a Feedback component to a target Feedback collector. When deselected, renders as a radio waves icon — the wire is hidden. When selected, reveals a pink wire to the paired Feedback Collector. Feedback is the only component that explicitly breaks GH's acyclic constraint; this is a deliberate design decision and the radio waves icon calls it out visually.

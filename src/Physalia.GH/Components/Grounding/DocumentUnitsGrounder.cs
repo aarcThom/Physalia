@@ -27,9 +27,6 @@ public class DocumentUnitsGrounder : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.quarternary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("6F1B3E82-9C4A-4D57-8E2B-1A7D5C0F9B34");
 
     /// <inheritdoc/>

@@ -29,9 +29,6 @@ public class PythonGrounder : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.quinary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("B8F3E0D5-2A47-4C9B-A1F6-3D0E5A9B4C72");
 
     /// <inheritdoc/>

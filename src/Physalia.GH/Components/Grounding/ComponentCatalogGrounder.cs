@@ -39,9 +39,6 @@ public class ComponentCatalogGrounder : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.secondary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("D2F8B41A-6C35-4E29-A1B7-3F0E5D9C82B6");
 
     /// <inheritdoc/>

@@ -59,9 +59,6 @@ public class MemoryTool : ToolComponentBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.quarternary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("7B4D9E12-2C6A-4F58-9A31-5E0C7D8B4A16");
 
     /// <inheritdoc/>

@@ -23,9 +23,6 @@ public class MessageCompositor : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.senary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("78E35C3F-43DC-4A9C-811B-B560FA6D1245");
 
     /// <inheritdoc/>

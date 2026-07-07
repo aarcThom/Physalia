@@ -53,9 +53,6 @@ public class Summarizer : RoutingComponentBase<Instructions>
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.obscure;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("8241DBD1-BBE4-4A2D-B11B-8F1140859FBA");
 
     /// <inheritdoc/>

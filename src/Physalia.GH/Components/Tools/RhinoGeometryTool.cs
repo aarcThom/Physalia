@@ -83,9 +83,6 @@ public class RhinoGeometryTool : ToolComponentBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.septenary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("7D3F1A94-2C6B-4E58-9A1F-3B0C7E5D8A21");
 
     /// <inheritdoc/>

@@ -35,9 +35,6 @@ public class ImageSources : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.senary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("B7E91D34-2C5A-4F18-A0D6-3E84C9B17F52");
 
     /// <summary>

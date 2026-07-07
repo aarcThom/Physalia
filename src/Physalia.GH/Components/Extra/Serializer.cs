@@ -42,9 +42,6 @@ public class Serializer : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.quarternary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("B2F7A4E1-3C8D-4E5A-9F60-1A2B3C4D5E6F");
 
     /// <inheritdoc/>

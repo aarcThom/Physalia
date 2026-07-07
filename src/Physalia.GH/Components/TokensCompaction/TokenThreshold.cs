@@ -55,9 +55,6 @@ public class TokenThreshold : StatefulComponentBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.tertiary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("02342020-637B-43CB-92A0-5A8DA63B025C");
 
     /// <inheritdoc/>

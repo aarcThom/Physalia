@@ -36,9 +36,6 @@ public class Feedback : StatefulComponentBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.primary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("4636FC1D-16B4-48B1-9A16-81AF2F8AE483");
 
     /// <summary>

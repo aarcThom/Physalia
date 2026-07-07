@@ -32,9 +32,6 @@ public class AnchoredWindow : CompactionComponentBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.senary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("ABA68278-2EA0-4D1A-B5D9-7E91CCC702D6");
 
     /// <inheritdoc/>

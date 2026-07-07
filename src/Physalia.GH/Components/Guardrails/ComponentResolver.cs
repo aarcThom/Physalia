@@ -34,9 +34,6 @@ public class ComponentResolver : RoutingComponentBase<string>
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.tertiary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("E3A9C52B-7D46-4F3A-B2C8-4A1F6E0D93C7");
 
     /// <inheritdoc/>

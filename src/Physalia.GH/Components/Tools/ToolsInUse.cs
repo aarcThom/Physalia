@@ -39,9 +39,6 @@ public class ToolsInUse : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.secondary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("E3A7C612-9F84-4B0D-A5E1-7C2D8F61B934");
 
     /// <inheritdoc/>

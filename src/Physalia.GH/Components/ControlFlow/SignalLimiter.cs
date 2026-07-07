@@ -40,9 +40,6 @@ public class SignalLimiter : StatefulComponentBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.tertiary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("98AF02A3-89C2-4DB7-B12B-676A9CC0B9B8");
 
     /// <inheritdoc/>

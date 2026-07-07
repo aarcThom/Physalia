@@ -50,9 +50,6 @@ public class TokenEstimator : PhyBase, IPickableValuesSource
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.primary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("A2F7B3E1-5C84-4D96-8012-B9D4E7F3A215");
 
     /// <inheritdoc/>

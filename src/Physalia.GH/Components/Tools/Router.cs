@@ -60,9 +60,6 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.primary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("B4E1C7A2-3D5F-4068-9A1C-7E2D5B9F36A4");
 
     /// <inheritdoc/>

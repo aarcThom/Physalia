@@ -36,9 +36,6 @@ public class TokenWindow : CompactionComponentBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.quarternary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("82B8ED80-8433-490F-9037-9F338B4CD253");
 
     /// <inheritdoc/>

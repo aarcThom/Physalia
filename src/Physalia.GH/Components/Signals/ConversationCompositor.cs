@@ -24,9 +24,6 @@ public class ConversationCompositor : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.tertiary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("0946674C-7711-4843-A7A3-D6E0BCECD550");
 
     /// <inheritdoc/>

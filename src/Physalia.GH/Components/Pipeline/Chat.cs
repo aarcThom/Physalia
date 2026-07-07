@@ -67,9 +67,6 @@ public class Chat : StatefulComponentBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.primary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("B7E4B6F2-3C2A-4D71-9E0A-7F1C2D3E4A5B");
 
     /// <summary>

@@ -111,9 +111,6 @@ public class ConversationLog : StatefulComponentBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.quarternary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("43A02F6D-D97D-4241-B4DD-067D7AE0D75E");
 
     /// <summary>

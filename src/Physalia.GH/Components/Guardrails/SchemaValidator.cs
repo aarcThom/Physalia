@@ -26,9 +26,6 @@ public class SchemaValidator : RoutingComponentBase<string>
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.primary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("F3A8C21D-7E04-4B69-A953-D60F2E8B1C47");
 
     /// <inheritdoc/>

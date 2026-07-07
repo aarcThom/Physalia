@@ -39,9 +39,6 @@ public class TokenizationTechniques : PhyBase, IPickableValuesSource
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.secondary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("B4E7C291-3F5A-4D89-B012-E6A3F7D2C485");
 
     /// <inheritdoc/>

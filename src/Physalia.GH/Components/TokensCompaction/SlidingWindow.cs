@@ -29,9 +29,6 @@ public class SlidingWindow : CompactionComponentBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.quinary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("D731E821-323F-47FB-90AF-F5D0D7B1099B");
 
     /// <inheritdoc/>

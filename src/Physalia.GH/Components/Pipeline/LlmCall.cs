@@ -50,9 +50,6 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.tertiary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("F1097B2B-564A-43F8-8F70-BA6961F00E00");
 
     /// <inheritdoc/>

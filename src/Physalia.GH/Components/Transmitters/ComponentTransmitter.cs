@@ -54,9 +54,6 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.primary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("4BA76257-AD4C-462C-AB7E-B130DB176BF4");
 
     /// <summary>

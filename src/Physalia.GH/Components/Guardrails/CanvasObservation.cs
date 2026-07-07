@@ -38,9 +38,6 @@ public class CanvasObservation : RoutingComponentBase<string>
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.quarternary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("F4B0D63C-8E57-4A4B-9C3D-5B2A7F1E04D8");
 
     /// <inheritdoc/>

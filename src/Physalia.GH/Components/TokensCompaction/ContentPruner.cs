@@ -35,9 +35,6 @@ public class ContentPruner : CompactionComponentBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.septenary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("EE741363-71D5-411A-AB19-51D58BF1D4FC");
 
     /// <inheritdoc/>

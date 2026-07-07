@@ -23,9 +23,6 @@ public class InstructionsCompositor : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.quarternary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("9D5E5E22-1C58-4771-BC2E-AAFDF1387505");
 
     /// <inheritdoc/>

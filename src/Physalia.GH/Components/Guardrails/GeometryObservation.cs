@@ -51,9 +51,6 @@ public class GeometryObservation : RoutingComponentBase<string>
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.quinary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("4A969C47-C1E5-446D-BB20-9F973D5E2E3D");
 
     /// <inheritdoc/>

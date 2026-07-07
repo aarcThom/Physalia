@@ -36,9 +36,6 @@ public class ZoomGuid : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.primary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("6F00D2EA-1984-42CA-8E49-1B4D265F5376");
 
     /// <summary>

@@ -27,9 +27,6 @@ public class DetectJson : RoutingComponentBase<string>
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.secondary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("85E51782-BA18-4B96-9488-B574950F2963");
 
     /// <inheritdoc/>

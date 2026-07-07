@@ -52,9 +52,6 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.secondary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("8E3B1C7A-2F4D-4A19-9C6E-0B5D7A2E1F38");
 
     /// <summary>

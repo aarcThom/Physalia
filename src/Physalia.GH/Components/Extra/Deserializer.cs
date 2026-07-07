@@ -33,9 +33,6 @@ public class Deserializer : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.tertiary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("C3A8D5F2-1E7B-4A9C-8D60-2F4B6E8A0C13");
 
     /// <inheritdoc/>

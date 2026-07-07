@@ -28,9 +28,6 @@ public class Picker : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.secondary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("2D14368F-0302-4D08-BDEC-61DD6A28732C");
 
     /// <summary>Gets the currently selected value.</summary>

@@ -37,9 +37,6 @@ public class CanvasInputGrounder : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.primary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("B1E6F2A0-3C47-4D8A-9B21-5E0D7A9C4F13");
 
     /// <inheritdoc/>

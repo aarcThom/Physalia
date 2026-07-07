@@ -24,9 +24,6 @@ public class InstructionsDecompositor : PhyBase
     }
 
     /// <inheritdoc/>
-    public override GH_Exposure Exposure => GH_Exposure.quinary;
-
-    /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("1BB95700-FBC4-4025-9242-6C7FE22DB9D8");
 
     /// <inheritdoc/>

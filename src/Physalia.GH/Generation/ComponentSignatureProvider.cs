@@ -66,17 +66,43 @@ internal static class ComponentSignatureProvider
     /// components directly and so reflects their actual (zui) state.
     /// </summary>
     /// <param name="params">The parameters to read.</param>
+    /// <param name="inputSide">
+    /// True when reading the INPUT list: inputs with no built-in default that are not marked
+    /// optional get <see cref="ComponentPort.Required"/>, so signatures can warn the model that
+    /// leaving them unwired yields nulls or no output. Outputs are never required.
+    /// </param>
     /// <returns>One port per parameter, in order.</returns>
-    internal static IReadOnlyList<ComponentPort> ReadPorts(IEnumerable<IGH_Param> @params)
+    internal static IReadOnlyList<ComponentPort> ReadPorts(IEnumerable<IGH_Param> @params, bool inputSide = false)
     {
         var ports = new List<ComponentPort>();
         foreach (IGH_Param param in @params)
         {
             string portName = !string.IsNullOrWhiteSpace(param.Name) ? param.Name : param.NickName ?? string.Empty;
-            ports.Add(new ComponentPort(portName, param.TypeName ?? string.Empty));
+            ports.Add(new ComponentPort(portName, param.TypeName ?? string.Empty, inputSide && IsRequiredInput(param)));
         }
 
         return ports;
+    }
+
+    // True when an input carries no built-in default value and is not flagged optional by its
+    // component. PersistentDataCount lives on GH_PersistentParam<T>, not IGH_Param, so it is read
+    // by reflection; a param type without the property has no default mechanism at all.
+    private static bool IsRequiredInput(IGH_Param param)
+    {
+        if (param.Optional)
+        {
+            return false;
+        }
+
+        try
+        {
+            object? count = param.GetType().GetProperty("PersistentDataCount")?.GetValue(param);
+            return count is not int n || n == 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -125,7 +151,7 @@ internal static class ComponentSignatureProvider
             switch (proxy?.CreateInstance())
             {
                 case IGH_Component component:
-                    var inputs = ReadPorts(component.Params.Input);
+                    var inputs = ReadPorts(component.Params.Input, inputSide: true);
 
                     // A variable-parameter component (Merge, Entwine, zui) can grow beyond its
                     // default inputs — a trailing "…" port signals that without lying about the

@@ -19,4 +19,15 @@ public static class SignatureFormat
     /// <returns>The formatted port text.</returns>
     public static string Port(string name, string typeHint) =>
         string.IsNullOrWhiteSpace(typeHint) ? name : $"{name}:{typeHint}";
+
+    /// <summary>
+    /// Renders one port as <see cref="Port(string, string)"/> does, with a trailing <c>*</c> when
+    /// the port is a required input (no built-in default — it must be wired or internalized).
+    /// </summary>
+    /// <param name="name">The port's short label.</param>
+    /// <param name="typeHint">The port's type hint, or an empty string when unknown.</param>
+    /// <param name="required">True to mark the port as a required input.</param>
+    /// <returns>The formatted port text.</returns>
+    public static string Port(string name, string typeHint, bool required) =>
+        required ? Port(name, typeHint) + "*" : Port(name, typeHint);
 }

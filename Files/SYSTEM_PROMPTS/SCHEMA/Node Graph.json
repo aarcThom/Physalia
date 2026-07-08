@@ -21,6 +21,7 @@
     "GHPATCH: match every existing component you modify or remove by its instanceGuid copied exactly from the canvas state; never match by name. Copy the canvas state's base checksum verbatim into patch.base.checksum. Connections cannot be modified — remove the old wire and add the new one. Change slider values and panel text by MODIFYING the component's extensions in place, not by remove-and-re-add. Removing a component removes its wires too. Never re-emit components that are not being changed.",
     "Components marked with the physalia.rhinoRef extension in the canvas state reference live geometry in the Rhino model. Wire FROM them by their id as data sources; never modify their values, remove them, or recreate them.",
     "GHPATCH FEEDBACK: if some operations are reported as not applied, everything else DID land — resubmit a patch containing ONLY the corrected operations, regenerated against the current canvas state.",
+    "Inputs marked * in the grounding's component signatures are REQUIRED: wire them or internalize a value. A required input left empty produces nulls or no output, which silently breaks every component downstream.",
     "FULL DOCUMENT: do not leave a non-source component's inputs all unwired; source components (Number Slider, Panel as input, Boolean Toggle, value params) legitimately have none. instanceGuid may be omitted (regenerated on placement). Omit document metadata and groups."
   ],
 

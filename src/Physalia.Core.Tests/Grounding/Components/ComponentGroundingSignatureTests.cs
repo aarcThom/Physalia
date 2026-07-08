@@ -16,8 +16,9 @@ public class ComponentGroundingSignatureTests
     {
         ComponentPort Port(string s)
         {
-            string[] parts = s.Split(':');
-            return new ComponentPort(parts[0], parts.Length > 1 ? parts[1] : string.Empty);
+            bool required = s.EndsWith('*');
+            string[] parts = s.TrimEnd('*').Split(':');
+            return new ComponentPort(parts[0], parts.Length > 1 ? parts[1] : string.Empty, required);
         }
 
         return new CatalogEntry(
@@ -67,9 +68,33 @@ public class ComponentGroundingSignatureTests
             + "and only components from this list. Each signature entry shows its input and output "
             + "parameters as Name:Type, listed in paramIndex order — the first parameter is "
             + "paramIndex 0; use these exact Names in inputSettings.parameterName. "
+            + "An input marked * is REQUIRED: it has no built-in default, so wire it or "
+            + "internalize a value — left empty it produces nulls or nothing downstream. "
             + "Supply data matching these types:\n"
             + "- Catenary(in: A:Point, B:Point, L:Number, G:Vector) -> (out: C:Curve)",
             section);
+    }
+
+    [Fact]
+    public void ToSystemPromptSection_WithSignatures_MarksRequiredInputs()
+    {
+        var catalog = new ComponentCatalog(new[]
+        {
+            Entry("Division", new[] { "A:Number*", "B:Number*" }, new[] { "Result:Number" }),
+        });
+
+        string section = new ComponentCatalogGrounding(catalog, IncludeSignatures: true).ToSystemPromptSection();
+
+        // Required inputs (no built-in default) carry a trailing *; outputs never do.
+        Assert.Contains("- Division(in: A:Number*, B:Number*) -> (out: Result:Number)", section);
+    }
+
+    [Fact]
+    public void SignatureFormat_Port_RequiredAppendsAsterisk()
+    {
+        Assert.Equal("A:Number*", SignatureFormat.Port("A", "Number", required: true));
+        Assert.Equal("A:Number", SignatureFormat.Port("A", "Number", required: false));
+        Assert.Equal("A*", SignatureFormat.Port("A", string.Empty, required: true));
     }
 
     [Fact]

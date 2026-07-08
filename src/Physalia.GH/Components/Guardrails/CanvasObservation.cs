@@ -107,6 +107,7 @@ public class CanvasObservation : RoutingComponentBase<string>
         var errors = new List<string>();
         var warnings = new List<string>();
         var dead = new List<string>();
+        var nullProducers = new List<string>();
         var signatures = new List<string>();
         var dataFlow = new List<string>();
         var signatureNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -144,8 +145,8 @@ public class CanvasObservation : RoutingComponentBase<string>
                     signatureNames.Add(problemComp.Name))
                 {
                     string inputs = string.Join(", ", ComponentSignatureProvider
-                        .ReadPorts(problemComp.Params.Input)
-                        .Select(p => SignatureFormat.Port(p.Name, p.TypeHint)));
+                        .ReadPorts(problemComp.Params.Input, inputSide: true)
+                        .Select(p => SignatureFormat.Port(p.Name, p.TypeHint, p.Required)));
                     if (!string.IsNullOrWhiteSpace(inputs))
                     {
                         signatures.Add($"{problemComp.Name} inputs: {inputs}");
@@ -166,17 +167,29 @@ public class CanvasObservation : RoutingComponentBase<string>
                     dead.Add(Label(obj));
                 }
 
-                // Problem and dead components additionally report their live data flow — how many
-                // items each input collected and each output produced — so the model sees WHERE
-                // data stops instead of blindly swapping construction strategies.
-                if ((objErrors.Count > 0 || objWarnings.Count > 0 || isDead) && obj is IGH_Component flowComp)
+                // Nulls are ITEMS, so DataCount alone misses them: a component can solve with no
+                // runtime message at all and still emit a null (an unwired input upstream, an
+                // invalid construction) that poisons everything downstream. Flag any error-free
+                // component whose outputs contain nulls.
+                bool producesNulls = objErrors.Count == 0 &&
+                    obj is IGH_Component nullComp &&
+                    nullComp.Params.Output.Any(p => NullCount(p) > 0);
+                if (producesNulls)
+                {
+                    nullProducers.Add(Label(obj));
+                }
+
+                // Problem, dead, and null-producing components additionally report their live data
+                // flow — how many items (and nulls) each input collected and each output produced —
+                // so the model sees WHERE data stops instead of blindly swapping strategies.
+                if ((objErrors.Count > 0 || objWarnings.Count > 0 || isDead || producesNulls) && obj is IGH_Component flowComp)
                 {
                     dataFlow.Add(FormatDataFlow(flowComp));
                 }
             }
         }
 
-        int total = errors.Count + warnings.Count + dead.Count;
+        int total = errors.Count + warnings.Count + dead.Count + nullProducers.Count;
         if (total == 0)
         {
             return RoutingResult.Ok(data);
@@ -186,23 +199,36 @@ public class CanvasObservation : RoutingComponentBase<string>
         // one in the feedback so the corrective patch cannot mismatch. Payload text only — carrier
         // discipline holds. IsReadReady settled the graph, so the export is stable here.
         string? checksum = doc is null ? null : GhJsonBridge.TryExportCanvasState(doc)?.Checksum;
-        return RoutingResult.Fail(BuildFeedback(errors, warnings, dead, signatures, dataFlow, scopedScan, checksum), $"{total} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
+        return RoutingResult.Fail(BuildFeedback(errors, warnings, dead, nullProducers, signatures, dataFlow, scopedScan, checksum), $"{total} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
     }
 
     /// <summary>
     /// Renders a problem component's live data flow: items collected per input and items produced
-    /// per output, e.g. <c>Boundary Surfaces 'Gable1' (guid): inputs [E=3] -> outputs [S=0]</c>.
+    /// per output, with null counts when present, e.g.
+    /// <c>Box 'House' (guid): inputs [Base=1, X=1 (1 null)] -> outputs [Box=1 (1 null)]</c>.
     /// </summary>
     /// <param name="comp">The component to report.</param>
     /// <returns>The data-flow line.</returns>
     private static string FormatDataFlow(IGH_Component comp)
     {
-        string ins = string.Join(", ", comp.Params.Input.Select(p => $"{PortLabel(p)}={p.VolatileData.DataCount}"));
-        string outs = string.Join(", ", comp.Params.Output.Select(p => $"{PortLabel(p)}={p.VolatileData.DataCount}"));
+        string ins = string.Join(", ", comp.Params.Input.Select(FormatPortFlow));
+        string outs = string.Join(", ", comp.Params.Output.Select(FormatPortFlow));
         return comp.Params.Input.Count == 0
             ? $"{Label(comp)}: outputs [{outs}]"
             : $"{Label(comp)}: inputs [{ins}] -> outputs [{outs}]";
     }
+
+    private static string FormatPortFlow(IGH_Param param)
+    {
+        int nulls = NullCount(param);
+        string count = $"{PortLabel(param)}={param.VolatileData.DataCount}";
+        return nulls > 0 ? $"{count} ({nulls} null)" : count;
+    }
+
+    // Null items inside the param's volatile data. Nulls count toward DataCount, so they are
+    // invisible to the dead-component check — this is the complementary test.
+    private static int NullCount(IGH_Param param) =>
+        param.VolatileData.AllData(false).Count(goo => goo is null);
 
     private static string PortLabel(IGH_Param param) =>
         string.IsNullOrWhiteSpace(param.NickName) ? param.Name ?? string.Empty : param.NickName;
@@ -306,7 +332,7 @@ public class CanvasObservation : RoutingComponentBase<string>
         }
     }
 
-    private static string BuildFeedback(IReadOnlyList<string> errors, IReadOnlyList<string> warnings, IReadOnlyList<string> dead, IReadOnlyList<string> signatures, IReadOnlyList<string> dataFlow, bool scopedScan, string? baseChecksum)
+    private static string BuildFeedback(IReadOnlyList<string> errors, IReadOnlyList<string> warnings, IReadOnlyList<string> dead, IReadOnlyList<string> nullProducers, IReadOnlyList<string> signatures, IReadOnlyList<string> dataFlow, bool scopedScan, string? baseChecksum)
     {
         var sb = new StringBuilder();
         sb.AppendLine(scopedScan
@@ -317,7 +343,8 @@ public class CanvasObservation : RoutingComponentBase<string>
         AppendSection(sb, "Warnings:", warnings);
         AppendSection(sb, "Input signatures of the components that reported problems (match your data types to these):", signatures);
         AppendSection(sb, "Components that produced no output (check their inputs and upstream wiring):", dead);
-        AppendSection(sb, "Data flow of the problem components (items collected per input -> items produced per output; an input at 0 received nothing from upstream):", dataFlow);
+        AppendSection(sb, "Components that produced NULL values (a null usually means an unwired required input or an invalid construction upstream — trace the data flow below and wire or internalize the missing value):", nullProducers);
+        AppendSection(sb, "Data flow of the problem components (items collected per input -> items produced per output; an input at 0 received nothing from upstream; nulls are counted in parentheses):", dataFlow);
 
         if (!string.IsNullOrEmpty(baseChecksum))
         {

@@ -90,6 +90,8 @@ public sealed record ComponentCatalogGrounding(ComponentCatalog Catalog, bool In
             section.Append(" Each signature entry shows its input and output parameters as Name:Type, ");
             section.Append("listed in paramIndex order — the first parameter is paramIndex 0; ");
             section.Append("use these exact Names in inputSettings.parameterName. ");
+            section.Append("An input marked * is REQUIRED: it has no built-in default, so wire it or ");
+            section.Append("internalize a value — left empty it produces nulls or nothing downstream. ");
             section.Append("Supply data matching these types:\n");
             section.Append(string.Join("\n", signatureLines));
         }
@@ -108,10 +110,11 @@ public sealed record ComponentCatalogGrounding(ComponentCatalog Catalog, bool In
     // True when the entry's ports were introspected, so it can render a full signature line.
     private static bool HasSignature(CatalogEntry entry) => entry.Inputs is not null && entry.Outputs is not null;
 
-    // Renders one enriched component as "- Name(in: A:Point, G:Vector) -> (out: C:Curve)".
+    // Renders one enriched component as "- Name(in: A:Point*, G:Vector) -> (out: C:Curve)",
+    // where * marks a required input (no built-in default).
     private static string FormatEntry(CatalogEntry entry)
     {
-        string inputs = string.Join(", ", entry.Inputs!.Select(p => SignatureFormat.Port(p.Name, p.TypeHint)));
+        string inputs = string.Join(", ", entry.Inputs!.Select(p => SignatureFormat.Port(p.Name, p.TypeHint, p.Required)));
         string outputs = string.Join(", ", entry.Outputs!.Select(p => SignatureFormat.Port(p.Name, p.TypeHint)));
         return $"- {entry.Name.Trim()}(in: {inputs}) -> (out: {outputs})";
     }

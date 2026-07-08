@@ -9,6 +9,7 @@ using Physalia.Core.Common;
 using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
 using Physalia.Core.Signals;
+using Physalia.Core.Validation;
 using Physalia.GH.Generation;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
@@ -21,7 +22,9 @@ namespace Physalia.GH.Components;
 /// a real installed component and stamping its type GUID so placement is exact. A fully resolved
 /// graph routes forward on the Success Signal; names that cannot be matched confidently route a
 /// description back on the Fail Signal so the model can correct them. With no catalog wired the
-/// graph passes through unchanged.
+/// graph passes through unchanged. A ghpatch payload has only its ADDED components resolved —
+/// every other patch operation addresses components already on the canvas and passes through
+/// untouched.
 /// </summary>
 public class ComponentResolver : RoutingComponentBase<string>
 {
@@ -77,7 +80,12 @@ public class ComponentResolver : RoutingComponentBase<string>
 
         try
         {
-            (string resolved, IReadOnlyList<string> unresolved) = GhJsonBridge.ResolveComponentNames(data, catalog, clusters);
+            // A ghpatch must not take the full-document path: parsing it as a GhJsonDocument
+            // drops its kind/patch fields, re-serialising an empty document that downstream
+            // placement rejects. Resolve only the components the patch ADDS instead.
+            (string resolved, IReadOnlyList<string> unresolved) = GhPatchDetector.IsGhPatch(data)
+                ? GhJsonBridge.ResolvePatchComponentNames(data, catalog, clusters)
+                : GhJsonBridge.ResolveComponentNames(data, catalog, clusters);
 
             return unresolved.Count == 0
                 ? RoutingResult.Ok(resolved)

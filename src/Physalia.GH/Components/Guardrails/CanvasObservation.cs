@@ -101,13 +101,13 @@ public class CanvasObservation : RoutingComponentBase<string>
                 var objErrors = ao.RuntimeMessages(GH_RuntimeMessageLevel.Error);
                 foreach (string message in objErrors)
                 {
-                    errors.Add($"{ao.Name}: {message}");
+                    errors.Add($"{Label(ao)}: {message}");
                 }
 
                 var objWarnings = ao.RuntimeMessages(GH_RuntimeMessageLevel.Warning);
                 foreach (string message in objWarnings)
                 {
-                    warnings.Add($"{ao.Name}: {message}");
+                    warnings.Add($"{Label(ao)}: {message}");
                 }
 
                 // GH runtime messages name the component but not the offending input (e.g. "Data
@@ -134,15 +134,30 @@ public class CanvasObservation : RoutingComponentBase<string>
                     comp.Params.Output.Count > 0 &&
                     comp.Params.Output.All(p => p.VolatileData.IsEmpty))
                 {
-                    dead.Add(comp.Name);
+                    dead.Add(Label(comp));
                 }
             }
         }
 
         int total = errors.Count + warnings.Count + dead.Count;
+        bool scopedScan = doc is not null && ParseGuids(data).Any(g => doc.FindObject(g, false) is not null);
         return total == 0
             ? RoutingResult.Ok(data)
-            : RoutingResult.Fail(BuildFeedback(errors, warnings, dead, signatures), $"{total} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
+            : RoutingResult.Fail(BuildFeedback(errors, warnings, dead, signatures, scopedScan), $"{total} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
+    }
+
+    /// <summary>
+    /// Labels a scanned object for the feedback report: name, nickname (when it differs from the
+    /// name), and instanceGuid — the same identity the canvas-state grounding exports, so the
+    /// model can address the exact component in a patch instead of guessing among same-named ones.
+    /// </summary>
+    /// <param name="obj">The scanned object.</param>
+    /// <returns>The feedback label.</returns>
+    private static string Label(IGH_DocumentObject obj)
+    {
+        return !string.IsNullOrWhiteSpace(obj.NickName) && !string.Equals(obj.NickName, obj.Name, StringComparison.Ordinal)
+            ? $"{obj.Name} '{obj.NickName}' ({obj.InstanceGuid})"
+            : $"{obj.Name} ({obj.InstanceGuid})";
     }
 
     /// <summary>
@@ -190,10 +205,12 @@ public class CanvasObservation : RoutingComponentBase<string>
         }
     }
 
-    private static string BuildFeedback(IReadOnlyList<string> errors, IReadOnlyList<string> warnings, IReadOnlyList<string> dead, IReadOnlyList<string> signatures)
+    private static string BuildFeedback(IReadOnlyList<string> errors, IReadOnlyList<string> warnings, IReadOnlyList<string> dead, IReadOnlyList<string> signatures, bool scopedScan)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("The placed graph reported problems. Please correct the definition and resubmit.");
+        sb.AppendLine(scopedScan
+            ? "The graph from your last response was placed on the canvas, and it reported the problems below. Each problem names its component by nickname and instanceGuid so you can address the exact component. Correct the definition and resubmit."
+            : "The scanned document reported problems. Please correct the definition and resubmit.");
 
         AppendSection(sb, "Errors:", errors);
         AppendSection(sb, "Warnings:", warnings);

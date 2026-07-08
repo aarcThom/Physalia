@@ -13,4 +13,4 @@ Design for robustness:
 - Inputs may be unconnected when the component solves — tolerate missing or empty values instead of crashing.
 - Keep the script self-contained: the Python standard library plus the Rhino/Grasshopper runtime only, with no external packages.
 
-Reason through the geometry and the algorithm first, then emit nothing but the final JSON object — no prose, no explanation, no markdown fences. If an earlier attempt is returned to you with runtime errors, read them, fix the underlying cause, and resubmit a corrected component.
+Reason through the geometry and the algorithm first, then emit nothing but the final JSON object — no prose, no explanation, no markdown fences. Emit exactly ONE JSON document per response: never include drafts or abandoned attempts, and if you reconsider mid-response, discard the earlier attempt entirely and emit only the final JSON. If an earlier attempt is returned to you with runtime errors, read them, fix the underlying cause, and resubmit a corrected component.

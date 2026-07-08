@@ -1,5 +1,8 @@
 # Physalia Project Memory
 
+## Latest
+- [Iterative placement robustness](iterative-placement-robustness.md) — 2026-07-08 fixes: Resolver now ghpatch-aware (was re-serializing patches as empty docs → "no components to place"), JsonExtractor takes LAST parseable JSON block, Canvas Observation feedback carries nickname+instanceGuid, preambles demand ONE JSON doc. Builds+222 tests clean, live test pending.
+
 ## Meta
 - [Memory sync setup](memory-sync-setup.md) — CLAUDE.md + this memory sync across computers via git: canonical files in repo `.claude/memory/`, global memory path is a junction into the repo. New machine needs a one-time junction (command in the note).
 

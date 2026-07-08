@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using GhJSON.Core;
+using GhJSON.Core.PatchModels;
 using GhJSON.Core.SchemaModels;
 using GhJSON.Core.Serialization;
 using GhJSON.Grasshopper;
@@ -274,50 +275,89 @@ internal static partial class GhJsonBridge
 
         if (doc.Components is not null)
         {
-            foreach (GhJsonComponent component in doc.Components)
-            {
-                if (component.ComponentGuid is Guid incoming && incoming != Guid.Empty)
-                {
-                    // Trust an incoming GUID only if it points at a catalogued (installed,
-                    // non-obsolete) component. A stale/deprecated GUID — the obsolete colour
-                    // "Multiplication" a model reproduces from old files — is dropped so the
-                    // name-match below re-resolves it to the current component.
-                    if (catalog.ContainsGuid(incoming))
-                    {
-                        continue;
-                    }
-
-                    component.ComponentGuid = null;
-                }
-
-                string proposed = component.Name ?? string.Empty;
-
-                // A node whose name exactly matches a cluster is a cluster reference — stamp it and
-                // let placement instantiate it from its file. Checked before the fuzzy component match
-                // so an exact cluster name is never mis-resolved to a similarly-named component.
-                ClusterEntry? cluster = clusterCatalog?.Find(proposed);
-                if (cluster is not null)
-                {
-                    component.Name = cluster.Name;
-                    StampClusterReference(component, cluster.Name);
-                    continue;
-                }
-
-                ComponentMatcher.MatchResult match = ComponentMatcher.Match(proposed, catalog);
-
-                if (match.IsConfident && match.Entry is not null)
-                {
-                    component.Name = match.Entry.Name;
-                    component.ComponentGuid = match.Entry.ComponentGuid;
-                }
-                else
-                {
-                    unresolved.Add(string.IsNullOrWhiteSpace(proposed) ? "(unnamed component)" : proposed);
-                }
-            }
+            ResolveComponentList(doc.Components, catalog, clusterCatalog, unresolved);
         }
 
         return (GhJson.ToJson(doc), unresolved);
+    }
+
+    /// <summary>
+    /// Ghpatch counterpart of <see cref="ResolveComponentNames"/>: resolves the names of the
+    /// components a patch ADDS, leaving every other operation untouched — modifies, removes, and
+    /// connections address components already on the canvas, whose names need no resolution. A
+    /// patch that adds nothing is returned byte-identical rather than re-serialised.
+    /// </summary>
+    /// <param name="json">The ghpatch document as a string.</param>
+    /// <param name="catalog">The installed-component catalog to resolve against.</param>
+    /// <param name="clusterCatalog">The available-cluster catalog; pass an empty catalog to disable cluster resolution.</param>
+    /// <returns>The resolved ghpatch and the list of names that could not be resolved.</returns>
+    internal static (string Json, IReadOnlyList<string> Unresolved) ResolvePatchComponentNames(string json, ComponentCatalog catalog, ClusterCatalog clusterCatalog)
+    {
+        GhPatchDocument patch = GhJson.PatchFromJson(json);
+        List<GhJsonComponent>? adds = patch.Patch?.Components?.Add;
+
+        if (adds is null || adds.Count == 0)
+        {
+            return (json, Array.Empty<string>());
+        }
+
+        var unresolved = new List<string>();
+        ResolveComponentList(adds, catalog, clusterCatalog, unresolved);
+
+        return (GhJson.PatchToJson(patch), unresolved);
+    }
+
+    /// <summary>
+    /// Resolves each component's name in place against the catalogs, collecting the names that
+    /// could not be matched confidently. Shared by the full-document and ghpatch resolution paths.
+    /// </summary>
+    /// <param name="components">The components to resolve, mutated in place.</param>
+    /// <param name="catalog">The installed-component catalog to resolve against.</param>
+    /// <param name="clusterCatalog">The available-cluster catalog.</param>
+    /// <param name="unresolved">Receives the names that could not be resolved.</param>
+    private static void ResolveComponentList(IEnumerable<GhJsonComponent> components, ComponentCatalog catalog, ClusterCatalog clusterCatalog, List<string> unresolved)
+    {
+        foreach (GhJsonComponent component in components)
+        {
+            if (component.ComponentGuid is Guid incoming && incoming != Guid.Empty)
+            {
+                // Trust an incoming GUID only if it points at a catalogued (installed,
+                // non-obsolete) component. A stale/deprecated GUID — the obsolete colour
+                // "Multiplication" a model reproduces from old files — is dropped so the
+                // name-match below re-resolves it to the current component.
+                if (catalog.ContainsGuid(incoming))
+                {
+                    continue;
+                }
+
+                component.ComponentGuid = null;
+            }
+
+            string proposed = component.Name ?? string.Empty;
+
+            // A node whose name exactly matches a cluster is a cluster reference — stamp it and
+            // let placement instantiate it from its file. Checked before the fuzzy component match
+            // so an exact cluster name is never mis-resolved to a similarly-named component.
+            ClusterEntry? cluster = clusterCatalog?.Find(proposed);
+            if (cluster is not null)
+            {
+                component.Name = cluster.Name;
+                StampClusterReference(component, cluster.Name);
+                continue;
+            }
+
+            ComponentMatcher.MatchResult match = ComponentMatcher.Match(proposed, catalog);
+
+            if (match.IsConfident && match.Entry is not null)
+            {
+                component.Name = match.Entry.Name;
+                component.ComponentGuid = match.Entry.ComponentGuid;
+            }
+            else
+            {
+                unresolved.Add(string.IsNullOrWhiteSpace(proposed) ? "(unnamed component)" : proposed);
+            }
+        }
     }
 
     // Marks a component as a cluster reference by name. Placement reads this and loads the cluster

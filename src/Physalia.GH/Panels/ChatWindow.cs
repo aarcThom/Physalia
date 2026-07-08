@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -49,6 +50,10 @@ public class ChatWindow : Form
 
     private static readonly JsonSerializerOptions ReadOpts =
         new() { PropertyNameCaseInsensitive = true };
+
+    // Indented JSON for the "/export" transcript, so tool inputs stay readable in a .txt.
+    private static readonly JsonSerializerOptions TranscriptOpts =
+        new() { WriteIndented = true };
 
     // Shared client for the llama-server setup probe. A short timeout bounds the rare case where
     // packets to the default endpoint are dropped (a refused connection fails fast on its own).
@@ -674,11 +679,19 @@ public class ChatWindow : Form
         if (!QueryFlagSet(query, "images"))
         {
             string text = GetQueryValue(query, "text");
-            if (!string.IsNullOrEmpty(text))
+            if (string.IsNullOrEmpty(text))
             {
-                _component.SubmitFromWindow(NormalizeRefs(text));
+                return;
             }
 
+            // "/export" typed alone is a built-in window command, not a message for the model.
+            if (IsExportCommand(text))
+            {
+                HandleExportConversation();
+                return;
+            }
+
+            _component.SubmitFromWindow(NormalizeRefs(text));
             return;
         }
 
@@ -795,6 +808,124 @@ public class ChatWindow : Form
         }
 
         _component.SubmitFromWindow(msgText, blocks);
+    }
+
+    // True when the prompt text is the built-in "/export" command (nothing else around it).
+    // "/export" anywhere inside a longer message is ordinary text and goes to the model.
+    private static bool IsExportCommand(string text)
+        => string.Equals(text.Trim(), "/export", StringComparison.OrdinalIgnoreCase);
+
+    // Saves the viewed conversation as a plain-text transcript — the raw material for a bug
+    // report: every turn verbatim (assistant <think> reasoning and raw JSON/Python replies
+    // included), each tool call with its input and result. Runs on the UI thread.
+    private void HandleExportConversation()
+    {
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        List<UiMessage> messages = BuildMessages(conversationLog?.ActiveConversation);
+        if (messages.Count == 0)
+        {
+            MessageBox.Show(
+                this,
+                "There is no conversation to export yet.",
+                "Export conversation",
+                MessageBoxButtons.OK,
+                MessageBoxType.Information);
+            return;
+        }
+
+        using var dialog = new SaveFileDialog
+        {
+            Title = "Export conversation",
+            FileName = $"physalia-chat-{DateTime.Now:yyyyMMdd-HHmm}.txt",
+        };
+        dialog.Filters.Add(new FileFilter("Text files", ".txt"));
+        dialog.Filters.Add(new FileFilter("All files", ".*"));
+
+        if (dialog.ShowDialog(this) != DialogResult.Ok || string.IsNullOrEmpty(dialog.FileName))
+        {
+            return;
+        }
+
+        string path = dialog.FileName;
+        if (string.IsNullOrEmpty(Path.GetExtension(path)))
+        {
+            path += ".txt";
+        }
+
+        try
+        {
+            File.WriteAllText(path, BuildTranscript(messages));
+            Rhino.RhinoApp.WriteLine($"[Physalia] Conversation exported to {path}");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Could not write {path}: {ex.Message}",
+                "Export conversation",
+                MessageBoxButtons.OK,
+                MessageBoxType.Error);
+        }
+    }
+
+    // Renders the conversation to transcript text. Turn text is written verbatim (so <think>
+    // blocks and raw JSON survive exactly as the model sent them); images cannot ride a .txt,
+    // so each becomes a size-stamped placeholder.
+    private static string BuildTranscript(IReadOnlyList<UiMessage> messages)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Physalia conversation export");
+        sb.AppendLine($"Exported: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine($"Messages: {messages.Count}");
+
+        foreach (UiMessage message in messages)
+        {
+            string role = message.Role == "assistant"
+                ? "ASSISTANT"
+                : message.Feedback ? "USER (auto-generated feedback)" : "USER";
+
+            sb.AppendLine();
+            sb.AppendLine(new string('=', 72));
+            sb.AppendLine($"[{role}]");
+            sb.AppendLine();
+
+            foreach (UiImage image in message.Images ?? (IReadOnlyList<UiImage>)Array.Empty<UiImage>())
+            {
+                // Base64 is 4 chars per 3 bytes; close enough for a size stamp.
+                int kilobytes = image.Base64.Length * 3 / 4 / 1024;
+                sb.AppendLine($"[attached image: {image.MediaType}, ~{kilobytes} KB — omitted from text export]");
+            }
+
+            if (!string.IsNullOrEmpty(message.Text))
+            {
+                sb.AppendLine(message.Text);
+            }
+
+            foreach (UiTool tool in message.Tools ?? (IReadOnlyList<UiTool>)Array.Empty<UiTool>())
+            {
+                sb.AppendLine();
+                sb.AppendLine($"--- tool call: {tool.Name} (id: {tool.Id}, state: {tool.State}) ---");
+                if (tool.Input is not null)
+                {
+                    sb.AppendLine("input:");
+                    sb.AppendLine(tool.Input as string ?? JsonSerializer.Serialize(tool.Input, TranscriptOpts));
+                }
+
+                if (!string.IsNullOrEmpty(tool.Output))
+                {
+                    sb.AppendLine("output:");
+                    sb.AppendLine(tool.Output);
+                }
+
+                if (!string.IsNullOrEmpty(tool.ErrorText))
+                {
+                    sb.AppendLine("error:");
+                    sb.AppendLine(tool.ErrorText);
+                }
+            }
+        }
+
+        return sb.ToString();
     }
 
     // Parses the JSON returned by __physaliaTake(). Eto's ExecuteScript may hand back the

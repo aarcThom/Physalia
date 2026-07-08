@@ -77,6 +77,11 @@ Three header changes driven from the top-left dropdown + a new top-right button.
 - New bridge verbs added to `bridge.ts` `PhysaliaHost` (`setPresets`) and `ChatWindow.Dispatch` (`placepreset`, `clearall`).
 - **NB the preset data file is tracked only under repo-root `/Files/PRESETS`, not the duplicate `src/Physalia.GH/Files/PRESETS` (latter exists untracked on disk).** Per the "two tracked Files trees" gotcha the user may want to `git add` the GH-tree copy too, but runtime works off the root tree regardless. No `window.confirm` on clear-all (matches the plain-button mock); could add a guard later.
 
+## Built-in "/export" command (2026-07-08, builds clean, live test pending)
+Typing exactly `/export` in the prompt box (alone; embedded in a longer message it's ordinary text) saves the viewed conversation as a `.txt` transcript for debugging — every turn verbatim (assistant `<think>` reasoning and raw JSON/Python replies included), each tool call with input JSON + output/error, images as size-stamped placeholders.
+- Host-side interception in `ChatWindow.HandleSubmit` (`IsExportCommand` → `HandleExportConversation`): reuses `BuildMessages(ActiveConversation)` → `BuildTranscript` → Eto `SaveFileDialog` (default name `physalia-chat-<yyyyMMdd-HHmm>.txt`) → `File.WriteAllText`; success logged to the Rhino command line, failure/empty-conversation → Eto MessageBox. No new bridge verb — it rides the existing `phbridge://submit?text=` path.
+- Composer: `BUILTIN_COMMANDS = ['export']` always appended to `availableKinds()` (no grounding/tool needed), shown in the `/` menu with a Download icon as "Export conversation (.txt)"; accepting inserts `/export ` (complete command — no sub-path, no menu reopen, unlike `/c//cl//t/`). Generic slash-chip highlighting already covers it.
+
 ## Still pending
 - Full live in-Rhino pass beyond send/freeze/scroll/JSON (history, streaming, tool render, image submit; classic Prompter regression).
 - Reasoning only shows for models that inline `<think>` in text — a dedicated Core reasoning channel would make it universal.

@@ -21,6 +21,7 @@
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
 	import ShapesIcon from '@lucide/svelte/icons/shapes';
 	import BrainIcon from '@lucide/svelte/icons/brain';
+	import DownloadIcon from '@lucide/svelte/icons/download';
 	import { stripDataUrl, type ComponentTabInfo, type SubmitMessage } from '$lib/bridge';
 
 	interface Props {
@@ -100,6 +101,11 @@
 	// "/t/memory/local". These are the second-level names offered after "/t/memory/".
 	const MEMORY_TOOL = 'memory';
 	const MEMORY_SCOPES = ['global', 'local'];
+
+	// Built-in window commands, always offered in the "/" menu (no grounding or tool needed).
+	// Unlike the reference kinds they are complete commands — accepting one inserts "/<name>"
+	// with no sub-path. The host intercepts a message that is exactly one of these.
+	const BUILTIN_COMMANDS = ['export'];
 	function hasMemoryTool(): boolean {
 		return toolNames.some((n) => n.toLowerCase() === MEMORY_TOOL);
 	}
@@ -396,11 +402,20 @@
 		if (componentTabs.length > 0) kinds.push('c');
 		if (clusterNames.length > 0) kinds.push('cl');
 		if (toolNames.length > 0) kinds.push('t');
+		kinds.push(...BUILTIN_COMMANDS);
 		return kinds;
 	}
 
 	function kindLabel(key: string): string {
-		return key === 'c' ? 'Components' : key === 'cl' ? 'Clusters' : key === 't' ? 'Tools' : key;
+		return key === 'c'
+			? 'Components'
+			: key === 'cl'
+				? 'Clusters'
+				: key === 't'
+					? 'Tools'
+					: key === 'export'
+						? 'Export conversation (.txt)'
+						: key;
 	}
 
 	function startsWith(candidates: string[], q: string): string[] {
@@ -480,7 +495,7 @@
 		let trail = '';
 		let reopen = false;
 
-		if (refStage === 'kind') {
+		if (refStage === 'kind' && !BUILTIN_COMMANDS.includes(item)) {
 			insert = `/${item}/`;
 			reopen = true;
 		} else if (refStage === 'comp-tab') {
@@ -491,7 +506,8 @@
 			insert = `${item}/`;
 			reopen = true;
 		} else {
-			insert = item;
+			// A name — or a built-in command, which is complete on its own ("/export").
+			insert = refStage === 'kind' ? `/${item}` : item;
 			let after = text.slice(refTokenEnd);
 			trail = after.length === 0 || !/^\s/.test(after) ? ' ' : '';
 		}
@@ -760,7 +776,9 @@
 					}}
 				>
 					{#if refStage === 'kind'}
-						{#if item === 't'}
+						{#if item === 'export'}
+							<DownloadIcon class="text-muted-foreground size-3.5 shrink-0" />
+						{:else if item === 't'}
 							<WrenchIcon class="text-muted-foreground size-3.5 shrink-0" />
 						{:else if item === 'cl'}
 							<BoxIcon class="text-muted-foreground size-3.5 shrink-0" />
@@ -768,7 +786,9 @@
 							<ShapesIcon class="text-muted-foreground size-3.5 shrink-0" />
 						{/if}
 						<span class="flex-1 truncate">{kindLabel(item)}</span>
-						<span class="text-muted-foreground/70 font-mono text-xs">/{item}/</span>
+						<span class="text-muted-foreground/70 font-mono text-xs"
+							>{BUILTIN_COMMANDS.includes(item) ? `/${item}` : `/${item}/`}</span
+						>
 					{:else if refStage === 'comp-tab'}
 						<LayersIcon class="text-muted-foreground size-3.5 shrink-0" />
 						<span class="flex-1 truncate">{item}</span>

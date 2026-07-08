@@ -19,16 +19,24 @@ namespace Physalia.GH.Components;
 /// warnings, or dead components (ones that produced no output) are gathered into a report routed
 /// back on the Fail Signal.
 ///
-/// <para>The scan is scoped by the incoming payload. A Component Transmitter forwards the GUIDs of
-/// the components it placed (newline-separated) as its Success payload; CanvasObservation parses those and
-/// scans <b>only</b> that placed graph, so it never flags idle pipeline components. When the
-/// payload carries no GUIDs it falls back to scanning the whole document (errors/warnings only),
+/// <para>The scan is scoped by the GUIDs this component has been pointed at. A Component
+/// Transmitter forwards the GUIDs of the components it placed (newline-separated) as its Success
+/// payload — but on a patch turn that payload is only the DELTA (added and modified components),
+/// while the patch's changes can break components placed in earlier turns. So CanvasObservation
+/// ACCUMULATES every GUID that has ever arrived and scans the whole watched graph each turn,
+/// pruning GUIDs whose components have since been removed. The watch list is session-only, like
+/// all lifecycle state — the component reopens empty. When nothing is watched and the payload
+/// carries no GUIDs it falls back to scanning the whole document (errors/warnings only),
 /// preserving use as a standalone canvas probe. Wiring it after the Component Transmitter (and its
 /// Fail Signal back through Feedback to the Conversation Log) turns the place → read → correct loop into a
 /// visible cycle on the canvas.</para>
 /// </summary>
 public class CanvasObservation : RoutingComponentBase<string>
 {
+    // Every component GUID ever received on a consumed signal, minus those since removed from
+    // the document (pruned at scan time). Session-only; never serialized.
+    private readonly HashSet<Guid> _watchedGuids = new();
+
     /// <summary>
     /// Initializes a new instance of the <see cref="CanvasObservation"/> class.
     /// </summary>
@@ -41,17 +49,30 @@ public class CanvasObservation : RoutingComponentBase<string>
     public override Guid ComponentGuid => new Guid("F4B0D63C-8E57-4A4B-9C3D-5B2A7F1E04D8");
 
     /// <inheritdoc/>
-    /// <remarks>The payload (the placed components' GUIDs from a Component Transmitter) is passed through unchanged when the scan is clean.</remarks>
+    /// <remarks>
+    /// The payload (the placed components' GUIDs from a Component Transmitter) is passed through
+    /// unchanged when the scan is clean. A blank payload is accepted once GUIDs are being watched:
+    /// a remove-only patch legitimately adds and modifies nothing, but the remaining watched graph
+    /// still needs scanning.
+    /// </remarks>
     protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out string data)
     {
-        data = signal.Payload;
-        return StringHelpers.IsNonBlank(data);
+        data = signal.Payload ?? string.Empty;
+        return StringHelpers.IsNonBlank(data) || _watchedGuids.Count > 0;
     }
 
     /// <inheritdoc/>
-    /// <remarks>Synchronous component — observation only reads, it has nothing to push.</remarks>
+    /// <remarks>
+    /// Accumulates the incoming GUIDs into the watch list, so the read pass scans the whole
+    /// LLM-built graph rather than just this turn's delta — a patch reports only its added and
+    /// modified components, but its changes can break components placed in earlier turns.
+    /// </remarks>
     protected override void PushSolve(string data, IGH_DataAccess da)
     {
+        foreach (Guid guid in ParseGuids(data))
+        {
+            _watchedGuids.Add(guid);
+        }
     }
 
     /// <inheritdoc/>
@@ -67,9 +88,10 @@ public class CanvasObservation : RoutingComponentBase<string>
             return true;
         }
 
-        foreach (IGH_DocumentObject obj in ScopedObjects(doc, data))
+        foreach (IGH_DocumentObject obj in ScanScope(doc).Objects)
         {
-            if (obj is IGH_ActiveObject ao &&
+            // A locked component never solves, so waiting on it would jam the settle gate.
+            if (obj is IGH_ActiveObject { Locked: false } ao &&
                 (ao.Phase == GH_SolutionPhase.Blank || ao.Phase == GH_SolutionPhase.Computing))
             {
                 return false;
@@ -87,11 +109,13 @@ public class CanvasObservation : RoutingComponentBase<string>
         var dead = new List<string>();
         var signatures = new List<string>();
         var signatureNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool scopedScan = false;
 
         GH_Document? doc = OnPingDocument();
         if (doc is not null)
         {
-            foreach (IGH_DocumentObject obj in ScopedObjects(doc, data))
+            (IReadOnlyList<IGH_DocumentObject> scope, scopedScan) = ScanScope(doc);
+            foreach (IGH_DocumentObject obj in scope)
             {
                 if (obj is not IGH_ActiveObject ao)
                 {
@@ -140,7 +164,6 @@ public class CanvasObservation : RoutingComponentBase<string>
         }
 
         int total = errors.Count + warnings.Count + dead.Count;
-        bool scopedScan = doc is not null && ParseGuids(data).Any(g => doc.FindObject(g, false) is not null);
         return total == 0
             ? RoutingResult.Ok(data)
             : RoutingResult.Fail(BuildFeedback(errors, warnings, dead, signatures, scopedScan), $"{total} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
@@ -160,28 +183,68 @@ public class CanvasObservation : RoutingComponentBase<string>
             : $"{obj.Name} ({obj.InstanceGuid})";
     }
 
+    /// <inheritdoc/>
+    protected override void OnCleared()
+    {
+        base.OnCleared();
+        _watchedGuids.Clear();
+    }
+
     /// <summary>
-    /// The objects to scan: the components named by the incoming GUID payload, or every object on
-    /// the document (except this CanvasObservation) when the payload carries no parseable GUIDs.
+    /// The objects to scan: every watched component still alive on the document (the accumulated
+    /// LLM-built graph), or every object on the document (except this CanvasObservation) when
+    /// nothing is watched — the standalone-probe fallback.
     /// </summary>
     /// <param name="doc">The active document.</param>
-    /// <param name="payload">The incoming signal payload (newline-separated GUIDs, or anything else).</param>
-    /// <returns>The objects in scope for the scan.</returns>
-    private IEnumerable<IGH_DocumentObject> ScopedObjects(GH_Document doc, string payload)
+    /// <returns>The objects in scope, and whether the scan is scoped to the watched graph.</returns>
+    private (IReadOnlyList<IGH_DocumentObject> Objects, bool Scoped) ScanScope(GH_Document doc)
     {
-        var scoped = ParseGuids(payload)
-            .Select(g => doc.FindObject(g, false))
-            .Where(o => o is not null)
-            .Select(o => o!)
-            .ToList();
+        // ResolveWatchedObjects prunes the watch list, so a non-empty list after it means the
+        // scan is scoped — even if every watched component is currently locked (excluded from
+        // the resolved objects), the scope must not silently widen to the whole document.
+        List<IGH_DocumentObject> watched = ResolveWatchedObjects(doc);
+        return _watchedGuids.Count > 0
+            ? (watched, true)
+            : (doc.Objects.Where(o => o.InstanceGuid != InstanceGuid).ToList(), false);
+    }
 
-        if (scoped.Count > 0)
+    /// <summary>
+    /// Resolves the watch list against the live document, pruning GUIDs whose components have
+    /// been removed (by a patch, an undo, or the user) so the list tracks the graph as it exists
+    /// now. Locked components stay watched but are excluded from the scan — they never solve, so
+    /// their state is stale and waiting on them would jam the settle gate.
+    /// </summary>
+    /// <param name="doc">The active document.</param>
+    /// <returns>The live watched objects.</returns>
+    private List<IGH_DocumentObject> ResolveWatchedObjects(GH_Document doc)
+    {
+        var resolved = new List<IGH_DocumentObject>();
+        List<Guid>? stale = null;
+
+        foreach (Guid guid in _watchedGuids)
         {
-            return scoped;
+            if (doc.FindObject(guid, false) is IGH_DocumentObject obj)
+            {
+                if (obj is not IGH_ActiveObject { Locked: true })
+                {
+                    resolved.Add(obj);
+                }
+            }
+            else
+            {
+                (stale ??= new List<Guid>()).Add(guid);
+            }
         }
 
-        // No GUIDs in the payload: fall back to a whole-document scan as a standalone probe.
-        return doc.Objects.Where(o => o.InstanceGuid != InstanceGuid);
+        if (stale is not null)
+        {
+            foreach (Guid guid in stale)
+            {
+                _watchedGuids.Remove(guid);
+            }
+        }
+
+        return resolved;
     }
 
     /// <summary>

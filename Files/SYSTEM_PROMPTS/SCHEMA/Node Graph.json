@@ -13,7 +13,7 @@
     "The grounding's installed-component list, when present, is the sole source of truth for which components may be placed: use only names it contains — plug-in components are allowed when listed, and unlisted components are not allowed however common. Without such a list, keep to native Grasshopper components. Do NOT use any scripting components (Python 3 Script, C# Script, GhPython, VB Script, or any other code-bearing node).",
     "Every component needs a unique integer id; connections reference this id. In a ghpatch, existing components keep the ids shown in the canvas state, and every ADDED component gets a fresh id HIGHER than the highest id in the canvas state.",
     "Every component needs a pivot 'X,Y'. Full document: lay the graph out left to right following data flow, about 150 units between stages (X) and 80 between parallel inputs (Y). Ghpatch: read the existing pivots in the canvas state and place additions so they continue the flow without overlapping.",
-    "connections has one entry per wired input. Reference each endpoint by { id, paramIndex }: paramIndex is the parameter's zero-based position in the component's OUTPUT list (for 'from') or INPUT list (for 'to'), counting in the order shown in componentCatalog (or the component's installed order). paramName is optional and for readability only; the wire is matched by paramIndex.",
+    "connections has one entry per wire. Reference each endpoint by { id, paramIndex }: paramIndex is the parameter's zero-based position in the component's OUTPUT list (for 'from') or INPUT list (for 'to'), counting in the order shown in componentCatalog (or the component's installed order). paramName is optional and for readability only; the wire is matched by paramIndex. An input may receive SEVERAL wires — their items collect into a list in wire order, which is the idiomatic way to gather a few points or curves into one input (prefer this over Entwine/Merge for small fixed lists).",
     "Number Slider value uses the format 'default<min~max>', e.g. '5<0~10>', at componentState.extensions['gh.numberslider'].value. min must be strictly less than max. This is the most common mistake — do not use a plain number.",
     "A slider is for values the user should tweak. To supply a FIXED constant (divide by 2, a unit vector, a base point), internalize it into the consuming input instead: inputSettings entry { \"parameterName\": \"B\", \"internalizedData\": { \"{0}\": { \"{0}(0)\": \"number:2\" } } }. Never add a slider whose min equals its max.",
     "Give every Number Slider (and other input source) a nickName naming what it controls — 'Radius', 'Height' — never the default label.",
@@ -63,6 +63,15 @@
       { "name": "Scale",           "inputs": ["Geometry", "Factor", "Center"], "outputs": ["Geometry"]  }
     ]
   },
+
+  "componentNotes": [
+    "Center Box: X/Y/Z are HALF-extents and the box is CENTERED on the base plane — it extends below Z=0 and measures twice each value. For a volume sitting ON the ground from a corner or with explicit extents, use Domain Box (Base plane + X/Y/Z Domains, e.g. Z domain 0 to height) instead.",
+    "Domain Box: takes Domains, not numbers — build each with Construct Domain. The go-to component for building masses that sit on the XY plane.",
+    "Boundary Surfaces: requires CLOSED planar curves. A PolyLine cap needs its Closed input internalized to boolean:true.",
+    "Entwine: grafts each input onto its own tree branch — a per-branch consumer like PolyLine then sees ONE point per branch and fails. To gather a few items into one list, wire them all into the same input instead.",
+    "Extrude: extrudes a curve or surface along a Direction VECTOR (build with Unit Z + Amplitude, or Vector XYZ) — a plain number is not a direction.",
+    "Loft / Ruled Surface: section curves must run in consistent directions and be listed in order; prefer Ruled Surface for exactly two rails."
+  ],
 
   "$defs": {
     "fullDocument": {
@@ -550,11 +559,20 @@
     {
       "schema": "1.0",
       "components": [
-        { "name": "Number Slider", "id": 1, "pivot": "0,0",     "nickName": "Radius", "componentState": { "extensions": { "gh.numberslider": { "value": "5<0~10>" } } } },
-        { "name": "Circle",        "id": 2, "pivot": "200,0" }
+        { "name": "Number Slider", "id": 1, "pivot": "0,0",   "nickName": "Footprint", "componentState": { "extensions": { "gh.numberslider": { "value": "8000<3000~15000>" } } } },
+        { "name": "Number Slider", "id": 2, "pivot": "0,80",  "nickName": "Height", "componentState": { "extensions": { "gh.numberslider": { "value": "3000<2000~6000>" } } } },
+        { "name": "XY Plane",      "id": 3, "pivot": "150,-80", "inputSettings": [ { "parameterName": "Origin", "internalizedData": { "{0}": { "{0}(0)": "pointXYZ:0,0,0" } } } ] },
+        { "name": "Construct Domain", "id": 4, "pivot": "150,0",  "nickName": "Footprint Domain", "inputSettings": [ { "parameterName": "Domain start", "internalizedData": { "{0}": { "{0}(0)": "number:0" } } } ] },
+        { "name": "Construct Domain", "id": 5, "pivot": "150,80", "nickName": "Height Domain", "inputSettings": [ { "parameterName": "Domain start", "internalizedData": { "{0}": { "{0}(0)": "number:0" } } } ] },
+        { "name": "Domain Box",    "id": 6, "pivot": "320,0", "nickName": "Mass" }
       ],
       "connections": [
-        { "from": { "id": 1, "paramIndex": 0, "paramName": "Number" }, "to": { "id": 2, "paramIndex": 1, "paramName": "Radius" } }
+        { "from": { "id": 1, "paramIndex": 0, "paramName": "Number" }, "to": { "id": 4, "paramIndex": 1, "paramName": "Domain end" } },
+        { "from": { "id": 2, "paramIndex": 0, "paramName": "Number" }, "to": { "id": 5, "paramIndex": 1, "paramName": "Domain end" } },
+        { "from": { "id": 3, "paramIndex": 0, "paramName": "Plane" },  "to": { "id": 6, "paramIndex": 0, "paramName": "Base" } },
+        { "from": { "id": 4, "paramIndex": 0, "paramName": "Domain" }, "to": { "id": 6, "paramIndex": 1, "paramName": "X" } },
+        { "from": { "id": 4, "paramIndex": 0, "paramName": "Domain" }, "to": { "id": 6, "paramIndex": 2, "paramName": "Y" } },
+        { "from": { "id": 5, "paramIndex": 0, "paramName": "Domain" }, "to": { "id": 6, "paramIndex": 3, "paramName": "Z" } }
       ]
     },
     {

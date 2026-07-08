@@ -363,11 +363,20 @@ internal sealed class ClaudeCodeSession : IDisposable
         // --no-session-persistence drops the per-turn session disk write; Physalia owns the history.
         // --strict-mcp-config is redundant under --safe-mode but kept explicit. The default agentic
         // tools are denied so the process never runs tools of its own — Physalia owns its tool loop.
+        // The deny list must cover EVERY built-in, including the newer harness tools: any tool left
+        // reachable both invites mid-response tool calls (observed live: ReportFindings and
+        // ToolSearch) and falsifies the prompt's "you have no tools" contract — the model then
+        // narrates the aborted attempts into the conversation. Unknown names are ignored by older
+        // CLIs, so over-listing is safe.
         startInfo.ArgumentList.Add("--no-session-persistence");
         startInfo.ArgumentList.Add("--strict-mcp-config");
         startInfo.ArgumentList.Add("--disallowed-tools");
         startInfo.ArgumentList.Add(
-            "Task Bash BashOutput Edit MultiEdit Write Read NotebookEdit Glob Grep WebFetch WebSearch Skill");
+            "Task Bash BashOutput Edit MultiEdit Write Read NotebookEdit Glob Grep WebFetch WebSearch Skill "
+            + "ToolSearch ReportFindings AskUserQuestion TaskCreate TaskUpdate TaskList TaskGet TaskStop "
+            + "TaskOutput SendMessage Agent Workflow EnterPlanMode ExitPlanMode EnterWorktree ExitWorktree "
+            + "Artifact Monitor PushNotification ScheduleWakeup CronCreate CronDelete CronList "
+            + "ListMcpResourcesTool ReadMcpResourceTool ReadMcpResourceDirTool");
         startInfo.ArgumentList.Add("-p");
 
         return startInfo;

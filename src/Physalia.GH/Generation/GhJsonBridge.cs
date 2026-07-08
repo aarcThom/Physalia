@@ -511,6 +511,13 @@ internal static partial class GhJsonBridge
             return EmptyDocumentResult();
         }
 
+        // Snapshot the FULL connection list before cluster/reference extraction lifts wires out of
+        // the doc — the required-input lint below must see every wire the model authored, or an
+        // input legitimately fed from a cluster would read as unwired.
+        IReadOnlyList<GhJsonConnection>? lintConnections = paramIndexFirst
+            ? (doc.Connections ?? Enumerable.Empty<GhJsonConnection>()).ToList()
+            : null;
+
         // The offset aligns the content's top-left pivot to the target. Computed from the FULL layout
         // (clusters included) so relative positions hold once clusters are lifted out. On the LLM path
         // the graph has been relaid out so a real component (layer 0's top node) sits at this corner.
@@ -548,6 +555,22 @@ internal static partial class GhJsonBridge
         // makes placement self-sufficient for pipelines with no Component Resolver and guarantees creation goes
         // through the correct GUID rather than that fallback.
         StampComponentGuids(doc);
+
+        // Refuse a graph with unmet required inputs before anything touches the canvas: the defect
+        // is statically knowable, and one crisp list here saves a whole solve-and-feedback round.
+        if (lintConnections is not null)
+        {
+            List<string> lint = LintRequiredInputs(doc.Components, lintConnections);
+            if (lint.Count > 0)
+            {
+                return new PlaceResult(
+                    false, 0, 0, 0,
+                    "Nothing was placed: the definition has required inputs with no value. Wire each one "
+                    + "or internalize a value, then resubmit the corrected document.\n  - "
+                    + string.Join("\n  - ", lint),
+                    Array.Empty<Guid>(), Array.Empty<string>(), Array.Empty<string>());
+            }
+        }
 
         // The library's fixer renumbers components in insertion order, which would discard the
         // numbering the model authored — and the model demonstrably reasons from its own ids on

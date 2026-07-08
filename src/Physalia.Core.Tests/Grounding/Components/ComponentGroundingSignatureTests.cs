@@ -65,8 +65,9 @@ public class ComponentGroundingSignatureTests
             "These Grasshopper components are installed and available — native and plug-in alike. "
             + "This list is the authoritative catalogue of what may be placed: use these exact names, "
             + "and only components from this list. Each signature entry shows its input and output "
-            + "parameters as Nickname:Type, listed in paramIndex order — the first parameter is "
-            + "paramIndex 0. Supply data matching these types:\n"
+            + "parameters as Name:Type, listed in paramIndex order — the first parameter is "
+            + "paramIndex 0; use these exact Names in inputSettings.parameterName. "
+            + "Supply data matching these types:\n"
             + "- Catenary(in: A:Point, B:Point, L:Number, G:Vector) -> (out: C:Curve)",
             section);
     }

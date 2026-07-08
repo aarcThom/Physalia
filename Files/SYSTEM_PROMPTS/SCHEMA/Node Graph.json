@@ -502,7 +502,7 @@
         "isReparameterized": { "type": "boolean", "description": "Reparameterize the parameter's domain." },
         "internalizedData": {
           "type": "object",
-          "description": "Persistent data internalized into an INPUT parameter of a component you are adding — the way to supply a fixed constant without creating a slider. A single value is {\"{0}\": {\"{0}(0)\": \"number:2\"}}; the inner value is a type-prefixed string such as 'number:2', 'integer:5', 'boolean:true', 'text:hello', 'pointXYZ:0,0,0', 'vectorXYZ:0,0,1'. A wire into the same input overrides internalized data. Never copy internalizedData from components marked physalia.rhinoRef.",
+          "description": "Persistent data internalized into an INPUT parameter of a component you are adding — the way to supply a fixed constant without creating a slider. The enclosing parameterName MUST be the parameter's FULL name exactly as listed in the grounding's component signatures (e.g. 'Closed', 'Origin'), never a one-letter canvas label ('C', 'O') — a wrong name silently applies nothing. A single value is {\"{0}\": {\"{0}(0)\": \"number:2\"}}; the inner value is a type-prefixed string such as 'number:2', 'integer:5', 'boolean:true', 'text:hello', 'pointXYZ:0,0,0', 'vectorXYZ:0,0,1'. A wire into the same input overrides internalized data. Never copy internalizedData from components marked physalia.rhinoRef.",
           "additionalProperties": { "type": "object", "additionalProperties": { "type": "string" } }
         }
       }

@@ -87,8 +87,9 @@ public sealed record ComponentCatalogGrounding(ComponentCatalog Catalog, bool In
 
         if (signatureLines.Count > 0)
         {
-            section.Append(" Each signature entry shows its input and output parameters as Nickname:Type, ");
-            section.Append("listed in paramIndex order — the first parameter is paramIndex 0. ");
+            section.Append(" Each signature entry shows its input and output parameters as Name:Type, ");
+            section.Append("listed in paramIndex order — the first parameter is paramIndex 0; ");
+            section.Append("use these exact Names in inputSettings.parameterName. ");
             section.Append("Supply data matching these types:\n");
             section.Append(string.Join("\n", signatureLines));
         }

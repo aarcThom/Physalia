@@ -108,6 +108,7 @@ public class CanvasObservation : RoutingComponentBase<string>
         var warnings = new List<string>();
         var dead = new List<string>();
         var signatures = new List<string>();
+        var dataFlow = new List<string>();
         var signatureNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool scopedScan = false;
 
@@ -151,14 +152,26 @@ public class CanvasObservation : RoutingComponentBase<string>
                     }
                 }
 
-                // A component that produced no data on any output is "dead". Skip one that already
-                // reported an error — its empty output is a cascade symptom, not the root cause.
-                if (objErrors.Count == 0 &&
-                    obj is IGH_Component comp &&
-                    comp.Params.Output.Count > 0 &&
-                    comp.Params.Output.All(p => p.VolatileData.IsEmpty))
+                // A component that produced no data on any output is "dead". VolatileData.IsEmpty
+                // is the WRONG test: a solved output routinely holds a branch with zero items,
+                // which reports non-empty — DataCount counts the items that actually exist. Skip a
+                // component that already reported an error — its empty output is a cascade
+                // symptom, not the root cause.
+                bool isDead = objErrors.Count == 0 &&
+                    obj is IGH_Component deadComp &&
+                    deadComp.Params.Output.Count > 0 &&
+                    deadComp.Params.Output.All(p => p.VolatileData.DataCount == 0);
+                if (isDead)
                 {
-                    dead.Add(Label(comp));
+                    dead.Add(Label(obj));
+                }
+
+                // Problem and dead components additionally report their live data flow — how many
+                // items each input collected and each output produced — so the model sees WHERE
+                // data stops instead of blindly swapping construction strategies.
+                if ((objErrors.Count > 0 || objWarnings.Count > 0 || isDead) && obj is IGH_Component flowComp)
+                {
+                    dataFlow.Add(FormatDataFlow(flowComp));
                 }
             }
         }
@@ -173,8 +186,26 @@ public class CanvasObservation : RoutingComponentBase<string>
         // one in the feedback so the corrective patch cannot mismatch. Payload text only — carrier
         // discipline holds. IsReadReady settled the graph, so the export is stable here.
         string? checksum = doc is null ? null : GhJsonBridge.TryExportCanvasState(doc)?.Checksum;
-        return RoutingResult.Fail(BuildFeedback(errors, warnings, dead, signatures, scopedScan, checksum), $"{total} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
+        return RoutingResult.Fail(BuildFeedback(errors, warnings, dead, signatures, dataFlow, scopedScan, checksum), $"{total} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
     }
+
+    /// <summary>
+    /// Renders a problem component's live data flow: items collected per input and items produced
+    /// per output, e.g. <c>Boundary Surfaces 'Gable1' (guid): inputs [E=3] -> outputs [S=0]</c>.
+    /// </summary>
+    /// <param name="comp">The component to report.</param>
+    /// <returns>The data-flow line.</returns>
+    private static string FormatDataFlow(IGH_Component comp)
+    {
+        string ins = string.Join(", ", comp.Params.Input.Select(p => $"{PortLabel(p)}={p.VolatileData.DataCount}"));
+        string outs = string.Join(", ", comp.Params.Output.Select(p => $"{PortLabel(p)}={p.VolatileData.DataCount}"));
+        return comp.Params.Input.Count == 0
+            ? $"{Label(comp)}: outputs [{outs}]"
+            : $"{Label(comp)}: inputs [{ins}] -> outputs [{outs}]";
+    }
+
+    private static string PortLabel(IGH_Param param) =>
+        string.IsNullOrWhiteSpace(param.NickName) ? param.Name ?? string.Empty : param.NickName;
 
     /// <summary>
     /// Labels a scanned object for the feedback report: name, nickname (when it differs from the
@@ -275,7 +306,7 @@ public class CanvasObservation : RoutingComponentBase<string>
         }
     }
 
-    private static string BuildFeedback(IReadOnlyList<string> errors, IReadOnlyList<string> warnings, IReadOnlyList<string> dead, IReadOnlyList<string> signatures, bool scopedScan, string? baseChecksum)
+    private static string BuildFeedback(IReadOnlyList<string> errors, IReadOnlyList<string> warnings, IReadOnlyList<string> dead, IReadOnlyList<string> signatures, IReadOnlyList<string> dataFlow, bool scopedScan, string? baseChecksum)
     {
         var sb = new StringBuilder();
         sb.AppendLine(scopedScan
@@ -286,6 +317,7 @@ public class CanvasObservation : RoutingComponentBase<string>
         AppendSection(sb, "Warnings:", warnings);
         AppendSection(sb, "Input signatures of the components that reported problems (match your data types to these):", signatures);
         AppendSection(sb, "Components that produced no output (check their inputs and upstream wiring):", dead);
+        AppendSection(sb, "Data flow of the problem components (items collected per input -> items produced per output; an input at 0 received nothing from upstream):", dataFlow);
 
         if (!string.IsNullOrEmpty(baseChecksum))
         {

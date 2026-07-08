@@ -21,8 +21,10 @@ namespace Physalia.GH.Generation;
 /// object that is not a Physalia component — to GhJSON. This is the SINGLE reference frame shared
 /// by the Canvas State grounder (what the model sees) and the patch-apply path (the base a ghpatch
 /// is interpreted against): one code path means the two can never disagree on scope or options.
-/// The export is deterministic for an unchanged canvas, so the checksum computed over the
-/// grounding text still matches a fresh export at apply time unless the canvas actually changed.
+/// The export is deterministic for an unchanged canvas. The drift checksum is computed over the
+/// export's STRUCTURE only (see <see cref="ComputeCanvasChecksum"/>), so cosmetic edits the user
+/// makes while the model is generating — dragging components, pressing a button, tweaking a
+/// slider — do not invalidate the model's patch; structural edits still do.
 ///
 /// <para>Component ids are SESSION-STABLE: the library assigns ids in document insertion order on
 /// every export, which renumbers the whole graph whenever anything is added or removed — and the
@@ -53,7 +55,7 @@ internal static partial class GhJsonBridge
     /// </summary>
     /// <param name="Document">The exported document; the reference frame a ghpatch resolves against.</param>
     /// <param name="Json">The document serialized compactly, exactly as handed to the model.</param>
-    /// <param name="Checksum">SHA-256 fingerprint of <paramref name="Json"/> (<c>sha256-…</c>).</param>
+    /// <param name="Checksum">Structural fingerprint of <paramref name="Document"/> (<c>sha256-…</c>).</param>
     /// <param name="ComponentCount">Number of exported components; zero for an empty canvas.</param>
     internal sealed record CanvasStateSnapshot(
         GhJsonDocument Document,
@@ -102,26 +104,55 @@ internal static partial class GhJsonBridge
         return new CanvasStateSnapshot(
             export,
             json,
-            ComputeCanvasChecksum(json),
+            ComputeCanvasChecksum(export),
             export.Components?.Count ?? 0);
     }
 
     /// <summary>
-    /// Computes the drift-check fingerprint over an exported canvas-state JSON string. Physalia
-    /// generates AND verifies this checksum itself (the grounder prints it, the patch carries it
-    /// back verbatim, apply re-exports and compares), so a plain hash of the exact text suffices —
-    /// no canonical normalization is needed.
+    /// Computes the drift-check fingerprint over the STRUCTURE of an exported canvas: the
+    /// component set (stable id, instanceGuid, name), the wire topology, and group membership.
+    /// State that cannot affect how a ghpatch applies — pivots, slider/button/panel values,
+    /// nicknames, internalized data — is deliberately excluded, so a user moving components or
+    /// tweaking values while the model is generating does NOT invalidate its patch. Structural
+    /// edits (adding, removing, renaming, or rewiring components, or regrouping) still change the
+    /// fingerprint and force the model to regenerate against the fresh canvas state.
     /// </summary>
-    /// <param name="json">The exported canvas-state JSON.</param>
-    /// <returns>The fingerprint in <c>sha256-&lt;hex&gt;</c> form, or an empty string for blank input.</returns>
-    internal static string ComputeCanvasChecksum(string json)
+    /// <param name="export">The exported canvas-state document.</param>
+    /// <returns>The fingerprint in <c>sha256-&lt;hex&gt;</c> form, or an empty string for an empty export.</returns>
+    internal static string ComputeCanvasChecksum(GhJsonDocument export)
     {
-        if (string.IsNullOrEmpty(json))
+        if (export.Components is null || export.Components.Count == 0)
         {
             return string.Empty;
         }
 
-        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(json));
+        var sb = new StringBuilder();
+
+        foreach (GhJsonComponent component in export.Components
+            .OrderBy(c => c.Id ?? int.MaxValue)
+            .ThenBy(c => c.InstanceGuid))
+        {
+            sb.Append(component.Id).Append('|').Append(component.InstanceGuid).Append('|').Append(component.Name).Append('\n');
+        }
+
+        IEnumerable<string> wires = (export.Connections ?? Enumerable.Empty<GhJsonConnection>())
+            .Where(w => w.From is not null && w.To is not null)
+            .Select(w => $"{w.From!.Id}:{w.From.ParamIndex?.ToString() ?? w.From.ParamName}>{w.To!.Id}:{w.To.ParamIndex?.ToString() ?? w.To.ParamName}")
+            .OrderBy(s => s, StringComparer.Ordinal);
+        foreach (string wire in wires)
+        {
+            sb.Append(wire).Append('\n');
+        }
+
+        foreach (GhJsonGroup group in (export.Groups ?? Enumerable.Empty<GhJsonGroup>())
+            .OrderBy(g => g.Id ?? int.MaxValue))
+        {
+            sb.Append("g:").Append(group.Id).Append('|').Append(group.InstanceGuid).Append('|');
+            sb.Append(string.Join(",", (group.Members ?? Enumerable.Empty<int>()).OrderBy(m => m)));
+            sb.Append('\n');
+        }
+
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return "sha256-" + Convert.ToHexString(hash).ToLowerInvariant();
     }
 

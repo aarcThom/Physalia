@@ -57,9 +57,13 @@ internal static class ComponentSignatureProvider
     }
 
     /// <summary>
-    /// Reads ports from live parameters: nickname preferred (the short label shown on the canvas,
-    /// e.g. <c>G</c>), full name as fallback, <c>TypeName</c> as the type hint. Shared with the
-    /// Canvas Observation, which reads placed components directly and so reflects their actual (zui) state.
+    /// Reads ports from live parameters: FULL Name preferred, nickname as fallback, <c>TypeName</c>
+    /// as the type hint. Full names, not the short canvas nicknames, because the one place the
+    /// model must author a parameter name exactly — <c>inputSettings.parameterName</c> for
+    /// internalized data — matches by full Name; a model that only ever saw <c>C</c> writes
+    /// <c>"parameterName": "C"</c> and the internalization silently misses <c>Closed</c>. Wires are
+    /// unaffected (matched by paramIndex). Shared with the Canvas Observation, which reads placed
+    /// components directly and so reflects their actual (zui) state.
     /// </summary>
     /// <param name="params">The parameters to read.</param>
     /// <returns>One port per parameter, in order.</returns>
@@ -68,7 +72,7 @@ internal static class ComponentSignatureProvider
         var ports = new List<ComponentPort>();
         foreach (IGH_Param param in @params)
         {
-            string portName = !string.IsNullOrWhiteSpace(param.NickName) ? param.NickName : param.Name ?? string.Empty;
+            string portName = !string.IsNullOrWhiteSpace(param.Name) ? param.Name : param.NickName ?? string.Empty;
             ports.Add(new ComponentPort(portName, param.TypeName ?? string.Empty));
         }
 
@@ -133,7 +137,7 @@ internal static class ComponentSignatureProvider
 
                     return (inputs, ReadPorts(component.Params.Output));
                 case IGH_Param param:
-                    string name = !string.IsNullOrWhiteSpace(param.NickName) ? param.NickName : param.Name ?? string.Empty;
+                    string name = !string.IsNullOrWhiteSpace(param.Name) ? param.Name : param.NickName ?? string.Empty;
                     return (
                         Array.Empty<ComponentPort>(),
                         new[] { new ComponentPort(name, param.TypeName ?? string.Empty) });

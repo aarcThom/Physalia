@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using GhJSON.Core;
 using GhJSON.Core.DiffOperations;
 using GhJSON.Core.PatchModels;
@@ -36,7 +37,8 @@ internal sealed record CanvasPatchOutcome(
     IReadOnlyList<Guid> ModifiedGuids,
     IReadOnlyList<Guid> RemovedGuids,
     IReadOnlyList<string> Conflicts,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    string? PostApplyChecksum = null);
 
 /// <summary>
 /// Ghpatch half of the façade: applies a model-authored <c>.ghpatch</c> document to the LIVE
@@ -109,6 +111,22 @@ internal static partial class GhJsonBridge
             return PatchFailure("The patch could not be parsed: " + ex.Message);
         }
 
+        // A patch with no operations is a no-op: nothing will be applied, so canvas drift is
+        // irrelevant — succeed before the checksum gate. The model emits one when it concludes no
+        // further work is needed; refusing it over a stale base (its own earlier ops advanced the
+        // canvas) traps the loop in a mismatch -> regenerate -> empty-patch cycle.
+        if (!HasOperations(patch))
+        {
+            return new CanvasPatchOutcome(
+                true,
+                null,
+                Array.Empty<Guid>(),
+                Array.Empty<Guid>(),
+                Array.Empty<Guid>(),
+                Array.Empty<string>(),
+                new[] { "The patch contained no operations; the canvas is unchanged." });
+        }
+
         CanvasStateSnapshot? snapshot = TryExportCanvasState(doc);
         if (snapshot is null)
         {
@@ -121,10 +139,31 @@ internal static partial class GhJsonBridge
         if (verifyBase && !string.IsNullOrEmpty(carried)
             && !string.Equals(carried, snapshot.Checksum, StringComparison.OrdinalIgnoreCase))
         {
-            return PatchFailure(
+            // Carry the FRESH canvas state and checksum in the feedback itself, not just a pointer to
+            // the system-prompt grounding (which rides a separate, eventually-fresh channel). This
+            // makes the retry deterministic: the model regenerates against the exact state the next
+            // patch will apply against, so a concurrent user edit converges in one round-trip instead
+            // of dead-ending. Kept as Payload text — carrier discipline holds (no new signal field).
+            var mismatch = new StringBuilder();
+            mismatch.AppendLine(
                 "base_checksum_mismatch: the canvas changed since you last saw it, so this patch was NOT "
-                + "applied. Re-read the CURRENT canvas state provided with this message and regenerate the "
-                + "patch against it (copy its new base checksum verbatim).");
+                + "applied. Regenerate the patch against the CURRENT canvas state below.");
+            mismatch.AppendLine();
+            mismatch.AppendLine("Base checksum — copy this verbatim into patch.base.checksum: " + snapshot.Checksum);
+
+            if (snapshot.ComponentCount > 0)
+            {
+                mismatch.AppendLine();
+                mismatch.AppendLine("Current canvas state (GhJSON):");
+                mismatch.Append(snapshot.Json);
+            }
+            else
+            {
+                mismatch.AppendLine();
+                mismatch.Append("The canvas is now empty — emit a full GhJSON document instead of a patch.");
+            }
+
+            return PatchFailure(mismatch.ToString());
         }
 
         var conflicts = new List<string>();
@@ -165,7 +204,17 @@ internal static partial class GhJsonBridge
             return PatchFailure("The patch could not be applied: " + ex.Message);
         }
 
-        conflicts.AddRange(applyResult.Conflicts.Select(c => c.ToString()));
+        // The canvas reconciliation below re-validates every connection operation itself
+        // (WireConnection, paramIndex-first) and reports its own conflicts, so the library's
+        // connection verdicts are redundant — and wrong for endpoints addressed by paramIndex
+        // only: the grounding tells the model to wire by integer id + paramIndex, but the 1.1.1
+        // library matches connection removes by paramName and reports ConnectionNotFound for
+        // name-less endpoints even when the wire exists and IS removed on the canvas. Keeping
+        // those verdicts falsely fails the outcome ("your ops did NOT apply" when they did).
+        // The library stays authoritative for component and group merge conflicts only.
+        conflicts.AddRange(applyResult.Conflicts
+            .Select(c => c.ToString())
+            .Where(c => !c.Contains("at connections.", StringComparison.Ordinal)));
 
         // ---- Canvas reconciliation, in the spec's apply order (modify, remove, add, groups after
         // adds so members resolve, connection removes, connection adds).
@@ -197,6 +246,11 @@ internal static partial class GhJsonBridge
             IsImporting = false;
         }
 
+        // A partial apply means the model must resubmit — and the operations that DID land changed
+        // the canvas, so its old base checksum is guaranteed stale. Hand the fresh one back in the
+        // outcome so the feedback can carry it and the retry cannot mismatch.
+        string? postApplyChecksum = conflicts.Count > 0 ? TryExportCanvasState(doc)?.Checksum : null;
+
         return new CanvasPatchOutcome(
             conflicts.Count == 0,
             null,
@@ -204,8 +258,20 @@ internal static partial class GhJsonBridge
             modifiedGuids.Distinct().ToList(),
             removedGuids,
             conflicts,
-            warnings);
+            warnings,
+            postApplyChecksum);
     }
+
+    // True when the patch carries at least one operation; a fully empty patch is a no-op.
+    private static bool HasOperations(GhPatchDocument patch) =>
+        (patch.Patch?.Components?.Add?.Count ?? 0) > 0
+        || (patch.Patch?.Components?.Remove?.Count ?? 0) > 0
+        || (patch.Patch?.Components?.Modify?.Count ?? 0) > 0
+        || (patch.Patch?.Connections?.Add?.Count ?? 0) > 0
+        || (patch.Patch?.Connections?.Remove?.Count ?? 0) > 0
+        || (patch.Patch?.Groups?.Add?.Count ?? 0) > 0
+        || (patch.Patch?.Groups?.Modify?.Count ?? 0) > 0
+        || (patch.Patch?.Groups?.Remove?.Count ?? 0) > 0;
 
     private static CanvasPatchOutcome PatchFailure(string message) => new CanvasPatchOutcome(
         false,
@@ -795,6 +861,10 @@ internal static partial class GhJsonBridge
                 addedById[pair.Key] = obj;
             }
         }
+
+        // Claim the (possibly remapped) add ids for the placed objects, so the next canvas export
+        // keeps the numbering the model authored and its remembered ids stay valid.
+        RegisterStableIds(doc, result.IdToGuidMapping);
 
         // Wires between an added component and an existing one.
         foreach (GhJsonConnection conn in (patch.Patch?.Connections?.Add ?? Enumerable.Empty<GhJsonConnection>())

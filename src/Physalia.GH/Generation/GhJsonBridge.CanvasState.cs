@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using GhJSON.Core;
@@ -20,9 +21,17 @@ namespace Physalia.GH.Generation;
 /// object that is not a Physalia component — to GhJSON. This is the SINGLE reference frame shared
 /// by the Canvas State grounder (what the model sees) and the patch-apply path (the base a ghpatch
 /// is interpreted against): one code path means the two can never disagree on scope or options.
-/// The export is deterministic for an unchanged canvas (ids are assigned in document insertion
-/// order), so the checksum computed over the grounding text still matches a fresh export at apply
-/// time unless the canvas actually changed.
+/// The export is deterministic for an unchanged canvas, so the checksum computed over the
+/// grounding text still matches a fresh export at apply time unless the canvas actually changed.
+///
+/// <para>Component ids are SESSION-STABLE: the library assigns ids in document insertion order on
+/// every export, which renumbers the whole graph whenever anything is added or removed — and the
+/// model demonstrably reasons from ids it saw (or authored) on earlier turns, so a renumber turns
+/// its next patch into silent wrong-target wiring. A per-document registry therefore maps each
+/// instanceGuid to the first id it was ever exported (or placed) under; exports remap onto those
+/// ids, retired ids are never reused, and patch adds claim the ids the model gave them. An id the
+/// model remembers either still means the same component or resolves to nothing — never to a
+/// different component.</para>
 /// </summary>
 internal static partial class GhJsonBridge
 {
@@ -32,6 +41,11 @@ internal static partial class GhJsonBridge
     // recreate it. Rebuilding such a parameter from the export would sever the Rhino link — the
     // GhJSON round-trip bakes values, never reference ids.
     private const string RhinoRefExtensionKey = "physalia.rhinoRef";
+
+    // Session-only stable-id registry, one per document (weak-keyed so a closed document releases
+    // its map). Nothing here persists — like the rest of the lifecycle, ids restart at 1 when the
+    // process restarts, and the first export of a session defines the numbering from then on.
+    private static readonly ConditionalWeakTable<GH_Document, StableIdRegistry> StableIdRegistries = new();
 
     /// <summary>
     /// One export of the user's canvas: the parsed document (the patch base), its serialized JSON
@@ -74,6 +88,10 @@ internal static partial class GhJsonBridge
         }
 
         GhJsonDocument export = GhJsonGrasshopper.GetByGuids(guids);
+
+        // Remap the library's insertion-order numbering onto the session-stable ids, so the ids the
+        // model saw (or authored) on earlier turns keep meaning the same components.
+        AssignStableIds(export, doc);
 
         // Mark Rhino-referenced parameters before serialization, so the marker rides the checksum.
         AnnotateRhinoReferences(export, doc);
@@ -145,6 +163,124 @@ internal static partial class GhJsonBridge
             {
                 settings.InternalizedData = null;
             }
+        }
+    }
+
+    /// <summary>
+    /// Claims exported/placed ids for their objects in the document's stable-id registry, so later
+    /// canvas exports keep the numbering the model authored. An id already claimed by another
+    /// object (or a guid already registered) is skipped — the export falls through to a fresh
+    /// assignment for that object, which is still stable from then on.
+    /// </summary>
+    /// <param name="doc">The document the objects live in; null is a no-op.</param>
+    /// <param name="idToGuid">The id-to-instanceGuid pairs to claim (e.g. a Put result's mapping).</param>
+    internal static void RegisterStableIds(GH_Document? doc, IEnumerable<KeyValuePair<int, Guid>> idToGuid)
+    {
+        if (doc is null)
+        {
+            return;
+        }
+
+        StableIdRegistry registry = StableIdRegistries.GetOrCreateValue(doc);
+        foreach (KeyValuePair<int, Guid> pair in idToGuid)
+        {
+            registry.Claim(pair.Value, pair.Key);
+        }
+    }
+
+    // Rewrites the export's insertion-order ids (components, connection endpoints, groups and
+    // their members) onto the session-stable ids. Two passes: the old->stable map is computed
+    // from the original ids first, then applied, so a swapped pair cannot alias mid-rewrite.
+    private static void AssignStableIds(GhJsonDocument export, GH_Document doc)
+    {
+        StableIdRegistry registry = StableIdRegistries.GetOrCreateValue(doc);
+
+        var remap = new Dictionary<int, int>();
+        foreach (GhJsonComponent component in export.Components ?? Enumerable.Empty<GhJsonComponent>())
+        {
+            if (component.InstanceGuid is Guid guid && component.Id is int oldId)
+            {
+                remap[oldId] = registry.Resolve(guid);
+            }
+        }
+
+        foreach (GhJsonComponent component in export.Components ?? Enumerable.Empty<GhJsonComponent>())
+        {
+            if (component.Id is int oldId && remap.TryGetValue(oldId, out int stable))
+            {
+                component.Id = stable;
+            }
+        }
+
+        foreach (GhJsonConnection connection in export.Connections ?? Enumerable.Empty<GhJsonConnection>())
+        {
+            if (connection.From is { } from && remap.TryGetValue(from.Id, out int fromId))
+            {
+                from.Id = fromId;
+            }
+
+            if (connection.To is { } to && remap.TryGetValue(to.Id, out int toId))
+            {
+                to.Id = toId;
+            }
+        }
+
+        foreach (GhJsonGroup group in export.Groups ?? Enumerable.Empty<GhJsonGroup>())
+        {
+            if (group.InstanceGuid is Guid groupGuid && group.Id is not null)
+            {
+                group.Id = registry.Resolve(groupGuid);
+            }
+
+            if (group.Members is { } members)
+            {
+                for (int i = 0; i < members.Count; i++)
+                {
+                    if (remap.TryGetValue(members[i], out int member))
+                    {
+                        members[i] = member;
+                    }
+                }
+            }
+        }
+    }
+
+    // instanceGuid -> the id the model knows the object by. Ids are handed out once and never
+    // reused: a removed component retires its id forever, so a stale id in a patch resolves to
+    // nothing (a loud conflict) instead of silently landing on a different component.
+    private sealed class StableIdRegistry
+    {
+        private readonly Dictionary<Guid, int> _byGuid = new();
+        private readonly HashSet<int> _used = new();
+        private int _next = 1;
+
+        // Returns the object's stable id, assigning the next free one on first sight.
+        public int Resolve(Guid guid)
+        {
+            if (_byGuid.TryGetValue(guid, out int id))
+            {
+                return id;
+            }
+
+            while (!_used.Add(_next))
+            {
+                _next++;
+            }
+
+            _byGuid[guid] = _next;
+            return _next;
+        }
+
+        // Claims a specific id for a guid (a patch add keeping the model's numbering, or a full
+        // placement keeping the file's). No-op when the guid is known or the id is taken.
+        public void Claim(Guid guid, int id)
+        {
+            if (_byGuid.ContainsKey(guid) || !_used.Add(id))
+            {
+                return;
+            }
+
+            _byGuid[guid] = id;
         }
     }
 }

@@ -658,6 +658,15 @@ public class ConversationLog : StatefulComponentBase
                     }
 
                     break;
+                case CanvasStateGrounding:
+                    // The wire value is only as fresh as the grounder's async, debounced,
+                    // import-skipping re-solve, so at inference time it can lag the true canvas by a
+                    // solution — two after a placement, since the import's own SolutionEnd is skipped.
+                    // Re-export the live canvas here (synchronously, the same code path the ghpatch
+                    // base resolves against) so the model always sees the current state + checksum and
+                    // its patch base matches on the first try, even when the user edited between turns.
+                    mapped.Add(FreshCanvasStateGrounding());
+                    break;
                 default:
                     mapped.Add(g);
                     break;
@@ -665,6 +674,17 @@ public class ConversationLog : StatefulComponentBase
         }
 
         return GroundingComposer.Append(systemPrompt, mapped);
+    }
+
+    // Snapshots the live canvas so the folded grounding matches exactly what a ghpatch will apply
+    // against at this instant. Falls back to an empty grounding when no document is exportable — the
+    // same as an empty canvas, which drops the model back to full-document generation.
+    private Grounding FreshCanvasStateGrounding()
+    {
+        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(OnPingDocument());
+        return snapshot is null
+            ? new CanvasStateGrounding(string.Empty, string.Empty, 0)
+            : new CanvasStateGrounding(snapshot.Json, snapshot.Checksum, snapshot.ComponentCount);
     }
 
     // Maps a Signal input index to the turn kind it designates. Turn type comes from input

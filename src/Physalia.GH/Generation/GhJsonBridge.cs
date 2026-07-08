@@ -842,6 +842,11 @@ internal static partial class GhJsonBridge
             // Place clusters lifted out before Put and rewire their connections to the placed graph.
             GH_Document? hostDoc = result.PlacedObjects.FirstOrDefault()?.OnPingDocument()
                 ?? Grasshopper.Instances.ActiveCanvas?.Document;
+
+            // Claim the file's ids for the placed objects in the stable-id registry, so the next
+            // canvas export keeps the numbering the model authored (ids already taken by earlier
+            // exports fall through to fresh assignment at export time).
+            RegisterStableIds(hostDoc, result.IdToGuidMapping);
             bool clustersPlaced = clusterPlan is not null
                 && PlaceClusters(clusterPlan, hostDoc, result, clusterGuids, clusterWarnings);
 

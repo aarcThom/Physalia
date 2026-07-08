@@ -416,9 +416,19 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
             }
         }
 
-        int applied = outcome.AddedGuids.Count + outcome.ModifiedGuids.Count + outcome.RemovedGuids.Count;
+        // Count COMPONENTS, and say so — counting "operations" here misled the model into
+        // reconciling these numbers against its patch's op lists ("my patch had no modify
+        // operations") and second-guessing what actually landed.
         sb.AppendLine();
-        sb.AppendLine($"Applied successfully: {outcome.AddedGuids.Count} added, {outcome.ModifiedGuids.Count} modified, {outcome.RemovedGuids.Count} removed ({applied} operations in total).");
+        sb.AppendLine($"Canvas components affected by the operations that DID apply: {outcome.AddedGuids.Count} added, {outcome.ModifiedGuids.Count} modified (rewired or state-changed), {outcome.RemovedGuids.Count} removed.");
+
+        // The applied operations changed the canvas, so the base checksum the model generated this
+        // patch against is stale for the resubmission — hand it the fresh one verbatim.
+        if (!string.IsNullOrEmpty(outcome.PostApplyChecksum))
+        {
+            sb.AppendLine();
+            sb.AppendLine("The canvas HAS changed as a result of the applied operations. New base checksum — copy this verbatim into patch.base.checksum: " + outcome.PostApplyChecksum);
+        }
 
         return sb.ToString().TrimEnd();
     }

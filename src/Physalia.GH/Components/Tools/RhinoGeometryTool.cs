@@ -6,13 +6,13 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Text.Json;
-using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Parameters;
 using Grasshopper.Kernel.Types;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Common;
+using Physalia.GH.Generation;
 using Rhino;
 using Rhino.DocObjects;
 using Rhino.Geometry;
@@ -67,13 +67,6 @@ public class RhinoGeometryTool : ToolComponentBase
     private readonly List<Placement> _pending = new();
     private bool _idleHooked;
 
-    // Registry of the input parameters this node has placed on the canvas: each param's InstanceGuid,
-    // the unique name the model references it by (its nickname), and its geometry type. Persisted so
-    // references survive save/load. The Canvas Inputs grounder and the placement layer read this (via
-    // CollectReferenceableInputs) so a generated graph can wire onto an existing input rather than
-    // duplicate it. Stale entries (params the user deleted) are pruned each solve.
-    private readonly List<PlacedInput> _placed = new();
-
     /// <summary>
     /// Initializes a new instance of the <see cref="RhinoGeometryTool"/> class.
     /// </summary>
@@ -121,7 +114,7 @@ public class RhinoGeometryTool : ToolComponentBase
         string param = placement.IsPoint ? "Point" : "Curve";
         return ToolCallResult.Ok(
             $"Created a {what} named \"{finalName}\" in the Rhino document and placed a {param} parameter on the canvas referencing it. "
-            + $"To use it in a Node Graph, reference it by its exact name \"{finalName}\" (do not recreate it) and it will be wired onto this existing input.");
+            + $"It appears in the canvas state as \"{finalName}\" marked physalia.rhinoRef — wire FROM it as a data source; never recreate it or modify its value.");
     }
 
     /// <inheritdoc/>
@@ -176,10 +169,11 @@ public class RhinoGeometryTool : ToolComponentBase
             return;
         }
 
-        PruneMissing(ghDoc);
-
         PointF anchor = PlacementAnchor(ghDoc);
-        int row = _placed.Count;
+
+        // Stack below the referenced inputs already on the canvas (detected, not tracked — the
+        // params themselves are the registry).
+        int row = CanvasRhinoReferences.Collect(ghDoc).Count;
         foreach (Placement placement in batch)
         {
             IGH_Param? param = BakeAndReference(placement, rhinoDoc);
@@ -193,9 +187,6 @@ public class RhinoGeometryTool : ToolComponentBase
             param.Attributes.Pivot = anchor; // refined to a left-middle alignment once the bounds are known
             ghDoc.AddObject(param, false);
             AlignLeftMiddle(param, new PointF(anchor.X + TipRightGap, anchor.Y + (row * PlacementGapY)));
-
-            // Register the placed input so it can be referenced (not recreated) by a later graph.
-            _placed.Add(new PlacedInput(param.InstanceGuid, placement.Name, placement.IsPoint ? "Point" : "Curve"));
             row++;
         }
 
@@ -233,104 +224,15 @@ public class RhinoGeometryTool : ToolComponentBase
         param.Attributes.ExpireLayout();
     }
 
-    /// <inheritdoc/>
-    /// <remarks>Drops registry entries for params the user has since deleted, so the referenceable set stays accurate.</remarks>
-    protected override void OnSolveTick(IGH_DataAccess da)
-    {
-        base.OnSolveTick(da);
-        PruneMissing(OnPingDocument());
-    }
-
-    /// <inheritdoc/>
-    public override bool Write(GH_IWriter writer)
-    {
-        writer.SetInt32("PlacedInputCount", _placed.Count);
-        for (int i = 0; i < _placed.Count; i++)
-        {
-            writer.SetGuid("PlacedInputGuid", i, _placed[i].ParamGuid);
-            writer.SetString("PlacedInputName", i, _placed[i].Name);
-            writer.SetString("PlacedInputType", i, _placed[i].TypeName);
-        }
-
-        return base.Write(writer);
-    }
-
-    /// <inheritdoc/>
-    public override bool Read(GH_IReader reader)
-    {
-        _placed.Clear();
-        if (reader.ItemExists("PlacedInputCount"))
-        {
-            int count = reader.GetInt32("PlacedInputCount");
-            for (int i = 0; i < count; i++)
-            {
-                Guid guid = reader.GetGuid("PlacedInputGuid", i);
-                string name = reader.GetString("PlacedInputName", i);
-                string type = reader.GetString("PlacedInputType", i);
-                _placed.Add(new PlacedInput(guid, name, type));
-            }
-        }
-
-        return base.Read(reader);
-    }
-
-    /// <summary>
-    /// Collects the inputs currently referenceable in <paramref name="doc"/> — every parameter placed
-    /// by a <see cref="RhinoGeometryTool"/> that still exists on the canvas — as name + type + the live
-    /// parameter (whose output is itself). Names are unique (first wins on a collision across tools).
-    /// Read by the Canvas Inputs grounder and by the placement layer so a generated graph can wire onto
-    /// an existing input instead of duplicating it.
-    /// </summary>
-    /// <param name="doc">The Grasshopper document to scan, or null.</param>
-    /// <returns>The referenceable inputs.</returns>
-    internal static IReadOnlyList<ReferenceableInput> CollectReferenceableInputs(GH_Document? doc)
-    {
-        var result = new List<ReferenceableInput>();
-        if (doc is null)
-        {
-            return result;
-        }
-
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (RhinoGeometryTool tool in doc.Objects.OfType<RhinoGeometryTool>())
-        {
-            foreach (PlacedInput placed in tool._placed)
-            {
-                if (string.IsNullOrWhiteSpace(placed.Name) || !seen.Add(placed.Name))
-                {
-                    continue;
-                }
-
-                if (doc.FindObject(placed.ParamGuid, false) is IGH_Param param)
-                {
-                    result.Add(new ReferenceableInput(placed.Name, placed.TypeName, param));
-                }
-            }
-        }
-
-        return result;
-    }
-
-    // Removes registry entries whose parameter no longer exists in the document (user deleted it).
-    private void PruneMissing(GH_Document? doc)
-    {
-        if (doc is null || _placed.Count == 0)
-        {
-            return;
-        }
-
-        _placed.RemoveAll(p => doc.FindObject(p.ParamGuid, false) is not IGH_Param);
-    }
-
-    // Returns a reference name not already taken by another canvas input or an earlier pending
-    // placement in this batch: the requested name if free, else "<base>-2", "<base>-3", … A blank
-    // request falls back to the geometry kind ("curve", "point", …).
+    // Returns a reference name not already taken by another Rhino-referenced canvas param or an
+    // earlier pending placement in this batch: the requested name if free, else "<base>-2",
+    // "<base>-3", … A blank request falls back to the geometry kind ("curve", "point", …).
     private string UniqueInputName(string requested, string kind)
     {
         string baseName = string.IsNullOrWhiteSpace(requested) ? kind : requested.Trim();
 
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (ReferenceableInput input in CollectReferenceableInputs(OnPingDocument()))
+        foreach (ReferencedRhinoGeometry input in CanvasRhinoReferences.Collect(OnPingDocument()))
         {
             taken.Add(input.Name);
         }
@@ -574,18 +476,4 @@ public class RhinoGeometryTool : ToolComponentBase
         public static Placement ForCurve(string kind, Curve curve, string name) =>
             new(false, Point3d.Origin, curve, kind, name);
     }
-
-    // A parameter this node placed on the canvas: its InstanceGuid, the unique reference name (its
-    // nickname), and its geometry type. Persisted so references survive save/load.
-    private readonly record struct PlacedInput(Guid ParamGuid, string Name, string TypeName);
 }
-
-/// <summary>
-/// An input parameter already on the canvas that a generated graph can reference by name instead of
-/// recreating: its unique name, geometry type, and the live parameter (whose output is the parameter
-/// itself). Produced by <see cref="RhinoGeometryTool.CollectReferenceableInputs"/>.
-/// </summary>
-/// <param name="Name">The unique name the model references (the parameter's nickname).</param>
-/// <param name="TypeName">The geometry type the input carries (e.g. <c>Curve</c>, <c>Point</c>).</param>
-/// <param name="LiveOutput">The live parameter on the canvas (its own output is the geometry source).</param>
-public sealed record ReferenceableInput(string Name, string TypeName, IGH_Param LiveOutput);

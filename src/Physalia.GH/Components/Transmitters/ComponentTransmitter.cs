@@ -11,6 +11,7 @@ using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Signals;
+using Physalia.Core.Validation;
 using Physalia.GH.Attributes;
 using Physalia.GH.Generation;
 using Physalia.GH.Harness;
@@ -18,14 +19,18 @@ using Physalia.GH.Harness;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Takes an LLM-generated GhJSON graph (arriving as the consumed signal's payload), places
-/// the whole graph on the canvas to the right of this component, then routes the outcome.
-/// This component reports only <b>mechanical</b> placement problems — invalid GhJSON, a failed
-/// placement, wires the library could not create, and structural issues the fixer could not
-/// repair — back on the Fail Signal so the model can fix and resubmit. A clean placement routes
-/// the placed components' GUIDs forward on the Success Signal; a Canvas Observation wired downstream
-/// scopes its runtime-health scan (errors, warnings, dead components) to exactly those GUIDs.
-/// Each run removes the previous placement before placing the new graph.
+/// Takes an LLM-generated document (arriving as the consumed signal's payload) and applies it to
+/// the canvas, then routes the outcome. Two modes, detected from the payload itself:
+/// a <b>full GhJSON graph</b> is placed to the right of this component, with the previous
+/// placement removed first (regenerate-from-scratch semantics — presets and first generations);
+/// a <b>ghpatch</b> (<c>"kind": "ghpatch"</c>) edits the existing canvas IN PLACE — components are
+/// added, modified, removed, and rewired without disturbing anything else, and nothing is deleted
+/// wholesale, so the user can iterate on their definition with the model turn after turn. This
+/// component reports only <b>mechanical</b> problems — invalid input, a failed placement, patch
+/// operations that did not apply — back on the Fail Signal so the model can fix and resubmit. A
+/// clean outcome routes the affected components' GUIDs forward on the Success Signal; a Canvas
+/// Observation wired downstream scopes its runtime-health scan (errors, warnings, dead
+/// components) to exactly those GUIDs.
 /// </summary>
 public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 {
@@ -33,6 +38,9 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 
     private readonly List<Guid> _placedGuids = new();
     private string _pendingJson = string.Empty;
+    private bool _pendingIsPatch;
+    private CanvasPatchOutcome? _patchOutcome;
+    private bool _lenientBase;
     private string? _pushError;
     private IReadOnlyList<string> _placeWarnings = Array.Empty<string>();
     private IReadOnlyList<string> _unfixedIssues = Array.Empty<string>();
@@ -137,8 +145,19 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
     protected override void PushSolve(string data, IGH_DataAccess da)
     {
         _pushError = null;
+        _patchOutcome = null;
+        _pendingIsPatch = GhPatchDetector.IsGhPatch(data);
 
-        if (!GhJsonBridge.IsValidJson(data, out string? message))
+        if (_pendingIsPatch)
+        {
+            if (!GhJsonBridge.IsPatchJson(data, out string? patchMessage))
+            {
+                _pushError = $"Not a valid ghpatch: {patchMessage}";
+                RequestReadPass();
+                return;
+            }
+        }
+        else if (!GhJsonBridge.IsValidJson(data, out string? message))
         {
             _pushError = $"Not valid GhJSON: {message}";
             RequestReadPass();
@@ -147,8 +166,9 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 
         _pendingJson = data;
 
-        // Put() adds objects and triggers its own NewSolution, so it must run outside the
-        // current solution. RhinoApp.Idle fires on the UI thread once the solution has settled.
+        // Placement/patching adds and mutates objects and triggers its own NewSolution, so it must
+        // run outside the current solution. RhinoApp.Idle fires on the UI thread once the solution
+        // has settled.
         Rhino.RhinoApp.Idle += OnIdlePlace;
     }
 
@@ -165,12 +185,48 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
             return RoutingResult.Fail(_pushError, _pushError, GH_RuntimeMessageLevel.Error);
         }
 
+        if (_pendingIsPatch)
+        {
+            return ReadPatchOutcome();
+        }
+
         var connectionFailures = _placeWarnings.ToList();
         var unfixed = _unfixedIssues.ToList();
 
         return connectionFailures.Count == 0 && unfixed.Count == 0
             ? RoutingResult.Ok(SerializePlacedGuids())
             : RoutingResult.Fail(BuildFeedback(connectionFailures, unfixed), "Placement reported problems.", GH_RuntimeMessageLevel.Warning);
+    }
+
+    /// <summary>
+    /// Shapes the routing result for a patch application: a clean apply routes the added and
+    /// modified GUIDs forward (the Canvas Observation's scan scope); conflicts route feedback back
+    /// that tells the model exactly which operations did NOT apply — everything else did, so it
+    /// must resubmit only the corrected operations.
+    /// </summary>
+    /// <returns>The routing result.</returns>
+    private RoutingResult ReadPatchOutcome()
+    {
+        if (_patchOutcome is not { } outcome)
+        {
+            return RoutingResult.Fail("The patch produced no outcome.", "The patch produced no outcome.", GH_RuntimeMessageLevel.Error);
+        }
+
+        if (outcome.Success)
+        {
+            return RoutingResult.Ok(SerializeGuids(outcome.AddedGuids.Concat(outcome.ModifiedGuids)));
+        }
+
+        // A hard failure (nothing touched) carries its own model-facing message; a partial apply
+        // gets the op-by-op breakdown.
+        GH_RuntimeMessageLevel level = outcome.ErrorMessage is null
+            ? GH_RuntimeMessageLevel.Warning
+            : GH_RuntimeMessageLevel.Error;
+
+        return RoutingResult.Fail(
+            outcome.ErrorMessage ?? BuildPatchFeedback(outcome),
+            "The patch reported problems.",
+            level);
     }
 
     /// <inheritdoc/>
@@ -193,6 +249,16 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
                 Grasshopper.Instances.RedrawCanvas();
             },
             _placementOffset.HasValue);
+
+        ToolStripMenuItem lenient = Menu_AppendItem(
+            menu,
+            "Apply patches on base mismatch (lenient)",
+            (_, _) => _lenientBase = !_lenientBase,
+            enabled: true,
+            _lenientBase);
+        lenient.ToolTipText = "By default a ghpatch is refused when the canvas changed since the model last saw it "
+            + "(its base checksum no longer matches). Enable to apply such patches anyway — components matched by "
+            + "instanceGuid still resolve correctly, but wires addressed by integer id may land on the wrong component.";
     }
 
     /// <inheritdoc/>
@@ -203,6 +269,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
             writer.SetDrawingPointF("PlacementOffset", off);
         }
 
+        writer.SetBoolean("LenientBase", _lenientBase);
         return base.Write(writer);
     }
 
@@ -213,6 +280,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
             ? reader.GetDrawingPointF("PlacementOffset")
             : null;
 
+        _lenientBase = reader.ItemExists("LenientBase") && reader.GetBoolean("LenientBase");
         return base.Read(reader);
     }
 
@@ -223,6 +291,8 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
         _placedGuids.Clear();
         _pushError = null;
         _pendingJson = string.Empty;
+        _pendingIsPatch = false;
+        _patchOutcome = null;
         _placeWarnings = Array.Empty<string>();
         _unfixedIssues = Array.Empty<string>();
     }
@@ -239,24 +309,41 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 
         try
         {
-            RemovePreviouslyPlaced();
-            _placeWarnings = Array.Empty<string>();
-            _unfixedIssues = Array.Empty<string>();
-
             RectangleF bounds = Attributes.Bounds;
             PointF targetOrigin = PlacementTarget ?? new PointF(bounds.Right + PlacementGap, bounds.Y);
-            PlaceResult result = GhJsonBridge.LoadAndPlaceJson(_pendingJson, targetOrigin);
-            _unfixedIssues = result.UnfixedIssues;
 
-            if (!result.Success)
+            if (_pendingIsPatch)
             {
-                _pushError = $"Placement failed: {result.ErrorMessage}";
+                // Patch mode edits the existing canvas in place — nothing is removed first, and the
+                // canvas itself (not this component's bookkeeping) is the source of truth for what
+                // exists. A successful patch also retires the previous-placement list: those
+                // components have been adopted into the user's definition, so a later full-graph
+                // run must place alongside them, not delete them.
+                _patchOutcome = GhJsonBridge.ApplyPatchToCanvas(_pendingJson, targetOrigin, verifyBase: !_lenientBase);
+                if (_patchOutcome.Success)
+                {
+                    _placedGuids.Clear();
+                }
             }
             else
             {
-                _placedGuids.Clear();
-                _placedGuids.AddRange(result.PlacedGuids);
-                _placeWarnings = result.Warnings;
+                RemovePreviouslyPlaced();
+                _placeWarnings = Array.Empty<string>();
+                _unfixedIssues = Array.Empty<string>();
+
+                PlaceResult result = GhJsonBridge.LoadAndPlaceJson(_pendingJson, targetOrigin);
+                _unfixedIssues = result.UnfixedIssues;
+
+                if (!result.Success)
+                {
+                    _pushError = $"Placement failed: {result.ErrorMessage}";
+                }
+                else
+                {
+                    _placedGuids.Clear();
+                    _placedGuids.AddRange(result.PlacedGuids);
+                    _placeWarnings = result.Warnings;
+                }
             }
         }
         catch (Exception ex)
@@ -295,7 +382,46 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
     /// </summary>
     /// <returns>The placed GUIDs, one per line.</returns>
     private string SerializePlacedGuids() =>
-        string.Join(Environment.NewLine, _placedGuids.Select(g => g.ToString()));
+        SerializeGuids(_placedGuids);
+
+    private static string SerializeGuids(IEnumerable<Guid> guids) =>
+        string.Join(Environment.NewLine, guids.Select(g => g.ToString()));
+
+    /// <summary>
+    /// Builds the feedback payload routed back on the Fail Signal for a partially applied patch.
+    /// The ghpatch policy is "apply what can be applied, report the rest", so the wording must
+    /// stop the model from re-emitting the operations that DID land.
+    /// </summary>
+    /// <param name="outcome">The patch outcome carrying the conflicts.</param>
+    /// <returns>A model-facing feedback string.</returns>
+    private static string BuildPatchFeedback(CanvasPatchOutcome outcome)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Your ghpatch was PARTIALLY applied. The operations listed below did NOT apply; every other operation DID land on the canvas, so do not re-emit it. Re-read the current canvas state and resubmit a patch containing ONLY the corrected operations.");
+
+        sb.AppendLine();
+        sb.AppendLine("Operations that did not apply:");
+        foreach (string conflict in outcome.Conflicts)
+        {
+            sb.AppendLine($"  - {conflict}");
+        }
+
+        if (outcome.Warnings.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Warnings:");
+            foreach (string warning in outcome.Warnings)
+            {
+                sb.AppendLine($"  - {warning}");
+            }
+        }
+
+        int applied = outcome.AddedGuids.Count + outcome.ModifiedGuids.Count + outcome.RemovedGuids.Count;
+        sb.AppendLine();
+        sb.AppendLine($"Applied successfully: {outcome.AddedGuids.Count} added, {outcome.ModifiedGuids.Count} modified, {outcome.RemovedGuids.Count} removed ({applied} operations in total).");
+
+        return sb.ToString().TrimEnd();
+    }
 
     /// <summary>
     /// Builds the feedback payload routed back on the Fail Signal, listing the mechanical

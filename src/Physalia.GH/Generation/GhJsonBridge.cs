@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
-using System.Text.Json;
 using GhJSON.Core;
 using GhJSON.Core.SchemaModels;
 using GhJSON.Core.Serialization;
@@ -36,9 +35,11 @@ internal sealed record PlaceResult(
 
 /// <summary>
 /// Façade over the GhJSON library. All direct GhJSON API calls originate here;
-/// components interact with the library exclusively through this class.
+/// components interact with the library exclusively through this class. Partial: canvas-state
+/// export lives in <c>GhJsonBridge.CanvasState.cs</c>, ghpatch application in
+/// <c>GhJsonBridge.Patch.cs</c>.
 /// </summary>
-internal static class GhJsonBridge
+internal static partial class GhJsonBridge
 {
     /// <summary>
     /// True while <see cref="LoadAndPlace"/> is executing. Components that auto-place
@@ -241,62 +242,6 @@ internal static class GhJsonBridge
     }
 
     /// <summary>
-    /// Serialises a <see cref="PhySchemaDocument"/> (the LLM-authored, position-free definition)
-    /// to a GhJSON string, stamping each component with the canvas pivot computed by the caller.
-    /// </summary>
-    /// <param name="schema">The parsed PhySchema document.</param>
-    /// <param name="pivots">Canvas pivot positions keyed by component id; components without an
-    /// entry fall back to (50, 50).</param>
-    /// <returns>The GhJSON document as an indented string.</returns>
-    internal static string SerializePhySchema(PhySchemaDocument schema, IReadOnlyDictionary<int, PointF> pivots)
-    {
-        var components = new List<GhJsonComponent>();
-        foreach (PhySchemaComponent component in schema.Components ?? Array.Empty<PhySchemaComponent>())
-        {
-            PointF pivot = pivots.TryGetValue(component.Id, out PointF p) ? p : new PointF(50f, 50f);
-
-            var ghComponent = new GhJsonComponent
-            {
-                Name = component.Name,
-                Id = component.Id,
-                Pivot = new GhJsonPivot(pivot.X, pivot.Y),
-            };
-
-            // A model-supplied nickName is the canvas label (e.g. a slider named "Radius"); carry it
-            // through so the placed component reads clearly. Blank leaves the component's default label.
-            if (!string.IsNullOrWhiteSpace(component.NickName))
-            {
-                ghComponent.NickName = component.NickName;
-            }
-
-            if (Guid.TryParse(component.InstanceGuid, out Guid instanceGuid))
-            {
-                ghComponent.InstanceGuid = instanceGuid;
-            }
-
-            if (component.ComponentState is JsonElement state)
-            {
-                ghComponent.ComponentState = JsonConvert.DeserializeObject<GhJsonComponentState>(state.GetRawText());
-            }
-
-            components.Add(ghComponent);
-        }
-
-        var connections = new List<GhJsonConnection>();
-        foreach (PhySchemaConnection connection in schema.Connections ?? Array.Empty<PhySchemaConnection>())
-        {
-            connections.Add(new GhJsonConnection
-            {
-                From = new GhJsonConnectionEndpoint { Id = connection.From.Id, ParamName = connection.From.ParamName },
-                To = new GhJsonConnectionEndpoint { Id = connection.To.Id, ParamName = connection.To.ParamName },
-            });
-        }
-
-        var doc = new GhJsonDocument("1.0", metadata: null, components, connections, groups: null);
-        return GhJson.ToJson(doc, new WriteOptions { Indented = true });
-    }
-
-    /// <summary>
     /// Returns whether <paramref name="json"/> is a valid GhJSON document.
     /// </summary>
     /// <param name="json">The JSON string to validate.</param>
@@ -423,6 +368,20 @@ internal static class GhJsonBridge
     /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
     internal static PlaceResult LoadAndPlaceJson(string json, PointF targetOrigin)
     {
+        // A ghpatch parsed as a full document has no top-level components, which would surface as
+        // the misleading "contains no components to place". Name the real problem instead: a patch
+        // reached the full-document path (a routing bug, or a loaded build predating patch mode).
+        if (Physalia.Core.Validation.GhPatchDetector.IsGhPatch(json))
+        {
+            return new PlaceResult(
+                false, 0, 0, 0,
+                "This payload is a ghpatch (an incremental edit), but it reached the full-document "
+                + "placement path — it must be applied through the Component Transmitter's patch mode. "
+                + "If the Component Transmitter itself reported this, the loaded Physalia build predates "
+                + "patch support: rebuild and fully restart Rhino.",
+                Array.Empty<Guid>(), Array.Empty<string>(), Array.Empty<string>());
+        }
+
         GhJsonDocument doc = GhJson.FromJson(json);
         RelayoutLlmGraph(doc);
         return PlaceDocument(doc, targetOrigin);
@@ -474,14 +433,16 @@ internal static class GhJsonBridge
         {
             if (component.Id is int id && positions.TryGetValue(id, out PointF p))
             {
+                int x = (int)MathF.Round(p.X);
+                int y = (int)MathF.Round(p.Y);
                 if (component.Pivot is null)
                 {
-                    component.Pivot = new GhJsonPivot(p.X, p.Y);
+                    component.Pivot = new GhJsonPivot(x, y);
                 }
                 else
                 {
-                    component.Pivot.X = p.X;
-                    component.Pivot.Y = p.Y;
+                    component.Pivot.X = x;
+                    component.Pivot.Y = y;
                 }
             }
         }
@@ -516,14 +477,14 @@ internal static class GhJsonBridge
             return clusterPlan is null ? EmptyDocumentResult() : PlaceClustersOnly(clusterPlan);
         }
 
-        // Reference nodes: inputs already on the canvas (Rhino Geometry tool params) the model asked to
-        // wire into rather than recreate. Lift them out before Put — like clusters — and splice the
+        // Reference nodes: Rhino-referenced inputs already on the canvas the model asked to wire
+        // into rather than recreate. Lift them out before Put — like clusters — and splice the
         // graph onto the live parameters afterward. Unresolved references (a name no longer on the
         // canvas) are surfaced so the model can correct.
         var referenceIssues = new List<string>();
         ReferencePlan? referencePlan = ExtractReferences(
             ref doc,
-            RhinoGeometryTool.CollectReferenceableInputs(Grasshopper.Instances.ActiveCanvas?.Document),
+            CanvasRhinoReferences.Collect(Grasshopper.Instances.ActiveCanvas?.Document),
             referenceIssues);
 
         if (doc.Components is null || doc.Components.Count == 0)
@@ -918,7 +879,7 @@ internal static class GhJsonBridge
     // — the forgiving path — when its nickName matches a live input name. An explicit reference whose
     // name is not (or no longer) a live input is reported in <paramref name="unresolved"/> and dropped so
     // the model can correct. Returns null (leaving the document untouched) when there are no references.
-    private static ReferencePlan? ExtractReferences(ref GhJsonDocument doc, IReadOnlyList<ReferenceableInput> inputs, List<string> unresolved)
+    private static ReferencePlan? ExtractReferences(ref GhJsonDocument doc, IReadOnlyList<ReferencedRhinoGeometry> inputs, List<string> unresolved)
     {
         if (doc.Components is null || doc.Components.Count == 0)
         {
@@ -926,7 +887,7 @@ internal static class GhJsonBridge
         }
 
         var byName = new Dictionary<string, IGH_Param>(StringComparer.OrdinalIgnoreCase);
-        foreach (ReferenceableInput input in inputs)
+        foreach (ReferencedRhinoGeometry input in inputs)
         {
             if (!string.IsNullOrWhiteSpace(input.Name))
             {

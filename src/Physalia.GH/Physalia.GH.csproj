@@ -51,8 +51,8 @@
          GeneratePathProperty exposes $(PkgSystem_Drawing_Common) so ILRepack can still resolve
          references to it during the merge even though it never reaches the output dir. -->
     <PackageReference Include="System.Drawing.Common" Version="7.0.0" ExcludeAssets="runtime" GeneratePathProperty="true" />
-    <PackageReference Include="GhJSON.Core" Version="1.0.0" />
-    <PackageReference Include="GhJSON.Grasshopper" Version="1.0.0" />
+    <PackageReference Include="GhJSON.Core" Version="1.1.1" />
+    <PackageReference Include="GhJSON.Grasshopper" Version="1.1.1" />
     <!-- Build-time only: merges the managed dependency DLLs into the .gha (see RepackGha target). -->
     <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.45" PrivateAssets="all" />
   </ItemGroup>
@@ -219,6 +219,23 @@
 			<RepackDenyList Include="RhinoCodePlatform.GH" />
 			<RepackDenyList Include="RhinoCodePlatform.GH1" />
 			<RepackDenyList Include="Microsoft.Web.WebView2.Core" />
+			<!-- The JSON stack ships LOOSE, never merged. JsonSchema.Net (pinned to 7.2.2, what
+			     GhJSON.Core was compiled against) only ships a netstandard2.0 lib, whose init-only
+			     property call sites into System.Text.Json carry the ns2.0 flavor's modreq identity
+			     ([System.Text.Json]IsExternalInit); the net7.0 System.Text.Json we deploy declares
+			     those accessors against [System.Private.CoreLib]IsExternalInit. Loose, the runtime
+			     binds these fine (identical to the configuration the unit tests run); merged and
+			     internalized, ILRepack's typeref rewrite produces signatures that can never match
+			     and JsonSchema.Net dies with MissingMethodException (set_ObjectCreator) inside the
+			     .gha only. Keep every assembly of the stack in one flavor family and out of the
+			     merge. -->
+			<RepackDenyList Include="JsonSchema.Net" />
+			<RepackDenyList Include="Json.More" />
+			<RepackDenyList Include="JsonPointer.Net" />
+			<RepackDenyList Include="System.Text.Json" />
+			<RepackDenyList Include="System.Text.Encodings.Web" />
+			<RepackDenyList Include="System.IO.Pipelines" />
+			<RepackDenyList Include="Microsoft.Bcl.AsyncInterfaces" />
 		</ItemGroup>
 		<ItemGroup>
 			<!-- Candidate deps = every DLL in the output dir, minus the denylist. -->

@@ -7,6 +7,8 @@ metadata:
   originSessionId: ce95986e-bc71-44a8-a88e-40ec522eb3e9
 ---
 
+> **SUPERSEDED IN PART (2026-07-07)** — the reference-reuse machinery described in Follow-ups 1/3 is RETIRED: `CanvasInputGrounding`/`CanvasInputGrounder`/`CollectReferenceableInputs`/the tool's `_placed` registry are DELETED. Rhino references are now detected doc-side (`Generation/CanvasRhinoReferences` — goo with `IsReferencedGeometry`) and annotated into the canvas-state export as `physalia.rhinoRef`; the chat page is renamed "Referenced Rhino Geometry". See [[iterative-canvas-editing]]. The tool itself (bake+reference+place, arrow-tip placement, alias dedup via the detector) still works as described.
+
 Landed 2026-07-01 on branch `feat/add-rhino-geometry-python-nodes`. Builds clean (`dotnet build src/Physalia.slnx -c Debug`), 141 Core tests green, svelte-check clean. **Live Rhino test pending.** Four connected features:
 
 1. **Rhino Geometry tool** — new `src/Physalia.GH/Components/Tools/RhinoGeometryTool.cs` (`ToolComponentBase`, tool name `create_rhino_geometry`, GUID `7D3F1A94-…`). LLM supplies a geometry spec (point/line/polyline/curve/circle + points/degree/closed/radius/center/name); the tool BAKES a RhinoCommon object into `RhinoDoc.ActiveDoc.Objects` and drops a floating GH param (`Param_Point`/`Param_Curve`) that references it by GUID (`new GH_Curve { ReferenceID = id }` + `LoadGeometry(doc)` → `PersistentData.Append`). Doc mutation deferred to `RhinoApp.Idle` (mirrors ComponentTransmitter) — can't mutate GH/Rhino doc mid-solve. Purpose: give the definition a real Rhino input (e.g. a curve into a Python Script) instead of a slider.

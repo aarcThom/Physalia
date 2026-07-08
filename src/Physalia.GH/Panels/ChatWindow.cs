@@ -998,9 +998,11 @@ public class ChatWindow : Form
             toolsSelection = tsel.Names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
-        // Canvas-inputs grounding state (read-only page): the Rhino-referenced inputs on the canvas.
-        bool canvasInputsWired = conversationLog?.HasCanvasInputGrounding == true;
-        var canvasInputs = (conversationLog?.AvailableCanvasInputs ?? Array.Empty<CanvasInput>())
+        // Referenced Rhino geometry state (read-only page): the params on the canvas referencing
+        // live Rhino geometry, shown when a canvas-state grounding is wired (without it the model
+        // cannot see those params anyway).
+        bool referencedGeometryWired = conversationLog?.HasCanvasStateGrounding == true;
+        var availableReferencedGeometry = (conversationLog?.AvailableReferencedGeometry ?? Array.Empty<ReferencedGeometryInput>())
             .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
             .Select(i => new { name = i.Name, type = i.TypeName })
             .ToList();
@@ -1028,7 +1030,7 @@ public class ChatWindow : Form
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -1045,7 +1047,7 @@ public class ChatWindow : Form
             _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, canvasInputsWired, canvasInputs, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 

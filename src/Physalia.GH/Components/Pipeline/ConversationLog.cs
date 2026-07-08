@@ -92,9 +92,10 @@ public class ConversationLog : StatefulComponentBase
     private IReadOnlyList<ToolDefinition> _liveTools = Array.Empty<ToolDefinition>();
 
     // Caches of the other grounding kinds wired this solve, so every kind has a live read for the chat
-    // UI's grounding pages: the referenceable canvas inputs (Rhino Geometry params) and the available
-    // python functions.
-    private IReadOnlyList<CanvasInput> _liveCanvasInputs = Array.Empty<CanvasInput>();
+    // UI's grounding pages: whether a canvas-state grounding is wired, the Rhino-referenced geometry
+    // params detected on the canvas, and the available python functions.
+    private bool _hasCanvasStateGrounding;
+    private IReadOnlyList<ReferencedGeometryInput> _liveReferencedGeometry = Array.Empty<ReferencedGeometryInput>();
     private IReadOnlyList<PythonFunctionGrounding> _livePythonFunctions = Array.Empty<PythonFunctionGrounding>();
 
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
@@ -184,15 +185,18 @@ public class ConversationLog : StatefulComponentBase
     public ToolsSelection? ToolsSelectionOrNull => _toolsSelection;
 
     /// <summary>
-    /// Gets the referenceable canvas inputs wired via a Canvas Inputs grounding, for the chat UI's
-    /// grounding page. Empty when none is wired.
+    /// Gets the parameters on the canvas that reference live Rhino geometry (detected from the
+    /// document, not from any grounding), for the chat UI's Referenced Rhino Geometry page. Empty
+    /// when none exist.
     /// </summary>
-    public IReadOnlyList<CanvasInput> AvailableCanvasInputs => _liveCanvasInputs;
+    public IReadOnlyList<ReferencedGeometryInput> AvailableReferencedGeometry => _liveReferencedGeometry;
 
     /// <summary>
-    /// Gets a value indicating whether any canvas-inputs grounding is currently wired.
+    /// Gets a value indicating whether a canvas-state grounding is currently wired (so the chat UI
+    /// can show/hide the Referenced Rhino Geometry page — without the canvas state, the model
+    /// cannot see those parameters anyway).
     /// </summary>
-    public bool HasCanvasInputGrounding => _liveCanvasInputs.Count > 0;
+    public bool HasCanvasStateGrounding => _hasCanvasStateGrounding;
 
     /// <summary>
     /// Gets the python functions wired via a Python Function grounding, for the chat UI's grounding
@@ -593,13 +597,16 @@ public class ConversationLog : StatefulComponentBase
             .Select(g => g.First())
             .ToList();
 
-        // Canvas inputs and python functions, cached so every grounding kind has a live read for the
-        // chat UI's grounding pages.
-        _liveCanvasInputs = _liveGroundings
-            .OfType<CanvasInputGrounding>()
-            .SelectMany(g => g.Inputs ?? Array.Empty<CanvasInput>())
-            .Where(i => i is not null)
-            .ToList();
+        // Referenced Rhino geometry and python functions, cached so every grounding kind has a live
+        // read for the chat UI's grounding pages. The referenced-geometry list comes straight from
+        // the document (the params themselves are the registry), gated on a canvas-state grounding
+        // being wired — without it the model cannot see those params anyway.
+        _hasCanvasStateGrounding = _liveGroundings.OfType<CanvasStateGrounding>().Any();
+        _liveReferencedGeometry = _hasCanvasStateGrounding
+            ? Generation.CanvasRhinoReferences.Collect(OnPingDocument())
+                .Select(r => new ReferencedGeometryInput(r.Name, r.TypeName))
+                .ToList()
+            : Array.Empty<ReferencedGeometryInput>();
 
         _livePythonFunctions = _liveGroundings.OfType<PythonFunctionGrounding>().ToList();
     }

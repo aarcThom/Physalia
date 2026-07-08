@@ -28,13 +28,13 @@
 	import { getProvider } from '$lib/chat/providers';
 	import { cn } from '$lib/utils';
 	import type {
-		CanvasInputInfo,
 		ClusterInfo,
 		ClusterSelectionPayload,
 		ComponentTabInfo,
 		GroundingCategory,
 		GroundingSelectionPayload,
 		PythonFunctionInfo,
+		ReferencedGeometryInfo,
 		SetupResult,
 		SubmitMessage,
 		ToolsSelectionPayload,
@@ -82,9 +82,9 @@
 	let availableTools = $state<string[]>([]);
 	let toolsSelection = $state<string[] | null>(null);
 
-	// Canvas Inputs and Python grounding state (read-only pages).
-	let canvasInputsWired = $state(false);
-	let availableCanvasInputs = $state<CanvasInputInfo[]>([]);
+	// Referenced Rhino Geometry and Python grounding state (read-only pages).
+	let referencedGeometryWired = $state(false);
+	let availableReferencedGeometry = $state<ReferencedGeometryInfo[]>([]);
 	let pythonWired = $state(false);
 	let pythonFunctions = $state<PythonFunctionInfo[]>([]);
 
@@ -97,7 +97,7 @@
 
 	// The grounding button opens the panel whenever any grounding kind is wired.
 	let groundingAvailable = $derived(
-		groundingWired || clustersWired || toolsWired || canvasInputsWired || pythonWired || unitsWired
+		groundingWired || clustersWired || toolsWired || referencedGeometryWired || pythonWired || unitsWired
 	);
 
 	// The cluster names currently exposed to the model (selection applied), for the "/c/" autocomplete.
@@ -171,8 +171,8 @@
 				toolsWired = next.toolsWired ?? false;
 				availableTools = next.availableTools ?? [];
 				toolsSelection = next.toolsSelection ?? null;
-				canvasInputsWired = next.canvasInputsWired ?? false;
-				availableCanvasInputs = next.availableCanvasInputs ?? [];
+				referencedGeometryWired = next.referencedGeometryWired ?? false;
+				availableReferencedGeometry = next.availableReferencedGeometry ?? [];
 				pythonWired = next.pythonWired ?? false;
 				pythonFunctions = next.pythonFunctions ?? [];
 				unitsWired = next.unitsWired ?? false;
@@ -462,7 +462,7 @@
 					clusterSelection={clusterSelection}
 					tools={availableTools}
 					{toolsSelection}
-					canvasInputs={availableCanvasInputs}
+					referencedGeometry={availableReferencedGeometry}
 					{pythonFunctions}
 					{unitsWired}
 					{documentUnits}

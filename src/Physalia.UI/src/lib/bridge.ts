@@ -80,10 +80,10 @@ export interface UiState {
 	availableTools: string[];
 	/** The current tools selection (enabled tool names), or null = include everything (default). */
 	toolsSelection: string[] | null;
-	/** True when a Canvas Inputs grounding is wired into the Conversation Log. */
-	canvasInputsWired: boolean;
-	/** The Rhino-referenced inputs already on the canvas, for the Canvas Inputs page. */
-	availableCanvasInputs: CanvasInputInfo[];
+	/** True when a Canvas State grounding is wired into the Conversation Log (shows the Referenced Rhino Geometry page). */
+	referencedGeometryWired: boolean;
+	/** The parameters on the canvas that reference live Rhino geometry, for the Referenced Rhino Geometry page. */
+	availableReferencedGeometry: ReferencedGeometryInfo[];
 	/** True when a Python Function grounding is wired into the Conversation Log. */
 	pythonWired: boolean;
 	/** The python functions available to the model, for the Python page. */
@@ -118,8 +118,8 @@ export interface ClusterInfo {
 	outputs: string[];
 }
 
-/** One Rhino-referenced input already on the canvas, for the Canvas Inputs grounding page. */
-export interface CanvasInputInfo {
+/** One parameter on the canvas referencing live Rhino geometry, for the Referenced Rhino Geometry page. */
+export interface ReferencedGeometryInfo {
 	name: string;
 	type: string;
 }

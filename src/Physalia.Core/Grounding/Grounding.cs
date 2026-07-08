@@ -191,47 +191,53 @@ public sealed record PythonFunctionGrounding(string Signature, string Docstring)
 }
 
 /// <summary>
-/// Grounds the model with the inputs already placed on the canvas — the Rhino-referenced parameters
-/// dropped by the Rhino Geometry tool (or otherwise present). The model can wire one into a graph it
-/// generates instead of recreating it: it references the input by its exact name (as a node's nickName)
-/// and the placement layer splices the graph onto the live parameter. Without this, the model has no
-/// way to know those inputs exist and duplicates them.
+/// One parameter on the canvas that references live geometry in the Rhino model: its unique name
+/// (the parameter's nickname) and the geometry type it carries (e.g. <c>Curve</c>, <c>Point</c>).
+/// A plain DTO for the chat window's Referenced Rhino Geometry page — the model itself learns of
+/// these parameters through the canvas state, where they carry the <c>physalia.rhinoRef</c> marker.
 /// </summary>
-/// <param name="Inputs">The referenceable canvas inputs (name + geometry type).</param>
-public sealed record CanvasInputGrounding(IReadOnlyList<CanvasInput> Inputs) : Grounding
+/// <param name="Name">The unique name (the parameter's nickname).</param>
+/// <param name="TypeName">The geometry type the parameter carries.</param>
+public sealed record ReferencedGeometryInput(string Name, string TypeName);
+
+/// <summary>
+/// Grounds the model with the current state of the Grasshopper canvas — the user's work product
+/// serialized as GhJSON — so it can edit the definition incrementally instead of regenerating it.
+/// When this section is present the model is instructed to emit a ghpatch (add/modify/remove
+/// operations matched by instanceGuid) that changes only what the request requires; when the canvas
+/// is empty the section contributes nothing and the model naturally falls back to emitting a full
+/// GhJSON document. The checksum is a fingerprint of the exact exported text: the model copies it
+/// verbatim into <c>patch.base.checksum</c>, and the placement layer refuses to apply a patch whose
+/// checksum no longer matches a fresh export (the canvas changed since the model last saw it).
+/// </summary>
+/// <param name="GhJsonText">The canvas state serialized as GhJSON.</param>
+/// <param name="Checksum">Fingerprint of <paramref name="GhJsonText"/> (e.g. <c>sha256-…</c>).</param>
+/// <param name="ComponentCount">Number of components in the export; zero renders nothing.</param>
+public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, int ComponentCount) : Grounding
 {
     /// <inheritdoc/>
     public override string ToSystemPromptSection()
     {
-        if (Inputs is null || Inputs.Count == 0)
+        if (ComponentCount <= 0 || string.IsNullOrWhiteSpace(GhJsonText))
         {
             return string.Empty;
         }
 
-        var lines = Inputs
-            .Where(i => i is not null && !string.IsNullOrWhiteSpace(i.Name))
-            .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(i => string.IsNullOrWhiteSpace(i.TypeName) ? $"- {i.Name.Trim()}" : $"- {i.Name.Trim()} ({i.TypeName.Trim()})")
-            .ToList();
+        string checksumLine = string.IsNullOrWhiteSpace(Checksum)
+            ? string.Empty
+            : "\nBase checksum — copy this verbatim into patch.base.checksum: " + Checksum.Trim();
 
-        if (lines.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        return "These inputs already exist on the canvas — to use one, reference it by its exact name "
-            + "(set it as a node's nickName) instead of recreating it, and the graph will be wired onto "
-            + "the existing object:\n" + string.Join("\n", lines);
+        return "This is the CURRENT state of the Grasshopper canvas, serialized as GhJSON. It is the "
+            + "definition the user is building — edit it incrementally by emitting a ghpatch document: "
+            + "match existing components by their instanceGuid, reference connection endpoints by the "
+            + "integer id shown here, and change ONLY what the request requires. Never re-emit "
+            + "components that already exist and are not being changed. Components marked with the "
+            + "physalia.rhinoRef extension reference live geometry in the Rhino model — wire FROM them "
+            + "as data sources; never modify their values, remove them, or recreate them.\n"
+            + GhJsonText.Trim()
+            + checksumLine;
     }
 }
-
-/// <summary>
-/// One referenceable input already on the canvas: its unique reference name and the geometry type it
-/// carries (e.g. <c>Curve</c>, <c>Point</c>).
-/// </summary>
-/// <param name="Name">The unique name the model references (the parameter's nickname).</param>
-/// <param name="TypeName">The geometry type the input carries.</param>
-public sealed record CanvasInput(string Name, string TypeName);
 
 /// <summary>
 /// Grounds the model with the tools currently in use in the document — the tool nodes wired into a

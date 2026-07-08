@@ -28,12 +28,12 @@
 	import CodeIcon from '@lucide/svelte/icons/code';
 	import HappyFace from '$lib/chat/HappyFace.svelte';
 	import type {
-		CanvasInputInfo,
 		ClusterInfo,
 		ClusterSelectionPayload,
 		GroundingCategory,
 		GroundingSelectionPayload,
 		PythonFunctionInfo,
+		ReferencedGeometryInfo,
 		ToolsSelectionPayload,
 		UnitsOverridePayload
 	} from '$lib/bridge';
@@ -53,8 +53,8 @@
 		tools: string[];
 		/** Current enabled tool names, or null = include everything (default). */
 		toolsSelection: string[] | null;
-		/** Rhino-referenced inputs already on the canvas (read-only page). */
-		canvasInputs: CanvasInputInfo[];
+		/** Parameters on the canvas referencing live Rhino geometry (read-only page). */
+		referencedGeometry: ReferencedGeometryInfo[];
 		/** Python functions available to the model (read-only page). */
 		pythonFunctions: PythonFunctionInfo[];
 		/** True when a document-units grounding is wired (shows the Document Units pill). */
@@ -87,7 +87,7 @@
 		clusterSelection,
 		tools,
 		toolsSelection,
-		canvasInputs,
+		referencedGeometry,
 		pythonFunctions,
 		unitsWired,
 		documentUnits,
@@ -314,7 +314,7 @@
 			below to refine what's included.
 		</p>
 
-		{#if tree.length > 0 || clusters.length > 0 || tools.length > 0 || canvasInputs.length > 0 || pythonFunctions.length > 0 || unitsWired}
+		{#if tree.length > 0 || clusters.length > 0 || tools.length > 0 || referencedGeometry.length > 0 || pythonFunctions.length > 0 || unitsWired}
 			<div class="mt-4 flex flex-col gap-2">
 				{#if tree.length > 0}
 					<Button
@@ -355,15 +355,15 @@
 						</span>
 					</Button>
 				{/if}
-				{#if canvasInputs.length > 0}
+				{#if referencedGeometry.length > 0}
 					<Button
 						variant="outline"
 						class="h-auto w-full justify-start gap-2 py-2.5 text-left"
 						onclick={() => (view = 'canvas')}
 					>
 						<ShapesIcon class="size-4 shrink-0" />
-						<span class="flex-1">Canvas Inputs</span>
-						<span class="text-muted-foreground text-xs">{canvasInputs.length}</span>
+						<span class="flex-1">Referenced Rhino Geometry</span>
+						<span class="text-muted-foreground text-xs">{referencedGeometry.length}</span>
 					</Button>
 				{/if}
 				{#if pythonFunctions.length > 0}
@@ -571,14 +571,14 @@
 			</Button>
 		</div>
 
-		<h2 class="text-lg font-semibold">Canvas Inputs</h2>
+		<h2 class="text-lg font-semibold">Referenced Rhino Geometry</h2>
 		<p class="text-muted-foreground mt-1 text-sm">
-			Inputs already on the canvas (created by the Rhino Geometry tool) that the model can reference
-			by name — instead of recreating them — when it builds a graph.
+			Parameters on the canvas that reference live geometry in the Rhino model. The model sees them
+			in the canvas state and wires from them as data sources instead of recreating the geometry.
 		</p>
 
 		<div class="mt-4 flex flex-col gap-1">
-			{#each canvasInputs as input (input.name)}
+			{#each referencedGeometry as input (input.name)}
 				<div class="flex items-center gap-2 rounded px-2 py-1.5 text-sm">
 					<ShapesIcon class="text-muted-foreground size-4 shrink-0" />
 					<span class="flex-1 font-mono">{input.name}</span>

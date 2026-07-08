@@ -1,0 +1,579 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GhJSON or GhPatch",
+  "description": "Either a complete Grasshopper definition (a full GhJSON document) or an incremental edit to the definition already on the canvas (a ghpatch document). Which to emit: when the prompt contains the CURRENT canvas state, emit a ghpatch that changes only what the request requires; when no canvas state is present (or it is empty), emit a full GhJSON document. Output exactly one of the two structures — no prose, no markdown fences, no explanation. Only the raw JSON object.",
+  "oneOf": [
+    { "$ref": "#/$defs/ghpatchDocument" },
+    { "$ref": "#/$defs/fullDocument" }
+  ],
+
+  "rules": [
+    "MODE: canvas state present in the prompt -> ghpatch (\"kind\": \"ghpatch\"). No canvas state, or an empty canvas -> full GhJSON document. Never regenerate the whole graph when a canvas state is present.",
+    "name must exactly match the component's name in the Grasshopper library (case-sensitive), e.g. 'Addition', 'Construct Point', 'Number Slider'.",
+    "The grounding's installed-component list, when present, is the sole source of truth for which components may be placed: use only names it contains — plug-in components are allowed when listed, and unlisted components are not allowed however common. Without such a list, keep to native Grasshopper components. Do NOT use any scripting components (Python 3 Script, C# Script, GhPython, VB Script, or any other code-bearing node).",
+    "Every component needs a unique integer id; connections reference this id. In a ghpatch, existing components keep the ids shown in the canvas state, and every ADDED component gets a fresh id HIGHER than the highest id in the canvas state.",
+    "Every component needs a pivot 'X,Y'. Full document: lay the graph out left to right following data flow, about 150 units between stages (X) and 80 between parallel inputs (Y). Ghpatch: read the existing pivots in the canvas state and place additions so they continue the flow without overlapping.",
+    "connections has one entry per wired input. Reference each endpoint by { id, paramIndex }: paramIndex is the parameter's zero-based position in the component's OUTPUT list (for 'from') or INPUT list (for 'to'), counting in the order shown in componentCatalog (or the component's installed order). paramName is optional and for readability only; the wire is matched by paramIndex.",
+    "Number Slider value uses the format 'default<min~max>', e.g. '5<0~10>', at componentState.extensions['gh.numberslider'].value. This is the most common mistake — do not use a plain number.",
+    "Give every Number Slider (and other input source) a nickName naming what it controls — 'Radius', 'Height' — never the default label.",
+    "Colours use the prefixed string 'argb:A,R,G,B', each channel 0-255.",
+    "GHPATCH: match every existing component you modify or remove by its instanceGuid copied exactly from the canvas state; never match by name. Copy the canvas state's base checksum verbatim into patch.base.checksum. Connections cannot be modified — remove the old wire and add the new one. Change slider values and panel text by MODIFYING the component's extensions in place, not by remove-and-re-add. Removing a component removes its wires too. Never re-emit components that are not being changed.",
+    "Components marked with the physalia.rhinoRef extension in the canvas state reference live geometry in the Rhino model. Wire FROM them by their id as data sources; never modify their values, remove them, or recreate them.",
+    "GHPATCH FEEDBACK: if some operations are reported as not applied, everything else DID land — resubmit a patch containing ONLY the corrected operations, regenerated against the current canvas state.",
+    "FULL DOCUMENT: do not leave a non-source component's inputs all unwired; source components (Number Slider, Panel as input, Boolean Toggle, value params) legitimately have none. instanceGuid may be omitted (regenerated on placement). Omit document metadata and groups."
+  ],
+
+  "componentCatalog": {
+    "description": "Parameters for common Grasshopper components, listed in order. A parameter's paramIndex is its zero-based position in the inputs or outputs array below (first = 0). Components with no inputs are data sources. This is a convenience listing, not the set of allowed components — that set comes from the grounding's installed-component list.",
+    "components": [
+      { "name": "Number Slider",   "inputs": [],                               "outputs": ["Number"]    },
+      { "name": "Boolean Toggle",  "inputs": [],                               "outputs": ["Boolean"]   },
+      { "name": "Panel",           "inputs": ["Input"],                        "outputs": ["Output"]    },
+      { "name": "Value List",      "inputs": [],                               "outputs": ["Value"]     },
+
+      { "name": "Addition",        "inputs": ["A", "B"],                       "outputs": ["Result"]    },
+      { "name": "Subtraction",     "inputs": ["A", "B"],                       "outputs": ["Result"]    },
+      { "name": "Multiplication",  "inputs": ["A", "B"],                       "outputs": ["Result"]    },
+      { "name": "Division",        "inputs": ["A", "B"],                       "outputs": ["Result"]    },
+      { "name": "Negative",        "inputs": ["Value"],                        "outputs": ["Output"]    },
+      { "name": "Absolute Value",  "inputs": ["Value"],                        "outputs": ["Result"]    },
+      { "name": "Power",           "inputs": ["A", "B"],                       "outputs": ["Result"]    },
+      { "name": "Square Root",     "inputs": ["Value"],                        "outputs": ["Result"]    },
+      { "name": "Series",          "inputs": ["Start", "Step", "Count"],       "outputs": ["Series"]    },
+      { "name": "Range",           "inputs": ["Domain", "Steps"],              "outputs": ["Range"]     },
+
+      { "name": "Construct Point", "inputs": ["X", "Y", "Z"],                  "outputs": ["Pt"]        },
+      { "name": "Vector XYZ",      "inputs": ["X", "Y", "Z"],                  "outputs": ["Vector"]    },
+      { "name": "Amplitude",       "inputs": ["Vector", "Amplitude"],          "outputs": ["Vector"]    },
+
+      { "name": "Line",            "inputs": ["A", "B"],                       "outputs": ["Line"]      },
+      { "name": "Circle",          "inputs": ["Plane", "Radius"],              "outputs": ["Circle"]    },
+      { "name": "Arc 3Pt",         "inputs": ["A", "B", "C"],                  "outputs": ["Arc"]       },
+      { "name": "Polyline",        "inputs": ["Vertices", "Closed"],           "outputs": ["Polyline"]  },
+
+      { "name": "Sphere",          "inputs": ["Base", "Radius"],               "outputs": ["Sphere"]    },
+      { "name": "Pipe",            "inputs": ["Curve", "Radius"],              "outputs": ["Brep"]      },
+      { "name": "Loft",            "inputs": ["Curves"],                       "outputs": ["Loft"]      },
+      { "name": "Extrude",         "inputs": ["Base", "Direction"],            "outputs": ["Extrusion"] },
+
+      { "name": "Move",            "inputs": ["Geometry", "Motion"],           "outputs": ["Geometry"]  },
+      { "name": "Rotate",          "inputs": ["Geometry", "Angle", "Plane"],   "outputs": ["Geometry"]  },
+      { "name": "Scale",           "inputs": ["Geometry", "Factor", "Center"], "outputs": ["Geometry"]  }
+    ]
+  },
+
+  "$defs": {
+    "fullDocument": {
+      "type": "object",
+      "description": "A complete Grasshopper definition, placed on the canvas from scratch.",
+      "required": ["schema", "components"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "type": "string",
+          "description": "GhJSON schema version. Always use '1.0'.",
+          "const": "1.0"
+        },
+        "components": {
+          "type": "array",
+          "description": "All Grasshopper components in the definition.",
+          "items": { "$ref": "#/$defs/component" }
+        },
+        "connections": {
+          "type": "array",
+          "description": "Wires between component parameters. One entry per wire.",
+          "items": { "$ref": "#/$defs/connection" }
+        }
+      }
+    },
+
+    "ghpatchDocument": {
+      "type": "object",
+      "description": "An incremental edit to the definition already on the canvas.",
+      "required": ["kind", "patch"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "type": "string",
+          "description": "GhJSON schema version. Always use '1.0'.",
+          "const": "1.0"
+        },
+        "kind": {
+          "type": "string",
+          "description": "Document discriminator. Always 'ghpatch'.",
+          "const": "ghpatch"
+        },
+        "patch": {
+          "type": "object",
+          "description": "The patch body: what to add, modify, and remove.",
+          "additionalProperties": false,
+          "properties": {
+            "base": {
+              "type": "object",
+              "description": "The canvas state this patch was written against.",
+              "additionalProperties": false,
+              "properties": {
+                "schema":   { "type": "string", "description": "Base schema version, '1.0'." },
+                "checksum": { "type": "string", "description": "The base checksum, copied VERBATIM from the canvas state in the prompt." }
+              }
+            },
+            "components": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "add": {
+                  "type": "array",
+                  "description": "Full component objects to place (fresh id above the canvas state's highest; omit instanceGuid).",
+                  "items": { "$ref": "#/$defs/component" }
+                },
+                "remove": {
+                  "type": "array",
+                  "description": "Components to delete, each matched by instanceGuid.",
+                  "items": { "$ref": "#/$defs/componentMatch" }
+                },
+                "modify": {
+                  "type": "array",
+                  "description": "In-place edits to existing components.",
+                  "items": { "$ref": "#/$defs/componentModify" }
+                }
+              }
+            },
+            "connections": {
+              "type": "object",
+              "description": "Wire operations. Wires are immutable: move one by removing the old entry and adding the new.",
+              "additionalProperties": false,
+              "properties": {
+                "add":    { "type": "array", "items": { "$ref": "#/$defs/connection" } },
+                "remove": { "type": "array", "items": { "$ref": "#/$defs/connection" } }
+              }
+            },
+            "groups": {
+              "type": "object",
+              "description": "Group operations. Optional — most edits need none.",
+              "additionalProperties": false,
+              "properties": {
+                "add": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name":    { "type": "string" },
+                      "color":   { "$ref": "#/$defs/argbString" },
+                      "members": { "type": "array", "items": { "type": "integer" } }
+                    }
+                  }
+                },
+                "remove": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "instanceGuid": { "type": "string" },
+                      "id":           { "type": "integer" }
+                    }
+                  }
+                },
+                "modify": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["match"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "match": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "instanceGuid": { "type": "string" },
+                          "id":           { "type": "integer" }
+                        }
+                      },
+                      "set": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "name":  { "type": "string" },
+                          "color": { "$ref": "#/$defs/argbString" }
+                        }
+                      },
+                      "members": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "add":    { "type": "array", "items": { "type": "integer" } },
+                          "remove": { "type": "array", "items": { "type": "integer" } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "componentMatch": {
+      "type": "object",
+      "description": "Identifies one existing component. Always use instanceGuid, copied exactly from the canvas state.",
+      "required": ["instanceGuid"],
+      "additionalProperties": false,
+      "properties": {
+        "instanceGuid": {
+          "type": "string",
+          "description": "The component's instanceGuid from the canvas state.",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        }
+      }
+    },
+
+    "componentModify": {
+      "type": "object",
+      "description": "An in-place edit: which component (match) and what changes. Include only the fields that change.",
+      "required": ["match"],
+      "additionalProperties": false,
+      "properties": {
+        "match": { "$ref": "#/$defs/componentMatch" },
+        "set": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "nickName": { "type": "string", "description": "New on-canvas label." },
+            "pivot":    { "type": "string", "description": "New canvas position 'X,Y'.", "pattern": "^-?\\d+(\\.\\d+)?,-?\\d+(\\.\\d+)?$" }
+          }
+        },
+        "componentState": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "set": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "locked": { "type": "boolean", "description": "Disable (true) or enable (false) the component." },
+                "hidden": { "type": "boolean", "description": "Hide (true) or show (false) its preview." }
+              }
+            },
+            "extensions": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "set": {
+                  "type": "object",
+                  "description": "Component-type-specific values to overwrite, keyed by extension name — e.g. { \"gh.numberslider\": { \"value\": \"5<0~50>\" } }. Same encodings as the extensions definitions below.",
+                  "additionalProperties": { "type": "object" }
+                }
+              }
+            }
+          }
+        },
+        "inputSettings": {
+          "type": "object",
+          "description": "Per-input setting changes keyed by the parameter's full name. Rarely needed.",
+          "additionalProperties": false,
+          "properties": {
+            "byParameterName": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "set": { "type": "object", "additionalProperties": true }
+                }
+              }
+            }
+          }
+        },
+        "outputSettings": {
+          "type": "object",
+          "description": "Per-output setting changes keyed by the parameter's full name. Rarely needed.",
+          "additionalProperties": false,
+          "properties": {
+            "byParameterName": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "set": { "type": "object", "additionalProperties": true }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "component": {
+      "type": "object",
+      "required": ["name", "id", "pivot"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Component display name, exactly as it appears in the Grasshopper library, e.g. 'Addition', 'Number Slider', 'Sphere'."
+        },
+        "id": {
+          "type": "integer",
+          "description": "Unique integer identifier, referenced by the connections array. In a ghpatch add, HIGHER than the highest id in the canvas state.",
+          "minimum": 1
+        },
+        "pivot": {
+          "$ref": "#/$defs/pivot"
+        },
+        "instanceGuid": {
+          "type": "string",
+          "description": "Optional UUID v4. Regenerated on placement, so it may be omitted; omit it on ghpatch adds.",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        },
+        "componentGuid": {
+          "type": "string",
+          "description": "Optional component-type GUID. Leave this out — it is filled in from the live library. Do not invent a value.",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        },
+        "nickName": {
+          "type": "string",
+          "description": "On-canvas label. Set it on every input source — most importantly a Number Slider — to name what it controls (e.g. 'Radius', 'Height')."
+        },
+        "componentState": {
+          "$ref": "#/$defs/componentState"
+        },
+        "inputSettings": {
+          "type": "array",
+          "description": "Optional per-input parameter settings. Only needed to change a parameter's behaviour; omit otherwise.",
+          "items": { "$ref": "#/$defs/parameterSettings" }
+        },
+        "outputSettings": {
+          "type": "array",
+          "description": "Optional per-output parameter settings. Omit unless changing an output's behaviour.",
+          "items": { "$ref": "#/$defs/parameterSettings" }
+        }
+      }
+    },
+
+    "pivot": {
+      "type": "string",
+      "description": "Canvas position as 'X,Y' (numbers may be negative or decimal), e.g. '100,200'.",
+      "pattern": "^-?\\d+(\\.\\d+)?,-?\\d+(\\.\\d+)?$",
+      "examples": ["100,100", "300,125", "-50.5,300.25"]
+    },
+
+    "componentState": {
+      "type": "object",
+      "description": "Optional UI state and component-type-specific values. Omit for standard components that need no special state.",
+      "additionalProperties": true,
+      "properties": {
+        "selected": { "type": "boolean", "description": "Whether the component is selected on the canvas." },
+        "locked":   { "type": "boolean", "description": "Whether the component is locked (disabled)." },
+        "hidden":   { "type": "boolean", "description": "Whether the component's preview is hidden." },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      }
+    },
+
+    "extensions": {
+      "type": "object",
+      "description": "Component-type-specific values, keyed by extension name. Use only the key that matches the component (e.g. a Number Slider uses 'gh.numberslider').",
+      "additionalProperties": false,
+      "properties": {
+        "gh.numberslider": { "$ref": "#/$defs/ext_numberslider" },
+        "gh.panel":        { "$ref": "#/$defs/ext_panel" },
+        "gh.valuelist":    { "$ref": "#/$defs/ext_valuelist" },
+        "gh.toggle":       { "$ref": "#/$defs/ext_toggle" },
+        "gh.button":       { "$ref": "#/$defs/ext_button" },
+        "gh.scribble":     { "$ref": "#/$defs/ext_scribble" }
+      }
+    },
+
+    "ext_numberslider": {
+      "type": "object",
+      "description": "Number Slider state. Used on a component whose name is 'Number Slider'.",
+      "required": ["value"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "type": "string",
+          "description": "Slider value as 'default<min~max>'. The default sits between min and max. Decimal places set the slider's precision.",
+          "pattern": "^-?\\d+(\\.\\d+)?<-?\\d+(\\.\\d+)?~-?\\d+(\\.\\d+)?>$",
+          "examples": ["5<0~10>", "3.5<0~10>", "1<-5~5>", "2<0.1~5>"]
+        },
+        "rounding": {
+          "type": "string",
+          "description": "Optional rounding mode.",
+          "enum": ["Float", "Integer", "Even", "Odd"]
+        }
+      }
+    },
+
+    "ext_panel": {
+      "type": "object",
+      "description": "Panel state. A Panel with no input wire shows its own static 'text'; a Panel wired from upstream displays that data.",
+      "additionalProperties": false,
+      "properties": {
+        "text":      { "type": "string",  "description": "Static text content." },
+        "multiline": { "type": "boolean", "description": "Whether text wraps onto multiple lines." },
+        "wrap":      { "type": "boolean", "description": "Whether text wraps within the panel width." },
+        "alignment": { "type": "string",  "description": "Text alignment.", "enum": ["Left", "Center", "Right"] },
+        "color":     { "$ref": "#/$defs/argbString" }
+      }
+    },
+
+    "ext_valuelist": {
+      "type": "object",
+      "description": "Value List state.",
+      "additionalProperties": false,
+      "properties": {
+        "listMode": {
+          "type": "string",
+          "description": "Display mode for the list.",
+          "enum": ["DropDown", "Sequence", "CheckList", "Cycle"]
+        },
+        "items": {
+          "type": "array",
+          "description": "List entries.",
+          "items": {
+            "type": "object",
+            "required": ["name", "expression"],
+            "additionalProperties": false,
+            "properties": {
+              "name":       { "type": "string",  "description": "Display label for the entry." },
+              "expression": { "type": "string",  "description": "Value the entry outputs, e.g. '0', '1', '\"a\"'." },
+              "selected":   { "type": "boolean", "description": "Whether this entry is selected." }
+            }
+          }
+        }
+      }
+    },
+
+    "ext_toggle": {
+      "type": "object",
+      "description": "Boolean Toggle state.",
+      "additionalProperties": false,
+      "properties": {
+        "value": { "type": "boolean", "description": "The toggle's boolean value." }
+      }
+    },
+
+    "ext_button": {
+      "type": "object",
+      "description": "Button state.",
+      "additionalProperties": false,
+      "properties": {
+        "value": { "type": "boolean", "description": "The button's resting boolean value." }
+      }
+    },
+
+    "ext_scribble": {
+      "type": "object",
+      "description": "Scribble (canvas text note) state.",
+      "required": ["text", "corners"],
+      "additionalProperties": false,
+      "properties": {
+        "text":       { "type": "string",  "description": "The note text." },
+        "corners": {
+          "type": "array",
+          "description": "Exactly three corner offsets 'x,y' relative to the pivot: [A, B, D]. The fourth corner is derived as B + D - A.",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "type": "string", "pattern": "^-?\\d+(\\.\\d+)?,-?\\d+(\\.\\d+)?$" }
+        },
+        "fontFamily": { "type": "string",  "description": "Optional font family." },
+        "fontSize":   { "type": "number",  "description": "Optional font size in points." },
+        "bold":       { "type": "boolean", "description": "Optional bold flag." },
+        "italic":     { "type": "boolean", "description": "Optional italic flag." }
+      }
+    },
+
+    "parameterSettings": {
+      "type": "object",
+      "description": "Settings for a single input or output parameter. Only include the fields you need to change.",
+      "required": ["parameterName"],
+      "additionalProperties": false,
+      "properties": {
+        "parameterName":   { "type": "string",  "description": "The parameter's full Name." },
+        "nickName":        { "type": "string",  "description": "Optional custom nickname." },
+        "dataMapping":     { "type": "string",  "description": "Data tree mapping mode.", "enum": ["none", "flatten", "graft"] },
+        "expression":      { "type": "string",  "description": "Expression that transforms the parameter's data." },
+        "isReversed":      { "type": "boolean", "description": "Reverse the parameter's data order." },
+        "isSimplified":    { "type": "boolean", "description": "Simplify the parameter's data tree." },
+        "isReparameterized": { "type": "boolean", "description": "Reparameterize the parameter's domain." }
+      }
+    },
+
+    "connection": {
+      "type": "object",
+      "description": "A single wire from a source output to a target input.",
+      "required": ["from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "allOf": [{ "$ref": "#/$defs/connectionEndpoint" }],
+          "description": "Source endpoint (an output parameter)."
+        },
+        "to": {
+          "allOf": [{ "$ref": "#/$defs/connectionEndpoint" }],
+          "description": "Target endpoint (an input parameter)."
+        }
+      }
+    },
+
+    "connectionEndpoint": {
+      "type": "object",
+      "description": "One end of a wire. 'id' selects the component; 'paramIndex' selects the parameter.",
+      "required": ["id", "paramIndex"],
+      "additionalProperties": false,
+      "properties": {
+        "id":         { "type": "integer", "description": "The component's id.", "minimum": 1 },
+        "paramIndex": { "type": "integer", "description": "Zero-based position of the parameter within the component's OUTPUT list (for 'from') or INPUT list (for 'to'). This is how the wire is matched; always include it.", "minimum": 0 },
+        "paramName":  { "type": "string",  "description": "Optional human-readable parameter label. For readability only; matching uses paramIndex." }
+      }
+    },
+
+    "argbString": {
+      "type": "string",
+      "description": "Colour as 'argb:A,R,G,B', each channel 0-255.",
+      "pattern": "^argb:\\d{1,3},\\d{1,3},\\d{1,3},\\d{1,3}$",
+      "examples": ["argb:255,200,220,240"]
+    }
+  },
+
+  "examples": [
+    {
+      "schema": "1.0",
+      "components": [
+        { "name": "Number Slider", "id": 1, "pivot": "0,0",     "nickName": "Radius", "componentState": { "extensions": { "gh.numberslider": { "value": "5<0~10>" } } } },
+        { "name": "Circle",        "id": 2, "pivot": "200,0" }
+      ],
+      "connections": [
+        { "from": { "id": 1, "paramIndex": 0, "paramName": "Number" }, "to": { "id": 2, "paramIndex": 1, "paramName": "Radius" } }
+      ]
+    },
+    {
+      "schema": "1.0",
+      "kind": "ghpatch",
+      "patch": {
+        "base": { "schema": "1.0", "checksum": "sha256-abcd1234ef567890" },
+        "components": {
+          "modify": [
+            {
+              "match": { "instanceGuid": "11111111-1111-1111-1111-111111111111" },
+              "componentState": { "extensions": { "set": { "gh.numberslider": { "value": "12<0~50>" } } } }
+            }
+          ],
+          "add": [
+            { "name": "Pipe", "id": 7, "pivot": "600,120" },
+            { "name": "Number Slider", "id": 8, "pivot": "400,260", "nickName": "Pipe Radius", "componentState": { "extensions": { "gh.numberslider": { "value": "1<0.1~5>" } } } }
+          ]
+        },
+        "connections": {
+          "add": [
+            { "from": { "id": 4, "paramIndex": 0, "paramName": "Circle" }, "to": { "id": 7, "paramIndex": 0, "paramName": "Curve" } },
+            { "from": { "id": 8, "paramIndex": 0, "paramName": "Number" }, "to": { "id": 7, "paramIndex": 1, "paramName": "Radius" } }
+          ]
+        }
+      }
+    }
+  ]
+}

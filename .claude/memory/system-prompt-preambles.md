@@ -11,8 +11,8 @@ System Prompt (`Components/Core/SystemPrompt.cs`) assembles a system prompt from
 
 **Gotcha:** `System Prompt.IsTextFile` resolves only `.txt`/`.json`/`.yaml`/`.yml` — **`.md` is NOT picked up**. Preambles must be `.txt` (prose); schemas are `.json`.
 
-Two preambles created 2026-06-13 in `Files/SYSTEM_PROMPTS/PREAMBLE/`:
-- **`Python3 Script.txt`** — pairs with `SCHEMA/PythonComponent.json` (writes a GH Python 3 Script component: inputs/outputs as named vars, RhinoCommon, tolerate unconnected inputs).
-- **`Node Graph.txt`** — format-agnostic, pairs with either `SCHEMA/GhJSONSchema.json` (direct path → [[component-transmitter]]) or `SCHEMA/PhySchema.json` (layout-pass path → SchemaTranslator). Frames decomposing a request into wired Grasshopper components; defers exact field/connection/value-encoding rules to the appended schema.
+**Cleaned up 2026-07-07 to exactly TWO symmetric pairs** (all minified variants, PhySchema, GhJSONSchema, and the standalone GhPatchSchema DELETED; the dead PhySchema code path — `Generation/PhySchema.cs`, `GhJsonBridge.SerializePhySchema`, the `HierarchicalLayout` PhySchema overload — deleted with them):
+- **`PREAMBLE/Node Graph.txt` ↔ `SCHEMA/Node Graph.json`** — the node-based pair, INCLUDING patching: the schema is a `oneOf` umbrella (full GhJSON document | ghpatch), the preamble carries the mode rule (canvas state present → emit ghpatch; else full document), instanceGuid matching, checksum copy, and the physalia.rhinoRef rule. See [[iterative-canvas-editing]].
+- **`PREAMBLE/Python3 Script.txt` ↔ `SCHEMA/Python3 Script.json`** (renamed from Python3Schema.json) — writes a GH Python 3 Script component.
 
-Both end with "emit nothing but the final JSON object" and mention the error-feedback loop (a failed/disconnected component returned as feedback → fix and resubmit), matching the LLM Call→Schema Validator→PyTransmitter/ComponentTransmitter agentic loop. Build copies them to `bin\...\Files\SYSTEM_PROMPTS\PREAMBLE\` via the same `CopyLibraryFiles` glob.
+Both end with "emit nothing but the final JSON object" and mention the error-feedback loop (a failed/disconnected component or unapplied patch op returned as feedback → fix and resubmit). `PromptSchemaAssetTests` self-validates each schema's embedded examples against itself (this caught a stray `description` field in the Python example). Build copies to `bin\...\Files\SYSTEM_PROMPTS\` via the `CopyLibraryFiles` glob.

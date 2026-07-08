@@ -9,11 +9,10 @@ using System.Linq;
 namespace Physalia.GH.Generation;
 
 /// <summary>
-/// Computes a Sugiyama-style hierarchical layout for a <see cref="PhySchemaDocument"/>.
-/// Components are assigned to layers by longest-path from sources and positioned
-/// left-to-right by data flow; within each layer they are ordered top-to-bottom by the
-/// barycenter heuristic to reduce edge crossings. The result is a map from each
-/// component's integer id to its canvas pivot — the document itself is never mutated.
+/// Computes a Sugiyama-style hierarchical layout for an id-graph of components. Nodes are
+/// assigned to layers by longest-path from sources and positioned left-to-right by data flow;
+/// within each layer they are ordered top-to-bottom by the barycenter heuristic to reduce edge
+/// crossings. The result is a map from each node's integer id to its canvas pivot.
 /// </summary>
 public static class HierarchicalLayout
 {
@@ -26,32 +25,6 @@ public static class HierarchicalLayout
     private const float OriginY = 50f;
 
     // PUBLIC API ===================================================================
-
-    /// <summary>
-    /// Computes a left-to-right hierarchical pivot for every component in the schema.
-    /// Components are layered by data-flow depth; pure source components are pulled
-    /// rightward to sit immediately left of their earliest consumer.
-    /// </summary>
-    /// <param name="schema">The PhySchema document to lay out.</param>
-    /// <returns>A map from component id to its computed canvas pivot.</returns>
-    public static IReadOnlyDictionary<int, PointF> ComputePositions(PhySchemaDocument schema)
-    {
-        ArgumentNullException.ThrowIfNull(schema);
-
-        if (schema.Components is null || schema.Components.Count == 0)
-            return new Dictionary<int, PointF>();
-
-        var nodeIds = new HashSet<int>();
-        foreach (var component in schema.Components)
-            nodeIds.Add(component.Id);
-
-        var edges = new List<(int From, int To)>();
-        if (schema.Connections is not null)
-            foreach (var connection in schema.Connections)
-                edges.Add((connection.From.Id, connection.To.Id));
-
-        return ComputePositions(nodeIds, edges);
-    }
 
     /// <summary>
     /// Computes a left-to-right hierarchical pivot for a raw id-graph (nodes plus directed

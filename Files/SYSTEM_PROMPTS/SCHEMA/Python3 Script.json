@@ -94,7 +94,6 @@
 
   "examples": [
     {
-      "description": "Takes a list of points and a numeric radius, returns one sphere per point.",
       "code": "import Rhino.Geometry as rg\n\nspheres = [rg.Sphere(pt, radius) for pt in pts]",
       "inputs": [
         { "name": "pts",    "type": "Point",  "access": "list" },

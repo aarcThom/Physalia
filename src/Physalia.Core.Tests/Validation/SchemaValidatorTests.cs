@@ -83,4 +83,26 @@ public class SchemaValidatorTests
         Assert.Contains("property 'paramName' is not allowed at '/nested'", error!.Message);
         Assert.DoesNotContain("Expected 1 matching subschema", error.Message);
     }
+
+    [Fact]
+    public void Validate_GhpatchShapedDoc_DropsWrongBranchDiscriminatorNoise()
+    {
+        // Mirrors the real schema: oneOf where the "full document" branch knows nothing of
+        // kind/patch. A ghpatch with one misplaced property must be told about THAT property only
+        // — not that its kind/patch discriminator "is not allowed" (the other branch talking).
+        const string oneOf =
+            "{\"oneOf\":["
+            + "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"kind\",\"patch\"],\"properties\":{"
+            + "\"kind\":{\"const\":\"ghpatch\"},"
+            + "\"patch\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"components\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"add\":{\"type\":\"array\"}}}}}}},"
+            + "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"components\"],\"properties\":{\"components\":{\"type\":\"array\"}}}"
+            + "]}";
+        const string doc = "{\"kind\":\"ghpatch\",\"patch\":{\"components\":{\"add\":[],\"connections\":{}}}}";
+
+        Assert.True(SchemaValidator.Validate(doc, oneOf).IsErr(out ValidationError? error, out _));
+
+        Assert.Contains("property 'connections' is not allowed at '/patch/components'", error!.Message);
+        Assert.DoesNotContain("property 'kind' is not allowed", error.Message);
+        Assert.DoesNotContain("property 'patch' is not allowed", error.Message);
+    }
 }

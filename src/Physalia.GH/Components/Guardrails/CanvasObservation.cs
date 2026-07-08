@@ -108,6 +108,7 @@ public class CanvasObservation : RoutingComponentBase<string>
         var warnings = new List<string>();
         var dead = new List<string>();
         var nullProducers = new List<string>();
+        var nullCascades = new List<string>();
         var signatures = new List<string>();
         var dataFlow = new List<string>();
         var signatureNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -168,25 +169,44 @@ public class CanvasObservation : RoutingComponentBase<string>
                 }
 
                 // Nulls are ITEMS, so DataCount alone misses them: a component can solve with no
-                // runtime message at all and still emit a null (an unwired input upstream, an
-                // invalid construction) that poisons everything downstream. Flag any error-free
-                // component whose outputs contain nulls.
+                // runtime message at all and still emit a null (an unwired input, an invalid
+                // construction) that poisons everything downstream. Only ROOT producers are worth
+                // reporting: a component whose null arrived on a wired input is a cascade symptom
+                // — one root can poison dozens, and listing them all buries the fix.
                 bool producesNulls = objErrors.Count == 0 &&
                     obj is IGH_Component nullComp &&
                     nullComp.Params.Output.Any(p => NullCount(p) > 0);
-                if (producesNulls)
+                bool isRootNull = producesNulls &&
+                    obj is IGH_Component rootComp &&
+                    !rootComp.Params.Input.Any(p => p.SourceCount > 0 && NullCount(p) > 0);
+                if (isRootNull)
                 {
                     nullProducers.Add(Label(obj));
                 }
+                else if (producesNulls)
+                {
+                    nullCascades.Add(Label(obj));
+                }
 
-                // Problem, dead, and null-producing components additionally report their live data
+                // Problem, dead, and root-null components additionally report their live data
                 // flow — how many items (and nulls) each input collected and each output produced —
                 // so the model sees WHERE data stops instead of blindly swapping strategies.
-                if ((objErrors.Count > 0 || objWarnings.Count > 0 || isDead || producesNulls) && obj is IGH_Component flowComp)
+                if ((objErrors.Count > 0 || objWarnings.Count > 0 || isDead || isRootNull) && obj is IGH_Component flowComp)
                 {
                     dataFlow.Add(FormatDataFlow(flowComp));
                 }
             }
+        }
+
+        // A scoped scan can see cascades whose root lies outside the watch list (or on an erroring
+        // component); when no root was found the cascades are the best signal available.
+        if (nullProducers.Count == 0 && nullCascades.Count > 0)
+        {
+            nullProducers.AddRange(nullCascades);
+        }
+        else if (nullCascades.Count > 0)
+        {
+            nullProducers.Add($"…plus {nullCascades.Count} downstream component(s) that received these nulls — fix the roots above first.");
         }
 
         int total = errors.Count + warnings.Count + dead.Count + nullProducers.Count;

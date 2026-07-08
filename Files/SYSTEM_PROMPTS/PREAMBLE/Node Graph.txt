@@ -6,7 +6,7 @@ Your task: given a request, produce or revise a Grasshopper definition. Which of
 
 Editing rules (ghpatch mode):
 - The canvas state is the ground truth. Match every existing component you modify or remove by its instanceGuid exactly as shown in the canvas state. Reference connection endpoints by the integer id shown there.
-- Copy the base checksum from the canvas state verbatim into patch.base.checksum. If your patch is refused because the canvas changed, re-read the new canvas state and regenerate the patch against it.
+- Copy the base checksum from the canvas state verbatim into patch.base.checksum. If your patch is refused because the canvas changed, re-read the new canvas state and regenerate the patch against it. An UNCHANGED checksum after your patch does NOT mean the patch failed — the checksum fingerprints structure only (components and wires), so value and state edits never change it. The fingerprint is also deterministic: undoing or reverting a structural change restores the earlier checksum, so a repeated checksum means identical structure, not a stale report. Trust the placement and observation feedback for what applied.
 - Give every component you ADD a fresh integer id HIGHER than the highest id in the canvas state, and use that id to wire it. Do not reuse an existing id.
 - Connections cannot be modified — to move a wire, remove the old connection and add the new one.
 - To change a slider's value or range, modify its componentState.extensions['gh.numberslider'].value (format 'default<min~max>'); to change a panel's text, modify gh.panel.text. Do not remove-and-re-add a component just to change its state.

@@ -549,6 +549,14 @@ internal static partial class GhJsonBridge
         // through the correct GUID rather than that fallback.
         StampComponentGuids(doc);
 
+        // The library's fixer renumbers components in insertion order, which would discard the
+        // numbering the model authored — and the model demonstrably reasons from its own ids on
+        // later turns. Capture the authored ids (post cluster/reference extraction, so indices
+        // line up with the doc Fix sees) and restore them afterwards.
+        IReadOnlyList<int?>? authoredIds = paramIndexFirst
+            ? doc.Components.Select(c => c.Id).ToList()
+            : null;
+
         // Normalise AI-authored JSON (missing ids, stray fields, near-miss structure) before placing.
         // The GhJSON library's fixer is the single source of repair; anything it cannot fix is surfaced
         // to the caller so it can be routed back to the model as feedback.
@@ -558,6 +566,11 @@ internal static partial class GhJsonBridge
             .Concat(referenceIssues)
             .ToList();
 
+        if (authoredIds is not null)
+        {
+            RestoreAuthoredIds(doc, authoredIds);
+        }
+
         var options = BuildPutOptions(offset);
         if (paramIndexFirst)
         {
@@ -565,6 +578,76 @@ internal static partial class GhJsonBridge
         }
 
         return ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan, referencePlan: referencePlan, paramIndexFirst: paramIndexFirst);
+    }
+
+    // Puts the model's authored component ids back onto the post-Fix document (components
+    // correspond by list order — Fix preserves it), remapping connection endpoints and group
+    // members with the same two-pass old->authored pattern AssignStableIds uses. Skipped when the
+    // authored ids are incomplete or duplicated, or when Fix changed the component count — the
+    // correspondence is gone and dense renumbering is the safe fallback.
+    private static void RestoreAuthoredIds(GhJsonDocument doc, IReadOnlyList<int?> authoredIds)
+    {
+        if (doc.Components is null || doc.Components.Count != authoredIds.Count)
+        {
+            return;
+        }
+
+        var authored = new List<int>(authoredIds.Count);
+        foreach (int? id in authoredIds)
+        {
+            if (id is not int value)
+            {
+                return;
+            }
+
+            authored.Add(value);
+        }
+
+        if (authored.Distinct().Count() != authored.Count)
+        {
+            return;
+        }
+
+        var remap = new Dictionary<int, int>();
+        for (int i = 0; i < doc.Components.Count; i++)
+        {
+            if (doc.Components[i].Id is int fixedId)
+            {
+                remap[fixedId] = authored[i];
+            }
+        }
+
+        for (int i = 0; i < doc.Components.Count; i++)
+        {
+            doc.Components[i].Id = authored[i];
+        }
+
+        foreach (GhJsonConnection connection in doc.Connections ?? Enumerable.Empty<GhJsonConnection>())
+        {
+            if (connection.From is { } from && remap.TryGetValue(from.Id, out int fromId))
+            {
+                from.Id = fromId;
+            }
+
+            if (connection.To is { } to && remap.TryGetValue(to.Id, out int toId))
+            {
+                to.Id = toId;
+            }
+        }
+
+        foreach (GhJsonGroup group in doc.Groups ?? Enumerable.Empty<GhJsonGroup>())
+        {
+            if (group.Members is { } members)
+            {
+                for (int i = 0; i < members.Count; i++)
+                {
+                    if (remap.TryGetValue(members[i], out int member))
+                    {
+                        members[i] = member;
+                    }
+                }
+            }
+        }
     }
 
     // Ensures every component carries a validated, non-obsolete component-type GUID before Put, so the
@@ -859,6 +942,13 @@ internal static partial class GhJsonBridge
                 RecreateMissingConnections(doc, result, reconciled);
             }
 
+            // The library nulls internalized values it cannot cast (generic params); re-apply the
+            // authored data wherever the placed persistent data does not match it.
+            int internalizedRepaired = RepairInternalizedData(
+                doc.Components ?? Enumerable.Empty<GhJsonComponent>(),
+                id => PlacedById(result, id),
+                wireFailures);
+
             RestoreFeedbackLinks(doc, result);
             bool pickersRestored = RestorePickerValues(doc, result);
             bool groundingRestored = RestoreGroundingSelection(doc, result);
@@ -882,7 +972,7 @@ internal static partial class GhJsonBridge
             // Params and wires were changed after Put's own solution, so re-solve the now-expired
             // components (and their downstream) to bring recreated variable params and restored
             // Picker/grounding selections (and placed clusters / referenced inputs) live.
-            if (reconciled.Count > 0 || wiredCount > 0 || pickersRestored || groundingRestored || clustersPlaced || referencesWired)
+            if (reconciled.Count > 0 || wiredCount > 0 || internalizedRepaired > 0 || pickersRestored || groundingRestored || clustersPlaced || referencesWired)
             {
                 (result.PlacedObjects.FirstOrDefault()?.OnPingDocument() ?? hostDoc)?.NewSolution(false);
             }

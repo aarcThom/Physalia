@@ -49,8 +49,11 @@ public static class SchemaValidator
         }
 
         EvaluationResults results;
+        bool rootHasKind;
         using (instance)
         {
+            rootHasKind = instance.RootElement.ValueKind == JsonValueKind.Object
+                && instance.RootElement.TryGetProperty("kind", out _);
             var options = new EvaluationOptions { OutputFormat = OutputFormat.List };
             results = jsonSchema.Evaluate(instance.RootElement, options);
         }
@@ -64,7 +67,7 @@ public static class SchemaValidator
                 kvp => new SchemaViolation(d.InstanceLocation.ToString(), $"{kvp.Key}: {kvp.Value}")))
             .ToList();
 
-        violations = Humanize(violations);
+        violations = Humanize(violations, rootHasKind);
 
         string message = violations.Count > 0
             ? string.Join("; ", violations.Select(v => $"{v.Path}: {v.Message}"))
@@ -82,18 +85,31 @@ public static class SchemaValidator
     /// property lines don't, and they dominated feedback with two dozen identical lines.
     /// </summary>
     /// <param name="violations">The raw violations from the evaluator.</param>
+    /// <param name="rootHasKind">
+    /// True when the instance root carries a <c>kind</c> property — the ghpatch discriminator.
+    /// Under a root <c>oneOf</c>, the non-patch branch then rejects <c>/kind</c> and <c>/patch</c>
+    /// as unknown properties; those wrong-branch complaints are never actionable ("removing" the
+    /// discriminator would break the document) and are dropped.
+    /// </param>
     /// <returns>The rewritten, deduplicated violations.</returns>
-    private static List<SchemaViolation> Humanize(List<SchemaViolation> violations)
+    private static List<SchemaViolation> Humanize(List<SchemaViolation> violations, bool rootHasKind)
     {
         const string falseSchema = "All values fail against the false schema";
 
         static bool IsRoot(string path) => string.IsNullOrEmpty(path) || path == "#" || path == "/";
 
-        bool hasPropertyLevel = violations.Any(v => v.Message.Contains(falseSchema) && !IsRoot(v.Path));
+        bool hasPropertyLevel = violations.Any(v =>
+            v.Message.Contains(falseSchema) && !IsRoot(v.Path)
+            && !(rootHasKind && v.Path is "/kind" or "/patch"));
 
         var rewritten = new List<SchemaViolation>();
         foreach (SchemaViolation v in violations)
         {
+            if (rootHasKind && v.Path is "/kind" or "/patch" && v.Message.Contains(falseSchema))
+            {
+                continue;
+            }
+
             if (v.Message.Contains(falseSchema))
             {
                 int slash = v.Path.LastIndexOf('/');

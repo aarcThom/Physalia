@@ -224,7 +224,7 @@ internal static partial class GhJsonBridge
             var baseIndex = BuildBaseIndex(baseExport);
             var addIds = new HashSet<int>(adds.Where(a => a.Id is int).Select(a => a.Id!.Value));
 
-            ApplyModifies(patch, doc, baseExport, applyResult.Document, baseIndex, modifiedGuids, conflicts);
+            ApplyModifies(patch, doc, baseExport, applyResult.Document, baseIndex, modifiedGuids, conflicts, warnings);
             ApplyRemoves(patch, baseExport, baseIndex, removedGuids, conflicts);
 
             Dictionary<int, IGH_DocumentObject> addedById =
@@ -449,7 +449,8 @@ internal static partial class GhJsonBridge
         GhJsonDocument mergedDoc,
         BaseIndex index,
         List<Guid> modifiedGuids,
-        List<string> conflicts)
+        List<string> conflicts,
+        List<string> warnings)
     {
         foreach (GhPatchComponentModify modify in patch.Patch?.Components?.Modify ?? Enumerable.Empty<GhPatchComponentModify>())
         {
@@ -492,7 +493,7 @@ internal static partial class GhJsonBridge
                 continue;
             }
 
-            if (TryReplaceComponent(doc, live, merged, conflicts))
+            if (TryReplaceComponent(doc, live, merged, conflicts, warnings))
             {
                 modifiedGuids.Add(guid);
             }
@@ -705,7 +706,7 @@ internal static partial class GhJsonBridge
     // the merged component with its ORIGINAL InstanceGuid preserved (so the model's handle on it
     // stays valid next turn), and re-establish the captured wires. On placement failure the
     // original object is restored, so the canvas never loses the component.
-    private static bool TryReplaceComponent(GH_Document doc, IGH_DocumentObject live, GhJsonComponent merged, List<string> conflicts)
+    private static bool TryReplaceComponent(GH_Document doc, IGH_DocumentObject live, GhJsonComponent merged, List<string> conflicts, List<string> warnings)
     {
         List<CapturedWire> wires = CaptureLiveWires(live);
         doc.RemoveObject(live, false);
@@ -735,6 +736,11 @@ internal static partial class GhJsonBridge
         }
 
         RewireCaptured(placed, wires);
+
+        // The replacement Put re-applies the merged internalizedData with the library's own
+        // casting, which nulls values on generic params — run the same repair the add paths use.
+        RepairInternalizedData(new[] { merged }, _ => placed, warnings);
+
         placed.Attributes?.ExpireLayout();
         (placed as IGH_ActiveObject)?.ExpireSolution(false);
         return true;
@@ -865,6 +871,10 @@ internal static partial class GhJsonBridge
         // Claim the (possibly remapped) add ids for the placed objects, so the next canvas export
         // keeps the numbering the model authored and its remembered ids stay valid.
         RegisterStableIds(doc, result.IdToGuidMapping);
+
+        // The library nulls internalized values it cannot cast (generic params like Division's B);
+        // re-apply the authored data wherever the placed persistent data does not match it.
+        RepairInternalizedData(adds, addId => addedById.TryGetValue(addId, out IGH_DocumentObject? obj) ? obj : null, warnings);
 
         // Every wire touching an added component — intra-add and add<->existing alike.
         foreach (GhJsonConnection conn in (patch.Patch?.Connections?.Add ?? Enumerable.Empty<GhJsonConnection>())

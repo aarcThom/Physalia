@@ -62,37 +62,56 @@ public sealed record ComponentCatalogGrounding(ComponentCatalog Catalog, bool In
                 + string.Join(", ", Catalog.ComponentNames);
         }
 
-        var lines = Catalog.Entries
+        var entries = Catalog.Entries
             .Where(e => !string.IsNullOrWhiteSpace(e.Name))
             .GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())
             .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(FormatEntry)
             .ToList();
 
-        if (lines.Count == 0)
+        // Enriched entries get one signature line each; the (usually long) unenriched tail is
+        // collapsed into a single comma-joined paragraph — per-line bullets for bare names would
+        // waste thousands of tokens saying nothing a flat list doesn't.
+        var signatureLines = entries.Where(HasSignature).Select(FormatEntry).ToList();
+        var nameOnly = entries.Where(e => !HasSignature(e)).Select(e => e.Name.Trim()).ToList();
+
+        if (signatureLines.Count == 0 && nameOnly.Count == 0)
         {
             return string.Empty;
         }
 
-        return "These Grasshopper components are installed and available — native and plug-in alike. "
-            + "This list is the authoritative catalogue of what may be placed: use these exact names, "
-            + "and only components from this list. Each entry shows its input and output parameters "
-            + "as Nickname:Type — supply data matching these types:\n"
-            + string.Join("\n", lines);
-    }
+        var section = new System.Text.StringBuilder();
+        section.Append("These Grasshopper components are installed and available — native and plug-in alike. ");
+        section.Append("This list is the authoritative catalogue of what may be placed: use these exact names, ");
+        section.Append("and only components from this list.");
 
-    // Renders one component as "- Name(in: A:Point, G:Vector) -> (out: C:Curve)", or as a
-    // name-only "- Name" line when the entry's signature was never read.
-    private static string FormatEntry(CatalogEntry entry)
-    {
-        if (entry.Inputs is null || entry.Outputs is null)
+        if (signatureLines.Count > 0)
         {
-            return $"- {entry.Name.Trim()}";
+            section.Append(" Each signature entry shows its input and output parameters as Nickname:Type, ");
+            section.Append("listed in paramIndex order — the first parameter is paramIndex 0. ");
+            section.Append("Supply data matching these types:\n");
+            section.Append(string.Join("\n", signatureLines));
         }
 
-        string inputs = string.Join(", ", entry.Inputs.Select(p => SignatureFormat.Port(p.Name, p.TypeHint)));
-        string outputs = string.Join(", ", entry.Outputs.Select(p => SignatureFormat.Port(p.Name, p.TypeHint)));
+        if (nameOnly.Count > 0)
+        {
+            section.Append(signatureLines.Count > 0
+                ? "\nAlso installed (names only): "
+                : "\n");
+            section.Append(string.Join(", ", nameOnly));
+        }
+
+        return section.ToString();
+    }
+
+    // True when the entry's ports were introspected, so it can render a full signature line.
+    private static bool HasSignature(CatalogEntry entry) => entry.Inputs is not null && entry.Outputs is not null;
+
+    // Renders one enriched component as "- Name(in: A:Point, G:Vector) -> (out: C:Curve)".
+    private static string FormatEntry(CatalogEntry entry)
+    {
+        string inputs = string.Join(", ", entry.Inputs!.Select(p => SignatureFormat.Port(p.Name, p.TypeHint)));
+        string outputs = string.Join(", ", entry.Outputs!.Select(p => SignatureFormat.Port(p.Name, p.TypeHint)));
         return $"- {entry.Name.Trim()}(in: {inputs}) -> (out: {outputs})";
     }
 }

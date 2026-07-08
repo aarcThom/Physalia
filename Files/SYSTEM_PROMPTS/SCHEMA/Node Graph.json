@@ -14,7 +14,8 @@
     "Every component needs a unique integer id; connections reference this id. In a ghpatch, existing components keep the ids shown in the canvas state, and every ADDED component gets a fresh id HIGHER than the highest id in the canvas state.",
     "Every component needs a pivot 'X,Y'. Full document: lay the graph out left to right following data flow, about 150 units between stages (X) and 80 between parallel inputs (Y). Ghpatch: read the existing pivots in the canvas state and place additions so they continue the flow without overlapping.",
     "connections has one entry per wired input. Reference each endpoint by { id, paramIndex }: paramIndex is the parameter's zero-based position in the component's OUTPUT list (for 'from') or INPUT list (for 'to'), counting in the order shown in componentCatalog (or the component's installed order). paramName is optional and for readability only; the wire is matched by paramIndex.",
-    "Number Slider value uses the format 'default<min~max>', e.g. '5<0~10>', at componentState.extensions['gh.numberslider'].value. This is the most common mistake — do not use a plain number.",
+    "Number Slider value uses the format 'default<min~max>', e.g. '5<0~10>', at componentState.extensions['gh.numberslider'].value. min must be strictly less than max. This is the most common mistake — do not use a plain number.",
+    "A slider is for values the user should tweak. To supply a FIXED constant (divide by 2, a unit vector, a base point), internalize it into the consuming input instead: inputSettings entry { \"parameterName\": \"B\", \"internalizedData\": { \"{0}\": { \"{0}(0)\": \"number:2\" } } }. Never add a slider whose min equals its max.",
     "Give every Number Slider (and other input source) a nickName naming what it controls — 'Radius', 'Height' — never the default label.",
     "Colours use the prefixed string 'argb:A,R,G,B', each channel 0-255.",
     "GHPATCH: match every existing component you modify or remove by its instanceGuid copied exactly from the canvas state; never match by name. Copy the canvas state's base checksum verbatim into patch.base.checksum. Connections cannot be modified — remove the old wire and add the new one. Change slider values and panel text by MODIFYING the component's extensions in place, not by remove-and-re-add. Removing a component removes its wires too. Never re-emit components that are not being changed.",
@@ -395,7 +396,7 @@
       "properties": {
         "value": {
           "type": "string",
-          "description": "Slider value as 'default<min~max>'. The default sits between min and max. Decimal places set the slider's precision.",
+          "description": "Slider value as 'default<min~max>'. The default sits between min and max, and min must be strictly less than max (Grasshopper widens a zero-width range itself). To supply a fixed constant, prefer internalizing a value into the consuming input over pinning a slider. Decimal places set the slider's precision.",
           "pattern": "^-?\\d+(\\.\\d+)?<-?\\d+(\\.\\d+)?~-?\\d+(\\.\\d+)?>$",
           "examples": ["5<0~10>", "3.5<0~10>", "1<-5~5>", "2<0.1~5>"]
         },
@@ -498,7 +499,12 @@
         "expression":      { "type": "string",  "description": "Expression that transforms the parameter's data." },
         "isReversed":      { "type": "boolean", "description": "Reverse the parameter's data order." },
         "isSimplified":    { "type": "boolean", "description": "Simplify the parameter's data tree." },
-        "isReparameterized": { "type": "boolean", "description": "Reparameterize the parameter's domain." }
+        "isReparameterized": { "type": "boolean", "description": "Reparameterize the parameter's domain." },
+        "internalizedData": {
+          "type": "object",
+          "description": "Persistent data internalized into an INPUT parameter of a component you are adding — the way to supply a fixed constant without creating a slider. A single value is {\"{0}\": {\"{0}(0)\": \"number:2\"}}; the inner value is a type-prefixed string such as 'number:2', 'integer:5', 'boolean:true', 'text:hello', 'pointXYZ:0,0,0', 'vectorXYZ:0,0,1'. A wire into the same input overrides internalized data. Never copy internalizedData from components marked physalia.rhinoRef.",
+          "additionalProperties": { "type": "object", "additionalProperties": { "type": "string" } }
+        }
       }
     },
 

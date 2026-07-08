@@ -37,7 +37,11 @@ public class SchemaValidatorTests
     public void Validate_MalformedJson_ReturnsInvalidJsonError()
     {
         Assert.True(SchemaValidator.Validate("{not json", Schema).IsErr(out ValidationError? error, out _));
-        Assert.Contains("Invalid JSON", error!.Message);
+
+        // Model-facing wording: says what to do (emit one conforming JSON document) and keeps the
+        // raw parse error as supporting detail.
+        Assert.Contains("No parseable JSON document was found", error!.Message);
+        Assert.Contains("Parse error:", error.Message);
     }
 
     [Fact]
@@ -45,5 +49,38 @@ public class SchemaValidatorTests
     {
         Assert.True(SchemaValidator.Validate("{\"a\":1}", "{not a schema").IsErr(out ValidationError? error, out _));
         Assert.Contains("Invalid schema", error!.Message);
+    }
+
+    [Fact]
+    public void Validate_DisallowedProperty_NamesThePropertyAndLocation()
+    {
+        const string strict =
+            "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"a\":{\"type\":\"integer\"}}}";
+
+        Assert.True(SchemaValidator.Validate("{\"a\":1,\"extra\":2}", strict).IsErr(out ValidationError? error, out _));
+
+        // The library's "All values fail against the false schema" is rewritten to name the
+        // offending property, so the model knows what to remove instead of guessing.
+        Assert.Contains("property 'extra' is not allowed", error!.Message);
+        Assert.DoesNotContain("false schema", error.Message);
+    }
+
+    [Fact]
+    public void Validate_OneOfWithPropertyViolations_SuppressesRootUmbrellaNoise()
+    {
+        // Mirrors the real Node Graph schema shape: a root oneOf where every branch uses
+        // additionalProperties:false. A stray property fails BOTH branches, historically producing
+        // a wall of root-level oneOf/required noise around the one actionable line.
+        const string oneOf =
+            "{\"oneOf\":["
+            + "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"a\"],\"properties\":{\"a\":{\"type\":\"integer\"},\"nested\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"x\":{\"type\":\"integer\"}}}}},"
+            + "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"b\"],\"properties\":{\"b\":{\"type\":\"integer\"}}}"
+            + "]}";
+
+        Assert.True(SchemaValidator.Validate("{\"a\":1,\"nested\":{\"x\":1,\"paramName\":\"X\"}}", oneOf)
+            .IsErr(out ValidationError? error, out _));
+
+        Assert.Contains("property 'paramName' is not allowed at '/nested'", error!.Message);
+        Assert.DoesNotContain("Expected 1 matching subschema", error.Message);
     }
 }

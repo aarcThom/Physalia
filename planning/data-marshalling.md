@@ -243,6 +243,23 @@ Collector.Signal ──────────► Conversation Log.Feedback Sig
 There is no separate data wire between pipeline components — the response text, the
 validated JSON, and the feedback all travel as signal payloads.
 
+### Iterative-canvas loop guardrails (Component Transmitter variant)
+
+When the pipeline places graphs on the canvas (Schema Validator → Component Transmitter →
+Canvas Observation, Fail Signals looping back through Feedback/FeedbackCollector), two
+extra components are part of the canonical wiring, not optional extras:
+
+- **Canvas State grounder → Conversation Log.Grounding.** Guarantees the model sees the
+  live canvas + a fresh patch-base checksum at every inference (the Conversation Log
+  re-exports synchronously at latch). Without it the model edits blind and its patch
+  bases go stale; the Conversation Log warns when a feedback turn latches without one.
+  (Error feedback also carries a fresh checksum line as a belt-and-braces measure, but
+  only the grounding carries the canvas itself.)
+- **Signal Limiter on the Fail path** (e.g. limit 8) between the feedback sources and the
+  Feedback component. The loop has no built-in iteration cap; an unbounded Fail cycle is
+  an unbounded token spend when the model cannot converge. Route "Over Limit" to a Panel
+  (or nothing) so the loop parks visibly instead of spinning.
+
 ## Tool calling: LLM Call → Router → tool nodes → Conversation Log
 
 The provider contract (Anthropic/OpenAI/Gemini) is strict: an assistant turn that

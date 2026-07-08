@@ -64,8 +64,9 @@ public class ComponentGroundingSignatureTests
         Assert.Equal(
             "These Grasshopper components are installed and available — native and plug-in alike. "
             + "This list is the authoritative catalogue of what may be placed: use these exact names, "
-            + "and only components from this list. Each entry shows its input and output parameters "
-            + "as Nickname:Type — supply data matching these types:\n"
+            + "and only components from this list. Each signature entry shows its input and output "
+            + "parameters as Nickname:Type, listed in paramIndex order — the first parameter is "
+            + "paramIndex 0. Supply data matching these types:\n"
             + "- Catenary(in: A:Point, B:Point, L:Number, G:Vector) -> (out: C:Curve)",
             section);
     }
@@ -81,10 +82,12 @@ public class ComponentGroundingSignatureTests
 
         string section = new ComponentCatalogGrounding(catalog, IncludeSignatures: true).ToSystemPromptSection();
 
-        // A failed/never-run introspection (null ports) degrades to a bare name line.
+        // A failed/never-run introspection (null ports) lands in the collapsed names-only
+        // paragraph instead of getting a signature line of its own.
         Assert.Contains("- Catenary(in: A:Point) -> (out: C:Curve)", section);
-        Assert.Contains("- Mystery Plugin", section);
+        Assert.Contains("Also installed (names only): Mystery Plugin", section);
         Assert.DoesNotContain("Mystery Plugin(", section);
+        Assert.DoesNotContain("- Mystery Plugin", section);
     }
 
     [Fact]

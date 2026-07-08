@@ -231,7 +231,7 @@ internal static partial class GhJsonBridge
                 ApplyAdds(patch, adds, addIds, doc, baseIndex, addedGuids, modifiedGuids, conflicts, warnings);
 
             ApplyGroupOps(patch, doc, baseExport, baseIndex, addedById, conflicts);
-            ApplyConnectionRemoves(patch, doc, addIds, baseIndex, modifiedGuids, conflicts);
+            ApplyConnectionRemoves(patch, doc, addIds, baseIndex, removedGuids, modifiedGuids, conflicts, warnings);
             ApplyConnectionAdds(patch, doc, addIds, addedById, baseIndex, modifiedGuids, conflicts);
 
             doc.NewSolution(false);
@@ -814,9 +814,13 @@ internal static partial class GhJsonBridge
 
     // ---- Add ---------------------------------------------------------------------------------
 
-    // Places the added subgraph (components plus the connections wholly among them) in one Put,
-    // then wires the connections that touch EXISTING objects. Returns the map of add id -> placed
-    // live object for the group and connection passes.
+    // Places the added components in one Put (components only — no connections), then wires every
+    // connection that touches an added component through WireConnection so paramIndex stays
+    // authoritative. The 1.1.1 library's Put matches connection endpoints by paramName, which
+    // silently mis-wires the short names the model authors; it must never create wires here.
+    // A wire targeting a variable param the model expected to auto-exist surfaces as an honest
+    // conflict instead of landing on the wrong input. Returns the map of add id -> placed live
+    // object for the group and connection passes.
     private static Dictionary<int, IGH_DocumentObject> ApplyAdds(
         GhPatchDocument patch,
         List<GhJsonComponent> adds,
@@ -834,11 +838,7 @@ internal static partial class GhJsonBridge
             return addedById;
         }
 
-        var intraConnections = (patch.Patch?.Connections?.Add ?? Enumerable.Empty<GhJsonConnection>())
-            .Where(c => c.From is { } f && c.To is { } t && addIds.Contains(f.Id) && addIds.Contains(t.Id))
-            .ToList();
-
-        var addDoc = new GhJsonDocument("1.0", null, adds, intraConnections, null);
+        var addDoc = new GhJsonDocument("1.0", null, adds, null, null);
         PutResult result = GhJsonGrasshopper.Put(addDoc, BuildPutOptions(PointF.Empty));
 
         if (!result.Success)
@@ -866,9 +866,9 @@ internal static partial class GhJsonBridge
         // keeps the numbering the model authored and its remembered ids stay valid.
         RegisterStableIds(doc, result.IdToGuidMapping);
 
-        // Wires between an added component and an existing one.
+        // Every wire touching an added component — intra-add and add<->existing alike.
         foreach (GhJsonConnection conn in (patch.Patch?.Connections?.Add ?? Enumerable.Empty<GhJsonConnection>())
-            .Where(c => c.From is { } f && c.To is { } t && addIds.Contains(f.Id) != addIds.Contains(t.Id)))
+            .Where(c => c.From is { } f && c.To is { } t && (addIds.Contains(f.Id) || addIds.Contains(t.Id))))
         {
             WireConnection(conn, doc, addIds, addedById, index, modifiedGuids, conflicts, removing: false);
         }
@@ -883,14 +883,31 @@ internal static partial class GhJsonBridge
         GH_Document doc,
         HashSet<int> addIds,
         BaseIndex index,
+        IReadOnlyCollection<Guid> removedGuids,
         List<Guid> modifiedGuids,
-        List<string> conflicts)
+        List<string> conflicts,
+        List<string> warnings)
     {
+        // Component removal cascades its wires, so a remove op naming a component this patch
+        // already deleted is satisfied, not missing — report it as information, never a conflict.
+        var removedSet = new HashSet<Guid>(removedGuids);
         foreach (GhJsonConnection conn in patch.Patch?.Connections?.Remove ?? Enumerable.Empty<GhJsonConnection>())
         {
+            if (conn.From is { } from && conn.To is { } to
+                && ((EndpointGuid(from.Id, index) is Guid f && removedSet.Contains(f))
+                    || (EndpointGuid(to.Id, index) is Guid t && removedSet.Contains(t))))
+            {
+                warnings.Add($"connection remove ({from.Id} -> {to.Id}): already satisfied — a component it touches was removed by this patch, which removed its wires.");
+                continue;
+            }
+
             WireConnection(conn, doc, addIds, new Dictionary<int, IGH_DocumentObject>(), index, modifiedGuids, conflicts, removing: true);
         }
     }
+
+    // The instanceGuid an endpoint id had in the base export, if any.
+    private static Guid? EndpointGuid(int id, BaseIndex index) =>
+        index.ById.TryGetValue(id, out GhJsonComponent? comp) ? comp.InstanceGuid : null;
 
     private static void ApplyConnectionAdds(
         GhPatchDocument patch,
@@ -910,9 +927,9 @@ internal static partial class GhJsonBridge
     }
 
     // Adds or removes one wire. Endpoints resolve through the base export (id -> instanceGuid ->
-    // live object) or the freshly added objects; parameters resolve name-first with paramIndex
-    // fallback via the shared FindEndpointParam. The sink component counts as modified so the
-    // health scan downstream covers it.
+    // live object) or the freshly added objects; parameters resolve paramIndex-first with
+    // name/nickname fallback via the shared FindEndpointParam. The sink component counts as
+    // modified so the health scan downstream covers it.
     private static void WireConnection(
         GhJsonConnection conn,
         GH_Document doc,

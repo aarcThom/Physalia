@@ -424,7 +424,11 @@ internal static partial class GhJsonBridge
 
         GhJsonDocument doc = GhJson.FromJson(json);
         RelayoutLlmGraph(doc);
-        return PlaceDocument(doc, targetOrigin);
+
+        // LLM-authored wires are addressed by paramIndex (the schema's contract); the library's own
+        // Put matches by paramName and silently mis-wires the model's short labels, so this path
+        // wires every connection itself.
+        return PlaceDocument(doc, targetOrigin, paramIndexFirst: true);
     }
 
     /// <summary>
@@ -494,8 +498,13 @@ internal static partial class GhJsonBridge
     /// </summary>
     /// <param name="doc">The parsed GhJSON document.</param>
     /// <param name="targetOrigin">Canvas position for the top-left corner of the placed content.</param>
+    /// <param name="paramIndexFirst">
+    /// True on the LLM placement path: the library Put places components only and Physalia wires
+    /// every connection itself, resolving endpoints paramIndex-first per the schema's contract.
+    /// False (preset/Deserializer/anchored paths) keeps the library's name-exact wiring.
+    /// </param>
     /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
-    private static PlaceResult PlaceDocument(GhJsonDocument doc, PointF targetOrigin)
+    private static PlaceResult PlaceDocument(GhJsonDocument doc, PointF targetOrigin, bool paramIndexFirst = false)
     {
         if (doc.Components is null || doc.Components.Count == 0)
         {
@@ -550,7 +559,12 @@ internal static partial class GhJsonBridge
             .ToList();
 
         var options = BuildPutOptions(offset);
-        return ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan, referencePlan: referencePlan);
+        if (paramIndexFirst)
+        {
+            options.CreateConnections = false;
+        }
+
+        return ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan, referencePlan: referencePlan, paramIndexFirst: paramIndexFirst);
     }
 
     // Ensures every component carries a validated, non-obsolete component-type GUID before Put, so the
@@ -798,7 +812,10 @@ internal static partial class GhJsonBridge
     // nickname display, restores wireless feedback links, runs the optional post-placement step
     // (used to splice an anchor component into a placeholder slot), and places/rewires any clusters
     // lifted out before Put. Shapes the PlaceResult, folding cluster guids into the placed set.
-    private static PlaceResult ExecutePut(GhJsonDocument doc, PutOptions options, IReadOnlyList<string> unfixedIssues, Action<PutResult>? afterPlace = null, ClusterPlan? clusterPlan = null, ReferencePlan? referencePlan = null)
+    // With paramIndexFirst set (the LLM path), Put placed components only and every connection is
+    // wired here, paramIndex-first; unresolved endpoints surface as warnings the transmitter routes
+    // back to the model.
+    private static PlaceResult ExecutePut(GhJsonDocument doc, PutOptions options, IReadOnlyList<string> unfixedIssues, Action<PutResult>? afterPlace = null, ClusterPlan? clusterPlan = null, ReferencePlan? referencePlan = null, bool paramIndexFirst = false)
     {
         IsImporting = true;
         PutResult result;
@@ -813,6 +830,8 @@ internal static partial class GhJsonBridge
 
         var clusterGuids = new List<Guid>();
         var clusterWarnings = new List<string>();
+        var wireFailures = new List<string>();
+        int wiredCount = 0;
 
         if (result.Success)
         {
@@ -829,7 +848,13 @@ internal static partial class GhJsonBridge
             // wires that targeted them fail during Put. Recreate the missing params from the file's
             // settings, then restore those dropped connections.
             IReadOnlyCollection<int> reconciled = ReconcileVariableParameters(doc, result);
-            if (reconciled.Count > 0)
+            if (paramIndexFirst)
+            {
+                // Put created no wires on this path; wire the whole document now that variable
+                // params exist, resolving endpoints paramIndex-first.
+                wiredCount = WireAllConnections(doc, result, wireFailures);
+            }
+            else if (reconciled.Count > 0)
             {
                 RecreateMissingConnections(doc, result, reconciled);
             }
@@ -848,26 +873,26 @@ internal static partial class GhJsonBridge
             // exports fall through to fresh assignment at export time).
             RegisterStableIds(hostDoc, result.IdToGuidMapping);
             bool clustersPlaced = clusterPlan is not null
-                && PlaceClusters(clusterPlan, hostDoc, result, clusterGuids, clusterWarnings);
+                && PlaceClusters(clusterPlan, hostDoc, result, clusterGuids, clusterWarnings, paramIndexFirst);
 
             // Splice the placed graph onto the live canvas inputs the model referenced (lifted out
             // before Put), reusing them instead of the duplicates the model would otherwise author.
-            bool referencesWired = referencePlan is not null && RewireReferences(referencePlan, result);
+            bool referencesWired = referencePlan is not null && RewireReferences(referencePlan, result, paramIndexFirst);
 
             // Params and wires were changed after Put's own solution, so re-solve the now-expired
             // components (and their downstream) to bring recreated variable params and restored
             // Picker/grounding selections (and placed clusters / referenced inputs) live.
-            if (reconciled.Count > 0 || pickersRestored || groundingRestored || clustersPlaced || referencesWired)
+            if (reconciled.Count > 0 || wiredCount > 0 || pickersRestored || groundingRestored || clustersPlaced || referencesWired)
             {
                 (result.PlacedObjects.FirstOrDefault()?.OnPingDocument() ?? hostDoc)?.NewSolution(false);
             }
         }
 
         var placedGuids = result.PlacedObjects.Select(o => o.InstanceGuid).Concat(clusterGuids).ToList();
-        var warnings = result.Warnings.Concat(clusterWarnings).ToList();
+        var warnings = result.Warnings.Concat(clusterWarnings).Concat(wireFailures).ToList();
 
         return result.Success
-            ? new PlaceResult(true, result.ComponentsPlaced + clusterGuids.Count, result.ConnectionsCreated, warnings.Count, null, placedGuids, warnings, unfixedIssues)
+            ? new PlaceResult(true, result.ComponentsPlaced + clusterGuids.Count, result.ConnectionsCreated + wiredCount, warnings.Count, null, placedGuids, warnings, unfixedIssues)
             : new PlaceResult(false, 0, 0, 0, result.ErrorMessage, Array.Empty<Guid>(), Array.Empty<string>(), unfixedIssues);
     }
 
@@ -1082,7 +1107,7 @@ internal static partial class GhJsonBridge
     // cluster, against both the library-placed components and the freshly-added clusters. Cluster guids
     // and any per-cluster failures are accumulated into the caller's lists. Returns whether any cluster
     // was added (so the caller can trigger a re-solve).
-    private static bool PlaceClusters(ClusterPlan plan, GH_Document? host, PutResult result, List<Guid> placedGuids, List<string> warnings)
+    private static bool PlaceClusters(ClusterPlan plan, GH_Document? host, PutResult result, List<Guid> placedGuids, List<string> warnings, bool paramIndexFirst = false)
     {
         if (plan.Placements.Count == 0)
         {
@@ -1107,7 +1132,7 @@ internal static partial class GhJsonBridge
         }
 
         bool any = AddClusters(plan, host, byId, placedGuids, warnings);
-        RewireClusterConnections(plan.Connections, byId, ClusterIds(plan));
+        RewireClusterConnections(plan.Connections, byId, ClusterIds(plan), paramIndexFirst);
         return any;
     }
 
@@ -1183,9 +1208,10 @@ internal static partial class GhJsonBridge
     // Rewires the connections that touched a cluster against the combined map of library-placed
     // components and freshly-added clusters. The cluster-side endpoint is resolved by paramIndex first
     // (a cluster routinely exposes several inputs/outputs sharing one name — e.g. two "Curve" inputs —
-    // which a name-only lookup cannot tell apart); the other endpoint stays name-first. Endpoints that
-    // do not resolve are skipped.
-    private static void RewireClusterConnections(IReadOnlyList<GhJsonConnection> connections, IReadOnlyDictionary<int, IGH_DocumentObject> byId, IReadOnlyCollection<int> clusterIds)
+    // which a name-only lookup cannot tell apart); the other endpoint stays name-first on preset paths
+    // and goes paramIndex-first on the LLM path (paramIndexFirst), where names are model-authored.
+    // Endpoints that do not resolve are skipped.
+    private static void RewireClusterConnections(IReadOnlyList<GhJsonConnection> connections, IReadOnlyDictionary<int, IGH_DocumentObject> byId, IReadOnlyCollection<int> clusterIds, bool paramIndexFirst = false)
     {
         foreach (GhJsonConnection conn in connections)
         {
@@ -1196,8 +1222,8 @@ internal static partial class GhJsonBridge
                 continue;
             }
 
-            IGH_Param? source = FindEndpointParam(fromObj, from, output: true, preferIndex: clusterIds.Contains(from.Id));
-            IGH_Param? sink = FindEndpointParam(toObj, to, output: false, preferIndex: clusterIds.Contains(to.Id));
+            IGH_Param? source = FindEndpointParam(fromObj, from, output: true, preferIndex: paramIndexFirst || clusterIds.Contains(from.Id));
+            IGH_Param? sink = FindEndpointParam(toObj, to, output: false, preferIndex: paramIndexFirst || clusterIds.Contains(to.Id));
             if (source is null || sink is null || sink.Sources.Contains(source))
             {
                 continue;
@@ -1212,7 +1238,7 @@ internal static partial class GhJsonBridge
     // Reuses the cluster rewiring: a combined id->object map (library-placed objects plus each reference
     // id mapped to its live parameter) is resolved by the same endpoint logic — the floating live param
     // resolves to itself, the graph side by name then paramIndex. Returns whether any wire was processed.
-    private static bool RewireReferences(ReferencePlan plan, PutResult result)
+    private static bool RewireReferences(ReferencePlan plan, PutResult result, bool paramIndexFirst = false)
     {
         if (plan.Connections.Count == 0)
         {
@@ -1235,13 +1261,14 @@ internal static partial class GhJsonBridge
             byId[pair.Key] = pair.Value;
         }
 
-        RewireClusterConnections(plan.Connections, byId, new HashSet<int>(plan.LiveById.Keys));
+        RewireClusterConnections(plan.Connections, byId, new HashSet<int>(plan.LiveById.Keys), paramIndexFirst);
         return true;
     }
 
-    // Resolves a connection endpoint to a live parameter. When preferIndex is set (the cluster side),
-    // paramIndex wins so same-named ports are addressable; otherwise the full Name is matched, with
-    // paramIndex as a fallback. Floating params resolve to the object itself.
+    // Resolves a connection endpoint to a live parameter. When preferIndex is set (the cluster side,
+    // and every endpoint on LLM-authored paths — patch and full-document alike), paramIndex wins so
+    // the schema's contract holds and same-named ports are addressable; otherwise the full Name is
+    // matched, with paramIndex as a fallback. Floating params resolve to the object itself.
     private static IGH_Param? FindEndpointParam(IGH_DocumentObject obj, GhJsonConnectionEndpoint endpoint, bool output, bool preferIndex)
     {
         if (obj is not IGH_Component component)
@@ -1489,9 +1516,58 @@ internal static partial class GhJsonBridge
     }
 
     /// <summary>
+    /// Wires every connection of an LLM-authored document after a components-only Put, resolving
+    /// endpoints paramIndex-first per the schema's contract (the library's own wiring matches by
+    /// paramName, which mis-lands the model's short labels). Unresolved endpoints are reported as
+    /// model-facing failure lines; existing wires are skipped (idempotent).
+    /// </summary>
+    /// <param name="doc">The placed document.</param>
+    /// <param name="result">The Put result carrying the id-to-guid mapping and placed objects.</param>
+    /// <param name="failures">Accumulates a line per connection that could not be wired.</param>
+    /// <returns>The number of wires created.</returns>
+    private static int WireAllConnections(GhJsonDocument doc, PutResult result, List<string> failures)
+    {
+        int wired = 0;
+        foreach (GhJsonConnection conn in doc.Connections ?? Enumerable.Empty<GhJsonConnection>())
+        {
+            if (conn.From is not { } from || conn.To is not { } to)
+            {
+                continue;
+            }
+
+            IGH_DocumentObject? fromObj = PlacedById(result, from.Id);
+            IGH_DocumentObject? toObj = PlacedById(result, to.Id);
+            if (fromObj is null || toObj is null)
+            {
+                failures.Add($"connection failed: endpoint id {(fromObj is null ? from.Id : to.Id)} does not resolve to a placed component.");
+                continue;
+            }
+
+            IGH_Param? source = FindEndpointParam(fromObj, from, output: true, preferIndex: true);
+            IGH_Param? sink = FindEndpointParam(toObj, to, output: false, preferIndex: true);
+            if (source is null || sink is null)
+            {
+                failures.Add($"connection failed: parameter '{(source is null ? from.ParamName : to.ParamName)}' was not found on its component.");
+                continue;
+            }
+
+            if (sink.Sources.Contains(source))
+            {
+                continue;
+            }
+
+            sink.AddSource(source);
+            wired++;
+        }
+
+        return wired;
+    }
+
+    /// <summary>
     /// Re-creates the connections the library dropped because a variable param did not yet exist when
     /// it built wires. Only connections touching a reconciled component are considered, and a wire is
-    /// added only when both endpoints resolve and it is not already present (idempotent).
+    /// added only when both endpoints resolve and it is not already present (idempotent). Preset-path
+    /// only — the LLM path wires everything through <see cref="WireAllConnections"/> instead.
     /// </summary>
     /// <param name="doc">The placed document.</param>
     /// <param name="result">The Put result carrying the id-to-guid mapping and placed objects.</param>

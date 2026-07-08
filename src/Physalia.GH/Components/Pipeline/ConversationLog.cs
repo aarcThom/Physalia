@@ -71,10 +71,11 @@ public class ConversationLog : StatefulComponentBase
     // and is serialized.
     private string? _unitsOverride;
 
-    // Expose-signatures flag. False = names-only component grounding (default); true folds each
-    // included component's typed input/output signature into the prompt instead — for models
-    // without tool calling but with large contexts. Configuration, not conversation state —
-    // survives Clear and is serialized.
+    // Expose-signatures flag. False = hybrid component grounding (default): the curated common set
+    // (CommonComponents.Names) carries typed input/output signatures, the long tail stays
+    // names-only. True widens signatures to EVERY included component — for models without tool
+    // calling but with large contexts. Configuration, not conversation state — survives Clear and
+    // is serialized.
     private bool _exposeSignatures;
 
     // Caches of the live grounding wired in this solve, for the prompt build and for the chat UI to
@@ -235,7 +236,7 @@ public class ConversationLog : StatefulComponentBase
 
     /// <summary>
     /// Gets a value indicating whether the component grounding folds typed input/output signatures
-    /// into the prompt instead of bare component names.
+    /// into the prompt for every included component, rather than only the curated common set.
     /// </summary>
     public bool ExposeComponentSignatures => _exposeSignatures;
 
@@ -293,7 +294,7 @@ public class ConversationLog : StatefulComponentBase
     /// Sets the expose-signatures flag and re-solves so the change takes effect on the next minted
     /// Instructions. Called from the chat window on the UI thread.
     /// </summary>
-    /// <param name="on">True to fold typed component signatures into the prompt instead of names.</param>
+    /// <param name="on">True to fold typed signatures in for every included component; false keeps the hybrid default (signatures for the curated common set only).</param>
     public void SetExposeSignatures(bool on)
     {
         _exposeSignatures = on;
@@ -412,6 +413,16 @@ public class ConversationLog : StatefulComponentBase
                 foreach (string warning in result.Warnings)
                 {
                     AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, warning);
+                }
+
+                // A feedback turn means the model is iterating on the canvas; without a Canvas State
+                // grounder it cannot see the current graph or a fresh patch base, so corrections are
+                // guesswork. Nudge the graph author toward wiring one.
+                if (!_hasCanvasStateGrounding && events.Any(e => e.Kind == RecordedTurnKind.Feedback))
+                {
+                    AddRuntimeMessage(
+                        GH_RuntimeMessageLevel.Warning,
+                        "No Canvas State grounder is wired into Grounding: the model cannot see the current canvas, so patch bases may go stale during feedback loops.");
                 }
 
                 ScheduleStateSolve(SolveDelayMs, () => _doLatch = true);
@@ -634,13 +645,18 @@ public class ConversationLog : StatefulComponentBase
             switch (g)
             {
                 case ComponentCatalogGrounding cc:
-                    // Signature enrichment is bounded to the filtered set and gated on the user's
-                    // expose-signatures toggle — the only place the catalog ever instantiates
-                    // components, and each type is introspected once per session (cached by GUID).
+                    // Signature enrichment is bounded to the filtered set — the only place the
+                    // catalog ever instantiates components, and each type is introspected once per
+                    // session (cached by GUID). Default is HYBRID: the curated common set always
+                    // carries signatures (the model's worst failure mode is guessing a common
+                    // component's parameter order) while the long tail stays names-only; the user's
+                    // expose-signatures toggle widens enrichment to the whole filtered catalog.
                     ComponentCatalog filteredCatalog = cc.Catalog.Filtered(_selection);
-                    mapped.Add(_exposeSignatures
-                        ? new ComponentCatalogGrounding(ComponentSignatureProvider.EnrichWithSignatures(filteredCatalog), IncludeSignatures: true)
-                        : new ComponentCatalogGrounding(filteredCatalog));
+                    mapped.Add(new ComponentCatalogGrounding(
+                        _exposeSignatures
+                            ? ComponentSignatureProvider.EnrichWithSignatures(filteredCatalog)
+                            : ComponentSignatureProvider.EnrichWithSignatures(filteredCatalog, CommonComponents.Names),
+                        IncludeSignatures: true));
                     break;
                 case ClusterCatalogGrounding cl:
                     mapped.Add(new ClusterCatalogGrounding(cl.Catalog.Filtered(_clusterSelection)));

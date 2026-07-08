@@ -1,5 +1,10 @@
 # PhySchema Requirements for GhJSON Translation
 
+> **Scope:** this format applies ONLY to the **SchemaTranslator** component's input. It is NOT the
+> LLM pipeline's schema — that is `Files/SYSTEM_PROMPTS/SCHEMA/Node Graph.json`, where connection
+> endpoints are matched by `paramIndex` (with `paramName` optional) and `instanceGuid` is omitted
+> on added components. Do not use this document to author LLM system prompts.
+
 A JSON document passed to **SchemaTranslator** must conform to the PhySchema format. SchemaTranslator adds canvas positions and outputs a GhJSON string ready for the Deserializer.
 
 ---

@@ -72,7 +72,7 @@ public class SchemaValidator : RoutingComponentBase<string>
         };
     }
 
-    private static string BuildFeedback(ValidationError error)
+    private string BuildFeedback(ValidationError error)
     {
         var sb = new StringBuilder();
         sb.AppendLine("Your previous response failed validation. Please correct and resubmit.");
@@ -85,6 +85,15 @@ public class SchemaValidator : RoutingComponentBase<string>
             sb.AppendLine("Violations:");
             foreach (var v in error.Violations)
                 sb.AppendLine($"  - {v.Path}: {v.Message}");
+        }
+
+        // The model may have applied a patch on an earlier turn, making its remembered base
+        // checksum stale; carry the fresh one so the corrected resubmission cannot mismatch.
+        if (OnPingDocument() is { } doc
+            && Generation.GhJsonBridge.TryExportCanvasState(doc)?.Checksum is { Length: > 0 } checksum)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Current base checksum — copy this verbatim into patch.base.checksum: " + checksum);
         }
 
         return sb.ToString().TrimEnd();

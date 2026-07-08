@@ -92,6 +92,24 @@ internal static class ComponentSignatureProvider
             .ToList());
     }
 
+    /// <summary>
+    /// Returns a catalog where only the entries named in <paramref name="onlyNames"/> carry their
+    /// introspected signatures; every other entry passes through unchanged and renders name-only
+    /// downstream. This is the default (hybrid) grounding shape: the curated common set costs at
+    /// most one instantiation each, while the long tail stays a flat name list.
+    /// </summary>
+    /// <param name="catalog">The catalog to enrich.</param>
+    /// <param name="onlyNames">The component names to enrich (case-insensitive).</param>
+    /// <returns>The partially enriched catalog.</returns>
+    internal static ComponentCatalog EnrichWithSignatures(ComponentCatalog catalog, IReadOnlySet<string> onlyNames)
+    {
+        return new ComponentCatalog(catalog.Entries
+            .Select(e => onlyNames.Contains(e.Name) && TryGetSignature(e.ComponentGuid, out var ins, out var outs)
+                ? e with { Inputs = ins, Outputs = outs }
+                : e)
+            .ToList());
+    }
+
     // Instantiates the component type and reads its default ports. Returns null on any failure —
     // missing proxy, throwing plug-in constructor, or an object that is neither a component nor a
     // floating parameter. The instance is never added to a document; it is dropped after reading.

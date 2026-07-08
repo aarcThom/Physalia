@@ -164,9 +164,16 @@ public class CanvasObservation : RoutingComponentBase<string>
         }
 
         int total = errors.Count + warnings.Count + dead.Count;
-        return total == 0
-            ? RoutingResult.Ok(data)
-            : RoutingResult.Fail(BuildFeedback(errors, warnings, dead, signatures, scopedScan), $"{total} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
+        if (total == 0)
+        {
+            return RoutingResult.Ok(data);
+        }
+
+        // The last patch APPLIED, so the model's remembered base checksum is stale; carry the fresh
+        // one in the feedback so the corrective patch cannot mismatch. Payload text only — carrier
+        // discipline holds. IsReadReady settled the graph, so the export is stable here.
+        string? checksum = doc is null ? null : GhJsonBridge.TryExportCanvasState(doc)?.Checksum;
+        return RoutingResult.Fail(BuildFeedback(errors, warnings, dead, signatures, scopedScan, checksum), $"{total} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
     }
 
     /// <summary>
@@ -268,7 +275,7 @@ public class CanvasObservation : RoutingComponentBase<string>
         }
     }
 
-    private static string BuildFeedback(IReadOnlyList<string> errors, IReadOnlyList<string> warnings, IReadOnlyList<string> dead, IReadOnlyList<string> signatures, bool scopedScan)
+    private static string BuildFeedback(IReadOnlyList<string> errors, IReadOnlyList<string> warnings, IReadOnlyList<string> dead, IReadOnlyList<string> signatures, bool scopedScan, string? baseChecksum)
     {
         var sb = new StringBuilder();
         sb.AppendLine(scopedScan
@@ -279,6 +286,12 @@ public class CanvasObservation : RoutingComponentBase<string>
         AppendSection(sb, "Warnings:", warnings);
         AppendSection(sb, "Input signatures of the components that reported problems (match your data types to these):", signatures);
         AppendSection(sb, "Components that produced no output (check their inputs and upstream wiring):", dead);
+
+        if (!string.IsNullOrEmpty(baseChecksum))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Current base checksum — copy this verbatim into patch.base.checksum: " + baseChecksum);
+        }
 
         return sb.ToString().TrimEnd();
     }

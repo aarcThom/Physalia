@@ -42,7 +42,10 @@ public static class SchemaValidator
         catch (Exception ex)
         {
             return new Result<string, ValidationError>.Err(
-                new ValidationError($"Invalid JSON: {ex.Message}", Array.Empty<SchemaViolation>()));
+                new ValidationError(
+                    "No parseable JSON document was found in your response. Emit exactly ONE JSON "
+                    + $"document conforming to the schema. Parse error: {ex.Message}",
+                    Array.Empty<SchemaViolation>()));
         }
 
         EvaluationResults results;
@@ -61,10 +64,61 @@ public static class SchemaValidator
                 kvp => new SchemaViolation(d.InstanceLocation.ToString(), $"{kvp.Key}: {kvp.Value}")))
             .ToList();
 
+        violations = Humanize(violations);
+
         string message = violations.Count > 0
             ? string.Join("; ", violations.Select(v => $"{v.Path}: {v.Message}"))
             : "JSON does not conform to schema.";
 
         return new Result<string, ValidationError>.Err(new ValidationError(message, violations));
+    }
+
+    /// <summary>
+    /// Rewrites the JSON-schema library's opaque failure text into actionable feedback. An
+    /// <c>additionalProperties: false</c> hit surfaces as "All values fail against the false
+    /// schema" at the offending property's path — renamed here to say which property is not
+    /// allowed and where. When such property-level violations exist, the root-level oneOf /
+    /// required umbrella errors (one per non-matching branch) are dropped: they say nothing the
+    /// property lines don't, and they dominated feedback with two dozen identical lines.
+    /// </summary>
+    /// <param name="violations">The raw violations from the evaluator.</param>
+    /// <returns>The rewritten, deduplicated violations.</returns>
+    private static List<SchemaViolation> Humanize(List<SchemaViolation> violations)
+    {
+        const string falseSchema = "All values fail against the false schema";
+
+        static bool IsRoot(string path) => string.IsNullOrEmpty(path) || path == "#" || path == "/";
+
+        bool hasPropertyLevel = violations.Any(v => v.Message.Contains(falseSchema) && !IsRoot(v.Path));
+
+        var rewritten = new List<SchemaViolation>();
+        foreach (SchemaViolation v in violations)
+        {
+            if (v.Message.Contains(falseSchema))
+            {
+                int slash = v.Path.LastIndexOf('/');
+                if (slash >= 0 && slash < v.Path.Length - 1)
+                {
+                    string property = v.Path[(slash + 1)..];
+                    string parent = slash == 0 ? "the document root" : $"'{v.Path[..slash]}'";
+                    rewritten.Add(new SchemaViolation(
+                        v.Path,
+                        $"property '{property}' is not allowed at {parent} — remove it, or move it to where the schema defines it"));
+                    continue;
+                }
+            }
+
+            if (hasPropertyLevel && IsRoot(v.Path))
+            {
+                continue;
+            }
+
+            rewritten.Add(v);
+        }
+
+        return rewritten
+            .GroupBy(v => (v.Path, v.Message))
+            .Select(g => g.First())
+            .ToList();
     }
 }

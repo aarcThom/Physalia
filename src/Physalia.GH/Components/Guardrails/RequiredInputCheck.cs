@@ -7,6 +7,7 @@ using System.Text;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Signals;
+using Physalia.Core.Validation;
 using Physalia.GH.Generation;
 
 namespace Physalia.GH.Components;
@@ -59,21 +60,37 @@ public class RequiredInputCheck : RoutingComponentBase<string>
 
         return violations.Count == 0
             ? RoutingResult.Ok(data)
-            : RoutingResult.Fail(BuildFeedback(violations), "Required inputs have no value.", GH_RuntimeMessageLevel.Warning);
+            : RoutingResult.Fail(
+                BuildFeedback(violations, GhPatchDetector.IsGhPatch(data)),
+                "Required inputs have no value.",
+                GH_RuntimeMessageLevel.Warning);
     }
 
     /// <summary>
     /// Builds the feedback payload routed back on the Fail Signal, listing every required input
-    /// the model left with no wire and no internalized value.
+    /// the model left with no wire and no internalized value. The wording leads with placement
+    /// status — the submission was rejected BEFORE it reached the canvas, so the canvas is
+    /// unchanged — and pins the resubmission mode, because a corrective turn that has to re-derive
+    /// both from first principles wobbles between full-document and ghpatch.
     /// </summary>
     /// <param name="violations">One line per unmet required input.</param>
+    /// <param name="isPatch">Whether the rejected submission was a ghpatch (vs a full document).</param>
     /// <returns>A model-facing feedback string.</returns>
-    private static string BuildFeedback(IReadOnlyList<string> violations)
+    private static string BuildFeedback(IReadOnlyList<string> violations, bool isPatch)
     {
         var sb = new StringBuilder();
-        sb.AppendLine(
-            "Required inputs have no value. Wire each one or internalize a value, then resubmit "
-            + "the corrected submission.");
+        sb.AppendLine(isPatch
+            ? "The patch was NOT applied: it was rejected before it reached the canvas because added "
+              + "components have required inputs with no value. The canvas is unchanged and the base "
+              + "checksum you used is still valid. Resubmit the corrected ghpatch: fix ONLY the inputs "
+              + "listed below (wire each one or internalize a value) and keep every other operation "
+              + "identical."
+            : "Nothing was placed: your submission was rejected before it reached the canvas because "
+              + "required inputs have no value, so the canvas is unchanged from the state you were "
+              + "shown. Resubmit your ENTIRE corrected full GhJSON document — do NOT switch to a "
+              + "ghpatch; none of your components exist on the canvas yet. Fix ONLY the inputs listed "
+              + "below (wire each one or internalize a value) and keep every other component and "
+              + "connection identical to your previous submission.");
 
         foreach (string violation in violations)
         {

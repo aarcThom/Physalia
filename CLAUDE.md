@@ -116,7 +116,7 @@ Events between pipeline components travel as **`PhySignal`s** — immutable, seq
 | Folder | Components |
 |---|---|
 | **Pipeline** | System Prompt (system prompt assembly; takes a `Grounding` list folded into the prompt), Prompter (chat UI entry point; Shift+Enter mints a Prompt Signal; displays the wired Conversation Log's conversation), Conversation Log (append-only conversation log; identity-based turns via three Signal inputs), LLM Call (async LLM forward pass) |
-| **Guardrails** | Schema Validator (JSON extraction + schema validation), Component Resolver, Canvas Observation, Geometry Observation |
+| **Guardrails** | Schema Validator (JSON extraction + schema validation), GH Definition Validator (GhJSON/ghpatch parse + library schema + structural integrity), Component Resolver, Required Input Check (required inputs wired or internalized — full graphs and ghpatch adds), Fidelity Check (post-placement intent-vs-realization diff via the authored-placement ledger; full graphs only, patches pass through), Runtime Health Check (was Canvas Observation — errors/dead/null scan of the placed graph), Geometry Observation |
 | **GhPython** | PyTransmitter (pushes generated Python into a linked Script component via grip-link; routes its errors), PythonShortcut |
 | **Grounding** | ClusterGrounder (.ghx cluster — scaffold), PythonGrounder (python function — scaffold) — both emit `GH_Grounding` for System Prompt. `Grounding` is a Core discriminated union (`ComponentCatalogGrounding` migrated from System Prompt's old catalog input; `GH_Grounding.CastFrom` adapts producer goo like `GH_ComponentCatalog`) |
 | **Models** | AnthropicModel/Tweaker, GeminiModel/Tweaker, OpenAICompatibleModel/Tweaker, ModelInformation, LlamaCppModelInfo, ApiKeys (+ `ModelComponentBase`, `TweakerComponentBase<TConfig>`) |
@@ -127,7 +127,7 @@ Events between pipeline components travel as **`PhySignal`s** — immutable, seq
 | **Utility** | Picker, Conversation/Message/Instructions Compositors + Decompositors |
 
 ### Planned, not yet built (spec: `planning/physalia-primitives.md`)
-PyValidator, Receiver, Counter, Meter, Monitor, Canvas Observation, Component Catalog, Aggregator, Router — plus LLM Call alternate roles via `.skill` files (Distiller, Reflector, Interpreter, etc.).
+PyValidator, Receiver, Counter, Meter, Monitor, Component Catalog, Aggregator, Router — plus LLM Call alternate roles via `.skill` files (Distiller, Reflector, Interpreter, etc.).
 
 ---
 

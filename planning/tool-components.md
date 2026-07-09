@@ -104,7 +104,7 @@ way to obtain, plus the one *action* the pipeline does **not** cover (tweaking a
 deliberately **not** in this set.
 
 1. **`get_document_summary`** — the model must see the canvas. Foundational, pure read.
-2. **`inspect_component`** — read a specific node's values + errors on demand (Canvas Observation only routes
+2. **`inspect_component`** — read a specific node's values + errors on demand (Runtime Health Check only routes
    errors as loop feedback; the model can't *query* a node). Reuses `GhPythonBridge` readers.
 3. **`query_geometry`** — numerically "see" produced geometry (bounds/area/validity); pure RhinoCommon.
    Nothing else gives the model this.

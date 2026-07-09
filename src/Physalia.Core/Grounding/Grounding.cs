@@ -236,7 +236,13 @@ public sealed record ReferencedGeometryInput(string Name, string TypeName);
 /// <param name="GhJsonText">The canvas state serialized as GhJSON.</param>
 /// <param name="Checksum">Fingerprint of <paramref name="GhJsonText"/> (e.g. <c>sha256-…</c>).</param>
 /// <param name="ComponentCount">Number of components in the export; zero renders nothing.</param>
-public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, int ComponentCount) : Grounding
+/// <param name="ModelPlacedCount">
+/// How many of the exported components were placed from the model's own previous submissions.
+/// Drives the provenance line, so the model never has to infer placement status: zero means
+/// nothing of its authorship is on the canvas (a new build is a full document), non-zero means
+/// its graph is live (edits are ghpatches).
+/// </param>
+public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, int ComponentCount, int ModelPlacedCount = 0) : Grounding
 {
     /// <inheritdoc/>
     public override string ToSystemPromptSection()
@@ -250,15 +256,27 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
             ? string.Empty
             : "\nBase checksum — copy this verbatim into patch.base.checksum: " + Checksum.Trim();
 
+        // Stated outright so the model never infers placement status from the canvas contents —
+        // a rejected submission leaves the canvas unchanged, and inferring "did my graph land?"
+        // from first principles is exactly what makes corrective turns wobble between modes.
+        string provenanceLine = ModelPlacedCount > 0
+            ? "Provenance: " + ModelPlacedCount + " of these components were placed from your previous "
+              + "responses — your graph is live on the canvas; edit it via ghpatch, matched by instanceGuid."
+            : "Provenance: NONE of these components came from you — the canvas holds only the user's own "
+              + "work so far. To build something new, emit a full GhJSON document (it places alongside "
+              + "the user's components without touching them); emit a ghpatch only if the user asks you "
+              + "to change these existing components.";
+
         return "This is the CURRENT state of the Grasshopper canvas, serialized as GhJSON. It is the "
-            + "definition the user is building — edit it incrementally by emitting a ghpatch document: "
-            + "match existing components by their instanceGuid, reference connection endpoints by the "
+            + "definition the user is building. To EDIT existing components, emit a ghpatch document: "
+            + "match them by their instanceGuid, reference connection endpoints by the "
             + "integer id shown here (ids are stable for the whole session: a component keeps its id "
             + "across turns, components you add keep the ids you gave them, and a removed component's "
             + "id is never reused), and change ONLY what the request requires. Never re-emit "
             + "components that already exist and are not being changed. Components marked with the "
             + "physalia.rhinoRef extension reference live geometry in the Rhino model — wire FROM them "
             + "as data sources; never modify their values, remove them, or recreate them.\n"
+            + provenanceLine + "\n"
             + GhJsonText.Trim()
             + checksumLine;
     }

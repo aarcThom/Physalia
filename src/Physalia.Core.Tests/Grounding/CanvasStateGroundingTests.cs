@@ -51,4 +51,25 @@ public class CanvasStateGroundingTests
         Assert.Contains(Json, section);
         Assert.DoesNotContain("checksum", section, System.StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void ToSystemPromptSection_NoModelPlaced_StatesNoneCameFromModel()
+    {
+        // Default ModelPlacedCount = 0: the provenance line must say outright that nothing on the
+        // canvas is the model's, steering a new build to a full document. Stated, not inferred —
+        // inferring placement status is what makes corrective turns wobble between modes.
+        string section = new CanvasStateGrounding(Json, Checksum, 1).ToSystemPromptSection();
+
+        Assert.Contains("Provenance: NONE of these components came from you", section);
+        Assert.Contains("full GhJSON document", section);
+    }
+
+    [Fact]
+    public void ToSystemPromptSection_ModelPlaced_StatesCountAndPatchMode()
+    {
+        string section = new CanvasStateGrounding(Json, Checksum, 5, 3).ToSystemPromptSection();
+
+        Assert.Contains("Provenance: 3 of these components were placed from your previous responses", section);
+        Assert.Contains("edit it via ghpatch", section);
+    }
 }

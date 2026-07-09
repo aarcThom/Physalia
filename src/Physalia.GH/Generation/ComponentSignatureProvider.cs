@@ -70,7 +70,7 @@ internal static class ComponentSignatureProvider
     /// model must author a parameter name exactly — <c>inputSettings.parameterName</c> for
     /// internalized data — matches by full Name; a model that only ever saw <c>C</c> writes
     /// <c>"parameterName": "C"</c> and the internalization silently misses <c>Closed</c>. Wires are
-    /// unaffected (matched by paramIndex). Shared with the Canvas Observation, which reads placed
+    /// unaffected (matched by paramIndex). Shared with the Runtime Health Check, which reads placed
     /// components directly and so reflects their actual (zui) state.
     /// </summary>
     /// <param name="params">The parameters to read.</param>

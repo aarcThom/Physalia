@@ -206,6 +206,10 @@ internal static partial class GhJsonBridge
             Dictionary<int, IGH_DocumentObject> addedById =
                 ApplyAdds(patch, adds, addIds, doc, baseIndex, addedGuids, modifiedGuids, conflicts, warnings);
 
+            // Record the adds in the authored-placement ledger: the model authored these ids, and
+            // the canvas grounding's provenance line (and future patch-mode fidelity) reads them.
+            RecordAuthoredPlacement(doc, addedById.Select(p => new KeyValuePair<int, Guid>(p.Key, p.Value.InstanceGuid)));
+
             ApplyGroupOps(patch, doc, baseExport, baseIndex, addedById, conflicts);
             ApplyConnectionRemoves(patch, doc, addIds, baseIndex, removedGuids, modifiedGuids, conflicts, warnings);
             ApplyConnectionAdds(patch, doc, addIds, addedById, baseIndex, modifiedGuids, conflicts);

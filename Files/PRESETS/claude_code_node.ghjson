@@ -413,7 +413,7 @@
       }
     },
     {
-      "name": "Canvas Observation",
+      "name": "Runtime Health Check",
       "library": "Physalia",
       "componentGuid": "f4b0d63c-8e57-4a4b-9c3d-5b2a7f1e04d8",
       "instanceGuid": "0ff96a93-18f6-41f7-8992-58ff56a48bf1",

@@ -573,10 +573,7 @@ internal static partial class GhJsonBridge
             .Concat(referenceIssues)
             .ToList();
 
-        if (authoredIds is not null)
-        {
-            RestoreAuthoredIds(doc, authoredIds);
-        }
+        bool authoredIdsRestored = authoredIds is not null && RestoreAuthoredIds(doc, authoredIds);
 
         var options = BuildPutOptions(offset);
         if (paramIndexFirst)
@@ -584,7 +581,7 @@ internal static partial class GhJsonBridge
             options.CreateConnections = false;
         }
 
-        PlaceResult result = ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan, referencePlan: referencePlan, paramIndexFirst: paramIndexFirst);
+        PlaceResult result = ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan, referencePlan: referencePlan, paramIndexFirst: paramIndexFirst, recordAuthoredIds: authoredIdsRestored);
 
         // ComputeOffset aligned the top-left PIVOT corner to the target, but a component's pivot is
         // its mid-left anchor, so the visible graph floats a (per-graph variable) amount above the
@@ -602,12 +599,14 @@ internal static partial class GhJsonBridge
     // correspond by list order — Fix preserves it), remapping connection endpoints and group
     // members with the same two-pass old->authored pattern AssignStableIds uses. Skipped when the
     // authored ids are incomplete or duplicated, or when Fix changed the component count — the
-    // correspondence is gone and dense renumbering is the safe fallback.
-    private static void RestoreAuthoredIds(GhJsonDocument doc, IReadOnlyList<int?> authoredIds)
+    // correspondence is gone and dense renumbering is the safe fallback. Returns whether the
+    // authored ids were restored, so the caller knows the document's ids are the model's own
+    // numbering (the precondition for recording the authored-placement ledger).
+    private static bool RestoreAuthoredIds(GhJsonDocument doc, IReadOnlyList<int?> authoredIds)
     {
         if (doc.Components is null || doc.Components.Count != authoredIds.Count)
         {
-            return;
+            return false;
         }
 
         var authored = new List<int>(authoredIds.Count);
@@ -615,7 +614,7 @@ internal static partial class GhJsonBridge
         {
             if (id is not int value)
             {
-                return;
+                return false;
             }
 
             authored.Add(value);
@@ -623,7 +622,7 @@ internal static partial class GhJsonBridge
 
         if (authored.Distinct().Count() != authored.Count)
         {
-            return;
+            return false;
         }
 
         var remap = new Dictionary<int, int>();
@@ -666,6 +665,8 @@ internal static partial class GhJsonBridge
                 }
             }
         }
+
+        return true;
     }
 
     // Ensures every component carries a validated, non-obsolete component-type GUID before Put, so the
@@ -967,7 +968,7 @@ internal static partial class GhJsonBridge
     // With paramIndexFirst set (the LLM path), Put placed components only and every connection is
     // wired here, paramIndex-first; unresolved endpoints surface as warnings the transmitter routes
     // back to the model.
-    private static PlaceResult ExecutePut(GhJsonDocument doc, PutOptions options, IReadOnlyList<string> unfixedIssues, Action<PutResult>? afterPlace = null, ClusterPlan? clusterPlan = null, ReferencePlan? referencePlan = null, bool paramIndexFirst = false)
+    private static PlaceResult ExecutePut(GhJsonDocument doc, PutOptions options, IReadOnlyList<string> unfixedIssues, Action<PutResult>? afterPlace = null, ClusterPlan? clusterPlan = null, ReferencePlan? referencePlan = null, bool paramIndexFirst = false, bool recordAuthoredIds = false)
     {
         IsImporting = true;
         PutResult result;
@@ -1031,6 +1032,16 @@ internal static partial class GhJsonBridge
             // canvas export keeps the numbering the model authored (ids already taken by earlier
             // exports fall through to fresh assignment at export time).
             RegisterStableIds(hostDoc, result.IdToGuidMapping);
+
+            // On the LLM path (with the authored numbering intact), also remember which authored
+            // id each placed object realised — the Fidelity Check's ground truth. The stable-id
+            // registry cannot serve this role: ids retired by an earlier placement are never
+            // re-claimable, so a corrective resubmission's export ids routinely drift from the
+            // ids the model authored.
+            if (recordAuthoredIds)
+            {
+                RecordAuthoredPlacement(hostDoc, result.IdToGuidMapping);
+            }
             bool clustersPlaced = clusterPlan is not null
                 && PlaceClusters(clusterPlan, hostDoc, result, clusterGuids, clusterWarnings, paramIndexFirst);
 
@@ -1321,8 +1332,11 @@ internal static partial class GhJsonBridge
 
     // Adds each planned cluster to the document at its offset-adjusted pivot, recording the placed guid
     // and id->object mapping. A missing file or load failure is reported as a warning and skipped.
+    // Cluster ids are authored by construction (extracted before Fix), so each placed cluster is also
+    // recorded in the authored-placement ledger for the Fidelity Check.
     private static bool AddClusters(ClusterPlan plan, GH_Document host, IDictionary<int, IGH_DocumentObject> byId, List<Guid> placedGuids, List<string> warnings)
     {
+        var ledgerPairs = new List<KeyValuePair<int, Guid>>();
         bool any = false;
         foreach (ClusterPlacement placement in plan.Placements)
         {
@@ -1356,11 +1370,13 @@ internal static partial class GhJsonBridge
             if (placement.Id is int id)
             {
                 byId[id] = cluster;
+                ledgerPairs.Add(new KeyValuePair<int, Guid>(id, cluster.InstanceGuid));
             }
 
             any = true;
         }
 
+        RecordAuthoredPlacement(host, ledgerPairs);
         return any;
     }
 

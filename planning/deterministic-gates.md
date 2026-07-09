@@ -13,7 +13,7 @@ or back on **Fail Signal (1)** — **without an LLM call**. The Fail payload is 
 
 Why gates matter here: the LLM Call is the only expensive node. Every gate placed before a LLM Call
 re-entry, or after a LLM Call (catching bad output before a Transmitter mutates the doc), saves a full
-forward pass. The pattern is already proven twice — **Schema Validator** (JSON + schema) and **Canvas Observation**
+forward pass. The pattern is already proven twice — **Schema Validator** (JSON + schema) and **Runtime Health Check**
 (doc-state). Most gates are synchronous: empty `PushSolve`, all logic in `ReadSolve` returning
 `RoutingResult.Ok`/`.Fail` (the Schema Validator shape). Stateful counters (retry, dedup, budget) instead
 follow the **SignalLimiter** shape — subclass `StatefulComponentBase`, accumulate per-session, add a
@@ -29,7 +29,7 @@ would be redundant:
   also be enforced here via JSON Schema `minimum`/`maximum`/`pattern` when the output is JSON.)
 - **Python syntax + runtime errors → PyTransmitter.** It pushes the code into the linked Script
   component, waits for it to re-solve, reads `GhPythonBridge.GetErrors`, and routes them on Fail.
-- **Placed-graph errors / dead components → Canvas Observation and ComponentTransmitter.**
+- **Placed-graph errors / dead components → Runtime Health Check and ComponentTransmitter.**
 - **Attempt/retry capping → SignalLimiter.** It already routes the first N signals to Within Limit
   and the rest to Over Limit with a Reset — i.e. it *is* the Retry Limiter/Counter. At most it wants
   a thin relabel, not a new component.
@@ -89,10 +89,10 @@ So the valuable new gates are the ones that check something **nothing currently 
 
 ### Priority 4 — domain-specific
 
-11. **Geometry-Valid Gate (Rhino)** — *moderate; Canvas Observation's `IsReadReady` deferral as template.* After
+11. **Geometry-Valid Gate (Rhino)** — *moderate; Runtime Health Check's `IsReadReady` deferral as template.* After
     placement, assert produced geometry is valid via RhinoCommon (`IsValidWithLog`, `Brep.IsValid`,
     `Mesh.IsManifold`), routing the validity log back as feedback. The deepest correctness gate — and
-    the most Physalia-unique (Canvas Observation catches GH runtime errors; a Brep can be error-free yet invalid).
+    the most Physalia-unique (Runtime Health Check catches GH runtime errors; a Brep can be error-free yet invalid).
 12. **File-Exists / Path Gate** — *trivial; `System.IO`.* Validate a path exists + has an allowed
     extension before Deserializer / Component Catalog / Image Sources reads it.
 13. **C# / Roslyn Compile Gate** — *hard; defer.* Only relevant if Physalia generates C#; the Python
@@ -108,10 +108,10 @@ draft listed a JSON well-formedness gate, a Python syntax gate, and a Retry Limi
 dropped as redundant with the Schema Validator, PyTransmitter, and SignalLimiter respectively — see the
 "Already covered" section.)
 
-1. **Geometry-Valid Gate** (#11) — the deepest, most Physalia-unique correctness check. The Canvas Observation
+1. **Geometry-Valid Gate** (#11) — the deepest, most Physalia-unique correctness check. The Runtime Health Check
    catches GH *runtime* errors, but a Brep/Mesh can be error-free yet geometrically invalid
    (non-manifold, bad tolerances); nothing checks `IsValidWithLog`. Routes the validity log back as
-   feedback. *Moderate (Canvas Observation's `IsReadReady` deferral is the template).*
+   feedback. *Moderate (Runtime Health Check's `IsReadReady` deferral is the template).*
 2. **Allow/Deny Content Filter** (#6) — a real safety rail: block dangerous generated Python
    (`os.system`, `subprocess`, file-delete) **before** PyTransmitter executes it. Non-redundant —
    PyTransmitter routes *errors*, but harmful code that runs successfully produces no error. *Trivial.*
@@ -125,7 +125,7 @@ livelock that SignalLimiter only counts down on. Then **Regex/Marker** (#4) for 
 ## Key files for implementation
 - Base: `src/Physalia.GH/Components/RoutingComponentBase.cs` (sync gate template — `RoutingResult.Ok`/`.Fail`).
 - Counter template: `src/Physalia.GH/Components/Utility/SignalLimiter.cs` (+ `StatefulComponentBase`).
-- Existing gates to copy: `Components/Guardrails/SchemaValidator.cs`, `Components/Guardrails/CanvasObservation.cs`.
+- Existing gates to copy: `Components/Guardrails/SchemaValidator.cs`, `Components/Guardrails/RuntimeHealthCheck.cs`.
 - Reusable Core: `Common/StringHelpers.cs`, `Validation/JsonExtractor.cs` (+ `SchemaValidator`),
   `Tokens/ITokenEstimator.cs` / `TokenEstimationHelpers.cs`, `Generation/GhPythonBridge.cs`.
 - Specs for planned versions: `planning/physalia-primitives.md` (Counter, Meter, PyValidator).

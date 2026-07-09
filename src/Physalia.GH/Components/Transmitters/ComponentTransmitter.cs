@@ -26,11 +26,12 @@ namespace Physalia.GH.Components;
 /// a <b>ghpatch</b> (<c>"kind": "ghpatch"</c>) edits the existing canvas IN PLACE — components are
 /// added, modified, removed, and rewired without disturbing anything else, and nothing is deleted
 /// wholesale, so the user can iterate on their definition with the model turn after turn. This
-/// component reports only <b>mechanical</b> problems — invalid input, a failed placement, patch
-/// operations that did not apply — back on the Fail Signal so the model can fix and resubmit. A
-/// clean outcome routes the affected components' GUIDs forward on the Success Signal; a Canvas
-/// Observation wired downstream scopes its runtime-health scan (errors, warnings, dead
-/// components) to exactly those GUIDs.
+/// component routes Fail only when it genuinely could not place or apply — a payload that does
+/// not parse, a placement exception, patch operations that did not apply. A full-graph placement
+/// that landed ALWAYS routes the placed components' GUIDs forward on the Success Signal, even
+/// when some wires failed: the Fidelity Check downstream owns the intent-vs-realization report,
+/// and a Runtime Health Check scopes its runtime-health scan (errors, warnings, dead components)
+/// to exactly those GUIDs.
 /// </summary>
 public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 {
@@ -56,7 +57,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
         : base(
             "Component Transmitter",
             "CompTx",
-            "Places an LLM-generated GhJSON graph on the canvas. Clean placement routes the placed components' GUIDs forward (for a Canvas Observation to scan); mechanical placement problems route a description back.",
+            "Places an LLM-generated GhJSON graph on the canvas. Clean placement routes the placed components' GUIDs forward (for a Runtime Health Check to scan); mechanical placement problems route a description back.",
             "Transmitters")
     {
     }
@@ -158,9 +159,10 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Reports only mechanical placement outcomes (known as soon as placement finishes), so it
-    /// need not wait for the placed components to solve — a Canvas Observation wired downstream owns the
-    /// runtime-health gate and scan.
+    /// Routes Fail only for hard failures (payload did not parse, placement threw, patch refused).
+    /// A full-graph placement that landed always routes Success, so it need not wait for the placed
+    /// components to solve — the Fidelity Check downstream owns the intent-vs-realization report
+    /// and a Runtime Health Check owns the runtime-health gate and scan.
     /// </remarks>
     protected override RoutingResult ReadSolve(string data, IGH_DataAccess da)
     {
@@ -174,17 +176,19 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
             return ReadPatchOutcome();
         }
 
-        var connectionFailures = _placeWarnings.ToList();
-        var unfixed = _unfixedIssues.ToList();
-
-        return connectionFailures.Count == 0 && unfixed.Count == 0
-            ? RoutingResult.Ok(SerializePlacedGuids())
-            : RoutingResult.Fail(BuildFeedback(connectionFailures, unfixed), "Placement reported problems.", GH_RuntimeMessageLevel.Warning);
+        // Full-graph path: placement succeeded, so ALWAYS route the placed GUIDs forward — the
+        // Fidelity Check downstream owns the model-facing intent-vs-realization report. Per-wire
+        // failures and unfixed structural issues survive only as a local component note.
+        string? note = BuildPlacementNote(_placeWarnings, _unfixedIssues);
+        return RoutingResult.Ok(
+            SerializePlacedGuids(),
+            message: note,
+            level: note is null ? GH_RuntimeMessageLevel.Blank : GH_RuntimeMessageLevel.Warning);
     }
 
     /// <summary>
     /// Shapes the routing result for a patch application: a clean apply routes the added and
-    /// modified GUIDs forward (the Canvas Observation's scan scope); conflicts route feedback back
+    /// modified GUIDs forward (the Runtime Health Check's scan scope); conflicts route feedback back
     /// that tells the model exactly which operations did NOT apply — everything else did, so it
     /// must resubmit only the corrected operations.
     /// </summary>
@@ -361,7 +365,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 
     /// <summary>
     /// Serialises the placed components' GUIDs as newline-separated values for the Success
-    /// payload, so a downstream Canvas Observation can scope its runtime-health scan to exactly this
+    /// payload, so a downstream Runtime Health Check can scope its runtime-health scan to exactly this
     /// placement.
     /// </summary>
     /// <returns>The placed GUIDs, one per line.</returns>
@@ -418,35 +422,31 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
     }
 
     /// <summary>
-    /// Builds the feedback payload routed back on the Fail Signal, listing the mechanical
-    /// placement problems the model must fix in its GhJSON.
+    /// Builds the LOCAL component note for a placement that completed with per-wire failures or
+    /// unfixed structural issues, or null when there were none. These are not routed back to the
+    /// model — the Fidelity Check downstream owns the model-facing intent-vs-realization report;
+    /// this note keeps the human informed at the component itself.
     /// </summary>
-    /// <param name="connectionFailures">Wires the library could not create (id/paramIndex mismatch).</param>
-    /// <param name="unfixedIssues">Issues the GhJSON fixer could not repair before placement.</param>
-    /// <returns>A human-readable feedback string.</returns>
-    private static string BuildFeedback(IReadOnlyList<string> connectionFailures, IReadOnlyList<string> unfixedIssues)
+    /// <param name="warnings">Wires the placement could not create (id/paramIndex mismatch).</param>
+    /// <param name="unfixed">Issues the GhJSON fixer could not repair before placement.</param>
+    /// <returns>A bulleted note, or null when placement was clean.</returns>
+    private static string? BuildPlacementNote(IReadOnlyList<string> warnings, IReadOnlyList<string> unfixed)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine("The components were placed, but the graph has unresolved problems. Fix them and resubmit.");
-
-        if (unfixedIssues.Count > 0)
+        if (warnings.Count == 0 && unfixed.Count == 0)
         {
-            sb.AppendLine();
-            sb.AppendLine("Structural issues that could not be auto-repaired (check component names and ids):");
-            foreach (string issue in unfixedIssues)
-            {
-                sb.AppendLine($"  - {issue}");
-            }
+            return null;
         }
 
-        if (connectionFailures.Count > 0)
+        var sb = new StringBuilder();
+        sb.AppendLine($"Placement completed with {warnings.Count + unfixed.Count} problem(s); the Fidelity Check downstream reports them to the model:");
+        foreach (string issue in unfixed)
         {
-            sb.AppendLine();
-            sb.AppendLine("Connections that could not be created (check each endpoint's id and paramIndex):");
-            foreach (string failure in connectionFailures)
-            {
-                sb.AppendLine($"  - {failure}");
-            }
+            sb.AppendLine($"  - {issue}");
+        }
+
+        foreach (string warning in warnings)
+        {
+            sb.AppendLine($"  - {warning}");
         }
 
         return sb.ToString().TrimEnd();

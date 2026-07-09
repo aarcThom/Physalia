@@ -700,7 +700,7 @@ public class ConversationLog : StatefulComponentBase
         GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(OnPingDocument());
         return snapshot is null
             ? new CanvasStateGrounding(string.Empty, string.Empty, 0)
-            : new CanvasStateGrounding(snapshot.Json, snapshot.Checksum, snapshot.ComponentCount);
+            : new CanvasStateGrounding(snapshot.Json, snapshot.Checksum, snapshot.ComponentCount, GhJsonBridge.CountModelPlaced(OnPingDocument()));
     }
 
     // Maps a Signal input index to the turn kind it designates. Turn type comes from input

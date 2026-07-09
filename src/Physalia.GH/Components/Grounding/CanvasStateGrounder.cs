@@ -89,7 +89,8 @@ public class CanvasStateGrounder : PhyBase
         var grounding = new CanvasStateGrounding(
             snapshot?.Json ?? string.Empty,
             snapshot?.Checksum ?? string.Empty,
-            snapshot?.ComponentCount ?? 0);
+            snapshot?.ComponentCount ?? 0,
+            GhJsonBridge.CountModelPlaced(OnPingDocument()));
 
         DA.SetData(OutGrounding, new GH_Grounding(grounding));
     }

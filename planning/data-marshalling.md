@@ -246,7 +246,7 @@ validated JSON, and the feedback all travel as signal payloads.
 ### Iterative-canvas loop guardrails (Component Transmitter variant)
 
 When the pipeline places graphs on the canvas (Schema Validator → Component Transmitter →
-Canvas Observation, Fail Signals looping back through Feedback/FeedbackCollector), two
+Runtime Health Check, Fail Signals looping back through Feedback/FeedbackCollector), two
 extra components are part of the canonical wiring, not optional extras:
 
 - **Canvas State grounder → Conversation Log.Grounding.** Guarantees the model sees the

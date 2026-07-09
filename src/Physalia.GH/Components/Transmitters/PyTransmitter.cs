@@ -24,7 +24,7 @@ namespace Physalia.GH.Components;
 /// consumed signal's payload) and pushes its code, inputs, and outputs into a linked GH
 /// Python Script component, then reads back the target's runtime errors. On clean
 /// execution it routes the linked Python component's GUID forward on the Success Signal
-/// (so a downstream Canvas Observation or Geometry Observation can scope to it); on genuine errors it
+/// (so a downstream Runtime Health Check or Geometry Observation can scope to it); on genuine errors it
 /// routes the messages back on the Fail Signal. Errors caused purely by unconnected
 /// inputs are ignored. Link to the target via the bottom-centre bezier grip.
 /// </summary>

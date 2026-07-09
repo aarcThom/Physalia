@@ -1,14 +1,14 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "GhJSON or GhPatch",
-  "description": "Either a complete Grasshopper definition (a full GhJSON document) or an incremental edit to the definition already on the canvas (a ghpatch document). Which to emit: when the prompt contains the CURRENT canvas state, emit a ghpatch that changes only what the request requires; when no canvas state is present (or it is empty), emit a full GhJSON document. Output exactly one of the two structures — no prose, no markdown fences, no explanation. Only the raw JSON object.",
+  "description": "Either a complete Grasshopper definition (a full GhJSON document) or an incremental edit to the definition already on the canvas (a ghpatch document). Which to emit: a ghpatch when the canvas state contains components YOU placed or edited on a previous successful turn (address them by instanceGuid); a full GhJSON document when nothing of yours is on the canvas yet — including the FIRST generation, even if the canvas state shows the user's own components (a full document places alongside them). Decide the document kind BEFORE you start writing, then output exactly one of the two structures — never draft one kind and switch mid-response. No prose, no markdown fences, no explanation. Only the raw JSON object.",
   "oneOf": [
     { "$ref": "#/$defs/ghpatchDocument" },
     { "$ref": "#/$defs/fullDocument" }
   ],
 
   "rules": [
-    "MODE: canvas state present in the prompt -> ghpatch (\"kind\": \"ghpatch\"). No canvas state, or an empty canvas -> full GhJSON document. Never regenerate the whole graph when a canvas state is present.",
+    "MODE: emit a ghpatch (\"kind\": \"ghpatch\") when the canvas state contains components from your previous successful turns, or when the user asks you to change their own existing components — you edit by instanceGuid copied from the canvas state. Emit a full GhJSON document when nothing you authored is on the canvas yet (first generation, or every prior submission was rejected) — even when the canvas state shows the user's own components; a full document places alongside them without touching them. If feedback says your submission was rejected before placement, the canvas is UNCHANGED: resubmit in the SAME document kind, fixing only what the feedback names. Never regenerate the whole graph when your components are already on the canvas.",
     "name must exactly match the component's name in the Grasshopper library (case-sensitive), e.g. 'Addition', 'Construct Point', 'Number Slider'.",
     "The grounding's installed-component list, when present, is the sole source of truth for which components may be placed: use only names it contains — plug-in components are allowed when listed, and unlisted components are not allowed however common. Without such a list, keep to native Grasshopper components. Do NOT use any scripting components (Python 3 Script, C# Script, GhPython, VB Script, or any other code-bearing node).",
     "Every component needs a unique integer id; connections reference this id. In a ghpatch, existing components keep the ids shown in the canvas state, and every ADDED component gets a fresh id HIGHER than the highest id in the canvas state.",

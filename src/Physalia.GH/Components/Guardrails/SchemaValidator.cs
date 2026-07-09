@@ -75,7 +75,11 @@ public class SchemaValidator : RoutingComponentBase<string>
     private string BuildFeedback(ValidationError error)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("Your previous response failed validation. Please correct and resubmit.");
+        sb.AppendLine(
+            "Your previous response failed validation and was rejected before any transmitter acted "
+            + "on it — nothing was placed or changed. Resubmit your ENTIRE corrected response in the "
+            + "SAME document kind as before: fix ONLY the violations listed below and keep everything "
+            + "else identical.");
         sb.AppendLine();
         sb.AppendLine($"Error: {error.Message}");
 

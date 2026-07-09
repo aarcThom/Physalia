@@ -537,14 +537,22 @@ internal static partial class GhJsonBridge
     }
 
     // Applies a modify by mutating the live object directly when EVERY requested change is one of
-    // the simple cases: nickName, pivot, locked/hidden, a slider value, or panel text. Anything
-    // else (field removes, parameter settings, other extensions) returns false so the caller falls
-    // back to replacing the object with its full post-merge state.
+    // the simple cases: nickName, pivot, locked/hidden, a slider value, panel text, or an in-place
+    // parameter data-tree modifier (graft/flatten, simplify, reverse, etc.). Anything else (field
+    // removes, internalized data, a renamed/unknown parameter, other extensions) returns false so
+    // the caller falls back to replacing the object with its full post-merge state.
     private static bool TryFastPathModify(GhPatchComponentModify modify, IGH_DocumentObject live)
     {
-        if (modify.Remove is { Count: > 0 }
-            || modify.InputSettings is not null
-            || modify.OutputSettings is not null)
+        if (modify.Remove is { Count: > 0 })
+        {
+            return false;
+        }
+
+        // Parameter-settings changes qualify for the fast path only when they touch nothing but
+        // data-tree modifiers / nickName on parameters that already exist; a structural settings
+        // change (internalized data, a renamed or unknown parameter) still needs the replace path.
+        if (!ParamSettingsOpFastPathEligible(live, modify.InputSettings, inputSide: true)
+            || !ParamSettingsOpFastPathEligible(live, modify.OutputSettings, inputSide: false))
         {
             return false;
         }
@@ -633,9 +641,121 @@ internal static partial class GhJsonBridge
             }
         }
 
+        ApplyParamSettingsOp(live, modify.InputSettings, inputSide: true);
+        ApplyParamSettingsOp(live, modify.OutputSettings, inputSide: false);
+
         (live as IGH_ActiveObject)?.ExpireSolution(false);
         live.Attributes?.ExpireLayout();
         return true;
+    }
+
+    // The data-tree modifier / nickName fields a ghpatch may change in place on an existing
+    // parameter (matching the LLM schema's parameterSettings, plus the invert/unitize/principal
+    // flags the library round-trips). Any other key forces the replace path.
+    private static bool IsFastPathParamKey(string key) => key is
+        "dataMapping" or "isSimplified" or "isReversed" or "isReparameterized"
+        or "isInverted" or "isUnitized" or "isPrincipal" or "expression" or "nickName";
+
+    // True when a parameter-settings op only sets/removes fast-path-safe fields on parameters that
+    // exist on the live object. A null op is trivially eligible.
+    private static bool ParamSettingsOpFastPathEligible(
+        IGH_DocumentObject live, GhPatchParameterSettingsOp? op, bool inputSide)
+    {
+        if (op?.ByParameterName is not { } entries)
+        {
+            return true;
+        }
+
+        foreach (KeyValuePair<string, GhPatchParameterSettingsEntryOp> pair in entries)
+        {
+            if (ResolveLiveParam(live, pair.Key, inputSide) is null)
+            {
+                return false;
+            }
+
+            IEnumerable<string> setKeys = pair.Value.Set?.Properties().Select(p => p.Name) ?? Enumerable.Empty<string>();
+            IEnumerable<string> removeKeys = pair.Value.Remove ?? Enumerable.Empty<string>();
+            if (setKeys.Concat(removeKeys).Any(k => !IsFastPathParamKey(k)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Applies a fast-path-eligible parameter-settings op straight onto the live parameters: SET keys
+    // assign a modifier, REMOVE keys clear it (dataMapping -> none, a flag -> false, expression ->
+    // empty). Eligibility is assumed to have been checked already.
+    private static void ApplyParamSettingsOp(
+        IGH_DocumentObject live, GhPatchParameterSettingsOp? op, bool inputSide)
+    {
+        if (op?.ByParameterName is not { } entries)
+        {
+            return;
+        }
+
+        foreach (KeyValuePair<string, GhPatchParameterSettingsEntryOp> pair in entries)
+        {
+            IGH_Param? param = ResolveLiveParam(live, pair.Key, inputSide);
+            if (param is null)
+            {
+                continue;
+            }
+
+            GhJsonParameterSettings settings = pair.Value.Set?.ToObject<GhJsonParameterSettings>() ?? new GhJsonParameterSettings();
+            List<string> removals = pair.Value.Remove ?? new List<string>();
+            ApplyParamSettingRemovals(settings, removals);
+
+            if (settings.NickName is not null)
+            {
+                param.NickName = string.IsNullOrWhiteSpace(settings.NickName) ? param.Name : settings.NickName;
+            }
+            else if (removals.Contains("nickName"))
+            {
+                param.NickName = param.Name;
+            }
+
+            ApplyParamModifiers(param, settings);
+        }
+    }
+
+    // Turns each REMOVE key into the modifier's cleared sentinel on the settings object, so the
+    // shared ApplyParamModifiers pass clears it (a null field is "leave unchanged").
+    private static void ApplyParamSettingRemovals(GhJsonParameterSettings settings, IEnumerable<string> removeKeys)
+    {
+        foreach (string key in removeKeys)
+        {
+            switch (key)
+            {
+                case "dataMapping": settings.DataMapping = "none"; break;
+                case "isSimplified": settings.IsSimplified = false; break;
+                case "isReversed": settings.IsReversed = false; break;
+                case "isReparameterized": settings.IsReparameterized = false; break;
+                case "isInverted": settings.IsInverted = false; break;
+                case "isUnitized": settings.IsUnitized = false; break;
+                case "isPrincipal": settings.IsPrincipal = false; break;
+                case "expression": settings.Expression = string.Empty; break;
+            }
+        }
+    }
+
+    // Finds the live parameter a settings entry names, on the requested side of a component or on a
+    // floating parameter. Matched by full Name (Ordinal), the same key the schema uses.
+    private static IGH_Param? ResolveLiveParam(IGH_DocumentObject live, string name, bool inputSide)
+    {
+        if (live is IGH_Param floating)
+        {
+            return string.Equals(floating.Name, name, StringComparison.Ordinal) ? floating : null;
+        }
+
+        if (live is IGH_Component component)
+        {
+            IList<IGH_Param> side = inputSide ? component.Params.Input : component.Params.Output;
+            return side.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.Ordinal));
+        }
+
+        return null;
     }
 
     // Parses the gh.numberslider compact value format "current<min~max>" (e.g. "10<5~50>"), or a

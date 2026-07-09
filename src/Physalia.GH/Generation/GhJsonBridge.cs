@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Reflection;
 using GhJSON.Core;
 using GhJSON.Core.PatchModels;
 using GhJSON.Core.SchemaModels;
@@ -1681,6 +1682,11 @@ internal static partial class GhJsonBridge
             param.Name = name;
             param.NickName = string.IsNullOrWhiteSpace(settings[i].NickName) ? name : settings[i].NickName;
 
+            // The library applies data-tree modifiers only to parameters IT reconstructs; a param we
+            // mint here (a var-param side the library left bare) would otherwise lose any graft/
+            // flatten/simplify the document carried, so re-apply them ourselves.
+            ApplyParamModifiers(param, settings[i]);
+
             if (side == GH_ParameterSide.Input)
             {
                 component.Params.RegisterInputParam(param, index);
@@ -1694,6 +1700,84 @@ internal static partial class GhJsonBridge
         }
 
         return changed;
+    }
+
+    /// <summary>
+    /// Applies GhJSON data-tree modifiers to a live parameter, mirroring the GhJSON.Grasshopper
+    /// library's own apply pass (whose method is internal and unreachable). Physalia needs this for
+    /// the parameters it mints itself (variable-parameter sides the library does not reconstruct)
+    /// and for in-place ghpatch modifier edits. A field is written only when the setting carries a
+    /// value (a null bool / null string is "leave unchanged"), so an explicit false CLEARS a flag
+    /// and a null omits it — the call is a safe no-op for an unmodified settings entry.
+    /// Reparameterize / Invert / Unitize / IsPrincipal / Expression are not on the base IGH_Param
+    /// surface and are set reflectively, exactly as the library does.
+    /// </summary>
+    /// <param name="param">The live parameter to modify.</param>
+    /// <param name="s">The GhJSON settings carrying the modifiers.</param>
+    private static void ApplyParamModifiers(IGH_Param param, GhJsonParameterSettings s)
+    {
+        if (!string.IsNullOrEmpty(s.DataMapping)
+            && Enum.TryParse(s.DataMapping, ignoreCase: true, out GH_DataMapping mapping))
+        {
+            param.DataMapping = mapping;
+        }
+
+        if (s.IsSimplified is bool simplify)
+        {
+            param.Simplify = simplify;
+        }
+
+        if (s.IsReversed is bool reverse)
+        {
+            param.Reverse = reverse;
+        }
+
+        if (s.IsReparameterized is bool reparameterize)
+        {
+            TrySetReflectiveFlag(param, "Reparameterize", reparameterize);
+        }
+
+        if (s.IsInverted is bool invert)
+        {
+            TrySetReflectiveFlag(param, "Invert", invert);
+        }
+
+        if (s.IsUnitized is bool unitize)
+        {
+            TrySetReflectiveFlag(param, "Unitize", unitize);
+        }
+
+        if (s.IsPrincipal is bool principal)
+        {
+            MethodInfo? setPrincipal = param.GetType().GetMethod("SetPrincipal");
+            setPrincipal?.Invoke(param, new object[] { principal, false, false });
+        }
+
+        if (s.Expression is not null)
+        {
+            PropertyInfo? expression = param.GetType().GetProperty("Expression");
+            if (expression is not null && expression.CanWrite)
+            {
+                expression.SetValue(param, s.Expression);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Sets a boolean parameter flag by reflection when the concrete parameter type declares a
+    /// writable property of that name (e.g. Reparameterize / Invert / Unitize on a curve or vector
+    /// parameter); a no-op for parameter types that do not.
+    /// </summary>
+    /// <param name="param">The live parameter.</param>
+    /// <param name="propertyName">The boolean property to set.</param>
+    /// <param name="value">The value to assign.</param>
+    private static void TrySetReflectiveFlag(IGH_Param param, string propertyName, bool value)
+    {
+        PropertyInfo? property = param.GetType().GetProperty(propertyName);
+        if (property is not null && property.CanWrite)
+        {
+            property.SetValue(param, value);
+        }
     }
 
     /// <summary>

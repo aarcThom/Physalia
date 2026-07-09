@@ -14,6 +14,7 @@
     "Every component needs a unique integer id; connections reference this id. In a ghpatch, existing components keep the ids shown in the canvas state, and every ADDED component gets a fresh id HIGHER than the highest id in the canvas state.",
     "Every component needs a pivot 'X,Y'. Full document: lay the graph out left to right following data flow, about 150 units between stages (X) and 80 between parallel inputs (Y). Ghpatch: read the existing pivots in the canvas state and place additions so they continue the flow without overlapping.",
     "connections has one entry per wire. Reference each endpoint by { id, paramIndex }: paramIndex is the parameter's zero-based position in the component's OUTPUT list (for 'from') or INPUT list (for 'to'), counting in the order shown in componentCatalog (or the component's installed order). paramName is optional and for readability only; the wire is matched by paramIndex. An input may receive SEVERAL wires — their items collect into a list in wire order, which is the idiomatic way to gather a few points or curves into one input (prefer this over Entwine/Merge for small fixed lists).",
+    "DATA TREES: for simple gathering, prefer wiring and list order (above) over tree edits. Reach for the parameterSettings modifiers (dataMapping graft/flatten, isSimplified, isReversed) on a specific port only to fix a branch-count mismatch — the classic case being pairing a list against another input one-to-one: graft the port whose items must each stand alone so a per-branch component sees one item per branch instead of matching one item against a whole list. Modifiers attach to a single input or output, not the whole component. In a FULL document, set them inside the component's inputSettings/outputSettings array entry for that parameter. In a ghpatch, MODIFY the component (do NOT remove and re-add it): inputSettings.byParameterName['<full parameter name>'].set = { \"dataMapping\": \"graft\" } (or isSimplified/isReversed/expression); clear one by setting it back ('dataMapping':'none', 'isSimplified':false).",
     "Number Slider value uses the format 'default<min~max>', e.g. '5<0~10>', at componentState.extensions['gh.numberslider'].value. min must be strictly less than max. This is the most common mistake — do not use a plain number.",
     "A slider is for values the user should tweak. To supply a FIXED constant (divide by 2, a unit vector, a base point), internalize it into the consuming input instead: inputSettings entry { \"parameterName\": \"B\", \"internalizedData\": { \"{0}\": { \"{0}(0)\": \"number:2\" } } }. Never add a slider whose min equals its max.",
     "Give every Number Slider (and other input source) a nickName naming what it controls — 'Radius', 'Height' — never the default label.",
@@ -283,7 +284,7 @@
         },
         "inputSettings": {
           "type": "object",
-          "description": "Per-input setting changes keyed by the parameter's full name. Rarely needed.",
+          "description": "Per-input setting changes keyed by the parameter's full name — mainly to change a data-tree modifier (dataMapping graft/flatten, isSimplified, isReversed, expression). e.g. { \"byParameterName\": { \"Curve\": { \"set\": { \"dataMapping\": \"graft\" } } } }.",
           "additionalProperties": false,
           "properties": {
             "byParameterName": {
@@ -300,7 +301,7 @@
         },
         "outputSettings": {
           "type": "object",
-          "description": "Per-output setting changes keyed by the parameter's full name. Rarely needed.",
+          "description": "Per-output setting changes keyed by the parameter's full name — mainly to change a data-tree modifier (dataMapping graft/flatten, isSimplified, isReversed, expression).",
           "additionalProperties": false,
           "properties": {
             "byParameterName": {
@@ -505,11 +506,11 @@
       "properties": {
         "parameterName":   { "type": "string",  "description": "The parameter's full Name." },
         "nickName":        { "type": "string",  "description": "Optional custom nickname." },
-        "dataMapping":     { "type": "string",  "description": "Data tree mapping mode.", "enum": ["none", "flatten", "graft"] },
-        "expression":      { "type": "string",  "description": "Expression that transforms the parameter's data." },
-        "isReversed":      { "type": "boolean", "description": "Reverse the parameter's data order." },
-        "isSimplified":    { "type": "boolean", "description": "Simplify the parameter's data tree." },
-        "isReparameterized": { "type": "boolean", "description": "Reparameterize the parameter's domain." },
+        "dataMapping":     { "type": "string",  "description": "Data-tree mapping applied to THIS port (input or output). 'graft' moves every item onto its own branch — use it to pair a list one-to-one against another input so components cross-reference item-by-item instead of matching a single item against a whole list. 'flatten' collapses all branches into one flat list — use it when a downstream component needs a single list, not a tree. 'none' (the default) leaves the data structure unchanged; omit the field unless you are changing it.", "enum": ["none", "flatten", "graft"] },
+        "expression":      { "type": "string",  "description": "A per-item expression that transforms the port's values before they flow on, using 'x' for the incoming value (e.g. 'x*2', 'x+1'). Prefer a real component (Multiplication, Addition) for anything a reader should see; reserve this for a small inline tweak." },
+        "isReversed":      { "type": "boolean", "description": "Reverse the item order within each branch of this port." },
+        "isSimplified":    { "type": "boolean", "description": "Simplify the port's data tree, trimming path nesting shared by every branch — use when upstream grafting left the tree deeper than a downstream component expects." },
+        "isReparameterized": { "type": "boolean", "description": "Reparameterize an incoming curve/surface domain to 0..1, so parameters along it read as fractions of its length rather than absolute values." },
         "internalizedData": {
           "type": "object",
           "description": "Persistent data internalized into an INPUT parameter of a component you are adding — the way to supply a fixed constant without creating a slider. The enclosing parameterName MUST be the parameter's FULL name exactly as listed in the grounding's component signatures (e.g. 'Closed', 'Origin'), never a one-letter canvas label ('C', 'O') — a wrong name silently applies nothing. A single value is {\"{0}\": {\"{0}(0)\": \"number:2\"}}; the inner value is a type-prefixed string such as 'number:2', 'integer:5', 'boolean:true', 'text:hello', 'pointXYZ:0,0,0', 'vectorXYZ:0,0,1'. A wired input IGNORES internalized data entirely — when you add a wire, never clear or modify the old internalized value; just add the wire. Never copy internalizedData from components marked physalia.rhinoRef.",

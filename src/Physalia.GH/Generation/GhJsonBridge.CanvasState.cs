@@ -110,11 +110,13 @@ internal static partial class GhJsonBridge
 
     /// <summary>
     /// Computes the drift-check fingerprint over the STRUCTURE of an exported canvas: the
-    /// component set (stable id, instanceGuid, name), the wire topology, and group membership.
-    /// State that cannot affect how a ghpatch applies — pivots, slider/button/panel values,
-    /// nicknames, internalized data — is deliberately excluded, so a user moving components or
-    /// tweaking values while the model is generating does NOT invalidate its patch. Structural
-    /// edits (adding, removing, renaming, or rewiring components, or regrouping) still change the
+    /// component set (stable id, instanceGuid, name), the wire topology, group membership, and each
+    /// parameter's data-tree modifiers (graft/flatten, simplify, reverse, reparameterize, invert,
+    /// unitize, principal, expression). Value-like state that cannot change the graph's meaning —
+    /// pivots, slider/button/panel values, nicknames, internalized data — is deliberately excluded,
+    /// so a user moving components or tweaking values while the model is generating does NOT
+    /// invalidate its patch. Structural edits (adding, removing, renaming, rewiring, or regrouping
+    /// components) and data-tree modifier changes (grafting or flattening a port) still change the
     /// fingerprint and force the model to regenerate against the fresh canvas state.
     /// </summary>
     /// <param name="export">The exported canvas-state document.</param>
@@ -152,9 +154,58 @@ internal static partial class GhJsonBridge
             sb.Append('\n');
         }
 
+        foreach (GhJsonComponent component in export.Components
+            .OrderBy(c => c.Id ?? int.MaxValue)
+            .ThenBy(c => c.InstanceGuid))
+        {
+            AppendParamModifierLines(sb, component.Id, 'i', component.InputSettings);
+            AppendParamModifierLines(sb, component.Id, 'o', component.OutputSettings);
+        }
+
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return "sha256-" + Convert.ToHexString(hash).ToLowerInvariant();
     }
+
+    // Appends one fingerprint line per parameter that carries a data-tree modifier, so grafting or
+    // flattening a port registers as drift. Params with no modifier emit nothing, so an unmodified
+    // canvas keeps the checksum it had before modifiers were fingerprinted. Ordered by parameter
+    // name so the library's parameter ordering cannot shuffle the fingerprint.
+    private static void AppendParamModifierLines(
+        StringBuilder sb, int? componentId, char side, IEnumerable<GhJsonParameterSettings>? settings)
+    {
+        if (settings is null)
+        {
+            return;
+        }
+
+        foreach (GhJsonParameterSettings s in settings
+            .Where(HasAnyModifier)
+            .OrderBy(s => s.ParameterName, StringComparer.Ordinal))
+        {
+            sb.Append("m:").Append(componentId).Append(':').Append(side).Append(':')
+                .Append(s.ParameterName).Append(':')
+                .Append(s.DataMapping?.ToLowerInvariant()).Append('|')
+                .Append(s.IsSimplified == true ? 's' : '-')
+                .Append(s.IsReversed == true ? 'r' : '-')
+                .Append(s.IsReparameterized == true ? 'p' : '-')
+                .Append(s.IsInverted == true ? 'i' : '-')
+                .Append(s.IsUnitized == true ? 'u' : '-')
+                .Append(s.IsPrincipal == true ? 'x' : '-')
+                .Append('|').Append(s.Expression)
+                .Append('\n');
+        }
+    }
+
+    // True when a parameter carries any data-tree modifier the library round-trips.
+    private static bool HasAnyModifier(GhJsonParameterSettings s) =>
+        !string.IsNullOrEmpty(s.DataMapping)
+        || s.IsSimplified == true
+        || s.IsReversed == true
+        || s.IsReparameterized == true
+        || s.IsInverted == true
+        || s.IsUnitized == true
+        || s.IsPrincipal == true
+        || !string.IsNullOrEmpty(s.Expression);
 
     // Stamps every exported component whose live object references Rhino geometry with the
     // physalia.rhinoRef extension, and strips its baked geometry (the library serializes a

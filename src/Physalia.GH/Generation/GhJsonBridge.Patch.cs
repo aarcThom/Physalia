@@ -53,34 +53,6 @@ internal sealed record CanvasPatchOutcome(
 internal static partial class GhJsonBridge
 {
     /// <summary>
-    /// Returns whether <paramref name="json"/> parses and validates as a ghpatch document.
-    /// </summary>
-    /// <param name="json">The JSON string to validate.</param>
-    /// <param name="message">Validation failure message, or null on success.</param>
-    /// <returns>true if valid; false otherwise.</returns>
-    internal static bool IsPatchJson(string json, out string? message)
-    {
-        try
-        {
-            GhPatchDocument patch = GhJson.PatchFromJson(json);
-            ValidationResult validation = GhJson.ValidatePatch(patch);
-            if (!validation.IsValid)
-            {
-                message = string.Join("\n", validation.Errors.Select(e => e.ToString()));
-                return false;
-            }
-
-            message = null;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            message = ex.Message;
-            return false;
-        }
-    }
-
-    /// <summary>
     /// Applies a ghpatch to the active canvas. Re-exports the user's canvas as the patch's base
     /// reference frame (the same export the grounder showed the model), optionally drift-checks the
     /// patch's carried checksum against it, applies the patch document-level for merge semantics

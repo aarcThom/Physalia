@@ -138,32 +138,16 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Validates the GhJSON on the solve thread, then queues the (document-mutating) placement
-    /// to run outside the current solution. Validation failures are stashed and surfaced in
-    /// <see cref="ReadSolve"/>.
+    /// Classifies the payload (full graph vs ghpatch) and queues the (document-mutating) placement
+    /// to run outside the current solution. Validity is not pre-checked here — a Schema Validator
+    /// upstream owns that, and a payload that cannot even be parsed surfaces as a placement failure
+    /// from the attempt itself (stashed and surfaced in <see cref="ReadSolve"/>).
     /// </remarks>
     protected override void PushSolve(string data, IGH_DataAccess da)
     {
         _pushError = null;
         _patchOutcome = null;
         _pendingIsPatch = GhPatchDetector.IsGhPatch(data);
-
-        if (_pendingIsPatch)
-        {
-            if (!GhJsonBridge.IsPatchJson(data, out string? patchMessage))
-            {
-                _pushError = $"Not a valid ghpatch: {patchMessage}";
-                RequestReadPass();
-                return;
-            }
-        }
-        else if (!GhJsonBridge.IsValidJson(data, out string? message))
-        {
-            _pushError = $"Not valid GhJSON: {message}";
-            RequestReadPass();
-            return;
-        }
-
         _pendingJson = data;
 
         // Placement/patching adds and mutates objects and triggers its own NewSolution, so it must
@@ -443,7 +427,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
     private static string BuildFeedback(IReadOnlyList<string> connectionFailures, IReadOnlyList<string> unfixedIssues)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("The GhJSON graph you generated could not be placed cleanly. Please fix and resubmit.");
+        sb.AppendLine("The components were placed, but the graph has unresolved problems. Fix them and resubmit.");
 
         if (unfixedIssues.Count > 0)
         {

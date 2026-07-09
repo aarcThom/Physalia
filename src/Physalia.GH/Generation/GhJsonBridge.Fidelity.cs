@@ -83,11 +83,16 @@ internal static partial class GhJsonBridge
     /// <summary>
     /// The result of a fidelity verification: one violation line per discrepancy, plus the fresh
     /// base checksum when there are violations (the placed-but-wrong graph is live, so the model's
-    /// remembered checksum is stale for the corrective patch).
+    /// remembered checksum is stale for the corrective patch). A non-null
+    /// <paramref name="Misconfiguration"/> means the check could not run at all for a reason that
+    /// can never be the model's fault (the Definition input does not parse — yet the definition
+    /// that PLACED always parses — or no live document): the component surfaces it as a LOCAL
+    /// error and passes the trigger through, never as model feedback.
     /// </summary>
     /// <param name="Violations">One model-facing line per discrepancy; empty when faithful.</param>
     /// <param name="BaseChecksum">The current canvas checksum, non-null only on violations.</param>
-    internal sealed record FidelityReport(IReadOnlyList<string> Violations, string? BaseChecksum);
+    /// <param name="Misconfiguration">Human-facing wiring/setup problem, or null when the check ran.</param>
+    internal sealed record FidelityReport(IReadOnlyList<string> Violations, string? BaseChecksum, string? Misconfiguration = null);
 
     /// <summary>
     /// Verifies that the components and connections of an authored full-graph GhJSON document are
@@ -110,8 +115,9 @@ internal static partial class GhJsonBridge
         if (doc is null)
         {
             return new FidelityReport(
-                new[] { "The live Grasshopper document is unavailable, so fidelity could not be verified." },
-                null);
+                Array.Empty<string>(),
+                null,
+                "The live Grasshopper document is unavailable, so fidelity could not be verified.");
         }
 
         GhJsonDocument authored;
@@ -121,12 +127,16 @@ internal static partial class GhJsonBridge
         }
         catch (Exception ex)
         {
-            return Report(doc, new List<string>
-            {
-                "The Definition input did not parse as GhJSON (" + ex.Message + ") — if this text is "
-                + "not your generated definition, the Fidelity Check's Definition input is wired to the "
-                + "wrong output.",
-            });
+            // This can NEVER be the model's fault: the check only triggers after a successful
+            // placement, and a definition that placed always parses. A non-parsing Definition is
+            // definitionally a mis-wire — the user's problem, surfaced locally, never routed into
+            // the conversation.
+            return new FidelityReport(
+                Array.Empty<string>(),
+                null,
+                "The Definition input did not parse as GhJSON (" + ex.Message + "). The definition "
+                + "that placed always parses, so this input is wired to the wrong output — wire it "
+                + "to the same signal wire the Component Transmitter's Signal input consumes.");
         }
 
         if (authored.Components is null || authored.Components.Count == 0)

@@ -25,6 +25,13 @@ namespace Physalia.GH.Components;
 /// discrepancies route an itemised fix-it list back on the Fail Signal. Ghpatch turns pass
 /// through — fidelity verification covers full-graph placements only; the transmitter's own
 /// per-operation conflict reporting covers patches.
+///
+/// <para>A MISCONFIGURED check (Definition unwired, blank, or reading text that does not parse —
+/// which can never be the model's definition, since the definition that placed always parses)
+/// never routes into the loop: the model is powerless to fix the user's wiring, and a Fail here
+/// would block every downstream check for as long as the mis-wire persists. Instead it surfaces
+/// a persistent local Error bubble and passes the trigger through unverified, so the Runtime
+/// Health Check still runs and the human sees exactly what to rewire.</para>
 /// </summary>
 public class FidelityCheck : RoutingComponentBase<string>
 {
@@ -90,16 +97,19 @@ public class FidelityCheck : RoutingComponentBase<string>
     {
         if (string.IsNullOrWhiteSpace(_definition))
         {
-            // A fidelity check that silently passes when misconfigured is a trap: Fail loudly so
-            // the mis-wiring surfaces in the conversation instead of laundering every placement
-            // as "verified".
+            // A wiring problem is the USER's problem — the model is powerless to fix it, so
+            // routing it into the loop burns a turn on a relay and dead-ends the chain (a Fail
+            // here blocks every downstream check for as long as the mis-wire persists). Surface
+            // it as a persistent local Error and pass the trigger through so the Runtime Health
+            // Check still runs. Fidelity is NOT verified this turn — the red bubble is the guard
+            // against that reading as a silent pass.
             bool unwired = Params.Input[DefinitionInputIndex].SourceCount == 0;
-            return RoutingResult.Fail(
-                MisconfiguredFeedback(),
-                unwired
-                    ? "Definition input is unwired; fidelity cannot be verified."
-                    : "Definition input is blank; fidelity cannot be verified.",
-                GH_RuntimeMessageLevel.Error);
+            return RoutingResult.Ok(
+                data,
+                message: (unwired ? "Definition input is unwired" : "Definition input is blank")
+                    + " — fidelity NOT verified. Wire Definition to the same signal wire the Component "
+                    + "Transmitter's Signal input consumes. Passed through so downstream checks still run.",
+                level: GH_RuntimeMessageLevel.Error);
         }
 
         if (GhPatchDetector.IsGhPatch(_definition))
@@ -112,6 +122,15 @@ public class FidelityCheck : RoutingComponentBase<string>
 
         List<Guid> placed = ParseGuids(data).ToList();
         GhJsonBridge.FidelityReport report = GhJsonBridge.VerifyPlacementFidelity(_definition, placed, OnPingDocument());
+
+        if (report.Misconfiguration is not null)
+        {
+            // Same policy as the blank case: never the model's fault, so never model feedback.
+            return RoutingResult.Ok(
+                data,
+                message: report.Misconfiguration + " Passed through so downstream checks still run.",
+                level: GH_RuntimeMessageLevel.Error);
+        }
 
         return report.Violations.Count == 0
             ? RoutingResult.Ok(data)
@@ -156,15 +175,6 @@ public class FidelityCheck : RoutingComponentBase<string>
 
         return sb.ToString().TrimEnd();
     }
-
-    // Worded for the model to RELAY, not act on: the fix is the user's wiring, and the definition
-    // may well have placed correctly.
-    private static string MisconfiguredFeedback() =>
-        "The Fidelity Check could not verify the placed graph: its Definition input is not receiving "
-        + "the generated definition. Tell the user to wire the Fidelity Check's Definition input to the "
-        + "same signal wire the Component Transmitter's Signal input consumes (a Signal wire plugged "
-        + "into a text input yields its payload). Do not resubmit your definition — it may have placed "
-        + "correctly.";
 
     /// <summary>
     /// Parses newline-separated GUIDs from the payload, skipping any line that is not a GUID.

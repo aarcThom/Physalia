@@ -7,6 +7,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Grasshopper;
 using Grasshopper.Kernel;
 using Physalia.Core.Grounding.Components;
@@ -27,6 +28,13 @@ internal static class ComponentSignatureProvider
     // Keyed by component-type GUID. A null value caches a FAILED introspection so a throwing
     // plug-in constructor is attempted exactly once per session, never once per call.
     private static readonly ConcurrentDictionary<Guid, (IReadOnlyList<ComponentPort> Inputs, IReadOnlyList<ComponentPort> Outputs)?> Cache = new();
+
+    // Keyed by concrete param type. True when reading TypeName will NOT throw. GH_Param<T>.get_TypeName
+    // instantiates a T (Activator.CreateInstance<T>) to read its type label; when T is an interface or
+    // abstract goo (e.g. GH_Param<IGH_Goo>) and the param type does not override TypeName, that throw
+    // trips Grasshopper's first-chance breakpoint dialog even though our own try/catch swallows it.
+    // Cached because the reflection walk is per-type-invariant.
+    private static readonly ConcurrentDictionary<Type, bool> TypeNameSafe = new();
 
     /// <summary>
     /// Lazily instantiates the component type once and returns its default input/output signature.
@@ -78,7 +86,7 @@ internal static class ComponentSignatureProvider
         foreach (IGH_Param param in @params)
         {
             string portName = !string.IsNullOrWhiteSpace(param.Name) ? param.Name : param.NickName ?? string.Empty;
-            ports.Add(new ComponentPort(portName, param.TypeName ?? string.Empty, inputSide && IsRequiredInput(param)));
+            ports.Add(new ComponentPort(portName, SafeTypeName(param), inputSide && IsRequiredInput(param)));
         }
 
         return ports;
@@ -166,7 +174,7 @@ internal static class ComponentSignatureProvider
                     string name = !string.IsNullOrWhiteSpace(param.Name) ? param.Name : param.NickName ?? string.Empty;
                     return (
                         Array.Empty<ComponentPort>(),
-                        new[] { new ComponentPort(name, param.TypeName ?? string.Empty) });
+                        new[] { new ComponentPort(name, SafeTypeName(param)) });
                 default:
                     return null;
             }
@@ -175,5 +183,53 @@ internal static class ComponentSignatureProvider
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Reads a parameter's <c>TypeName</c> without tripping Grasshopper's first-chance breakpoint
+    /// dialog. <c>GH_Param&lt;T&gt;.get_TypeName</c> instantiates a <c>T</c> to read its label; for a
+    /// generic-object param (<c>T = IGH_Goo</c> and no <c>TypeName</c> override) that throws inside
+    /// <c>InstantiateT</c>, and the throw surfaces the diagnostic dialog even though it is caught.
+    /// Params that override <c>TypeName</c> never reach that path, so they are read directly.
+    /// </summary>
+    /// <param name="param">The parameter to read.</param>
+    /// <returns>The type name, or an empty string when it cannot be read safely.</returns>
+    internal static string SafeTypeName(IGH_Param param)
+    {
+        if (!TypeNameSafe.GetOrAdd(param.GetType(), IsTypeNameSafe))
+        {
+            return "Generic";
+        }
+
+        try
+        {
+            return param.TypeName ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    // True when reading TypeName on this param type will not throw. It throws only when the getter is
+    // the un-overridden GH_Param<T>.get_TypeName AND T cannot be default-constructed (interface,
+    // abstract, or no public parameterless ctor). Any override — the common case — is safe.
+    private static bool IsTypeNameSafe(Type paramType)
+    {
+        MethodInfo? getter = paramType.GetProperty("TypeName")?.GetGetMethod();
+        Type? declaring = getter?.DeclaringType;
+        if (declaring is null || !declaring.IsGenericType || declaring.GetGenericTypeDefinition() != typeof(GH_Param<>))
+        {
+            // Overridden by a concrete param (or no getter at all) — reading it never calls InstantiateT.
+            return true;
+        }
+
+        Type goo = declaring.GetGenericArguments()[0];
+        if (goo.IsInterface || goo.IsAbstract)
+        {
+            return false;
+        }
+
+        return goo.IsValueType || goo.GetConstructor(Type.EmptyTypes) is not null;
     }
 }

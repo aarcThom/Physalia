@@ -220,7 +220,7 @@ public static class ClusterCatalogProvider
             // thing that distinguishes same-typed ports, so prefer it. The Name is usually the generic
             // type ("Curve"); fall back to it only when the nickname is blank.
             string portName = !string.IsNullOrWhiteSpace(param.NickName) ? param.NickName : param.Name ?? string.Empty;
-            ports.Add(new ClusterPort(portName, param.TypeName ?? string.Empty));
+            ports.Add(new ClusterPort(portName, ComponentSignatureProvider.SafeTypeName(param)));
         }
 
         return ports;

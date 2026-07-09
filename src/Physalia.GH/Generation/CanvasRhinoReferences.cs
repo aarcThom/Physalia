@@ -58,7 +58,7 @@ internal static class CanvasRhinoReferences
                 continue;
             }
 
-            result.Add(new ReferencedRhinoGeometry(param.NickName, param.TypeName, param));
+            result.Add(new ReferencedRhinoGeometry(param.NickName, ComponentSignatureProvider.SafeTypeName(param), param));
         }
 
         return result;

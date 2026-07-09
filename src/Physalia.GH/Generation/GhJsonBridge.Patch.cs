@@ -182,7 +182,7 @@ internal static partial class GhJsonBridge
         {
             StampComponentGuids(new GhJsonDocument("1.0", null, adds, null, null));
             RemapCollidingAddIds(patch, adds, baseExport);
-            AssignFallbackPivots(adds, fallbackOrigin);
+            AssignFallbackPivots(adds, fallbackOrigin, ExistingCanvasBounds(doc));
 
             // Refuse the whole patch when an ADDED component's required input has neither a wire
             // (from any endpoint in this patch) nor an internalized value — statically knowable,
@@ -436,21 +436,44 @@ internal static partial class GhJsonBridge
         }
     }
 
-    // Positions pivot-less adds in a vertical stack at the fallback origin. The preamble instructs
-    // the model to author pivots relative to the existing layout it can see, so this is a net only.
-    private static void AssignFallbackPivots(List<GhJsonComponent> adds, PointF fallbackOrigin)
+    // Positions pivot-less adds in a vertical stack. The preamble instructs the model to author
+    // pivots relative to the existing layout it can see, so this is a net only — but when it fires
+    // we keep the stack clear of the current graph: just below the existing content (adjacent to
+    // it, not on top of it), falling back to the arrow tip when the canvas is empty.
+    private static void AssignFallbackPivots(List<GhJsonComponent> adds, PointF fallbackOrigin, RectangleF? occupied)
     {
+        float x = occupied is { } o ? o.X : fallbackOrigin.X;
+        float y = occupied is { } b ? b.Bottom + 60f : fallbackOrigin.Y;
+
         int stacked = 0;
         foreach (GhJsonComponent add in adds)
         {
             if (add.Pivot is null)
             {
                 add.Pivot = new GhJsonPivot(
-                    (int)MathF.Round(fallbackOrigin.X),
-                    (int)MathF.Round(fallbackOrigin.Y) + (stacked * 80));
+                    (int)MathF.Round(x),
+                    (int)MathF.Round(y) + (stacked * 80));
                 stacked++;
             }
         }
+    }
+
+    // Union of the current canvas objects' real bounds, or null when the canvas is empty. Used to
+    // drop pivot-less patch adds into clear space adjacent to (not on top of) the existing graph.
+    private static RectangleF? ExistingCanvasBounds(GH_Document doc)
+    {
+        RectangleF union = RectangleF.Empty;
+        foreach (IGH_DocumentObject obj in doc.Objects)
+        {
+            if (obj.Attributes is not IGH_Attributes attr || attr.Bounds.IsEmpty)
+            {
+                continue;
+            }
+
+            union = union.IsEmpty ? attr.Bounds : RectangleF.Union(union, attr.Bounds);
+        }
+
+        return union.IsEmpty ? null : union;
     }
 
     // ---- Modify ------------------------------------------------------------------------------

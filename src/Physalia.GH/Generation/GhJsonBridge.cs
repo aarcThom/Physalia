@@ -378,7 +378,7 @@ internal static partial class GhJsonBridge
     /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
     internal static PlaceResult LoadAndPlace(string path, PointF targetOrigin)
     {
-        return PlaceDocument(GhJson.FromFile(path), targetOrigin);
+        return PlaceDocument(GhJson.FromFile(path), targetOrigin, anchorVisualTopLeft: true);
     }
 
     /// <summary>
@@ -428,7 +428,7 @@ internal static partial class GhJsonBridge
         // LLM-authored wires are addressed by paramIndex (the schema's contract); the library's own
         // Put matches by paramName and silently mis-wires the model's short labels, so this path
         // wires every connection itself.
-        return PlaceDocument(doc, targetOrigin, paramIndexFirst: true);
+        return PlaceDocument(doc, targetOrigin, paramIndexFirst: true, anchorVisualTopLeft: true);
     }
 
     /// <summary>
@@ -503,8 +503,14 @@ internal static partial class GhJsonBridge
     /// every connection itself, resolving endpoints paramIndex-first per the schema's contract.
     /// False (preset/Deserializer/anchored paths) keeps the library's name-exact wiring.
     /// </param>
+    /// <param name="anchorVisualTopLeft">
+    /// True to re-anchor the placed graph by its real bounding box once it is live, so its visible
+    /// top-left corner (not its top-left pivot, which sits at a component's mid-left) lands on
+    /// <paramref name="targetOrigin"/>. Off for the anchored-preset path, which deliberately aligns
+    /// a specific placeholder component rather than the graph corner.
+    /// </param>
     /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
-    private static PlaceResult PlaceDocument(GhJsonDocument doc, PointF targetOrigin, bool paramIndexFirst = false)
+    private static PlaceResult PlaceDocument(GhJsonDocument doc, PointF targetOrigin, bool paramIndexFirst = false, bool anchorVisualTopLeft = false)
     {
         if (doc.Components is null || doc.Components.Count == 0)
         {
@@ -600,7 +606,18 @@ internal static partial class GhJsonBridge
             options.CreateConnections = false;
         }
 
-        return ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan, referencePlan: referencePlan, paramIndexFirst: paramIndexFirst);
+        PlaceResult result = ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan, referencePlan: referencePlan, paramIndexFirst: paramIndexFirst);
+
+        // ComputeOffset aligned the top-left PIVOT corner to the target, but a component's pivot is
+        // its mid-left anchor, so the visible graph floats a (per-graph variable) amount above the
+        // arrow tip. Now that the graph is live and its real bounds are known, shift the whole set
+        // so its visible top-left corner sits exactly on the target.
+        if (anchorVisualTopLeft && result.Success)
+        {
+            AnchorPlacedTopLeft(result.PlacedGuids, targetOrigin);
+        }
+
+        return result;
     }
 
     // Puts the model's authored component ids back onto the post-Fix document (components
@@ -741,6 +758,57 @@ internal static partial class GhJsonBridge
         }
 
         return new PointF(targetOrigin.X - minX, targetOrigin.Y - minY);
+    }
+
+    // Shifts every just-placed object so the union of their real bounds has its top-left corner on
+    // targetOrigin. ComputeOffset can only anchor pivots (a component's mid-left anchor); the real
+    // bounds are known only once the objects are live, so this correction is what actually lands the
+    // visible graph on the arrow tip regardless of the topmost component's height. Reference objects
+    // are not in placedGuids (they are pre-existing canvas inputs), so they are left in place.
+    private static void AnchorPlacedTopLeft(IReadOnlyList<Guid> placedGuids, PointF targetOrigin)
+    {
+        if (placedGuids.Count == 0)
+        {
+            return;
+        }
+
+        GH_Document? doc = Grasshopper.Instances.ActiveCanvas?.Document;
+        if (doc is null)
+        {
+            return;
+        }
+
+        var placed = new List<IGH_Attributes>();
+        RectangleF union = RectangleF.Empty;
+        foreach (Guid guid in placedGuids)
+        {
+            if (doc.FindObject(guid, false)?.Attributes is not IGH_Attributes attr)
+            {
+                continue;
+            }
+
+            placed.Add(attr);
+            union = union.IsEmpty ? attr.Bounds : RectangleF.Union(union, attr.Bounds);
+        }
+
+        if (placed.Count == 0 || union.IsEmpty)
+        {
+            return;
+        }
+
+        var delta = new SizeF(targetOrigin.X - union.X, targetOrigin.Y - union.Y);
+        if (Math.Abs(delta.Width) < 0.5f && Math.Abs(delta.Height) < 0.5f)
+        {
+            return;
+        }
+
+        foreach (IGH_Attributes attr in placed)
+        {
+            attr.Pivot = new PointF(attr.Pivot.X + delta.Width, attr.Pivot.Y + delta.Height);
+            attr.ExpireLayout();
+        }
+
+        doc.DestroyAttributeCache();
     }
 
     /// <summary>

@@ -186,7 +186,7 @@ internal static partial class GhJsonBridge
             component.ComponentState ??= new GhJsonComponentState();
             component.ComponentState.Extensions ??= new Dictionary<string, object>();
             component.ComponentState.Extensions[RhinoRefExtensionKey] =
-                new Dictionary<string, object> { ["type"] = param.TypeName };
+                new Dictionary<string, object> { ["type"] = ComponentSignatureProvider.SafeTypeName(param) };
 
             foreach (GhJsonParameterSettings settings in
                 (component.InputSettings ?? Enumerable.Empty<GhJsonParameterSettings>())

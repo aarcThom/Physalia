@@ -12,13 +12,13 @@ using Physalia.GH.Generation;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// A deterministic guardrail that inspects an LLM-generated GhJSON graph (arriving as the
-/// consumed signal's payload) for required inputs left with neither a wire nor an internalized
-/// value — a statically knowable defect that would otherwise cost a whole solve-and-feedback
-/// round of "failed to collect data" warnings once placed. A clean graph routes forward on the
-/// Success Signal unchanged (for the Component Transmitter to place); any unmet required inputs
-/// route a crisp, actionable list back on the Fail Signal so the model can correct and resubmit.
-/// A ghpatch payload has nothing to lint and passes straight through.
+/// A deterministic guardrail that inspects an LLM-generated payload (arriving as the consumed
+/// signal's payload) for required inputs left with neither a wire nor an internalized value — a
+/// statically knowable defect that would otherwise cost a whole solve-and-feedback round of
+/// "failed to collect data" warnings once placed. A clean payload routes forward on the Success
+/// Signal unchanged (for the Component Transmitter to place); any unmet required inputs route a
+/// crisp, actionable list back on the Fail Signal so the model can correct and resubmit. Handles
+/// both a full GhJSON graph (every component) and a ghpatch (its added components).
 /// </summary>
 public class RequiredInputCheck : RoutingComponentBase<string>
 {
@@ -72,8 +72,8 @@ public class RequiredInputCheck : RoutingComponentBase<string>
     {
         var sb = new StringBuilder();
         sb.AppendLine(
-            "The definition has required inputs with no value. Wire each one or internalize a value, "
-            + "then resubmit the corrected document.");
+            "Required inputs have no value. Wire each one or internalize a value, then resubmit "
+            + "the corrected submission.");
 
         foreach (string violation in violations)
         {

@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using GhJSON.Core;
+using GhJSON.Core.PatchModels;
 using GhJSON.Core.SchemaModels;
 using Physalia.Core.Grounding.Components;
 using Physalia.Core.Validation;
@@ -25,18 +26,20 @@ internal static partial class GhJsonBridge
 {
     /// <summary>
     /// Parses a GhJSON string and lints its required inputs, without touching the canvas. This is
-    /// the standalone entry the Required Input Check guardrail calls before the document reaches
-    /// the Component Transmitter — the same defect the placement path once refused inline, now a
-    /// visible pipeline node. A ghpatch payload has no top-level components (nothing to lint) and
-    /// malformed JSON is the transmitter's to report, so both pass through with no violations.
+    /// the standalone entry the Required Input Check guardrail calls before the payload reaches
+    /// the Component Transmitter — the same defect the placement and patch paths once refused
+    /// inline, now a single visible pipeline node. Handles both a full GhJSON graph (lint every
+    /// component) and a ghpatch (lint only its added components, against the connections the patch
+    /// adds). Malformed JSON is the transmitter's to report, so it passes through with no
+    /// violations.
     /// </summary>
-    /// <param name="json">The GhJSON document as a string (a full graph, not a ghpatch).</param>
+    /// <param name="json">The payload as a string — a full GhJSON graph or a ghpatch.</param>
     /// <returns>One violation line per unmet required input; empty when clean or not applicable.</returns>
     internal static IReadOnlyList<string> LintRequiredInputsJson(string json)
     {
         if (GhPatchDetector.IsGhPatch(json))
         {
-            return Array.Empty<string>();
+            return LintPatchAdds(json);
         }
 
         GhJsonDocument doc;
@@ -64,6 +67,42 @@ internal static partial class GhJsonBridge
         return LintRequiredInputs(
             doc.Components,
             doc.Connections ?? Enumerable.Empty<GhJsonConnection>());
+    }
+
+    /// <summary>
+    /// Lints the ADDED components of a ghpatch: an added component whose required input has
+    /// neither a wire (from any endpoint the patch adds) nor an internalized value is the same
+    /// statically knowable defect the full-graph path catches. Only adds are checked — modified
+    /// components already exist on the canvas with their wiring intact. Id remapping and pivot
+    /// assignment are skipped (they matter only for the live apply, not for wired/internalized
+    /// detection, which is invariant under a consistent id rename), so this reads the patch as
+    /// authored.
+    /// </summary>
+    /// <param name="json">The ghpatch document as a string.</param>
+    /// <returns>One violation line per unmet required input on an added component; empty when clean.</returns>
+    private static IReadOnlyList<string> LintPatchAdds(string json)
+    {
+        GhPatchDocument patch;
+        try
+        {
+            patch = GhJson.PatchFromJson(json);
+        }
+        catch
+        {
+            // Malformed ghpatch: not this check's concern — the Component Transmitter reports it.
+            return Array.Empty<string>();
+        }
+
+        List<GhJsonComponent> adds = patch.Patch?.Components?.Add ?? new List<GhJsonComponent>();
+        if (adds.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        StampComponentGuids(new GhJsonDocument("1.0", null, adds, null, null));
+        return LintRequiredInputs(
+            adds,
+            patch.Patch?.Connections?.Add ?? Enumerable.Empty<GhJsonConnection>());
     }
 
     /// <summary>

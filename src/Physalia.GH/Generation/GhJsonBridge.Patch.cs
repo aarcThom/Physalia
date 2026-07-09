@@ -184,18 +184,9 @@ internal static partial class GhJsonBridge
             RemapCollidingAddIds(patch, adds, baseExport);
             AssignFallbackPivots(adds, fallbackOrigin, ExistingCanvasBounds(doc));
 
-            // Refuse the whole patch when an ADDED component's required input has neither a wire
-            // (from any endpoint in this patch) nor an internalized value — statically knowable,
-            // and rejecting before any mutation gives the model one crisp round instead of a
-            // placement followed by "failed to collect data" cascades.
-            List<string> lint = LintRequiredInputs(adds, patch.Patch?.Connections?.Add ?? Enumerable.Empty<GhJsonConnection>());
-            if (lint.Count > 0)
-            {
-                return PatchFailure(
-                    "The patch was NOT applied: added components have required inputs with no value. "
-                    + "Wire each one or internalize a value, then resubmit the corrected patch.\n  - "
-                    + string.Join("\n  - ", lint));
-            }
+            // The added components' required-input lint now lives in the Required Input Check
+            // guardrail (via GhJsonBridge.LintRequiredInputsJson), an explicit upstream node — the
+            // patch path no longer refuses missing required inputs inline.
         }
 
         // ---- Document-level apply: the library owns merge semantics, identity resolution and

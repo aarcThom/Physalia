@@ -6,8 +6,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using GhJSON.Core;
 using GhJSON.Core.SchemaModels;
 using Physalia.Core.Grounding.Components;
+using Physalia.Core.Validation;
 
 namespace Physalia.GH.Generation;
 
@@ -21,6 +23,49 @@ namespace Physalia.GH.Generation;
 /// </summary>
 internal static partial class GhJsonBridge
 {
+    /// <summary>
+    /// Parses a GhJSON string and lints its required inputs, without touching the canvas. This is
+    /// the standalone entry the Required Input Check guardrail calls before the document reaches
+    /// the Component Transmitter — the same defect the placement path once refused inline, now a
+    /// visible pipeline node. A ghpatch payload has no top-level components (nothing to lint) and
+    /// malformed JSON is the transmitter's to report, so both pass through with no violations.
+    /// </summary>
+    /// <param name="json">The GhJSON document as a string (a full graph, not a ghpatch).</param>
+    /// <returns>One violation line per unmet required input; empty when clean or not applicable.</returns>
+    internal static IReadOnlyList<string> LintRequiredInputsJson(string json)
+    {
+        if (GhPatchDetector.IsGhPatch(json))
+        {
+            return Array.Empty<string>();
+        }
+
+        GhJsonDocument doc;
+        try
+        {
+            doc = GhJson.FromJson(json);
+        }
+        catch
+        {
+            // Malformed JSON: not this check's concern — the Component Transmitter reports it.
+            return Array.Empty<string>();
+        }
+
+        if (doc.Components is null || doc.Components.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        // Resolve name→guid so port.Required introspection works, exactly as the placement path
+        // did before linting. StampComponentGuids is idempotent and skips cluster nodes. The lint
+        // reads the FULL connection list off the pristine document — the same view the placement
+        // gate snapshotted before cluster/reference extraction — so cluster-fed inputs still read
+        // as wired.
+        StampComponentGuids(doc);
+        return LintRequiredInputs(
+            doc.Components,
+            doc.Connections ?? Enumerable.Empty<GhJsonConnection>());
+    }
+
     /// <summary>
     /// Checks every component's required inputs for a wire or an internalized value. Components
     /// whose type cannot be introspected are skipped (placement reports unknown components

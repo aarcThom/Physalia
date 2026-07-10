@@ -2,14 +2,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using Grasshopper.Kernel;
+using Grasshopper.Kernel.Data;
+using Grasshopper.Kernel.Types;
 using Physalia.Core.Common;
 using Physalia.Core.Grounding;
 using Physalia.Core.Signals;
 using Physalia.GH.Generation;
+using Rhino;
+using Rhino.Geometry;
 
 namespace Physalia.GH.Components;
 
@@ -33,6 +39,20 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class RuntimeHealthCheck : RoutingComponentBase<string>
 {
+    // Index of the Fail on Warnings toggle (the base appends the Signal input after it).
+    private const int InFailOnWarnings = 0;
+
+    // Sampling caps: the data-flow section quotes live values, and an unbounded tree (or a
+    // monster string riding a text port) must never blow up the prompt. Each overflow is
+    // labelled "… (+N more)" so the model knows the sample is partial, not the whole story.
+    private const int MaxSampleItems = 5;
+    private const int MaxSampleBranches = 3;
+    private const int MaxItemsPerBranch = 3;
+    private const int MaxItemChars = 48;
+    private const int MaxPortSampleChars = 240;
+    private const int MaxDistinctScan = 64;
+    private const int MaxDataFlowComponents = 12;
+
     // Every component GUID ever received on a consumed signal, minus those since removed from
     // the document (pruned at scan time). Session-only; never serialized.
     private readonly HashSet<Guid> _watchedGuids = new();
@@ -47,6 +67,23 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("F4B0D63C-8E57-4A4B-9C3D-5B2A7F1E04D8");
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// GH warnings are frequently benign (a collapsed zero-length segment, a data conversion
+    /// note), and a warnings-only report can drive the feedback loop through rounds the model
+    /// cannot fix. The toggle lets a rig treat warnings as informational; errors, dead
+    /// components, and null producers always fail regardless.
+    /// </remarks>
+    protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
+    {
+        pManager.AddBooleanParameter(
+            "Fail on Warnings",
+            "FW",
+            "When true (default), runtime warnings fail the scan and route a report back on the Fail Signal. When false, a warnings-only scan passes the signal through and notes the warnings as a runtime remark; errors, dead components, and null producers always fail.",
+            GH_ParamAccess.item,
+            true);
+    }
 
     /// <inheritdoc/>
     /// <remarks>
@@ -209,30 +246,50 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
             nullProducers.Add($"…plus {nullCascades.Count} downstream component(s) that received these nulls — fix the roots above first.");
         }
 
-        int total = errors.Count + warnings.Count + dead.Count + nullProducers.Count;
-        if (total == 0)
+        int hard = errors.Count + dead.Count + nullProducers.Count;
+        if (hard == 0 && warnings.Count == 0)
         {
             return RoutingResult.Ok(data);
+        }
+
+        bool failOnWarnings = true;
+        da.GetData(InFailOnWarnings, ref failOnWarnings);
+        if (hard == 0 && !failOnWarnings)
+        {
+            // Warnings only, and the rig opted out of failing on them: pass the payload through
+            // untouched (downstream scoping depends on it) and surface the warnings as a remark.
+            return RoutingResult.Ok(data, message: $"{warnings.Count} warning(s) noted, not failed (Fail on Warnings is off).", level: GH_RuntimeMessageLevel.Remark);
+        }
+
+        // With values in play a long problem list gets heavy; cap the data-flow lines and say so.
+        if (dataFlow.Count > MaxDataFlowComponents)
+        {
+            int dropped = dataFlow.Count - MaxDataFlowComponents;
+            dataFlow.RemoveRange(MaxDataFlowComponents, dropped);
+            dataFlow.Add($"… (+{dropped} more problem components)");
         }
 
         // The last patch APPLIED, so the model's remembered base checksum is stale; carry the fresh
         // one in the feedback so the corrective patch cannot mismatch. Payload text only — carrier
         // discipline holds. IsReadReady settled the graph, so the export is stable here.
         string? checksum = doc is null ? null : GhJsonBridge.TryExportCanvasState(doc)?.Checksum;
-        return RoutingResult.Fail(BuildFeedback(errors, warnings, dead, nullProducers, signatures, dataFlow, scopedScan, checksum), $"{total} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
+        return RoutingResult.Fail(BuildFeedback(errors, warnings, dead, nullProducers, signatures, dataFlow, scopedScan, checksum), $"{hard + warnings.Count} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
     }
 
     /// <summary>
     /// Renders a problem component's live data flow: items collected per input and items produced
-    /// per output, with null counts when present, e.g.
-    /// <c>Box 'House' (guid): inputs [Base=1, X=1 (1 null)] -> outputs [Box=1 (1 null)]</c>.
+    /// per output, with null counts and sampled values, e.g.
+    /// <c>PolyLine 'Gable' (guid): inputs [Vertices=6 (only 3 distinct): {0, 0, 2800}, …; Closed=1: true] -> outputs [Polyline=1: open planar polyline, 5 segment(s)]</c>.
+    /// Counts alone proved insufficient in practice — the model hypothesizes blindly about data
+    /// it cannot see; the samples let it diagnose in one read.
     /// </summary>
     /// <param name="comp">The component to report.</param>
     /// <returns>The data-flow line.</returns>
     private static string FormatDataFlow(IGH_Component comp)
     {
-        string ins = string.Join(", ", comp.Params.Input.Select(FormatPortFlow));
-        string outs = string.Join(", ", comp.Params.Output.Select(FormatPortFlow));
+        // Ports join on "; " because a port's samples themselves join on ", ".
+        string ins = string.Join("; ", comp.Params.Input.Select(FormatPortFlow));
+        string outs = string.Join("; ", comp.Params.Output.Select(FormatPortFlow));
         return comp.Params.Input.Count == 0
             ? $"{Label(comp)}: outputs [{outs}]"
             : $"{Label(comp)}: inputs [{ins}] -> outputs [{outs}]";
@@ -242,8 +299,158 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
     {
         int nulls = NullCount(param);
         string count = $"{PortLabel(param)}={param.VolatileData.DataCount}";
-        return nulls > 0 ? $"{count} ({nulls} null)" : count;
+        if (DistinctPointCount(param) is int distinct && distinct < param.VolatileData.DataCount)
+        {
+            count += $" (only {distinct} distinct)";
+        }
+
+        if (nulls > 0)
+        {
+            count += $" ({nulls} null)";
+        }
+
+        string samples = FormatPortSamples(param);
+        return samples.Length == 0 ? count : $"{count}: {samples}";
     }
+
+    /// <summary>
+    /// Samples the actual values a port holds, so the model reasons about the data that exists
+    /// instead of hypothesizing from item counts alone. Flat data renders as a capped item list;
+    /// treed data shows branch paths (a graft/flatten mistake is invisible in a flat list).
+    /// </summary>
+    /// <param name="param">The port to sample.</param>
+    /// <returns>The rendered samples, or an empty string when the port holds no data.</returns>
+    private static string FormatPortSamples(IGH_Param param)
+    {
+        IGH_Structure tree = param.VolatileData;
+        if (tree.DataCount == 0 || tree.PathCount == 0)
+        {
+            return string.Empty;
+        }
+
+        string samples;
+        if (tree.PathCount == 1)
+        {
+            samples = FormatBranchSamples(tree.get_Branch(tree.Paths[0]), MaxSampleItems);
+        }
+        else
+        {
+            var parts = new List<string>();
+            int shown = Math.Min(tree.PathCount, MaxSampleBranches);
+            for (int i = 0; i < shown; i++)
+            {
+                GH_Path path = tree.Paths[i];
+                IList branch = tree.get_Branch(path);
+                parts.Add($"{path} ({branch.Count}): {FormatBranchSamples(branch, MaxItemsPerBranch)}");
+            }
+
+            if (tree.PathCount > shown)
+            {
+                parts.Add($"… (+{tree.PathCount - shown} more branches)");
+            }
+
+            samples = $"{tree.PathCount} branches [{string.Join("; ", parts)}]";
+        }
+
+        return Truncate(samples, MaxPortSampleChars);
+    }
+
+    private static string FormatBranchSamples(IList branch, int cap)
+    {
+        var rendered = new List<string>();
+        int shown = Math.Min(branch.Count, cap);
+        for (int i = 0; i < shown; i++)
+        {
+            rendered.Add(FormatGooSample(branch[i] as IGH_Goo));
+        }
+
+        if (branch.Count > shown)
+        {
+            rendered.Add($"… (+{branch.Count - shown} more)");
+        }
+
+        return string.Join(", ", rendered);
+    }
+
+    // One item, rendered for the model: geometry gets the facts a downstream failure hinges on
+    // (closed/open, planar, counts); everything else falls back to the goo's own ToString.
+    private static string FormatGooSample(IGH_Goo? goo)
+    {
+        if (goo is null)
+        {
+            return "null";
+        }
+
+        return goo.ScriptVariable() switch
+        {
+            Point3d point => FormatPoint(point),
+            Line line => $"line {FormatPoint(line.From)} -> {FormatPoint(line.To)}",
+            Curve curve => DescribeCurve(curve),
+            Brep brep => $"{(brep.IsSolid ? "closed" : "open")} brep, {brep.Faces.Count} face(s)",
+            Mesh mesh => $"{(mesh.IsClosed ? "closed" : "open")} mesh, {mesh.Vertices.Count} vertices, {mesh.Faces.Count} faces",
+            double number => number.ToString("0.###", CultureInfo.InvariantCulture),
+            int integer => integer.ToString(CultureInfo.InvariantCulture),
+            bool flag => flag ? "true" : "false",
+            _ => Truncate(goo.ToString() ?? goo.TypeName, MaxItemChars),
+        };
+    }
+
+    private static string DescribeCurve(Curve curve)
+    {
+        string closure = curve.IsClosed ? "closed" : "open";
+        string planarity = curve.IsPlanar() ? "planar" : "non-planar";
+        return curve.TryGetPolyline(out Polyline polyline)
+            ? $"{closure} {planarity} polyline, {polyline.SegmentCount} segment(s)"
+            : $"{closure} {planarity} curve, {curve.SpanCount} span(s)";
+    }
+
+    private static string FormatPoint(Point3d point)
+    {
+        return string.Format(CultureInfo.InvariantCulture, "{{{0:0.###}, {1:0.###}, {2:0.###}}}", point.X, point.Y, point.Z);
+    }
+
+    /// <summary>
+    /// Counts tolerance-distinct points on an all-point port. Duplicate points are the classic
+    /// symptom of two wires collecting into one item-access input (every downstream item doubles),
+    /// and the duplication is invisible in both the item count and a casual read of the samples —
+    /// "6 (only 3 distinct)" names the disease directly.
+    /// </summary>
+    /// <param name="param">The port to scan.</param>
+    /// <returns>The distinct count, or null when the port is not all-points or is too large to scan.</returns>
+    private static int? DistinctPointCount(IGH_Param param)
+    {
+        IGH_Structure tree = param.VolatileData;
+        if (tree.DataCount < 2 || tree.DataCount > MaxDistinctScan)
+        {
+            return null;
+        }
+
+        var points = new List<Point3d>(tree.DataCount);
+        foreach (IGH_Goo? goo in tree.AllData(false))
+        {
+            if (goo?.ScriptVariable() is not Point3d point)
+            {
+                return null;
+            }
+
+            points.Add(point);
+        }
+
+        double tolerance = RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
+        var distinct = new List<Point3d>();
+        foreach (Point3d point in points)
+        {
+            if (!distinct.Any(seen => seen.DistanceTo(point) <= tolerance))
+            {
+                distinct.Add(point);
+            }
+        }
+
+        return distinct.Count;
+    }
+
+    private static string Truncate(string text, int maxChars) =>
+        text.Length <= maxChars ? text : text[..(maxChars - 1)] + "…";
 
     // Null items inside the param's volatile data. Nulls count toward DataCount, so they are
     // invisible to the dead-component check — this is the complementary test.
@@ -364,7 +571,7 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
         AppendSection(sb, "Input signatures of the components that reported problems (match your data types to these):", signatures);
         AppendSection(sb, "Components that produced no output (check their inputs and upstream wiring):", dead);
         AppendSection(sb, "Components that produced NULL values (a null usually means an unwired required input or an invalid construction upstream — trace the data flow below and wire or internalize the missing value):", nullProducers);
-        AppendSection(sb, "Data flow of the problem components (items collected per input -> items produced per output; an input at 0 received nothing from upstream; nulls are counted in parentheses):", dataFlow);
+        AppendSection(sb, "Data flow of the problem components (items collected per input -> items produced per output, with sampled values; an input at 0 received nothing from upstream; nulls are counted in parentheses; '(only N distinct)' means the port holds duplicate items — usually two wires collecting into one input):", dataFlow);
 
         if (!string.IsNullOrEmpty(baseChecksum))
         {

@@ -67,7 +67,8 @@ internal static partial class GhJsonBridge
         StampComponentGuids(doc);
         return LintRequiredInputs(
             doc.Components,
-            doc.Connections ?? Enumerable.Empty<GhJsonConnection>());
+            doc.Connections ?? Enumerable.Empty<GhJsonConnection>(),
+            endpointIdsMustResolve: true);
     }
 
     /// <summary>
@@ -103,31 +104,68 @@ internal static partial class GhJsonBridge
         StampComponentGuids(new GhJsonDocument("1.0", null, adds, null, null));
         return LintRequiredInputs(
             adds,
-            patch.Patch?.Connections?.Add ?? Enumerable.Empty<GhJsonConnection>());
+            patch.Patch?.Connections?.Add ?? Enumerable.Empty<GhJsonConnection>(),
+            endpointIdsMustResolve: false);
     }
 
     /// <summary>
-    /// Checks every component's required inputs for a wire or an internalized value, and every
-    /// item-access input for multiple wires (they collect into a list and multiply every
-    /// downstream item — almost always the model intended a single combined value, e.g. wiring
-    /// both an origin and an offset into one X coordinate instead of adding them first).
-    /// Components whose type cannot be introspected are skipped (placement reports unknown
-    /// components itself); the variable-parameter sentinel port is never required.
+    /// Checks the authored graph for statically knowable wiring defects: required inputs with
+    /// neither a wire nor an internalized value; multiple wires collecting into an item-access
+    /// input (they build a list and multiply every downstream item); connection endpoints that
+    /// reference a port the component does not have (placement would drop the wire); and
+    /// data-only components whose outputs nothing consumes (abandoned intent). Components whose
+    /// type cannot be introspected are skipped (placement reports unknown components itself);
+    /// the variable-parameter sentinel port is never required.
     /// </summary>
     /// <param name="components">The authored components (component-type guids already stamped).</param>
     /// <param name="connections">Every authored connection that could feed those components.</param>
+    /// <param name="endpointIdsMustResolve">
+    /// True on the full-document path, where every endpoint id must name an authored component;
+    /// false on the patch path, where an id may resolve to a component already on the canvas.
+    /// </param>
     /// <returns>One violation line per defect; empty when the graph is clean.</returns>
     private static List<string> LintRequiredInputs(
         IEnumerable<GhJsonComponent> components,
-        IEnumerable<GhJsonConnection> connections)
+        IEnumerable<GhJsonConnection> connections,
+        bool endpointIdsMustResolve)
     {
+        List<GhJsonComponent> componentList = components.ToList();
+        List<GhJsonConnection> connectionList = connections.ToList();
+        connections = connectionList;
+        components = componentList;
+        // Signature map for every introspectable authored component, plus the full authored id
+        // set (introspection failures included) so endpoint-id resolution is judged separately
+        // from port-level checks.
+        var sigById = new Dictionary<int, (GhJsonComponent Component, IReadOnlyList<ComponentPort> Inputs, IReadOnlyList<ComponentPort> Outputs)>();
+        var authoredIds = new HashSet<int>();
+        foreach (GhJsonComponent component in components)
+        {
+            if (component.Id is not int id)
+            {
+                continue;
+            }
+
+            authoredIds.Add(id);
+            if (component.ComponentGuid is Guid typeGuid
+                && ComponentSignatureProvider.TryGetSignature(typeGuid, out IReadOnlyList<ComponentPort> ins, out IReadOnlyList<ComponentPort> outs))
+            {
+                sigById[id] = (component, ins, outs);
+            }
+        }
+
         // Wire COUNTS per target component id, addressable by paramIndex and by name. Each
         // connection is counted exactly once — paramIndex preferred — so an endpoint authored
-        // with both fields never double-counts.
+        // with both fields never double-counts. Source ids are collected for the orphan check.
         var wiredIndices = new Dictionary<int, Dictionary<int, int>>();
         var wiredNames = new Dictionary<int, Dictionary<string, int>>();
+        var consumedIds = new HashSet<int>();
         foreach (GhJsonConnection conn in connections)
         {
+            if (conn.From is { } source)
+            {
+                consumedIds.Add(source.Id);
+            }
+
             if (conn.To is not { } to)
             {
                 continue;
@@ -150,15 +188,33 @@ internal static partial class GhJsonBridge
         }
 
         var violations = new List<string>();
+
+        // Endpoint validity: a wire referencing a port the component does not have is dropped at
+        // placement with a conflict the model never sees pre-emptively — e.g. authoring "from
+        // output paramIndex 1" on a single-output component. Checked against the same signatures
+        // the required-input pass trusts; variable-parameter components (trailing "…" sentinel)
+        // skip bounds checks because their live port count can exceed the default signature.
+        foreach (GhJsonConnection conn in connections)
+        {
+            if (conn.From is { } from)
+            {
+                LintEndpoint(from, output: true, sigById, authoredIds, endpointIdsMustResolve, violations);
+            }
+
+            if (conn.To is { } target)
+            {
+                LintEndpoint(target, output: false, sigById, authoredIds, endpointIdsMustResolve, violations);
+            }
+        }
+
         foreach (GhJsonComponent component in components)
         {
-            if (component.Id is not int id
-                || component.ComponentGuid is not Guid typeGuid
-                || !ComponentSignatureProvider.TryGetSignature(typeGuid, out IReadOnlyList<ComponentPort> inputs, out _))
+            if (component.Id is not int id || !sigById.TryGetValue(id, out var sig))
             {
                 continue;
             }
 
+            IReadOnlyList<ComponentPort> inputs = sig.Inputs;
             for (int i = 0; i < inputs.Count; i++)
             {
                 ComponentPort port = inputs[i];
@@ -185,8 +241,95 @@ internal static partial class GhJsonBridge
                         $"'{component.Name}' (id {id}) input '{port.Name}' (paramIndex {i}) is required but has no wire and no internalized value — wire it or internalize a value.");
                 }
             }
+
+            // Orphan check: a component that CONSUMES data (has inputs — floating params like
+            // sliders and Panels are exempt), produces ONLY data-typed outputs (geometry
+            // terminals like a Domain Box ARE the result), and feeds nothing is almost always
+            // abandoned intent — half of an idea the model never wired in.
+            if (inputs.Count > 0
+                && sig.Outputs.Count > 0
+                && !consumedIds.Contains(id)
+                && sig.Outputs.All(o => IsDataOnlyHint(o.TypeHint)))
+            {
+                string kinds = string.Join(", ", sig.Outputs.Select(o => o.TypeHint).Distinct());
+                violations.Add(
+                    $"'{component.Name}' (id {id}) produces only data ({kinds}) and nothing consumes its outputs — wire its result somewhere or remove the component; a dangling data component is almost always abandoned intent.");
+            }
         }
 
-        return violations;
+        return violations.Distinct(StringComparer.Ordinal).ToList();
     }
+
+    /// <summary>
+    /// Validates one connection endpoint against its component's authored signature: the id must
+    /// resolve (full-document path only), and an authored paramIndex or paramName must name a
+    /// port that exists on the referenced side.
+    /// </summary>
+    /// <param name="endpoint">The authored endpoint.</param>
+    /// <param name="output">True when the endpoint is a FROM (output side); false for TO (input side).</param>
+    /// <param name="sigById">Signatures of the introspectable authored components.</param>
+    /// <param name="authoredIds">Every authored component id, introspectable or not.</param>
+    /// <param name="idsMustResolve">Whether an unresolved id is a defect (full-document path).</param>
+    /// <param name="violations">The violation sink.</param>
+    private static void LintEndpoint(
+        GhJsonConnectionEndpoint endpoint,
+        bool output,
+        Dictionary<int, (GhJsonComponent Component, IReadOnlyList<ComponentPort> Inputs, IReadOnlyList<ComponentPort> Outputs)> sigById,
+        HashSet<int> authoredIds,
+        bool idsMustResolve,
+        List<string> violations)
+    {
+        if (!authoredIds.Contains(endpoint.Id))
+        {
+            if (idsMustResolve)
+            {
+                violations.Add(
+                    $"a connection references component id {endpoint.Id}, which does not exist in the document — fix the endpoint id or remove the connection.");
+            }
+
+            return;
+        }
+
+        if (!sigById.TryGetValue(endpoint.Id, out var sig) || HasVariableParams(sig.Inputs))
+        {
+            return;
+        }
+
+        IReadOnlyList<ComponentPort> ports = output ? sig.Outputs : sig.Inputs;
+        string side = output ? "output" : "input";
+
+        bool badIndex = endpoint.ParamIndex is int idx && (idx < 0 || idx >= ports.Count);
+        bool badName = endpoint.ParamIndex is null
+            && !string.IsNullOrWhiteSpace(endpoint.ParamName)
+            && !ports.Any(p => string.Equals(p.Name, endpoint.ParamName, StringComparison.Ordinal));
+
+        if (badIndex || badName)
+        {
+            string authored = endpoint.ParamIndex is int i
+                ? $"{side} paramIndex {i}"
+                : $"{side} '{endpoint.ParamName}'";
+            string available = string.Join(", ", ports.Select((p, n) => $"'{p.Name}' (paramIndex {n})"));
+            violations.Add(
+                $"a connection references {authored} on '{sig.Component.Name}' (id {endpoint.Id}), but its {side}s are: {available} — fix the {(output ? "from" : "to")} endpoint.");
+        }
+    }
+
+    // The trailing "…" sentinel marks a variable-parameter component (Merge, Entwine, zui) whose
+    // live port count can legitimately exceed the default signature.
+    private static bool HasVariableParams(IReadOnlyList<ComponentPort> inputs) =>
+        inputs.Any(p => p.Name == "…");
+
+    // Output type hints that mean "this component's result IS the placed geometry" — legitimate
+    // terminals the orphan check must never flag. Unknown/blank/Generic hints fail OPEN (treated
+    // as possibly-geometry), mirroring the lint's skip-what-cannot-be-introspected policy.
+    private static readonly HashSet<string> GeometryTypeHints = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Point", "Line", "Curve", "Circle", "Arc", "Rectangle", "Polyline",
+        "Surface", "Brep", "Mesh", "Box", "Geometry", "Extrusion", "SubD", "Group",
+    };
+
+    private static bool IsDataOnlyHint(string typeHint) =>
+        !string.IsNullOrWhiteSpace(typeHint)
+        && !string.Equals(typeHint, "Generic", StringComparison.OrdinalIgnoreCase)
+        && !GeometryTypeHints.Contains(typeHint);
 }

@@ -105,4 +105,46 @@ public class SchemaValidatorTests
         Assert.DoesNotContain("property 'kind' is not allowed", error.Message);
         Assert.DoesNotContain("property 'patch' is not allowed", error.Message);
     }
+
+    // Node-Graph-shaped oneOf: a full-document branch (schema/components/connections) and a
+    // ghpatch branch (kind/patch). Shared by the two full-document wrong-branch tests below.
+    private const string DocumentOrPatchSchema =
+        "{\"oneOf\":["
+        + "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"schema\",\"components\"],\"properties\":{"
+        + "\"schema\":{\"type\":\"string\"},"
+        + "\"components\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"name\":{\"type\":\"string\"},\"extensions\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"value\":{\"type\":\"string\"}}}}}},"
+        + "\"connections\":{\"type\":\"array\"}}},"
+        + "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"kind\",\"patch\"],\"properties\":{"
+        + "\"kind\":{\"const\":\"ghpatch\"},"
+        + "\"patch\":{\"type\":\"object\"}}}"
+        + "]}";
+
+    [Fact]
+    public void Validate_FullDocWithDeepViolation_DropsWrongBranchRootShapeNoise()
+    {
+        // The production failure this guards against: a full document with ONE real defect (an
+        // unknown key deep inside a component) was also told "'components' is not allowed at the
+        // document root" — the ghpatch branch talking — and the model concluded the validator
+        // wanted a ghpatch. Only the deep violation may survive.
+        const string doc =
+            "{\"schema\":\"1.0\",\"components\":[{\"name\":\"Slider\",\"extensions\":{\"value\":\"6<3~12>\",\"rounding\":\"Integer\"}}],\"connections\":[]}";
+
+        Assert.True(SchemaValidator.Validate(doc, DocumentOrPatchSchema).IsErr(out ValidationError? error, out _));
+
+        Assert.Contains("property 'rounding' is not allowed", error!.Message);
+        Assert.DoesNotContain("property 'components' is not allowed at the document root", error.Message);
+        Assert.DoesNotContain("property 'connections' is not allowed at the document root", error.Message);
+        Assert.DoesNotContain("property 'schema' is not allowed", error.Message);
+    }
+
+    [Fact]
+    public void Validate_FullDocMatchingNeitherBranch_KeepsRootShapeComplaints()
+    {
+        // When the root-shape complaints are the ONLY violations the document genuinely matched
+        // neither branch — suppressing them would leave an empty report.
+        const string doc = "{\"components\":[],\"connections\":[]}";
+
+        Assert.True(SchemaValidator.Validate(doc, DocumentOrPatchSchema).IsErr(out ValidationError? error, out _));
+        Assert.NotEmpty(error!.Violations);
+    }
 }

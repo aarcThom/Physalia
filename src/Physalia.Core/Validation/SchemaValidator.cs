@@ -83,13 +83,19 @@ public static class SchemaValidator
     /// allowed and where. When such property-level violations exist, the root-level oneOf /
     /// required umbrella errors (one per non-matching branch) are dropped: they say nothing the
     /// property lines don't, and they dominated feedback with two dozen identical lines.
+    ///
+    /// <para>Wrong-oneOf-branch noise is suppressed in BOTH directions. A ghpatch tested against
+    /// the full-document branch rejects <c>/kind</c> and <c>/patch</c>; a full document tested
+    /// against the ghpatch branch rejects <c>/schema</c>, <c>/components</c>, <c>/connections</c>,
+    /// and <c>/groups</c> "at the document root". Neither is actionable — the model, told to
+    /// remove <c>components</c> from a full document, concludes the validator wanted a ghpatch and
+    /// wobbles between document kinds. The full-document direction is dropped only when another
+    /// violation survives: root-shape complaints as the ONLY output mean the document genuinely
+    /// matched neither branch, and hiding them would leave an empty report.</para>
     /// </summary>
     /// <param name="violations">The raw violations from the evaluator.</param>
     /// <param name="rootHasKind">
     /// True when the instance root carries a <c>kind</c> property — the ghpatch discriminator.
-    /// Under a root <c>oneOf</c>, the non-patch branch then rejects <c>/kind</c> and <c>/patch</c>
-    /// as unknown properties; those wrong-branch complaints are never actionable ("removing" the
-    /// discriminator would break the document) and are dropped.
     /// </param>
     /// <returns>The rewritten, deduplicated violations.</returns>
     private static List<SchemaViolation> Humanize(List<SchemaViolation> violations, bool rootHasKind)
@@ -98,28 +104,56 @@ public static class SchemaValidator
 
         static bool IsRoot(string path) => string.IsNullOrEmpty(path) || path == "#" || path == "/";
 
+        // A root-level property rejected by the oneOf branch the document was never meant to
+        // match: the patch discriminator when the document IS a patch, the full-document keys
+        // when it is NOT.
+        bool IsWrongBranchNoise(SchemaViolation v) =>
+            v.Message.Contains(falseSchema)
+            && (rootHasKind
+                ? v.Path is "/kind" or "/patch"
+                : v.Path is "/schema" or "/components" or "/connections" or "/groups");
+
+        static SchemaViolation RewriteNotAllowed(SchemaViolation v)
+        {
+            int slash = v.Path.LastIndexOf('/');
+            if (slash < 0 || slash >= v.Path.Length - 1)
+            {
+                return v;
+            }
+
+            string property = v.Path[(slash + 1)..];
+            string parent = slash == 0 ? "the document root" : $"'{v.Path[..slash]}'";
+            return new SchemaViolation(
+                v.Path,
+                $"property '{property}' is not allowed at {parent} — remove it, or move it to where the schema defines it");
+        }
+
         bool hasPropertyLevel = violations.Any(v =>
-            v.Message.Contains(falseSchema) && !IsRoot(v.Path)
-            && !(rootHasKind && v.Path is "/kind" or "/patch"));
+            v.Message.Contains(falseSchema) && !IsRoot(v.Path) && !IsWrongBranchNoise(v));
 
         var rewritten = new List<SchemaViolation>();
+        var wrongBranch = new List<SchemaViolation>();
         foreach (SchemaViolation v in violations)
         {
-            if (rootHasKind && v.Path is "/kind" or "/patch" && v.Message.Contains(falseSchema))
+            if (IsWrongBranchNoise(v))
             {
+                // The patch direction drops unconditionally (the discriminator can never be
+                // "removed"); the full-document direction is parked and restored below when
+                // nothing else survived.
+                if (!rootHasKind)
+                {
+                    wrongBranch.Add(RewriteNotAllowed(v));
+                }
+
                 continue;
             }
 
             if (v.Message.Contains(falseSchema))
             {
-                int slash = v.Path.LastIndexOf('/');
-                if (slash >= 0 && slash < v.Path.Length - 1)
+                SchemaViolation renamed = RewriteNotAllowed(v);
+                if (!ReferenceEquals(renamed, v))
                 {
-                    string property = v.Path[(slash + 1)..];
-                    string parent = slash == 0 ? "the document root" : $"'{v.Path[..slash]}'";
-                    rewritten.Add(new SchemaViolation(
-                        v.Path,
-                        $"property '{property}' is not allowed at {parent} — remove it, or move it to where the schema defines it"));
+                    rewritten.Add(renamed);
                     continue;
                 }
             }
@@ -130,6 +164,11 @@ public static class SchemaValidator
             }
 
             rewritten.Add(v);
+        }
+
+        if (rewritten.Count == 0)
+        {
+            rewritten.AddRange(wrongBranch);
         }
 
         return rewritten

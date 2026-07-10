@@ -120,7 +120,7 @@ Events between pipeline components travel as **`PhySignal`s** — immutable, seq
 | **GhPython** | PyTransmitter (pushes generated Python into a linked Script component via grip-link; routes its errors), PythonShortcut |
 | **Grounding** | ClusterGrounder (.ghx cluster — scaffold), PythonGrounder (python function — scaffold) — both emit `GH_Grounding` for System Prompt. `Grounding` is a Core discriminated union (`ComponentCatalogGrounding` migrated from System Prompt's old catalog input; `GH_Grounding.CastFrom` adapts producer goo like `GH_ComponentCatalog`) |
 | **Models** | AnthropicModel/Tweaker, GeminiModel/Tweaker, OpenAICompatibleModel/Tweaker, ModelInformation, LlamaCppModelInfo, ApiKeys (+ `ModelComponentBase`, `TweakerComponentBase<TConfig>`) |
-| **Control Flow** | Feedback, FeedbackCollector (wireless signal transport via grip-link; deliberately breaks the GH DAG), Detect JSON (presence gate — attempted JSON, even malformed, passes to Success; plain conversation routes to Fail as a quiet switch) |
+| **Control Flow** | Feedback, FeedbackCollector (wireless signal transport via grip-link; deliberately breaks the GH DAG), Detect JSON (presence gate — attempted JSON, even malformed, passes to Success; plain conversation routes to Fail as a quiet switch), Signal Limiter (caps total loop rounds), Stall Guard (caps *identical* failure rounds — fingerprints failure payloads; escalates at the Stall Limit, suppresses re-emission beyond it) |
 | **Serializers** | Serializer / Deserializer (.ghjson canvas export/import via `GhJsonBridge`), SchemaTranslator |
 | **Signals** | ConstructSignal (manual mint), DeconstructSignal (passive inspect — never consumes) |
 | **Tokens** | TokenEstimator |

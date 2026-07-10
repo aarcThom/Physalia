@@ -246,7 +246,7 @@ validated JSON, and the feedback all travel as signal payloads.
 ### Iterative-canvas loop guardrails (Component Transmitter variant)
 
 When the pipeline places graphs on the canvas (Schema Validator → Component Transmitter →
-Runtime Health Check, Fail Signals looping back through Feedback/FeedbackCollector), two
+Runtime Health Check, Fail Signals looping back through Feedback/FeedbackCollector), three
 extra components are part of the canonical wiring, not optional extras:
 
 - **Canvas State grounder → Conversation Log.Grounding.** Guarantees the model sees the
@@ -256,9 +256,28 @@ extra components are part of the canonical wiring, not optional extras:
   (Error feedback also carries a fresh checksum line as a belt-and-braces measure, but
   only the grounding carries the canvas itself.)
 - **Signal Limiter on the Fail path** (e.g. limit 8) between the feedback sources and the
-  Feedback component. The loop has no built-in iteration cap; an unbounded Fail cycle is
-  an unbounded token spend when the model cannot converge. Route "Over Limit" to a Panel
-  (or nothing) so the loop parks visibly instead of spinning.
+  Feedback component. An unbounded Fail cycle is an unbounded token spend when the model
+  cannot converge. Route "Over Limit" to a Panel (or nothing) so the loop parks visibly
+  instead of spinning.
+- **Stall Guard between the Feedback Collector and the Conversation Log's Feedback Signal
+  input** (Stall Limit, default 3; 0 disables). The Signal Limiter caps *total* rounds;
+  the Stall Guard caps *identical* rounds. It fingerprints each failure payload (exact
+  identity after stripping the volatile checksum line) and, when the same failure text
+  arrives for the Nth consecutive time, passes it once more with an escalation preamble
+  telling the model to stop patching and explain the blocker to the human in prose (the
+  Detect JSON gate then parks the prose reply naturally); identical failures beyond the
+  limit are not re-emitted at all — the guard captions `STALLED (Nx)` and latches the
+  suppressed signal on its Stalled output for optional human-facing wiring. Any different
+  failure, any success signal, or a menu Clear resets the streak, so the guard self-heals
+  the moment the loop actually moves. Success signals (tool results, content blocks) pass
+  through untouched — the original signal object is re-emitted, never re-minted.
+
+Two related dials on the Runtime Health Check: **Fail on Warnings** (default true) lets a
+rig treat a warnings-only scan as informational (routes Success with a remark) instead of
+feeding benign warnings into the loop; and the data-flow section of its report samples
+actual port values (point coordinates, curve closed/planar flags, `(only N distinct)`
+duplicate detection, branch paths on treed ports), so the model diagnoses from the data
+that exists instead of hypothesizing from item counts alone.
 
 ## Tool calling: LLM Call → Router → tool nodes → Conversation Log
 

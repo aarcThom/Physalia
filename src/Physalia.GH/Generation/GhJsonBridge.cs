@@ -1483,6 +1483,19 @@ internal static partial class GhJsonBridge
         return IndexInRange(out int fallback) ? list[fallback] : null;
     }
 
+    // Names a connection endpoint for a conflict message: the resolved live names when available,
+    // always with the authored id/paramIndex the model can act on. Authored endpoints are
+    // paramIndex-first, so ParamName is routinely absent — formatting it alone yields the useless
+    // "no wire from '' to ''".
+    private static string DescribeEndpoint(GhJsonConnectionEndpoint endpoint, IGH_DocumentObject? obj, IGH_Param? param)
+    {
+        string port = param?.Name
+            ?? (string.IsNullOrWhiteSpace(endpoint.ParamName) ? "?" : endpoint.ParamName);
+        string component = obj?.Name ?? "?";
+        string index = endpoint.ParamIndex?.ToString() ?? "?";
+        return $"'{port}' on {component} (id {endpoint.Id}, paramIndex {index})";
+    }
+
     // The GhJSON ids of the planned clusters — the endpoints that must resolve by paramIndex.
     private static HashSet<int> ClusterIds(ClusterPlan plan) =>
         new HashSet<int>(plan.Placements.Where(p => p.Id is int).Select(p => p.Id!.Value));
@@ -1805,7 +1818,9 @@ internal static partial class GhJsonBridge
             IGH_Param? sink = FindEndpointParam(toObj, to, output: false, preferIndex: true);
             if (source is null || sink is null)
             {
-                failures.Add($"connection failed: parameter '{(source is null ? from.ParamName : to.ParamName)}' was not found on its component.");
+                failures.Add(source is null
+                    ? $"connection failed: parameter {DescribeEndpoint(from, fromObj, null)} was not found on its component."
+                    : $"connection failed: parameter {DescribeEndpoint(to, toObj, null)} was not found on its component.");
                 continue;
             }
 

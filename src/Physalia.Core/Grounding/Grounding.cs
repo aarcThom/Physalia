@@ -252,9 +252,17 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
             return string.Empty;
         }
 
+        // The second sentence pre-empts a real failure mode: the checksum deliberately excludes
+        // internalized data and slider values (user tweaks must not invalidate patch bases), and
+        // without being told, the model reads an unchanged checksum as "my modify silently failed"
+        // and burns rounds re-testing it.
         string checksumLine = string.IsNullOrWhiteSpace(Checksum)
             ? string.Empty
-            : "\nBase checksum — copy this verbatim into patch.base.checksum: " + Checksum.Trim();
+            : "\nBase checksum — copy this verbatim into patch.base.checksum: " + Checksum.Trim()
+              + "\nThe checksum fingerprints structure only (components, wires, groups, data-tree "
+              + "modifiers) — internalized-data and slider-value changes do NOT alter it, so never "
+              + "conclude from an unchanged checksum that such a modify failed; trust the patch "
+              + "outcome report instead.";
 
         // Stated outright so the model never infers placement status from the canvas contents —
         // a rejected submission leaves the canvas unchanged, and inferring "did my graph land?"

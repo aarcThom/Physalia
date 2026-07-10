@@ -38,7 +38,8 @@ internal sealed record CanvasPatchOutcome(
     IReadOnlyList<Guid> RemovedGuids,
     IReadOnlyList<string> Conflicts,
     IReadOnlyList<string> Warnings,
-    string? PostApplyChecksum = null);
+    string? PostApplyChecksum = null,
+    IReadOnlyList<string>? AppliedOps = null);
 
 /// <summary>
 /// Ghpatch half of the façade: applies a model-authored <c>.ghpatch</c> document to the LIVE
@@ -143,6 +144,7 @@ internal static partial class GhJsonBridge
         var addedGuids = new List<Guid>();
         var modifiedGuids = new List<Guid>();
         var removedGuids = new List<Guid>();
+        var appliedOps = new List<string>();
 
         // ---- Pre-pass on adds: stamp real component guids, remap colliding ids, and give
         // pivot-less adds a fallback position. All before the document-level apply so the
@@ -200,7 +202,7 @@ internal static partial class GhJsonBridge
             var baseIndex = BuildBaseIndex(baseExport);
             var addIds = new HashSet<int>(adds.Where(a => a.Id is int).Select(a => a.Id!.Value));
 
-            ApplyModifies(patch, doc, baseExport, applyResult.Document, baseIndex, modifiedGuids, conflicts, warnings);
+            ApplyModifies(patch, doc, baseExport, applyResult.Document, baseIndex, modifiedGuids, conflicts, warnings, appliedOps);
             ApplyRemoves(patch, baseExport, baseIndex, removedGuids, conflicts);
 
             Dictionary<int, IGH_DocumentObject> addedById =
@@ -239,7 +241,8 @@ internal static partial class GhJsonBridge
             removedGuids,
             conflicts,
             warnings,
-            postApplyChecksum);
+            postApplyChecksum,
+            appliedOps);
     }
 
     // True when the patch carries at least one operation; a fully empty patch is a no-op.
@@ -453,14 +456,22 @@ internal static partial class GhJsonBridge
         BaseIndex index,
         List<Guid> modifiedGuids,
         List<string> conflicts,
-        List<string> warnings)
+        List<string> warnings,
+        List<string> appliedOps)
     {
         foreach (GhPatchComponentModify modify in patch.Patch?.Components?.Modify ?? Enumerable.Empty<GhPatchComponentModify>())
         {
             GhJsonComponent? baseComp = ResolveComponentMatch(modify.Match, baseExport, index);
             if (baseComp?.InstanceGuid is not Guid guid)
             {
-                continue; // the document-level apply reported match_not_found/ambiguous already
+                // The document-level apply normally reports match_not_found/ambiguous itself, but a
+                // modify must never vanish without a trace — add our own verdict when it did not.
+                if (!conflicts.Any(c => c.Contains("components.modify", StringComparison.Ordinal)))
+                {
+                    conflicts.Add($"match_not_found: components.modify target ({DescribeMatch(modify.Match)}) did not resolve against the canvas state; the modify was not applied.");
+                }
+
+                continue;
             }
 
             IGH_DocumentObject? live = doc.FindObject(guid, false);
@@ -474,12 +485,16 @@ internal static partial class GhJsonBridge
                 .FirstOrDefault(c => c.Id == baseComp.Id);
             if (merged is null)
             {
-                continue; // e.g. the same component was also removed; the remove pass handles it
+                // Legitimate when the same patch also removes the component (the remove wins), but
+                // say so instead of dropping the modify silently.
+                warnings.Add($"modify skipped for '{live.NickName}' ({guid}): the component is absent from the post-merge document — the same patch likely also removes it.");
+                continue;
             }
 
             if (TryFastPathModify(modify, live))
             {
                 modifiedGuids.Add(guid);
+                appliedOps.Add(DescribeModify(modify, live, inPlace: true));
                 continue;
             }
 
@@ -499,8 +514,35 @@ internal static partial class GhJsonBridge
             if (TryReplaceComponent(doc, live, merged, conflicts, warnings))
             {
                 modifiedGuids.Add(guid);
+                appliedOps.Add(DescribeModify(modify, live, inPlace: false));
             }
         }
+    }
+
+    // Names a modify's target for the match_not_found conflict, using whatever identity the model authored.
+    private static string DescribeMatch(GhPatchComponentMatch match) =>
+        match.InstanceGuid is Guid guid ? $"instanceGuid {guid}"
+        : match.Id is int id ? $"id {id}"
+        : match.Name is not null ? $"name '{match.Name}'"
+        : $"componentGuid {match.ComponentGuid?.ToString() ?? "?"}";
+
+    // Describes one applied modify for the outcome's applied-ops ledger: the target's identity plus
+    // every field the op touched. Positive per-op confirmation matters because the canvas checksum
+    // deliberately excludes internalized data — the model must never infer "my modify failed" from
+    // an unchanged checksum.
+    private static string DescribeModify(GhPatchComponentModify modify, IGH_DocumentObject live, bool inPlace)
+    {
+        var touched = new List<string>();
+        touched.AddRange(modify.Set?.Properties().Select(p => p.Name) ?? Enumerable.Empty<string>());
+        touched.AddRange(modify.ComponentState?.Set?.Properties().Select(p => p.Name) ?? Enumerable.Empty<string>());
+        touched.AddRange(modify.ComponentState?.Extensions?.Set?.Keys ?? Enumerable.Empty<string>());
+        touched.AddRange(modify.InputSettings?.ByParameterName?.Keys.Select(k => $"inputSettings['{k}']") ?? Enumerable.Empty<string>());
+        touched.AddRange(modify.OutputSettings?.ByParameterName?.Keys.Select(k => $"outputSettings['{k}']") ?? Enumerable.Empty<string>());
+        touched.AddRange(modify.Remove?.Select(r => $"removed {r}") ?? Enumerable.Empty<string>());
+
+        string what = touched.Count > 0 ? string.Join(", ", touched) : "state";
+        string how = inPlace ? "in place" : "rebuilt with wires preserved";
+        return $"modified '{live.NickName}' ({live.InstanceGuid}): {what} ({how})";
     }
 
     // Applies a modify by mutating the live object directly when EVERY requested change is one of
@@ -1094,7 +1136,9 @@ internal static partial class GhJsonBridge
         IGH_Param? sink = FindEndpointParam(toObj, to, output: false, preferIndex: true);
         if (source is null || sink is null)
         {
-            conflicts.Add($"{verb}: parameter '{(source is null ? from.ParamName : to.ParamName)}' was not found on its component.");
+            conflicts.Add(source is null
+                ? $"{verb}: parameter {DescribeEndpoint(from, fromObj, null)} was not found on its component."
+                : $"{verb}: parameter {DescribeEndpoint(to, toObj, null)} was not found on its component.");
             return;
         }
 
@@ -1102,7 +1146,7 @@ internal static partial class GhJsonBridge
         {
             if (!sink.Sources.Contains(source))
             {
-                conflicts.Add($"connection_not_found: no wire from '{from.ParamName}' to '{to.ParamName}' exists.");
+                conflicts.Add($"connection_not_found: no wire from {DescribeEndpoint(from, fromObj, source)} to {DescribeEndpoint(to, toObj, sink)} exists.");
                 return;
             }
 

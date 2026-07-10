@@ -202,7 +202,17 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 
         if (outcome.Success)
         {
-            return RoutingResult.Ok(SerializeGuids(outcome.AddedGuids.Concat(outcome.ModifiedGuids)));
+            // The Success payload stays pure GUIDs (the Runtime Health Check scopes its scan on
+            // it); the per-op confirmation surfaces as a component remark for the human. The
+            // model-facing confirmation contract is the grounding's checksum note: a clean patch
+            // outcome means every op landed, checksum movement notwithstanding.
+            string? applied = outcome.AppliedOps is { Count: > 0 } ops
+                ? $"Patch applied cleanly: {outcome.AddedGuids.Count} added, {outcome.ModifiedGuids.Count} modified ({ops.Count} modify op(s)), {outcome.RemovedGuids.Count} removed."
+                : null;
+            return RoutingResult.Ok(
+                SerializeGuids(outcome.AddedGuids.Concat(outcome.ModifiedGuids)),
+                message: applied,
+                level: GH_RuntimeMessageLevel.Remark);
         }
 
         // A hard failure (nothing touched) carries its own model-facing message; a partial apply
@@ -392,6 +402,19 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
         foreach (string conflict in outcome.Conflicts)
         {
             sb.AppendLine($"  - {conflict}");
+        }
+
+        // Positive confirmation of what DID land: the canvas checksum deliberately excludes
+        // internalized data, so without this list the model cannot tell an applied modify from a
+        // silently dropped one and wastes rounds re-testing both hypotheses.
+        if (outcome.AppliedOps is { Count: > 0 } appliedOps)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Modify operations that DID apply (do not re-emit these):");
+            foreach (string op in appliedOps)
+            {
+                sb.AppendLine($"  - {op}");
+            }
         }
 
         if (outcome.Warnings.Count > 0)

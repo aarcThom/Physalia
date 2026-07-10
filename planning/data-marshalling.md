@@ -272,12 +272,26 @@ extra components are part of the canonical wiring, not optional extras:
   the moment the loop actually moves. Success signals (tool results, content blocks) pass
   through untouched — the original signal object is re-emitted, never re-minted.
 
-Two related dials on the Runtime Health Check: **Fail on Warnings** (default true) lets a
-rig treat a warnings-only scan as informational (routes Success with a remark) instead of
+Two related dials on the Runtime Health Check: **Fail on Warnings** (a context-menu
+toggle, default on — a menu item rather than an input, because an input registered before
+the base-appended Signal shifts the param layout of saved documents) lets a rig treat a
+warnings-only scan as informational (routes Success with a remark) instead of
 feeding benign warnings into the loop; and the data-flow section of its report samples
 actual port values (point coordinates, curve closed/planar flags, `(only N distinct)`
 duplicate detection, branch paths on treed ports), so the model diagnoses from the data
 that exists instead of hypothesizing from item counts alone.
+
+**Geometry Report — the self-review turn.** A graph that solves cleanly can still be
+semantically wrong (parts floating apart, geometry buried inside other geometry), and
+nothing errors, so no feedback fires. The Geometry Report closes that gap without images:
+wired after the Runtime Health Check's Success Signal (so it only measures healthy
+graphs), it accumulates watched GUIDs like the health check and broadcasts a text digest —
+per-component bounding boxes from actual output geometry, whole-model bbox, disjoint-group
+detection with gap distances, neutral containment facts, and a fresh base checksum. Routed
+through Feedback/Collector into the Conversation Log it becomes a self-review turn: the
+model compares the measured facts against its intent and either replies in prose
+("matches intent" — the Detect JSON gate parks the loop) or submits a corrective ghpatch
+(another placement round, bounded by the Signal Limiter and Stall Guard as usual).
 
 ## Tool calling: LLM Call → Router → tool nodes → Conversation Log
 

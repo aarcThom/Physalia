@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Windows.Forms;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Types;
@@ -39,8 +40,11 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class RuntimeHealthCheck : RoutingComponentBase<string>
 {
-    // Index of the Fail on Warnings toggle (the base appends the Signal input after it).
-    private const int InFailOnWarnings = 0;
+    // Fail on Warnings dial, exposed as a context-menu toggle (ConversationLog's menu-flag
+    // pattern) rather than an input: an extra input before the base-appended Signal shifts the
+    // param layout of every previously saved document, silently landing the old signal wire on
+    // the new input. Persisted via Write/Read; default true preserves the original behavior.
+    private bool _failOnWarnings = true;
 
     // Sampling caps: the data-flow section quotes live values, and an unbounded tree (or a
     // monster string riding a text port) must never blow up the prompt. Each overflow is
@@ -73,16 +77,32 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
     /// GH warnings are frequently benign (a collapsed zero-length segment, a data conversion
     /// note), and a warnings-only report can drive the feedback loop through rounds the model
     /// cannot fix. The toggle lets a rig treat warnings as informational; errors, dead
-    /// components, and null producers always fail regardless.
+    /// components, and null producers always fail regardless. A menu item, not an input — see
+    /// the field note on <see cref="_failOnWarnings"/>.
     /// </remarks>
-    protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
+    public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
     {
-        pManager.AddBooleanParameter(
+        base.AppendAdditionalMenuItems(menu);
+        Menu_AppendItem(
+            menu,
             "Fail on Warnings",
-            "FW",
-            "When true (default), runtime warnings fail the scan and route a report back on the Fail Signal. When false, a warnings-only scan passes the signal through and notes the warnings as a runtime remark; errors, dead components, and null producers always fail.",
-            GH_ParamAccess.item,
-            true);
+            (_, _) => _failOnWarnings = !_failOnWarnings,
+            enabled: true,
+            @checked: _failOnWarnings);
+    }
+
+    /// <inheritdoc/>
+    public override bool Write(GH_IO.Serialization.GH_IWriter writer)
+    {
+        writer.SetBoolean("FailOnWarnings", _failOnWarnings);
+        return base.Write(writer);
+    }
+
+    /// <inheritdoc/>
+    public override bool Read(GH_IO.Serialization.GH_IReader reader)
+    {
+        _failOnWarnings = !reader.ItemExists("FailOnWarnings") || reader.GetBoolean("FailOnWarnings");
+        return base.Read(reader);
     }
 
     /// <inheritdoc/>
@@ -252,9 +272,7 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
             return RoutingResult.Ok(data);
         }
 
-        bool failOnWarnings = true;
-        da.GetData(InFailOnWarnings, ref failOnWarnings);
-        if (hard == 0 && !failOnWarnings)
+        if (hard == 0 && !_failOnWarnings)
         {
             // Warnings only, and the rig opted out of failing on them: pass the payload through
             // untouched (downstream scoping depends on it) and surface the warnings as a remark.

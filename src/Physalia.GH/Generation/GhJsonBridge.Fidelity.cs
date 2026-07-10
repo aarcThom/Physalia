@@ -33,6 +33,67 @@ internal static partial class GhJsonBridge
     // entries for removed objects are harmless (lookups are scoped to one turn's placed guids).
     private static readonly ConditionalWeakTable<GH_Document, Dictionary<Guid, int>> AuthoredPlacementLedgers = new();
 
+    // The authored full-graph GhJSON of the most recent LLM placement, with the exact guid set it
+    // placed. Lets the Fidelity Check self-source its Definition when its input is unwired or
+    // miswired (the observed failure mode: a markdown wire that never parses). The guid set gates
+    // the fallback — it may only verify THE placement it recorded, never a later turn — and any
+    // applied ghpatch invalidates the record, because the canvas has legitimately evolved past it.
+    private static readonly ConditionalWeakTable<GH_Document, AuthoredDefinition> AuthoredDefinitions = new();
+
+    /// <summary>
+    /// Records the authored definition a successful full-graph placement realised, so the Fidelity
+    /// Check can fall back to it when its Definition input is unwired or miswired.
+    /// </summary>
+    /// <param name="doc">The host document; null is tolerated (nothing recorded).</param>
+    /// <param name="json">The authored full-graph GhJSON exactly as placed.</param>
+    /// <param name="placedGuids">The instanceGuids that placement reported.</param>
+    internal static void RecordAuthoredDefinition(GH_Document? doc, string json, IEnumerable<Guid> placedGuids)
+    {
+        if (doc is null || string.IsNullOrWhiteSpace(json))
+        {
+            return;
+        }
+
+        AuthoredDefinitions.AddOrUpdate(doc, new AuthoredDefinition(json, new HashSet<Guid>(placedGuids)));
+    }
+
+    /// <summary>
+    /// Drops the recorded authored definition — called when a ghpatch applies, because the canvas
+    /// has legitimately evolved beyond the recorded full graph and verifying against it would
+    /// report the patch's own edits as fidelity violations.
+    /// </summary>
+    /// <param name="doc">The host document; null is tolerated.</param>
+    internal static void InvalidateAuthoredDefinition(GH_Document? doc)
+    {
+        if (doc is not null)
+        {
+            AuthoredDefinitions.Remove(doc);
+        }
+    }
+
+    /// <summary>
+    /// Returns the recorded authored definition when — and only when — the trigger's placed guids
+    /// are exactly the set that placement recorded, i.e. the caller is verifying the same turn.
+    /// </summary>
+    /// <param name="doc">The host document.</param>
+    /// <param name="triggerGuids">The placed guids carried by the trigger signal.</param>
+    /// <returns>The recorded GhJSON, or null when absent or from a different turn.</returns>
+    internal static string? TryGetAuthoredDefinition(GH_Document? doc, IReadOnlyCollection<Guid> triggerGuids)
+    {
+        if (doc is null
+            || triggerGuids.Count == 0
+            || !AuthoredDefinitions.TryGetValue(doc, out AuthoredDefinition? recorded)
+            || !recorded.PlacedGuids.SetEquals(triggerGuids))
+        {
+            return null;
+        }
+
+        return recorded.Json;
+    }
+
+    // CWT values must be reference types; the guid set gates the fallback to the recorded turn.
+    private sealed record AuthoredDefinition(string Json, HashSet<Guid> PlacedGuids);
+
     /// <summary>
     /// Records which authored id each placed object realised, for later fidelity verification.
     /// </summary>

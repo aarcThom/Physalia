@@ -429,7 +429,16 @@ internal static partial class GhJsonBridge
         // LLM-authored wires are addressed by paramIndex (the schema's contract); the library's own
         // Put matches by paramName and silently mis-wires the model's short labels, so this path
         // wires every connection itself.
-        return PlaceDocument(doc, targetOrigin, paramIndexFirst: true, anchorVisualTopLeft: true);
+        PlaceResult placed = PlaceDocument(doc, targetOrigin, paramIndexFirst: true, anchorVisualTopLeft: true);
+
+        // Remember the authored definition against exactly this placement, so a Fidelity Check
+        // whose Definition input is unwired or miswired can still verify this turn.
+        if (placed.Success)
+        {
+            RecordAuthoredDefinition(Grasshopper.Instances.ActiveCanvas?.Document, json, placed.PlacedGuids);
+        }
+
+        return placed;
     }
 
     /// <summary>

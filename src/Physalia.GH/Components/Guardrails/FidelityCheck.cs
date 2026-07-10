@@ -28,10 +28,13 @@ namespace Physalia.GH.Components;
 ///
 /// <para>A MISCONFIGURED check (Definition unwired, blank, or reading text that does not parse —
 /// which can never be the model's definition, since the definition that placed always parses)
-/// never routes into the loop: the model is powerless to fix the user's wiring, and a Fail here
-/// would block every downstream check for as long as the mis-wire persists. Instead it surfaces
-/// a persistent local Error bubble and passes the trigger through unverified, so the Runtime
-/// Health Check still runs and the human sees exactly what to rewire.</para>
+/// never routes the mis-wire into the loop: the model is powerless to fix the user's wiring.
+/// The check first falls back to the definition the placement itself recorded (available only
+/// when the trigger's guids are exactly that placement's — an applied patch invalidates it), so
+/// a mis-wired rig still verifies fidelity with a warning naming the wiring problem. Only when
+/// no recorded definition covers the turn does it surface a persistent local Error bubble and
+/// pass the trigger through unverified, so the Runtime Health Check still runs and the human
+/// sees exactly what to rewire.</para>
 /// </summary>
 public class FidelityCheck : RoutingComponentBase<string>
 {
@@ -95,24 +98,41 @@ public class FidelityCheck : RoutingComponentBase<string>
     /// <inheritdoc/>
     protected override RoutingResult ReadSolve(string data, IGH_DataAccess da)
     {
-        if (string.IsNullOrWhiteSpace(_definition))
+        List<Guid> placed = ParseGuids(data).ToList();
+
+        string definition = _definition;
+        string? fallbackNote = null;
+
+        if (string.IsNullOrWhiteSpace(definition))
         {
-            // A wiring problem is the USER's problem — the model is powerless to fix it, so
-            // routing it into the loop burns a turn on a relay and dead-ends the chain (a Fail
-            // here blocks every downstream check for as long as the mis-wire persists). Surface
-            // it as a persistent local Error and pass the trigger through so the Runtime Health
-            // Check still runs. Fidelity is NOT verified this turn — the red bubble is the guard
-            // against that reading as a silent pass.
+            // Before declaring the check unrunnable, try the definition the placement itself
+            // recorded — available only when the trigger's guids are exactly that placement's, so
+            // the fallback can never verify a stale turn (any applied patch invalidates it).
             bool unwired = Params.Input[DefinitionInputIndex].SourceCount == 0;
-            return RoutingResult.Ok(
-                data,
-                message: (unwired ? "Definition input is unwired" : "Definition input is blank")
-                    + " — fidelity NOT verified. Wire Definition to the same signal wire the Component "
-                    + "Transmitter's Signal input consumes. Passed through so downstream checks still run.",
-                level: GH_RuntimeMessageLevel.Error);
+            string wiringProblem = unwired ? "Definition input is unwired" : "Definition input is blank";
+
+            definition = GhJsonBridge.TryGetAuthoredDefinition(OnPingDocument(), placed) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(definition))
+            {
+                // No recorded definition for this turn either. A wiring problem is the USER's
+                // problem — the model is powerless to fix it, so routing it into the loop burns a
+                // turn on a relay and dead-ends the chain. Surface it as a persistent local Error
+                // and pass the trigger through so the Runtime Health Check still runs. Fidelity is
+                // NOT verified this turn — the red bubble guards against a silent pass.
+                return RoutingResult.Ok(
+                    data,
+                    message: wiringProblem
+                        + " and no recorded placement definition matches this turn — fidelity NOT verified. "
+                        + "Wire Definition to the same signal wire the Component Transmitter's Signal input "
+                        + "consumes. Passed through so downstream checks still run.",
+                    level: GH_RuntimeMessageLevel.Error);
+            }
+
+            fallbackNote = wiringProblem + " — verified against the definition recorded at placement instead. "
+                + "Wire Definition to the same signal wire the Component Transmitter's Signal input consumes.";
         }
 
-        if (GhPatchDetector.IsGhPatch(_definition))
+        if (GhPatchDetector.IsGhPatch(definition))
         {
             return RoutingResult.Ok(
                 data,
@@ -120,12 +140,22 @@ public class FidelityCheck : RoutingComponentBase<string>
                 level: GH_RuntimeMessageLevel.Remark);
         }
 
-        List<Guid> placed = ParseGuids(data).ToList();
-        GhJsonBridge.FidelityReport report = GhJsonBridge.VerifyPlacementFidelity(_definition, placed, OnPingDocument());
+        GhJsonBridge.FidelityReport report = GhJsonBridge.VerifyPlacementFidelity(definition, placed, OnPingDocument());
+
+        if (report.Misconfiguration is not null && fallbackNote is null
+            && GhJsonBridge.TryGetAuthoredDefinition(OnPingDocument(), placed) is { } recorded)
+        {
+            // The wired Definition reads something that is not GhJSON (the classic mis-wire: a
+            // markdown output). The placement's own record covers this turn — verify against it
+            // and keep the mis-wire visible as a warning instead of skipping the check.
+            fallbackNote = report.Misconfiguration
+                + " Verified against the definition recorded at placement instead.";
+            report = GhJsonBridge.VerifyPlacementFidelity(recorded, placed, OnPingDocument());
+        }
 
         if (report.Misconfiguration is not null)
         {
-            // Same policy as the blank case: never the model's fault, so never model feedback.
+            // Same policy as the unwired case: never the model's fault, so never model feedback.
             return RoutingResult.Ok(
                 data,
                 message: report.Misconfiguration + " Passed through so downstream checks still run.",
@@ -133,10 +163,12 @@ public class FidelityCheck : RoutingComponentBase<string>
         }
 
         return report.Violations.Count == 0
-            ? RoutingResult.Ok(data)
+            ? RoutingResult.Ok(data, message: fallbackNote, level: GH_RuntimeMessageLevel.Warning)
             : RoutingResult.Fail(
                 BuildFeedback(report),
-                $"{report.Violations.Count} fidelity problem(s) found.",
+                fallbackNote is null
+                    ? $"{report.Violations.Count} fidelity problem(s) found."
+                    : $"{report.Violations.Count} fidelity problem(s) found. {fallbackNote}",
                 GH_RuntimeMessageLevel.Warning);
     }
 

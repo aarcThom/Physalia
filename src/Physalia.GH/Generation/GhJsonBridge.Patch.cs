@@ -228,6 +228,10 @@ internal static partial class GhJsonBridge
             IsImporting = false;
         }
 
+        // The canvas has evolved past the last recorded full-graph placement — a Fidelity Check
+        // falling back to that record now would report this patch's own edits as violations.
+        InvalidateAuthoredDefinition(doc);
+
         // A partial apply means the model must resubmit — and the operations that DID land changed
         // the canvas, so its old base checksum is guaranteed stale. Hand the fresh one back in the
         // outcome so the feedback can carry it and the retry cannot mismatch.

@@ -86,11 +86,20 @@ internal static class ComponentSignatureProvider
         foreach (IGH_Param param in @params)
         {
             string portName = !string.IsNullOrWhiteSpace(param.Name) ? param.Name : param.NickName ?? string.Empty;
-            ports.Add(new ComponentPort(portName, SafeTypeName(param), inputSide && IsRequiredInput(param)));
+            ports.Add(new ComponentPort(portName, SafeTypeName(param), inputSide && IsRequiredInput(param), MapAccess(param.Access)));
         }
 
         return ports;
     }
+
+    // GH_ParamAccess mirrored onto the Core enum (Core carries no Grasshopper dependency).
+    private static PortAccess MapAccess(GH_ParamAccess access) => access switch
+    {
+        GH_ParamAccess.item => PortAccess.Item,
+        GH_ParamAccess.list => PortAccess.List,
+        GH_ParamAccess.tree => PortAccess.Tree,
+        _ => PortAccess.Unknown,
+    };
 
     // True when an input carries no built-in default value and is not flagged optional by its
     // component. PersistentDataCount lives on GH_PersistentParam<T>, not IGH_Param, so it is read

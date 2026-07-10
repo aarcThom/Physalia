@@ -14,12 +14,14 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// A deterministic guardrail that inspects an LLM-generated payload (arriving as the consumed
-/// signal's payload) for required inputs left with neither a wire nor an internalized value — a
-/// statically knowable defect that would otherwise cost a whole solve-and-feedback round of
-/// "failed to collect data" warnings once placed. A clean payload routes forward on the Success
-/// Signal unchanged (for the Component Transmitter to place); any unmet required inputs route a
-/// crisp, actionable list back on the Fail Signal so the model can correct and resubmit. Handles
-/// both a full GhJSON graph (every component) and a ghpatch (its added components).
+/// signal's payload) for statically knowable input-wiring defects: a required input left with
+/// neither a wire nor an internalized value, and multiple wires collecting into an item-access
+/// input (they build a list and multiply every downstream item). Either would otherwise cost
+/// whole solve-and-feedback rounds of "failed to collect data" warnings and degenerate geometry
+/// once placed. A clean payload routes forward on the Success Signal unchanged (for the Component
+/// Transmitter to place); defects route a crisp, actionable list back on the Fail Signal so the
+/// model can correct and resubmit. Handles both a full GhJSON graph (every component) and a
+/// ghpatch (its added components).
 /// </summary>
 public class RequiredInputCheck : RoutingComponentBase<string>
 {
@@ -62,7 +64,7 @@ public class RequiredInputCheck : RoutingComponentBase<string>
             ? RoutingResult.Ok(data)
             : RoutingResult.Fail(
                 BuildFeedback(violations, GhPatchDetector.IsGhPatch(data)),
-                "Required inputs have no value.",
+                "The submission has statically detectable input-wiring defects.",
                 GH_RuntimeMessageLevel.Warning);
     }
 
@@ -81,16 +83,17 @@ public class RequiredInputCheck : RoutingComponentBase<string>
         var sb = new StringBuilder();
         sb.AppendLine(isPatch
             ? "The patch was NOT applied: it was rejected before it reached the canvas because added "
-              + "components have required inputs with no value. The canvas is unchanged and the base "
+              + "components have input-wiring defects (a required input with no value, or multiple "
+              + "wires collecting into a one-item input). The canvas is unchanged and the base "
               + "checksum you used is still valid. Resubmit the corrected ghpatch: fix ONLY the inputs "
-              + "listed below (wire each one or internalize a value) and keep every other operation "
-              + "identical."
+              + "listed below and keep every other operation identical."
             : "Nothing was placed: your submission was rejected before it reached the canvas because "
-              + "required inputs have no value, so the canvas is unchanged from the state you were "
-              + "shown. Resubmit your ENTIRE corrected full GhJSON document — do NOT switch to a "
-              + "ghpatch; none of your components exist on the canvas yet. Fix ONLY the inputs listed "
-              + "below (wire each one or internalize a value) and keep every other component and "
-              + "connection identical to your previous submission.");
+              + "of the input-wiring defects listed below (a required input with no value, or multiple "
+              + "wires collecting into a one-item input), so the canvas is unchanged from the state "
+              + "you were shown. Resubmit your ENTIRE corrected full GhJSON document — do NOT switch "
+              + "to a ghpatch; none of your components exist on the canvas yet. Fix ONLY the inputs "
+              + "listed below and keep every other component and connection identical to your "
+              + "previous submission.");
 
         foreach (string violation in violations)
         {

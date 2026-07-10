@@ -15,12 +15,13 @@ using Physalia.Core.Validation;
 namespace Physalia.GH.Generation;
 
 /// <summary>
-/// Pre-placement lint of model-authored graphs. A required input (no built-in default, not
-/// optional — the same introspection that puts the <c>*</c> marker in the grounding) left with
-/// neither a wire nor internalized data is a statically knowable defect: placing it anyway costs
-/// a full solve-and-feedback round of "failed to collect data" warnings and null cascades. The
-/// lint catches it before anything touches the canvas, so the model gets one crisp, actionable
-/// list instead.
+/// Pre-placement lint of model-authored graphs. Two statically knowable defects are caught before
+/// anything touches the canvas: a required input (no built-in default, not optional — the same
+/// introspection that puts the <c>*</c> marker in the grounding) left with neither a wire nor
+/// internalized data, which costs a full solve-and-feedback round of "failed to collect data"
+/// warnings and null cascades; and multiple wires collecting into an item-access input, which GH
+/// silently accepts as a list that multiplies every downstream item — almost always the model
+/// meant one combined value, and the resulting duplicate geometry defies post-hoc diagnosis.
 /// </summary>
 internal static partial class GhJsonBridge
 {
@@ -106,20 +107,25 @@ internal static partial class GhJsonBridge
     }
 
     /// <summary>
-    /// Checks every component's required inputs for a wire or an internalized value. Components
-    /// whose type cannot be introspected are skipped (placement reports unknown components
-    /// itself); the variable-parameter sentinel port is never required.
+    /// Checks every component's required inputs for a wire or an internalized value, and every
+    /// item-access input for multiple wires (they collect into a list and multiply every
+    /// downstream item — almost always the model intended a single combined value, e.g. wiring
+    /// both an origin and an offset into one X coordinate instead of adding them first).
+    /// Components whose type cannot be introspected are skipped (placement reports unknown
+    /// components itself); the variable-parameter sentinel port is never required.
     /// </summary>
     /// <param name="components">The authored components (component-type guids already stamped).</param>
     /// <param name="connections">Every authored connection that could feed those components.</param>
-    /// <returns>One violation line per unmet required input; empty when the graph is clean.</returns>
+    /// <returns>One violation line per defect; empty when the graph is clean.</returns>
     private static List<string> LintRequiredInputs(
         IEnumerable<GhJsonComponent> components,
         IEnumerable<GhJsonConnection> connections)
     {
-        // Wired inputs per target component id, addressable by paramIndex and by name.
-        var wiredIndices = new Dictionary<int, HashSet<int>>();
-        var wiredNames = new Dictionary<int, HashSet<string>>();
+        // Wire COUNTS per target component id, addressable by paramIndex and by name. Each
+        // connection is counted exactly once — paramIndex preferred — so an endpoint authored
+        // with both fields never double-counts.
+        var wiredIndices = new Dictionary<int, Dictionary<int, int>>();
+        var wiredNames = new Dictionary<int, Dictionary<string, int>>();
         foreach (GhJsonConnection conn in connections)
         {
             if (conn.To is not { } to)
@@ -129,16 +135,17 @@ internal static partial class GhJsonBridge
 
             if (to.ParamIndex is int idx)
             {
-                (wiredIndices.TryGetValue(to.Id, out HashSet<int>? byIdx)
-                    ? byIdx
-                    : wiredIndices[to.Id] = new HashSet<int>()).Add(idx);
+                Dictionary<int, int> byIdx = wiredIndices.TryGetValue(to.Id, out Dictionary<int, int>? existing)
+                    ? existing
+                    : wiredIndices[to.Id] = new Dictionary<int, int>();
+                byIdx[idx] = byIdx.TryGetValue(idx, out int n) ? n + 1 : 1;
             }
-
-            if (!string.IsNullOrWhiteSpace(to.ParamName))
+            else if (!string.IsNullOrWhiteSpace(to.ParamName))
             {
-                (wiredNames.TryGetValue(to.Id, out HashSet<string>? byName)
-                    ? byName
-                    : wiredNames[to.Id] = new HashSet<string>(StringComparer.Ordinal)).Add(to.ParamName!);
+                Dictionary<string, int> byName = wiredNames.TryGetValue(to.Id, out Dictionary<string, int>? existing)
+                    ? existing
+                    : wiredNames[to.Id] = new Dictionary<string, int>(StringComparer.Ordinal);
+                byName[to.ParamName!] = byName.TryGetValue(to.ParamName!, out int n) ? n + 1 : 1;
             }
         }
 
@@ -155,17 +162,24 @@ internal static partial class GhJsonBridge
             for (int i = 0; i < inputs.Count; i++)
             {
                 ComponentPort port = inputs[i];
+                int wireCount = (wiredIndices.TryGetValue(id, out Dictionary<int, int>? byIdx) && byIdx.TryGetValue(i, out int nIdx) ? nIdx : 0)
+                    + (wiredNames.TryGetValue(id, out Dictionary<string, int>? byName) && byName.TryGetValue(port.Name, out int nName) ? nName : 0);
+
+                if (wireCount > 1 && port.Access == PortAccess.Item)
+                {
+                    violations.Add(
+                        $"'{component.Name}' (id {id}) input '{port.Name}' (paramIndex {i}) receives {wireCount} wires but consumes ONE item — the wires collect into a {wireCount}-item list and every downstream item multiplies. Wire a single source, or combine the values upstream first (e.g. an Addition component).");
+                }
+
                 if (!port.Required)
                 {
                     continue;
                 }
 
-                bool wired = (wiredIndices.TryGetValue(id, out HashSet<int>? byIdx) && byIdx.Contains(i))
-                    || (wiredNames.TryGetValue(id, out HashSet<string>? byName) && byName.Contains(port.Name));
                 bool internalized = (component.InputSettings ?? Enumerable.Empty<GhJsonParameterSettings>())
                     .Any(s => s.InternalizedData is not null && s.ParameterName == port.Name);
 
-                if (!wired && !internalized)
+                if (wireCount == 0 && !internalized)
                 {
                     violations.Add(
                         $"'{component.Name}' (id {id}) input '{port.Name}' (paramIndex {i}) is required but has no wire and no internalized value — wire it or internalize a value.");

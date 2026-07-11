@@ -38,9 +38,9 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class ConversationLog : StatefulComponentBase
 {
-    private const int InSystemPrompt = 0;
-    private const int InGrounding = 1;
-    private const int InPromptSignal = 2;
+    private const int InPromptSignal = 0;
+    private const int InSystemPrompt = 1;
+    private const int InGrounding = 2;
     private const int InResponseSignal = 3;
     private const int InFeedbackSignal = 4;
     private const int InToolSignal = 5;
@@ -304,9 +304,9 @@ public class ConversationLog : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
+        pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn; the signal payload is the prompt text. Use Construct Signal to combine a text payload with a manual trigger.", GH_ParamAccess.list);
         pManager.AddTextParameter("System Prompt", "S", "System prompt from the System Prompt component.", GH_ParamAccess.item, string.Empty);
         pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Optional grounding context (e.g. the Component Catalog); each grounding's section is folded into the system prompt. Narrow what is included via the chat window's grounding panel.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn; the signal payload is the prompt text. Use Construct Signal to combine a text payload with a manual trigger.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the LLM Call's Success Signal.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Records feedback as a user turn. Wire one or more Feedback Collectors directly — no OR gate needed.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Tool Signal", "TS", "Records tool turns from a Router (via Feedback Collector): a signal whose content blocks carry tool_use is logged as an assistant turn; one whose blocks carry tool_result is logged as a user turn.", GH_ParamAccess.list);

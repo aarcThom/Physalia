@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Eto.Forms;
+using Grasshopper.Kernel;
 using Physalia.Core.Signals;
 using Physalia.GH.Diagnostics;
 
@@ -18,18 +19,26 @@ namespace Physalia.GH.Panels;
 /// Live signal-trace report: a master grid of every signal captured by
 /// <see cref="SignalTraceLog"/> (sequence, mint time, source, outcome, payload preview, carried
 /// content, consumption count) over a detail pane showing the selected signal's full payload,
-/// content-block and Instructions summaries, and its consumption timeline. Singleton per Rhino
-/// session, opened from the Signal Trace canvas widget.
+/// content-block and Instructions summaries, and its consumption timeline. With Record Messages
+/// on, runtime errors/warnings from signal-lifecycle components
+/// (<see cref="RuntimeMessageTrace"/>) intersperse the timeline as tinted rows, each carrying
+/// how long it was actually displayed — so a transient flash during a solve burst is
+/// recognizably ignorable. Export Transcript writes the merged, unfiltered log to a text file.
+/// Singleton per Rhino session, opened from the Signal Trace canvas widget.
 ///
-/// <para>Refresh is polled: a <see cref="UITimer"/> compares <see cref="SignalTraceLog.Version"/>
-/// each tick and rebinds only on change, so no events cross from Grasshopper solve threads to
-/// the UI. Pause freezes the refresh only — capture continues, so resuming shows everything
-/// that happened meanwhile. Plain Eto throughout; cross-platform.</para>
+/// <para>Refresh is polled: a <see cref="UITimer"/> compares the logs' version counters each
+/// tick and rebinds only on change, so no events cross from Grasshopper solve threads to the
+/// UI. Pause freezes the refresh only — capture continues, so resuming shows everything that
+/// happened meanwhile. Plain Eto throughout; cross-platform.</para>
 /// </summary>
 public class SignalTraceWindow : Form
 {
     private const int PreviewChars = 120;
     private const double RefreshSeconds = 0.25;
+
+    // Row tints distinguishing message rows from signal rows.
+    private static readonly Eto.Drawing.Color ErrorTint = Eto.Drawing.Color.FromRgb(0xFFE4E1);
+    private static readonly Eto.Drawing.Color WarningTint = Eto.Drawing.Color.FromRgb(0xFFF4DB);
 
     // Only one trace window may exist per Rhino session. Session-only; nothing serializes.
     private static SignalTraceWindow? _activeWindow;
@@ -37,13 +46,14 @@ public class SignalTraceWindow : Form
     private readonly GridView _grid;
     private readonly TextArea _detail;
     private readonly CheckBox _pause;
+    private readonly CheckBox _recordMessages;
     private readonly DropDown _outcomeFilter;
     private readonly TextBox _search;
     private readonly UITimer _timer;
 
     private List<TraceRow> _rows = new();
     private int _lastVersion = -1;
-    private long? _selectedSequence;
+    private string? _selectedKey;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SignalTraceWindow"/> class.
@@ -51,7 +61,7 @@ public class SignalTraceWindow : Form
     private SignalTraceWindow()
     {
         Title = "Physalia Signal Trace";
-        ClientSize = new Eto.Drawing.Size(900, 560);
+        ClientSize = new Eto.Drawing.Size(960, 560);
         Resizable = true;
         Minimizable = true;
         Maximizable = true;
@@ -59,10 +69,18 @@ public class SignalTraceWindow : Form
 
         _pause = new CheckBox { Text = "Pause" };
 
+        _recordMessages = new CheckBox { Text = "Record Messages", Checked = RuntimeMessageTrace.Enabled };
+        _recordMessages.CheckedChanged += (_, _) =>
+        {
+            RuntimeMessageTrace.Enabled = _recordMessages.Checked == true;
+            RefreshRows();
+        };
+
         var clear = new Button { Text = "Clear" };
         clear.Click += (_, _) =>
         {
             SignalTraceLog.Clear();
+            RuntimeMessageTrace.Clear();
             RefreshRows();
         };
 
@@ -73,7 +91,7 @@ public class SignalTraceWindow : Form
         _outcomeFilter.SelectedIndex = 0;
         _outcomeFilter.SelectedIndexChanged += (_, _) => RefreshRows();
 
-        _search = new TextBox { PlaceholderText = "Search source / payload…", Width = 220 };
+        _search = new TextBox { PlaceholderText = "Search source / payload…", Width = 200 };
         _search.TextChanged += (_, _) => RefreshRows();
 
         var export = new Button { Text = "Export Transcript" };
@@ -87,6 +105,7 @@ public class SignalTraceWindow : Form
             Items =
             {
                 _pause,
+                _recordMessages,
                 clear,
                 new Label { Text = "Outcome:" },
                 _outcomeFilter,
@@ -102,14 +121,22 @@ public class SignalTraceWindow : Form
             GridLines = GridLines.Horizontal,
             AllowMultipleSelection = false,
         };
-        AddColumn("#", 56, r => r.Sequence);
-        AddColumn("Time", 92, r => r.Time);
-        AddColumn("Source", 150, r => r.Source);
-        AddColumn("Outcome", 70, r => r.Outcome);
-        AddColumn("Payload", 300, r => r.Preview);
-        AddColumn("Carries", 110, r => r.Carries);
-        AddColumn("Consumed", 76, r => r.Consumed);
+        AddColumn("#", 52, r => r.Sequence);
+        AddColumn("Time", 90, r => r.Time);
+        AddColumn("Source", 145, r => r.Source);
+        AddColumn("Outcome", 68, r => r.Outcome);
+        AddColumn("Payload", 280, r => r.Preview);
+        AddColumn("Carries", 100, r => r.Carries);
+        AddColumn("Consumed", 70, r => r.Consumed);
+        AddColumn("Shown", 72, r => r.Shown);
         _grid.SelectionChanged += (_, _) => OnSelectionChanged();
+        _grid.CellFormatting += (_, e) =>
+        {
+            if (e.Item is TraceRow { IsMessage: true } row)
+            {
+                e.BackgroundColor = row.IsError ? ErrorTint : WarningTint;
+            }
+        };
 
         _detail = new TextArea
         {
@@ -183,7 +210,11 @@ public class SignalTraceWindow : Form
         });
     }
 
-    // Polled refresh: rebind only when the log changed and the view is not paused.
+    // Both logs bump independent version counters; their sum is monotonic and changes iff
+    // either log changed.
+    private static int CombinedVersion => SignalTraceLog.Version + RuntimeMessageTrace.Version;
+
+    // Polled refresh: rebind only when a log changed and the view is not paused.
     private void Tick()
     {
         if (_pause.Checked == true)
@@ -191,23 +222,23 @@ public class SignalTraceWindow : Form
             return;
         }
 
-        if (SignalTraceLog.Version != _lastVersion)
+        if (CombinedVersion != _lastVersion)
         {
             RefreshRows();
         }
     }
 
-    // Snapshots the log, applies the filters, rebinds the grid, and restores the selection
-    // (by sequence number, so a rebind never jumps to a different signal). With nothing
+    // Snapshots both logs, applies the filters, merges by time, rebinds the grid, and restores
+    // the selection (by row key, so a rebind never jumps to a different row). With nothing
     // selected the grid follows the newest row.
     private void RefreshRows()
     {
-        _lastVersion = SignalTraceLog.Version;
+        _lastVersion = CombinedVersion;
 
         string needle = _search.Text?.Trim() ?? string.Empty;
         int outcome = _outcomeFilter.SelectedIndex;
 
-        _rows = SignalTraceLog.Snapshot()
+        IEnumerable<TraceRow> signals = SignalTraceLog.Snapshot()
             .Where(e => outcome switch
             {
                 1 => e.Outcome == SignalOutcome.Success,
@@ -217,12 +248,24 @@ public class SignalTraceWindow : Form
             .Where(e => needle.Length == 0
                 || e.SourceName.Contains(needle, StringComparison.OrdinalIgnoreCase)
                 || e.Payload.Contains(needle, StringComparison.OrdinalIgnoreCase))
-            .Select(e => new TraceRow(e))
+            .Select(TraceRow.ForSignal);
+
+        // The outcome filter routes signals; message rows are part of the timeline regardless
+        // (only the search narrows them).
+        IEnumerable<TraceRow> messages = RuntimeMessageTrace.Snapshot()
+            .Where(m => needle.Length == 0
+                || m.ComponentName.Contains(needle, StringComparison.OrdinalIgnoreCase)
+                || m.Text.Contains(needle, StringComparison.OrdinalIgnoreCase))
+            .Select(TraceRow.ForMessage);
+
+        _rows = signals.Concat(messages)
+            .OrderBy(r => r.SortTimeUtc)
+            .ThenBy(r => r.IsMessage)
             .ToList();
 
         _grid.DataStore = _rows;
 
-        int restored = _selectedSequence is { } seq ? _rows.FindIndex(r => r.Entry.Sequence == seq) : -1;
+        int restored = _selectedKey is { } key ? _rows.FindIndex(r => r.Key == key) : -1;
         if (restored >= 0)
         {
             _grid.SelectRow(restored);
@@ -230,7 +273,7 @@ public class SignalTraceWindow : Form
         }
         else
         {
-            _selectedSequence = null;
+            _selectedKey = null;
             _grid.UnselectAll();
             if (_rows.Count > 0)
             {
@@ -249,15 +292,17 @@ public class SignalTraceWindow : Form
             return;
         }
 
-        _selectedSequence = _rows[row].Entry.Sequence;
-        _detail.Text = BuildDetail(_rows[row].Entry);
+        TraceRow selected = _rows[row];
+        _selectedKey = selected.Key;
+        _detail.Text = selected.Message is { } message ? BuildMessageDetail(message) : BuildDetail(selected.Signal!);
     }
 
-    // Exports the FULL trace (unfiltered — the transcript is the log, not the current view) to a
-    // text file, one detail block per signal in sequence order.
+    // Exports the FULL merged trace (unfiltered — the transcript is the log, not the current
+    // view) to a text file, one block per signal/message in timeline order.
     private void ExportTranscript()
     {
-        IReadOnlyList<SignalTraceEntry> entries = SignalTraceLog.Snapshot();
+        IReadOnlyList<SignalTraceEntry> signals = SignalTraceLog.Snapshot();
+        IReadOnlyList<MessageTraceEntry> messages = RuntimeMessageTrace.Snapshot();
 
         var dialog = new SaveFileDialog
         {
@@ -273,7 +318,7 @@ public class SignalTraceWindow : Form
 
         try
         {
-            File.WriteAllText(dialog.FileName, BuildTranscript(entries));
+            File.WriteAllText(dialog.FileName, BuildTranscript(signals, messages));
         }
         catch (Exception ex)
         {
@@ -281,17 +326,26 @@ public class SignalTraceWindow : Form
         }
     }
 
-    private static string BuildTranscript(IReadOnlyList<SignalTraceEntry> entries)
+    private static string BuildTranscript(IReadOnlyList<SignalTraceEntry> signals, IReadOnlyList<MessageTraceEntry> messages)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"Physalia signal transcript — exported {DateTime.Now:yyyy-MM-dd HH:mm:ss}, {entries.Count} signal(s).");
-        sb.AppendLine($"Trace holds the most recent {SignalTraceLog.Capacity} signals of the session; older ones are evicted.");
+        sb.AppendLine($"Physalia signal transcript — exported {DateTime.Now:yyyy-MM-dd HH:mm:ss}, {signals.Count} signal(s), {messages.Count} runtime message(s).");
+        sb.AppendLine($"Trace holds the most recent {SignalTraceLog.Capacity} signals (and {RuntimeMessageTrace.Capacity} messages) of the session; older entries are evicted.");
+        sb.AppendLine(RuntimeMessageTrace.Enabled
+            ? "Runtime-message recording is ON. A message's 'shown for' is its wall-clock display window sampled at solution ends — a few tens of milliseconds means a transient flash during a solve burst, safely ignorable."
+            : "Runtime-message recording is OFF; any messages below are from while it was on.");
 
-        foreach (SignalTraceEntry entry in entries)
+        var blocks = signals
+            .Select(s => (Time: s.TimestampUtc, IsMessage: false, Text: BuildDetail(s)))
+            .Concat(messages.Select(m => (Time: m.StartUtc, IsMessage: true, Text: BuildMessageDetail(m))))
+            .OrderBy(b => b.Time)
+            .ThenBy(b => b.IsMessage);
+
+        foreach (var block in blocks)
         {
             sb.AppendLine();
             sb.AppendLine(new string('─', 72));
-            sb.Append(BuildDetail(entry));
+            sb.Append(block.Text);
         }
 
         return sb.ToString();
@@ -334,24 +388,76 @@ public class SignalTraceWindow : Form
         return sb.ToString();
     }
 
+    private static string BuildMessageDetail(MessageTraceEntry entry)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"[{entry.Level}] on {entry.ComponentName} ({entry.ComponentId})");
+        sb.AppendLine(entry.EndUtc is { } end
+            ? $"Shown {entry.StartUtc.ToLocalTime():HH:mm:ss.fff} → {end.ToLocalTime():HH:mm:ss.fff} ({FormatDuration(entry.DisplayedFor)})"
+            : $"Still showing since {entry.StartUtc.ToLocalTime():HH:mm:ss.fff} ({FormatDuration(entry.DisplayedFor)} so far)");
+        sb.AppendLine();
+        sb.AppendLine(entry.Text);
+        return sb.ToString();
+    }
+
+    private static string FormatDuration(TimeSpan span) => span switch
+    {
+        { TotalMilliseconds: < 1000 } => $"{span.TotalMilliseconds:0} ms",
+        { TotalSeconds: < 60 } => $"{span.TotalSeconds:0.0} s",
+        _ => $"{(int)span.TotalMinutes}:{span.Seconds:00} min",
+    };
+
     /// <summary>
-    /// One grid row: the traced entry plus its precomputed display strings.
+    /// One grid row — a traced signal or a runtime message — with its precomputed display
+    /// strings. Message rows are tinted by the grid's CellFormatting handler.
     /// </summary>
     private sealed class TraceRow
     {
-        public TraceRow(SignalTraceEntry entry)
+        private TraceRow(SignalTraceEntry? signal, MessageTraceEntry? message)
         {
-            Entry = entry;
-            Sequence = entry.Sequence.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            Time = entry.TimestampUtc.ToLocalTime().ToString("HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture);
-            Source = entry.SourceName;
-            Outcome = entry.Outcome.ToString();
-            Preview = BuildPreview(entry);
-            Carries = BuildCarries(entry);
-            Consumed = entry.Consumptions.Count == 0 ? "—" : $"{entry.Consumptions.Count}×";
+            Signal = signal;
+            Message = message;
+
+            if (signal is not null)
+            {
+                Key = $"s:{signal.Sequence}";
+                SortTimeUtc = signal.TimestampUtc;
+                Sequence = signal.Sequence.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                Time = signal.TimestampUtc.ToLocalTime().ToString("HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture);
+                Source = signal.SourceName;
+                Outcome = signal.Outcome.ToString();
+                Preview = Flatten(signal.Payload);
+                Carries = BuildCarries(signal);
+                Consumed = signal.Consumptions.Count == 0 ? "—" : $"{signal.Consumptions.Count}×";
+                Shown = "—";
+            }
+            else
+            {
+                MessageTraceEntry m = message!;
+                Key = $"m:{m.Id}";
+                SortTimeUtc = m.StartUtc;
+                Sequence = "—";
+                Time = m.StartUtc.ToLocalTime().ToString("HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture);
+                Source = m.ComponentName;
+                Outcome = m.Level.ToString();
+                Preview = Flatten(m.Text);
+                Carries = "—";
+                Consumed = "—";
+                Shown = m.EndUtc is null ? "showing…" : FormatDuration(m.DisplayedFor);
+            }
         }
 
-        public SignalTraceEntry Entry { get; }
+        public SignalTraceEntry? Signal { get; }
+
+        public MessageTraceEntry? Message { get; }
+
+        public string Key { get; }
+
+        public DateTime SortTimeUtc { get; }
+
+        public bool IsMessage => Message is not null;
+
+        public bool IsError => Message?.Level == GH_RuntimeMessageLevel.Error;
 
         public string Sequence { get; }
 
@@ -367,9 +473,15 @@ public class SignalTraceWindow : Form
 
         public string Consumed { get; }
 
-        private static string BuildPreview(SignalTraceEntry entry)
+        public string Shown { get; }
+
+        public static TraceRow ForSignal(SignalTraceEntry entry) => new(entry, null);
+
+        public static TraceRow ForMessage(MessageTraceEntry entry) => new(null, entry);
+
+        private static string Flatten(string text)
         {
-            string flat = entry.Payload.Replace('\r', ' ').Replace('\n', ' ');
+            string flat = text.Replace('\r', ' ').Replace('\n', ' ');
             return flat.Length > PreviewChars ? flat[..PreviewChars] + "…" : flat;
         }
 

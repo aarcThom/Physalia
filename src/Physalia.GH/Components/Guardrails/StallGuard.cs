@@ -50,7 +50,7 @@ public class StallGuard : StatefulComponentBase
     /// Initializes a new instance of the <see cref="StallGuard"/> class.
     /// </summary>
     public StallGuard()
-        : base("Stall Guard", "Stall", "Passes signals through until the same failure payload arrives N consecutive times: the Nth repeat is escalated (the model is told to stop patching and explain the blocker to the human), and further identical repeats are not re-emitted. Any different signal resets the streak.", "Control Flow")
+        : base("Stall Guard", "Stall", "Passes signals through until the same failure payload arrives N consecutive times: the Nth repeat is escalated (the model is told to stop patching and explain the blocker to the human), and further identical repeats are not re-emitted. Any different signal resets the streak.", "Guardrails")
     {
     }
 

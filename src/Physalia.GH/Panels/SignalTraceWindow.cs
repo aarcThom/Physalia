@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using Eto.Forms;
@@ -75,12 +76,24 @@ public class SignalTraceWindow : Form
         _search = new TextBox { PlaceholderText = "Search source / payload…", Width = 220 };
         _search.TextChanged += (_, _) => RefreshRows();
 
+        var export = new Button { Text = "Export Transcript" };
+        export.Click += (_, _) => ExportTranscript();
+
         var toolbar = new StackLayout
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
             VerticalContentAlignment = VerticalAlignment.Center,
-            Items = { _pause, clear, new Label { Text = "Outcome:" }, _outcomeFilter, _search },
+            Items =
+            {
+                _pause,
+                clear,
+                new Label { Text = "Outcome:" },
+                _outcomeFilter,
+                _search,
+                new StackLayoutItem(null, expand: true),
+                export,
+            },
         };
 
         _grid = new GridView
@@ -238,6 +251,50 @@ public class SignalTraceWindow : Form
 
         _selectedSequence = _rows[row].Entry.Sequence;
         _detail.Text = BuildDetail(_rows[row].Entry);
+    }
+
+    // Exports the FULL trace (unfiltered — the transcript is the log, not the current view) to a
+    // text file, one detail block per signal in sequence order.
+    private void ExportTranscript()
+    {
+        IReadOnlyList<SignalTraceEntry> entries = SignalTraceLog.Snapshot();
+
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export Signal Transcript",
+            FileName = $"signal-trace-{DateTime.Now:yyyyMMdd-HHmmss}.txt",
+        };
+        dialog.Filters.Add(new FileFilter("Text file", ".txt"));
+
+        if (dialog.ShowDialog(this) != DialogResult.Ok || string.IsNullOrWhiteSpace(dialog.FileName))
+        {
+            return;
+        }
+
+        try
+        {
+            File.WriteAllText(dialog.FileName, BuildTranscript(entries));
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Could not write the transcript: {ex.Message}", "Export Signal Transcript", MessageBoxType.Error);
+        }
+    }
+
+    private static string BuildTranscript(IReadOnlyList<SignalTraceEntry> entries)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Physalia signal transcript — exported {DateTime.Now:yyyy-MM-dd HH:mm:ss}, {entries.Count} signal(s).");
+        sb.AppendLine($"Trace holds the most recent {SignalTraceLog.Capacity} signals of the session; older ones are evicted.");
+
+        foreach (SignalTraceEntry entry in entries)
+        {
+            sb.AppendLine();
+            sb.AppendLine(new string('─', 72));
+            sb.Append(BuildDetail(entry));
+        }
+
+        return sb.ToString();
     }
 
     private static string BuildDetail(SignalTraceEntry entry)

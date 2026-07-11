@@ -1,6 +1,7 @@
 # Physalia Project Memory
 
 ## Latest
+- [Signal Trace widget](signal-trace-widget.md) — 2026-07-10: signal debugging via 3 taps (EmitSignal/MarkConsumed/Inject) → static SignalTraceLog (lightweight snapshots, no image pinning) + Eto GridView window + canvas widget. Compiles clean, live test pending.
 - [Single-signal-output rework](single-signal-output-rework.md) — 2026-07-10: RoutingComponentBase `HasFailOutput` opt-out + quiet `Fail(emitSignal:false)`; Detect JSON/Geometry Report/Stall Guard now one output; Stall Guard inputs reordered (Stall Limit first). Compiles clean, live test pending.
 - [Iterative placement robustness](iterative-placement-robustness.md) — 2026-07-08 fixes: Resolver now ghpatch-aware (was re-serializing patches as empty docs → "no components to place"), JsonExtractor takes LAST parseable JSON block, Canvas Observation feedback carries nickname+instanceGuid, preambles demand ONE JSON doc. Builds+222 tests clean, live test pending.
 

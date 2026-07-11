@@ -5,74 +5,33 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
-using System.IO;
-using System.Reflection;
 using System.Windows.Forms;
 using Grasshopper;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.GUI.Widgets;
-using Grasshopper.Kernel;
-using Physalia.GH.Components;
 
 namespace Physalia.GH.Widgets;
 
 /// <summary>
-/// Registers the Physalia canvas widgets (<see cref="ChatWidget"/>, <see cref="SignalTraceWidget"/>)
-/// with every Grasshopper canvas. Canvas widgets are not auto-discovered from the assembly the
-/// way components are — a plugin must subscribe to <see cref="GH_Canvas.WidgetListCreated"/> at
-/// load time and add its widgets to each canvas's freshly built list.
+/// Canvas widget that opens the Physalia signal-trace window (double-click). Docked to the
+/// bottom-right of the canvas just above the chat widget by default, and draggable like the
+/// built-in widgets (click-and-hold to move; position persists across restarts). Grasshopper
+/// lists it (with a visibility checkbox) in the canvas Widgets right-click menu; the choice
+/// persists in the GH settings. The glyph is a GDI-drawn pulse waveform — no embedded resource.
 /// </summary>
-public sealed class ChatWidgetPriority : GH_AssemblyPriority
-{
-    /// <summary>
-    /// Hooks widget-list creation so the Physalia widgets are added to every canvas.
-    /// </summary>
-    /// <returns>An instruction telling Grasshopper to continue loading.</returns>
-    public override GH_LoadingInstruction PriorityLoad()
-    {
-        GH_Canvas.WidgetListCreated += AddWidgets;
-        return GH_LoadingInstruction.Proceed;
-    }
-
-    private static void AddWidgets(object sender, GH_CanvasWidgetListEventArgs e)
-    {
-        e.AddWidget(new ChatWidget());
-        e.AddWidget(new SignalTraceWidget());
-    }
-}
-
-/// <summary>
-/// Canvas widget docked to the bottom-right of the Grasshopper canvas by default, above the
-/// compass, and draggable like the built-in widgets (click-and-hold to move; the position
-/// persists across restarts). Double-clicking it opens the Physalia chat window — even when no
-/// document is open. If the document
-/// has no Chat component to drive the pipeline (or there is no document at all), one is
-/// created and the window places it onto the canvas (to its right) once a provider is
-/// available, creating a new document first if needed — so it isn't dropped during first-run
-/// setup. Grasshopper
-/// auto-discovers the widget and lists it (with a visibility checkbox) in the canvas
-/// Widgets right-click menu; the visibility choice persists in the GH settings.
-///
-/// The drawn graphic is the Physalia logo (the same jellyfish shown in the chat window),
-/// rasterized from Images/logo.svg into the embedded Resources/logo.png.
-/// </summary>
-public sealed class ChatWidget : GH_Widget
+public sealed class SignalTraceWidget : GH_Widget
 {
     // Settings keys backing the Widgets-menu checkbox and drag position so they survive a restart.
-    private const string VisibleKey = "Physalia.ChatWidget.Visible";
-    private const string RightOffsetKey = "Physalia.ChatWidget.RightOffset";
-    private const string BottomOffsetKey = "Physalia.ChatWidget.BottomOffset";
+    private const string VisibleKey = "Physalia.TraceWidget.Visible";
+    private const string RightOffsetKey = "Physalia.TraceWidget.RightOffset";
+    private const string BottomOffsetKey = "Physalia.TraceWidget.BottomOffset";
 
-    // Embedded PNG rasterized from Images/logo.svg (portrait jellyfish, 215x256).
-    private const string LogoResource = "Physalia.GH.Resources.logo.png";
-
-    // Widget geometry, in device (screen) pixels. The default docks it bottom-right, above the
-    // compass; the offsets are the gap from the canvas right/bottom edge to the widget's edge, and
-    // become mutable once the user drags the widget.
-    private const int BoxSize = 108;
+    // Widget geometry, in device (screen) pixels. Defaults dock it directly above the chat
+    // widget (right offset matches; bottom offset clears the chat widget's 108px box + gap).
+    private const int BoxSize = 48;
     private const int DefaultRightOffset = 14;
-    private const int DefaultBottomOffset = 84;
+    private const int DefaultBottomOffset = 200;
 
     // Pixels the cursor must travel with the button held before a press turns into a drag.
     private const int DragThreshold = 4;
@@ -83,7 +42,6 @@ public sealed class ChatWidget : GH_Widget
     // Last-rendered frame in device pixels; reused for hit-testing in Contains/RespondToMouseDown.
     private Rectangle _frame;
     private Bitmap? _icon;
-    private Bitmap? _logo;
 
     // Live drag position (gap from the canvas right/bottom edge to the widget's edge), loaded lazily
     // from settings and persisted on drag end.
@@ -93,17 +51,17 @@ public sealed class ChatWidget : GH_Widget
     // Drag state machine across Down/Move/Up.
     private bool _pressed;
     private bool _dragging;
-    private Point _pressOrigin;   // control-space point where the press began (drag-threshold anchor)
-    private Point _grabOffset;    // cursor position relative to the widget's top-left at press time
+    private Point _pressOrigin;
+    private Point _grabOffset;
 
     /// <inheritdoc/>
-    public override string Name => "Physalia Chat";
+    public override string Name => "Physalia Signal Trace";
 
     /// <inheritdoc/>
-    public override string Description => "Open the Physalia chat window.";
+    public override string Description => "Open the Physalia signal trace window.";
 
     /// <inheritdoc/>
-    public override string TooltipText => "Open the Physalia chat window.";
+    public override string TooltipText => "Open the Physalia signal trace window.";
 
     /// <inheritdoc/>
     public override bool TooltipEnabled => true;
@@ -119,8 +77,8 @@ public sealed class ChatWidget : GH_Widget
     public override Bitmap Icon_24x24 => _icon ??= CreateIcon();
 
     /// <summary>
-    /// Draws the Physalia logo at its current position (docked bottom-right by default, or wherever
-    /// the user dragged it), clamped inside the canvas window.
+    /// Draws the pulse glyph at its current position (docked above the chat widget by default,
+    /// or wherever the user dragged it), clamped inside the canvas window.
     /// </summary>
     /// <param name="canvas">The canvas being painted.</param>
     public override void Render(GH_Canvas canvas)
@@ -133,27 +91,17 @@ public sealed class ChatWidget : GH_Widget
         EnsureOffsetsLoaded();
         _frame = ComputeFrame(canvas.Width, canvas.Height);
 
-        Bitmap? logo = Logo;
-        if (logo is null)
-        {
-            return;
-        }
-
         Graphics g = canvas.Graphics;
 
         // Widget Render runs under the canvas pan/zoom transform — reset to device space so the
-        // logo is pinned to the window corner regardless of pan/zoom (same as SerializeWidget).
+        // glyph is pinned to the window corner regardless of pan/zoom (same as ChatWidget).
         Matrix oldTransform = g.Transform;
         SmoothingMode oldMode = g.SmoothingMode;
-        InterpolationMode oldInterp = g.InterpolationMode;
         g.ResetTransform();
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
 
-        // Fit the portrait logo inside the square frame, preserving aspect ratio and centring.
-        g.DrawImage(logo, FitCentred(logo.Size, _frame));
+        DrawGlyph(g, _frame);
 
-        g.InterpolationMode = oldInterp;
         g.SmoothingMode = oldMode;
         g.Transform = oldTransform;
         oldTransform.Dispose();
@@ -184,9 +132,8 @@ public sealed class ChatWidget : GH_Widget
             _pressOrigin = e.ControlLocation;
             _grabOffset = new Point(e.ControlLocation.X - _frame.X, e.ControlLocation.Y - _frame.Y);
 
-            // Become the canvas's active widget so GH routes every subsequent move/up straight to us
-            // (bypassing the Contains() hit-test) — otherwise a fast drag that outruns the icon bounds
-            // stops receiving move events and the widget is dropped mid-drag.
+            // Become the canvas's active widget so GH routes every subsequent move/up straight to
+            // us — otherwise a fast drag that outruns the icon bounds drops the widget mid-drag.
             if (sender is not null)
             {
                 sender.ActiveWidget = this;
@@ -199,17 +146,14 @@ public sealed class ChatWidget : GH_Widget
     }
 
     /// <summary>
-    /// Drags the widget once the cursor moves past the threshold, repositioning it under the cursor
-    /// and clamping it inside the canvas.
+    /// Drags the widget once the cursor moves past the threshold, repositioning it under the
+    /// cursor and clamping it inside the canvas.
     /// </summary>
     /// <param name="sender">The canvas the mouse event originated from.</param>
     /// <param name="e">The mouse event.</param>
     /// <returns>Handled while a drag is in progress, otherwise Ignore.</returns>
     public override GH_ObjectResponse RespondToMouseMove(GH_Canvas sender, GH_CanvasMouseEvent e)
     {
-        // Gate on _pressed only (set on left-down, cleared on up). While pressed we are the canvas's
-        // active widget, so every move routes here; on hover _pressed is false and we ignore, so the
-        // icon never follows the cursor unless it was actually picked up.
         if (!_pressed || sender is null)
         {
             return GH_ObjectResponse.Ignore;
@@ -259,7 +203,7 @@ public sealed class ChatWidget : GH_Widget
     }
 
     /// <summary>
-    /// Opens the chat window on a left double-click inside the widget.
+    /// Opens the signal trace window on a left double-click inside the widget.
     /// </summary>
     /// <param name="sender">The canvas the mouse event originated from.</param>
     /// <param name="e">The mouse event.</param>
@@ -271,11 +215,61 @@ public sealed class ChatWidget : GH_Widget
             _pressed = false;
             _dragging = false;
             ReleaseCapture(sender);
-            OpenChat(sender);
+            Panels.SignalTraceWindow.ShowOrFocus();
             return GH_ObjectResponse.Handled;
         }
 
         return GH_ObjectResponse.Ignore;
+    }
+
+    // Draws the widget glyph: a soft rounded square with an ECG-style pulse line.
+    private static void DrawGlyph(Graphics g, Rectangle frame)
+    {
+        using GraphicsPath path = RoundedRect(frame, frame.Width / 6);
+        using var fill = new SolidBrush(Color.FromArgb(235, 250, 250, 250));
+        using var edge = new Pen(Color.FromArgb(255, 120, 120, 120), 1f);
+        g.FillPath(fill, path);
+        g.DrawPath(edge, path);
+
+        using var pulse = new Pen(Color.FromArgb(255, 0, 140, 160), Math.Max(1.6f, frame.Width / 20f))
+        {
+            StartCap = LineCap.Round,
+            EndCap = LineCap.Round,
+            LineJoin = LineJoin.Round,
+        };
+        g.DrawLines(pulse, PulsePoints(frame));
+    }
+
+    // The ECG polyline, proportional to the frame: flat — spike up — dip down — flat.
+    private static PointF[] PulsePoints(Rectangle frame)
+    {
+        float x = frame.X;
+        float y = frame.Y;
+        float w = frame.Width;
+        float h = frame.Height;
+        float mid = y + (h * 0.52f);
+
+        return new[]
+        {
+            new PointF(x + (w * 0.14f), mid),
+            new PointF(x + (w * 0.34f), mid),
+            new PointF(x + (w * 0.44f), y + (h * 0.22f)),
+            new PointF(x + (w * 0.58f), y + (h * 0.76f)),
+            new PointF(x + (w * 0.66f), mid),
+            new PointF(x + (w * 0.86f), mid),
+        };
+    }
+
+    private static GraphicsPath RoundedRect(Rectangle bounds, int radius)
+    {
+        int d = radius * 2;
+        var path = new GraphicsPath();
+        path.AddArc(bounds.X, bounds.Y, d, d, 180, 90);
+        path.AddArc(bounds.Right - d, bounds.Y, d, d, 270, 90);
+        path.AddArc(bounds.Right - d, bounds.Bottom - d, d, d, 0, 90);
+        path.AddArc(bounds.X, bounds.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
     }
 
     // Relinquishes the canvas's active-widget capture if we currently hold it.
@@ -287,38 +281,7 @@ public sealed class ChatWidget : GH_Widget
         }
     }
 
-    // Opens (or focuses) the single shared chat window. Reuses a Chat already on the canvas;
-    // otherwise creates one but does NOT place it — the window drops it onto the document itself,
-    // to its right, once a provider is available (so first-run setup never litters the canvas).
-    // Works even with no document open: the new Chat stays detached until the window places it,
-    // at which point the window creates a document for it.
-    private static void OpenChat(GH_Canvas canvas)
-    {
-        GH_Document? doc = canvas?.Document;
-        Chat? chat = doc is null ? null : FindChat(doc);
-        if (chat is null)
-        {
-            chat = new Chat();
-            chat.CreateAttributes();
-        }
-
-        chat.OpenWindow();
-    }
-
-    private static Chat? FindChat(GH_Document doc)
-    {
-        foreach (IGH_DocumentObject obj in doc.Objects)
-        {
-            if (obj is Chat chat)
-            {
-                return chat;
-            }
-        }
-
-        return null;
-    }
-
-    // Loads the persisted drag offsets on first use (defaulting to the docked bottom-right corner).
+    // Loads the persisted drag offsets on first use (defaulting to just above the chat widget).
     private void EnsureOffsetsLoaded()
     {
         if (_rightOffset == Unloaded)
@@ -328,8 +291,8 @@ public sealed class ChatWidget : GH_Widget
         }
     }
 
-    // The widget rectangle for the given canvas size, positioned from the offsets and clamped so it
-    // stays fully on-screen (a shrunk window can otherwise push a corner-anchored widget off-canvas).
+    // The widget rectangle for the given canvas size, positioned from the offsets and clamped so
+    // it stays fully on-screen.
     private Rectangle ComputeFrame(int canvasWidth, int canvasHeight)
     {
         int x = canvasWidth - BoxSize - _rightOffset;
@@ -339,8 +302,8 @@ public sealed class ChatWidget : GH_Widget
         return new Rectangle(x, y, BoxSize, BoxSize);
     }
 
-    // Repositions the widget so its top-left tracks the cursor (minus the grab offset), clamped to
-    // the canvas, and recomputes the edge offsets from the new position.
+    // Repositions the widget so its top-left tracks the cursor (minus the grab offset), clamped
+    // to the canvas, and recomputes the edge offsets from the new position.
     private void MoveTo(Point cursor, int canvasWidth, int canvasHeight)
     {
         int x = cursor.X - _grabOffset.X;
@@ -359,43 +322,14 @@ public sealed class ChatWidget : GH_Widget
         Instances.Settings.SetValue(BottomOffsetKey, _bottomOffset);
     }
 
-    // The embedded logo bitmap, loaded once and cached. Null if the resource is missing.
-    private Bitmap? Logo => _logo ??= LoadLogo();
-
-    private static Bitmap? LoadLogo()
-    {
-        Assembly assembly = typeof(ChatWidget).Assembly;
-        using Stream? stream = assembly.GetManifestResourceStream(LogoResource);
-        return stream is null ? null : new Bitmap(stream);
-    }
-
-    // Menu/tooltip icon — the logo scaled into a 24x24 transparent bitmap, aspect preserved.
+    // Menu/tooltip icon — the pulse glyph drawn into a 24x24 transparent bitmap.
     private static Bitmap CreateIcon()
     {
         var bitmap = new Bitmap(24, 24);
-        using Bitmap? logo = LoadLogo();
-        if (logo is null)
-        {
-            return bitmap;
-        }
-
         using Graphics g = Graphics.FromImage(bitmap);
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        g.DrawImage(logo, FitCentred(logo.Size, new Rectangle(0, 0, 24, 24)));
+        DrawGlyph(g, new Rectangle(1, 1, 22, 22));
         return bitmap;
-    }
-
-    // Scales source into bounds preserving aspect ratio and centres the result.
-    private static Rectangle FitCentred(Size source, Rectangle bounds)
-    {
-        float scale = Math.Min((float)bounds.Width / source.Width, (float)bounds.Height / source.Height);
-        int w = (int)Math.Round(source.Width * scale);
-        int h = (int)Math.Round(source.Height * scale);
-        int x = bounds.X + ((bounds.Width - w) / 2);
-        int y = bounds.Y + ((bounds.Height - h) / 2);
-        return new Rectangle(x, y, w, h);
     }
 }
 #endif

@@ -416,6 +416,9 @@ public abstract class StatefulComponentBase : PhyBase
     {
         if (signal is not null)
         {
+            // Trace tap: sequence-deduped, so the every-solve re-emission of a latched signal
+            // records exactly once.
+            Diagnostics.SignalTraceLog.RecordEmission(signal);
             da.SetData(outputIndex, new GH_Signal(signal));
         }
     }
@@ -514,5 +517,15 @@ public abstract class StatefulComponentBase : PhyBase
     {
         long mark = _marks.TryGetValue(paramIndex, out long m) ? m : 0;
         _marks[paramIndex] = Math.Max(mark, signal.Sequence);
+
+        // Trace tap: consume-once means this runs exactly once per signal per input, so it is
+        // the signal's complete fan-out. First-observation baselining writes _marks directly
+        // and never lands here, so baselined signals are correctly not recorded as consumed.
+        Diagnostics.SignalTraceLog.RecordConsumption(
+            signal.Sequence,
+            InstanceGuid,
+            Name,
+            paramIndex >= 0 && paramIndex < Params.Input.Count ? Params.Input[paramIndex].Name : $"#{paramIndex}",
+            DateTime.UtcNow);
     }
 }

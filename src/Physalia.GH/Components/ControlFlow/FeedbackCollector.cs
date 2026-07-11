@@ -73,6 +73,10 @@ public class FeedbackCollector : StatefulComponentBase
             _injected.Add(signal);
         }
 
+        // Trace tap: the wireless hop bypasses EmitSignal/MarkConsumed, so record it here as a
+        // "(wireless)" consumption by this collector.
+        Diagnostics.SignalTraceLog.RecordWirelessInjection(signal, InstanceGuid, Name);
+
         ScheduleStateSolve(1, () => { });
     }
 

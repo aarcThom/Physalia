@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
+using Grasshopper.Kernel;
 using Physalia.Core.Models;
 using Physalia.Core.Models.Named;
 namespace Physalia.GH.Components;
@@ -32,4 +33,18 @@ public class AnthropicModel : ModelComponentBase
     /// <inheritdoc/>
     protected override ModelConfig CreateConfig(string modelId, string apiKey)
         => new AnthropicConfig(ModelId: modelId, ApiKey: apiKey);
+
+    /// <inheritdoc/>
+    protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
+    {
+        pManager.AddIntegerParameter("Max Tokens", "T", "Maximum number of tokens to generate (thinking + answer).", GH_ParamAccess.item, 8192);
+    }
+
+    /// <inheritdoc/>
+    protected override ModelConfig ApplyAdditionalInputs(ModelConfig config, IGH_DataAccess da)
+    {
+        int maxTokens = 8192;
+        da.GetData(2, ref maxTokens);
+        return config is AnthropicConfig anthropic ? anthropic with { MaxTokens = maxTokens } : config;
+    }
 }

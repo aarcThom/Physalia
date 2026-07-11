@@ -89,4 +89,43 @@ public class GeminiStreamParserTests
         Assert.True(Assert.Single(chunks).IsErr(out LlmError? error, out _));
         Assert.Equal(LlmErrorKind.InvalidRequest, error!.Kind);
     }
+
+    [Fact]
+    public async Task Parse_ThoughtParts_WrappedInTags()
+    {
+        string sse = Sse(
+            """{"candidates":[{"content":{"parts":[{"text":"reason","thought":true}]}}]}""",
+            """{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}]}""");
+
+        List<Result<LlmResponseChunk, LlmError>> chunks = await Parse(sse);
+
+        string text = string.Concat(chunks.Select(c => Ok(c).ContentDelta));
+        Assert.Equal("<think>reason</think>\n\nanswer", text);
+        Assert.Equal("STOP", Ok(chunks[^1]).StopReason);
+    }
+
+    [Fact]
+    public async Task Parse_ThoughtAndTextInSameChunk_TransitionsWithinChunk()
+    {
+        string sse = Sse(
+            """{"candidates":[{"content":{"parts":[{"text":"reason","thought":true},{"text":"answer"}]}}]}""");
+
+        List<Result<LlmResponseChunk, LlmError>> chunks = await Parse(sse);
+
+        Assert.Equal("<think>reason</think>\n\nanswer", Ok(Assert.Single(chunks)).ContentDelta);
+    }
+
+    [Fact]
+    public async Task Parse_MaxTokensWhileThinking_ClosesTagAndReportsMaxTokens()
+    {
+        string sse = Sse(
+            """{"candidates":[{"content":{"parts":[{"text":"endless","thought":true}]},"finishReason":"MAX_TOKENS"}]}""");
+
+        List<Result<LlmResponseChunk, LlmError>> chunks = await Parse(sse);
+
+        LlmResponseChunk final = Ok(Assert.Single(chunks));
+        Assert.Equal("<think>endless</think>", final.ContentDelta);
+        Assert.True(final.IsLast);
+        Assert.Equal("MAX_TOKENS", final.StopReason);
+    }
 }

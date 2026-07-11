@@ -21,11 +21,24 @@ namespace Physalia.Core.Models.Protocol;
 /// <param name="TopP">
 /// Nucleus sampling threshold in the range 0.0–1.0.
 /// </param>
+/// <param name="ReasoningEffort">
+/// Reasoning effort for reasoning-capable models: "low", "medium", or "high".
+/// Null or blank (the default) omits the field from the request — local servers
+/// and non-reasoning models reject or ignore it.
+/// </param>
+/// <param name="ThinkingEnabled">
+/// When true, sends <c>thinking: { type: "enabled" }</c> in the request body — the
+/// opt-in DeepSeek V4 requires before it emits <c>reasoning_content</c>. False omits
+/// the field. Null (the default) means "auto" — the request builder consults
+/// <see cref="Defaults.OpenAIModelDefaults"/> for the model's known behaviour.
+/// </param>
 public abstract record OpenAIProtocolConfig(
     string ModelId,
     string ApiKey,
     int MaxTokens,
     string BaseUrl,
     float Temperature,
-    float TopP)
+    float TopP,
+    string? ReasoningEffort = null,
+    bool? ThinkingEnabled = null)
     : ModelConfig(ModelId, ApiKey, MaxTokens);

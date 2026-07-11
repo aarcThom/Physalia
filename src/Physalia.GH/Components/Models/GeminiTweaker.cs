@@ -55,4 +55,22 @@ public class GeminiTweaker : TweakerComponentBase<GeminiConfig>
             TopP = topP,
             TopK = thirdValue,
         };
+
+    /// <inheritdoc/>
+    protected override void RegisterAdditionalParams(GH_InputParamManager pManager)
+    {
+        int index = pManager.AddIntegerParameter(
+            "Thinking Budget",
+            "TB",
+            "Gemini thinkingBudget: 0 disables thinking (where supported), -1 lets the model decide, positive values cap thinking tokens. Unwired omits the field so the model default applies.",
+            GH_ParamAccess.item);
+        pManager[index].Optional = true;
+    }
+
+    /// <inheritdoc/>
+    protected override GeminiConfig AdjustAdditional(GeminiConfig config, IGH_DataAccess da)
+    {
+        int budget = 0;
+        return da.GetData(4, ref budget) ? config with { ThinkingBudget = budget } : config;
+    }
 }

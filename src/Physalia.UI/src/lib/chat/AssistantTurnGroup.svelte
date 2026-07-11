@@ -6,8 +6,10 @@
 	//
 	// Everything before the first JSON deliverable is folded into a collapsible "Thinking"
 	// section (open while streaming, auto-collapsing once the turn finishes); the JSON block
-	// and anything after it stay visible as the answer. A turn that produces no JSON renders
-	// inline — nothing extra collapses (native reasoning keeps its own collapsible).
+	// and anything after it stay visible as the answer. Native <think> reasoning inside that
+	// section renders as plain muted text — never a nested collapsible. A turn that produces
+	// no JSON renders inline, where reasoning gets its own "Thinking" collapsible (the only
+	// one on screen in that case).
 	import type { UiMessage, UiTool } from '$lib/bridge';
 	import { splitThinking, splitContent } from '$lib/content';
 	import Response from '$lib/components/ai-elements/response/response.svelte';
@@ -78,14 +80,19 @@
 	});
 </script>
 
-{#snippet renderItem(item: Item)}
+{#snippet renderItem(item: Item, insideThinking: boolean = false)}
 	{#if item.kind === 'reasoning'}
-		<ChainOfThought>
-			<ChainOfThoughtHeader>Reasoning</ChainOfThoughtHeader>
-			<ChainOfThoughtContent>
-				<Response content={item.text} class="text-muted-foreground text-sm" />
-			</ChainOfThoughtContent>
-		</ChainOfThought>
+		{#if insideThinking}
+			<!-- Already inside the Thinking section — no nested collapsible. -->
+			<Response content={item.text} class="text-muted-foreground text-sm" />
+		{:else}
+			<ChainOfThought>
+				<ChainOfThoughtHeader>Thinking</ChainOfThoughtHeader>
+				<ChainOfThoughtContent>
+					<Response content={item.text} class="text-muted-foreground text-sm" />
+				</ChainOfThoughtContent>
+			</ChainOfThought>
+		{/if}
 	{:else if item.kind === 'tool'}
 		<Tool>
 			<ToolHeader type={item.tool.name} state={item.tool.state} />
@@ -108,7 +115,7 @@
 		<ChainOfThoughtHeader>Thinking</ChainOfThoughtHeader>
 		<ChainOfThoughtContent>
 			{#each thinkingItems as item, i (i)}
-				{@render renderItem(item)}
+				{@render renderItem(item, true)}
 			{/each}
 		</ChainOfThoughtContent>
 	</ChainOfThought>

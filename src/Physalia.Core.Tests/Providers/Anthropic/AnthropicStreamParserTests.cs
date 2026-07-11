@@ -124,4 +124,103 @@ public class AnthropicStreamParserTests
         Assert.True(Assert.Single(chunks).IsErr(out LlmError? error, out _));
         Assert.Equal(LlmErrorKind.InvalidRequest, error!.Kind);
     }
+
+    [Fact]
+    public async Task Parse_ThinkingThenText_WrapsThinkingInTags()
+    {
+        string sse = Sse(
+            ("content_block_start", """{"content_block":{"type":"thinking"}}"""),
+            ("content_block_delta", """{"delta":{"type":"thinking_delta","thinking":"step one"}}"""),
+            ("content_block_delta", """{"delta":{"type":"thinking_delta","thinking":", step two"}}"""),
+            ("content_block_delta", """{"delta":{"type":"signature_delta","signature":"sig_abc"}}"""),
+            ("content_block_stop", "{}"),
+            ("content_block_start", """{"content_block":{"type":"text"}}"""),
+            ("content_block_delta", """{"delta":{"type":"text_delta","text":"answer"}}"""),
+            ("content_block_stop", "{}"),
+            ("message_delta", """{"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":9}}"""));
+
+        List<Result<LlmResponseChunk, LlmError>> chunks = await Parse(sse);
+
+        string text = string.Concat(chunks.Select(c => Ok(c).ContentDelta));
+        Assert.Equal("<think>step one, step two</think>\n\nanswer", text);
+        Assert.DoesNotContain("sig_abc", text);
+        Assert.Equal("end_turn", Ok(chunks[^1]).StopReason);
+    }
+
+    [Fact]
+    public async Task Parse_ThinkingOnlyTruncated_ClosesTagAndReportsMaxTokens()
+    {
+        string sse = Sse(
+            ("content_block_start", """{"content_block":{"type":"thinking"}}"""),
+            ("content_block_delta", """{"delta":{"type":"thinking_delta","thinking":"endless reasoning"}}"""),
+            ("message_delta", """{"delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":4096}}"""));
+
+        List<Result<LlmResponseChunk, LlmError>> chunks = await Parse(sse);
+
+        string text = string.Concat(chunks.Select(c => Ok(c).ContentDelta));
+        Assert.Equal("<think>endless reasoning</think>", text);
+
+        LlmResponseChunk final = Ok(chunks[^1]);
+        Assert.True(final.IsLast);
+        Assert.Equal("max_tokens", final.StopReason);
+    }
+
+    [Fact]
+    public async Task Parse_EmptyThinkingBlock_EmitsNoTags()
+    {
+        string sse = Sse(
+            ("content_block_start", """{"content_block":{"type":"thinking"}}"""),
+            ("content_block_stop", "{}"),
+            ("content_block_delta", """{"delta":{"type":"text_delta","text":"answer"}}"""),
+            ("message_delta", """{"usage":{"output_tokens":2}}"""));
+
+        List<Result<LlmResponseChunk, LlmError>> chunks = await Parse(sse);
+
+        string text = string.Concat(chunks.Select(c => Ok(c).ContentDelta));
+        Assert.Equal("answer", text);
+    }
+
+    [Fact]
+    public async Task Parse_RedactedThinking_Skipped()
+    {
+        string sse = Sse(
+            ("content_block_start", """{"content_block":{"type":"redacted_thinking"}}"""),
+            ("content_block_stop", "{}"),
+            ("content_block_delta", """{"delta":{"type":"text_delta","text":"answer"}}"""),
+            ("message_delta", """{"usage":{"output_tokens":2}}"""));
+
+        List<Result<LlmResponseChunk, LlmError>> chunks = await Parse(sse);
+
+        string text = string.Concat(chunks.Select(c => Ok(c).ContentDelta));
+        Assert.Equal("answer", text);
+    }
+
+    [Fact]
+    public async Task Parse_MultipleThinkingBlocks_EachWrapped()
+    {
+        string sse = Sse(
+            ("content_block_start", """{"content_block":{"type":"thinking"}}"""),
+            ("content_block_delta", """{"delta":{"type":"thinking_delta","thinking":"first"}}"""),
+            ("content_block_stop", "{}"),
+            ("content_block_delta", """{"delta":{"type":"text_delta","text":"middle"}}"""),
+            ("content_block_start", """{"content_block":{"type":"thinking"}}"""),
+            ("content_block_delta", """{"delta":{"type":"thinking_delta","thinking":"second"}}"""),
+            ("content_block_stop", "{}"),
+            ("message_delta", """{"usage":{"output_tokens":6}}"""));
+
+        List<Result<LlmResponseChunk, LlmError>> chunks = await Parse(sse);
+
+        string text = string.Concat(chunks.Select(c => Ok(c).ContentDelta));
+        Assert.Equal("<think>first</think>\n\nmiddle<think>second</think>\n\n", text);
+    }
+
+    [Fact]
+    public async Task Parse_NoStopReason_FinalChunkStopReasonNull()
+    {
+        string sse = Sse(("message_delta", """{"usage":{"output_tokens":1}}"""));
+
+        List<Result<LlmResponseChunk, LlmError>> chunks = await Parse(sse);
+
+        Assert.Null(Ok(Assert.Single(chunks)).StopReason);
+    }
 }

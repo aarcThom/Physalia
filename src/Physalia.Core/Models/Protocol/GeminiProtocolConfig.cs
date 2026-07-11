@@ -21,6 +21,13 @@ namespace Physalia.Core.Models.Protocol;
 /// Limits the sampling pool to the top-K tokens before nucleus sampling is applied.
 /// Set to 0 to omit from the request (provider default applies).
 /// </param>
+/// <param name="ThinkingBudget">
+/// Gemini <c>thinkingConfig.thinkingBudget</c>. Null (the default) means "auto" — the
+/// request builder consults <see cref="Defaults.GeminiModelDefaults"/> (thinking-capable
+/// models get <c>includeThoughts: true</c> so their default thinking is visible);
+/// 0 disables thinking where supported; -1 lets the model decide dynamically; positive
+/// values cap thinking tokens.
+/// </param>
 public abstract record GeminiProtocolConfig(
     string ModelId,
     string ApiKey,
@@ -28,5 +35,6 @@ public abstract record GeminiProtocolConfig(
     string BaseUrl,
     float Temperature,
     float TopP,
-    int TopK)
+    int TopK,
+    int? ThinkingBudget = null)
     : ModelConfig(ModelId, ApiKey, MaxTokens);

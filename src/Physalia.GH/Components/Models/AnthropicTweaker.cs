@@ -55,4 +55,22 @@ public class AnthropicTweaker : TweakerComponentBase<AnthropicConfig>
             TopP = topP,
             TopK = thirdValue,
         };
+
+    /// <inheritdoc/>
+    protected override void RegisterAdditionalParams(GH_InputParamManager pManager)
+    {
+        int index = pManager.AddIntegerParameter(
+            "Thinking Budget",
+            "TB",
+            "Extended thinking control. Unwired applies the model's known default behaviour (models that think by default get readable summaries automatically); 0 explicitly disables thinking; -1 requests adaptive thinking with readable summaries; positive values set a manual budget (raised to the 1024 API minimum; Max Tokens auto-bumped). Requests are mapped to the form the model accepts. Temperature/Top P/Top K are ignored while thinking is enabled.",
+            GH_ParamAccess.item);
+        pManager[index].Optional = true;
+    }
+
+    /// <inheritdoc/>
+    protected override AnthropicConfig AdjustAdditional(AnthropicConfig config, IGH_DataAccess da)
+    {
+        int budget = 0;
+        return da.GetData(4, ref budget) ? config with { ThinkingBudget = budget } : config;
+    }
 }

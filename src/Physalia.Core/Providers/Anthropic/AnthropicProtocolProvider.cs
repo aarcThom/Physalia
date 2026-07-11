@@ -14,6 +14,7 @@ using System.Threading.Tasks;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Models;
+using Physalia.Core.Models.Defaults;
 using Physalia.Core.Models.Protocol;
 
 namespace Physalia.Core.Providers.Anthropic;
@@ -26,7 +27,9 @@ namespace Physalia.Core.Providers.Anthropic;
 public abstract class AnthropicProtocolProvider : ProtocolProviderBase<AnthropicProtocolConfig>
 {
     private const string AnthropicVersion = "2023-06-01";
-    private const int FallbackMaxTokens = 4096;
+    private const int FallbackMaxTokens = 8192;
+    private const int MinThinkingBudget = 1024;
+    private const int ThinkingAnswerHeadroom = 4096;
 
     /// <summary>
     /// Builds the JSON request body. Override in subclasses to inject provider-specific fields.
@@ -36,22 +39,97 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
     /// <param name="config">The provider configuration.</param>
     /// <param name="tools">Tool definitions to advertise to the model, or null/empty to send none.</param>
     /// <returns>A <see cref="JsonObject"/> ready for serialisation.</returns>
+    /// <remarks>
+    /// Thinking and sampling parameters are shaped per model via
+    /// <see cref="AnthropicModelDefaults"/>: a null <see cref="AnthropicProtocolConfig.ThinkingBudget"/>
+    /// applies the model's known behaviour (models that think by default get summarized
+    /// display so the billed thinking is visible), while explicit values are mapped to the
+    /// thinking form the model actually accepts (adaptive-only generations reject the manual
+    /// <c>enabled</c>/<c>budget_tokens</c> form and vice versa).
+    /// </remarks>
     protected virtual JsonObject BuildRequestBody(
         Conversation conversation,
         string systemPrompt,
         AnthropicProtocolConfig config,
         IReadOnlyList<ToolDefinition>? tools)
     {
-        // Anthropic temperature is 0.0–1.0. Clamp values that come from a wider range.
-        float temperature = Math.Min(Math.Max(config.Temperature, 0.0f), 1.0f);
+        AnthropicModelDefaults.Entry model = AnthropicModelDefaults.Resolve(config.ModelId);
+
+        // Decide the thinking config first — the manual form constrains max_tokens.
+        // null = auto (model default), 0 = explicitly off, -1 = adaptive, >0 = manual budget.
+        JsonObject? thinking = null;
+        int? manualBudget = null;
+
+        switch (config.ThinkingBudget)
+        {
+            case null:
+                if (model.ThinkingOnByDefault)
+                {
+                    // These models think (and bill) regardless; summarized display is the
+                    // only way to make that thinking visible instead of empty deltas.
+                    thinking = AdaptiveThinking();
+                }
+
+                break;
+
+            case 0:
+                if (model.ThinkingOnByDefault && model.SupportsDisabled)
+                {
+                    thinking = new JsonObject { ["type"] = "disabled" };
+                }
+
+                // Models that are off by default need nothing; models that cannot be
+                // disabled (Fable/Mythos) get no config — display stays omitted, which
+                // is the closest available approximation of "off".
+                break;
+
+            case < 0:
+                if (model.SupportsAdaptive)
+                {
+                    thinking = AdaptiveThinking();
+                }
+                else
+                {
+                    // Older generations have no adaptive form; honour the intent
+                    // ("thinking on, visible") with a manual default budget.
+                    manualBudget = FallbackMaxTokens;
+                }
+
+                break;
+
+            case int budget:
+                if (model.SupportsManualBudget)
+                {
+                    manualBudget = Math.Max(budget, MinThinkingBudget);
+                }
+                else
+                {
+                    // Adaptive-only generations 400 on the manual form — map the intent.
+                    thinking = AdaptiveThinking();
+                }
+
+                break;
+        }
 
         // max_tokens is required by the Anthropic API.
         int maxTokens = config.MaxTokens > 0 ? config.MaxTokens : FallbackMaxTokens;
 
-        // Anthropic rejects requests that include both temperature and top_p.
-        // top_p < 1.0 means the user has explicitly engaged nucleus sampling — use it exclusively.
-        // Otherwise fall back to temperature.
-        bool useTopP = config.TopP < 1.0f;
+        if (manualBudget is int b)
+        {
+            if (maxTokens <= b)
+            {
+                // max_tokens must strictly exceed budget_tokens. Bump max_tokens rather
+                // than shrinking the budget so the answer keeps headroom after thinking —
+                // a budget that swallows the whole response yields an empty answer downstream.
+                maxTokens = b + ThinkingAnswerHeadroom;
+            }
+
+            thinking = new JsonObject
+            {
+                ["type"] = "enabled",
+                ["budget_tokens"] = b,
+            };
+        }
 
         var body = new JsonObject
         {
@@ -61,24 +139,44 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
             ["messages"] = BuildMessagesArray(conversation),
         };
 
-        if (useTopP)
+        if (thinking is not null)
         {
-            body["top_p"] = config.TopP;
+            body["thinking"] = thinking;
         }
-        else
+
+        // Sampling parameters are omitted whenever thinking is active (extended thinking
+        // requires temperature 1 and rejects top_k) and on model generations that reject
+        // non-default sampling values on every request.
+        bool thinkingActive = thinking is not null &&
+            thinking["type"]!.GetValue<string>() != "disabled";
+
+        if (!thinkingActive && model.AllowsSampling)
         {
-            body["temperature"] = temperature;
+            // Anthropic temperature is 0.0–1.0. Clamp values that come from a wider range.
+            float temperature = Math.Min(Math.Max(config.Temperature, 0.0f), 1.0f);
+
+            // Anthropic rejects requests that include both temperature and top_p.
+            // top_p < 1.0 means the user has explicitly engaged nucleus sampling — use it
+            // exclusively. Otherwise fall back to temperature.
+            if (config.TopP < 1.0f)
+            {
+                body["top_p"] = config.TopP;
+            }
+            else
+            {
+                body["temperature"] = temperature;
+            }
+
+            // top_k is optional — omit when zero so the provider default applies.
+            if (config.TopK > 0)
+            {
+                body["top_k"] = config.TopK;
+            }
         }
 
         if (!string.IsNullOrEmpty(systemPrompt))
         {
             body["system"] = systemPrompt;
-        }
-
-        // top_k is optional — omit when zero so the provider default applies.
-        if (config.TopK > 0)
-        {
-            body["top_k"] = config.TopK;
         }
 
         if (tools is { Count: > 0 })
@@ -88,6 +186,17 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
 
         return body;
     }
+
+    /// <summary>
+    /// Builds the adaptive thinking config with summarized display — the form the newest
+    /// generations require to return readable thinking text instead of empty deltas.
+    /// </summary>
+    /// <returns>The <c>thinking</c> object for the request body.</returns>
+    private static JsonObject AdaptiveThinking() => new()
+    {
+        ["type"] = "adaptive",
+        ["display"] = "summarized",
+    };
 
     /// <summary>
     /// Serialises tool definitions into the Anthropic <c>tools</c> array
@@ -171,6 +280,12 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
         StringBuilder? pendingToolArgs = null;
         var completedToolCalls = new List<LlmToolCall>();
 
+        // Thinking blocks are re-emitted inline as <think>…</think> so the payload carries
+        // them. The tag opens lazily on the first non-empty thinking delta, so a thinking
+        // block that streams no text emits no tags at all.
+        bool inThinkingBlock = false;
+        bool thinkingTagOpen = false;
+
         while (!ct.IsCancellationRequested && !done)
         {
             (string? line, LlmError? readError) = await ReadStreamLineAsync(reader);
@@ -229,16 +344,26 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
                         using var doc = JsonDocument.Parse(data);
                         var root = doc.RootElement;
                         if (root.TryGetProperty("content_block", out var cb) &&
-                            cb.TryGetProperty("type", out var typeEl) &&
-                            typeEl.GetString() == "tool_use")
+                            cb.TryGetProperty("type", out var typeEl))
                         {
-                            pendingToolId = cb.TryGetProperty("id", out var idEl)
-                                ? idEl.GetString() ?? string.Empty
-                                : string.Empty;
-                            pendingToolName = cb.TryGetProperty("name", out var nameEl)
-                                ? nameEl.GetString() ?? string.Empty
-                                : string.Empty;
-                            pendingToolArgs = new StringBuilder();
+                            string blockType = typeEl.GetString() ?? string.Empty;
+
+                            if (blockType == "tool_use")
+                            {
+                                pendingToolId = cb.TryGetProperty("id", out var idEl)
+                                    ? idEl.GetString() ?? string.Empty
+                                    : string.Empty;
+                                pendingToolName = cb.TryGetProperty("name", out var nameEl)
+                                    ? nameEl.GetString() ?? string.Empty
+                                    : string.Empty;
+                                pendingToolArgs = new StringBuilder();
+                            }
+                            else if (blockType == "thinking")
+                            {
+                                inThinkingBlock = true;
+                            }
+
+                            // redacted_thinking blocks carry no readable deltas — ignored.
                         }
 
                         break;
@@ -259,12 +384,27 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
                                 chunk = new Result<LlmResponseChunk, LlmError>.Ok(
                                     new LlmResponseChunk(text.GetString(), false, null));
                             }
+                            else if (deltaType == "thinking_delta" &&
+                                delta.TryGetProperty("thinking", out var thinking))
+                            {
+                                string thinkingText = thinking.GetString() ?? string.Empty;
+                                if (thinkingText.Length > 0)
+                                {
+                                    string prefix = thinkingTagOpen ? string.Empty : ThinkingTags.Open;
+                                    thinkingTagOpen = true;
+                                    chunk = new Result<LlmResponseChunk, LlmError>.Ok(
+                                        new LlmResponseChunk(prefix + thinkingText, false, null));
+                                }
+                            }
                             else if (deltaType == "input_json_delta" &&
                                 delta.TryGetProperty("partial_json", out var partial) &&
                                 pendingToolArgs != null)
                             {
                                 pendingToolArgs.Append(partial.GetString());
                             }
+
+                            // signature_delta is the opaque replay signature for thinking
+                            // blocks — inline tags cannot carry it, so it is skipped.
                         }
 
                         break;
@@ -272,6 +412,17 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
 
                     case "content_block_stop":
                     {
+                        if (inThinkingBlock)
+                        {
+                            inThinkingBlock = false;
+                            if (thinkingTagOpen)
+                            {
+                                thinkingTagOpen = false;
+                                chunk = new Result<LlmResponseChunk, LlmError>.Ok(
+                                    new LlmResponseChunk(ThinkingTags.CloseAndSeparate, false, null));
+                            }
+                        }
+
                         if (pendingToolId != null && pendingToolArgs != null)
                         {
                             completedToolCalls.Add(new LlmToolCall(
@@ -297,12 +448,24 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
                             outputTokens = ot.GetInt32();
                         }
 
+                        string? stopReason = null;
+                        if (root.TryGetProperty("delta", out var messageDelta) &&
+                            messageDelta.TryGetProperty("stop_reason", out var sr) &&
+                            sr.ValueKind == JsonValueKind.String)
+                        {
+                            stopReason = sr.GetString();
+                        }
+
                         IReadOnlyList<LlmToolCall>? toolCalls = completedToolCalls.Count > 0
                             ? completedToolCalls
                             : null;
 
+                        // A stream cut mid-thinking (e.g. at max_tokens) still closes the tag.
+                        string? finalDelta = thinkingTagOpen ? ThinkingTags.Close : null;
+                        thinkingTagOpen = false;
+
                         chunk = new Result<LlmResponseChunk, LlmError>.Ok(
-                            new LlmResponseChunk(null, true, new LlmUsage(inputTokens, outputTokens), toolCalls));
+                            new LlmResponseChunk(finalDelta, true, new LlmUsage(inputTokens, outputTokens), toolCalls, stopReason));
                         done = true;
                         break;
                     }
@@ -339,7 +502,11 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
 
         foreach (var message in conversation.Messages)
         {
-            messages.Add(BuildMessage(message));
+            // Thinking is display-only — assistant history is resent without <think> blocks.
+            var outbound = message.Role == Role.Assistant
+                ? ThinkingTags.StripAssistantMessage(message)
+                : message;
+            messages.Add(BuildMessage(outbound));
         }
 
         return messages;

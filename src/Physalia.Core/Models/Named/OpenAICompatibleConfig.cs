@@ -19,11 +19,23 @@ namespace Physalia.Core.Models.Named;
 /// </param>
 /// <param name="Temperature">Sampling temperature in the range 0.0–2.0.</param>
 /// <param name="TopP">Nucleus sampling threshold in the range 0.0–1.0.</param>
+/// <param name="ReasoningEffort">
+/// Reasoning effort for reasoning-capable models: "low", "medium", or "high".
+/// Null or blank (the default) omits the field from the request.
+/// </param>
+/// <param name="ThinkingEnabled">
+/// When true, sends <c>thinking: { type: "enabled" }</c> — the opt-in DeepSeek V4
+/// requires before it emits reasoning. False omits the field. Null (the default)
+/// applies the model's known behaviour from
+/// <see cref="Physalia.Core.Models.Defaults.OpenAIModelDefaults"/>.
+/// </param>
 public record OpenAICompatibleConfig(
     string ModelId = "gpt-4o",
     string ApiKey = "",
     int MaxTokens = 4096,
     string BaseUrl = "https://api.openai.com/v1",
     float Temperature = 1.0f,
-    float TopP = 1.0f)
-    : OpenAIProtocolConfig(ModelId, ApiKey, MaxTokens, BaseUrl, Temperature, TopP);
+    float TopP = 1.0f,
+    string? ReasoningEffort = null,
+    bool? ThinkingEnabled = null)
+    : OpenAIProtocolConfig(ModelId, ApiKey, MaxTokens, BaseUrl, Temperature, TopP, ReasoningEffort, ThinkingEnabled);

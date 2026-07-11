@@ -91,7 +91,27 @@ public abstract class ModelComponentBase : PhyBase, IPickableValuesSource
         pManager.AddParameter(new Param_ApiKey(), "API Key", "K", ApiKeyDescription, GH_ParamAccess.item);
         pManager[0].Optional = true;
         pManager.AddTextParameter("Model", "M", "Model ID. Wire a Picker component to select from available models.", GH_ParamAccess.item, string.Empty);
+        RegisterAdditionalInputs(pManager);
     }
+
+    /// <summary>
+    /// Registers subclass-specific inputs after the shared API Key and Model inputs
+    /// (i.e. starting at index 2). Appending here keeps saved-document param layouts
+    /// stable. Default registers nothing.
+    /// </summary>
+    /// <param name="pManager">The input parameter manager.</param>
+    protected virtual void RegisterAdditionalInputs(GH_InputParamManager pManager)
+    {
+    }
+
+    /// <summary>
+    /// Applies subclass-specific inputs (registered via <see cref="RegisterAdditionalInputs"/>)
+    /// to the freshly created config. Default returns the config unchanged.
+    /// </summary>
+    /// <param name="config">The config created by <see cref="CreateConfig"/>.</param>
+    /// <param name="da">The data access for the current solve.</param>
+    /// <returns>The adjusted config.</returns>
+    protected virtual ModelConfig ApplyAdditionalInputs(ModelConfig config, IGH_DataAccess da) => config;
 
     /// <inheritdoc/>
     protected sealed override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -134,7 +154,7 @@ public abstract class ModelComponentBase : PhyBase, IPickableValuesSource
             return;
         }
 
-        DA.SetData(0, new GH_ModelConfig(CreateConfig(modelId, apiKey)));
+        DA.SetData(0, new GH_ModelConfig(ApplyAdditionalInputs(CreateConfig(modelId, apiKey), DA)));
     }
 
     private void StartModelFetch(string apiKey)

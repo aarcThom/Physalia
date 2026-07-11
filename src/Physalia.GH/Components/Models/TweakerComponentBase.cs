@@ -84,7 +84,27 @@ public abstract class TweakerComponentBase<TConfig> : PhyBase
         pManager.AddNumberParameter("Temperature", "T", TemperatureDescription, GH_ParamAccess.item, 1.0);
         pManager.AddNumberParameter("Top P", "P", "Nucleus sampling threshold (0.0–1.0).", GH_ParamAccess.item, TopPDefault);
         RegisterThirdParam(pManager);
+        RegisterAdditionalParams(pManager);
     }
+
+    /// <summary>
+    /// Registers subclass-specific inputs after the shared four (i.e. starting at
+    /// index 4). Appending here keeps saved-document param layouts stable. Default
+    /// registers nothing.
+    /// </summary>
+    /// <param name="pManager">The input parameter manager.</param>
+    protected virtual void RegisterAdditionalParams(GH_InputParamManager pManager)
+    {
+    }
+
+    /// <summary>
+    /// Applies subclass-specific inputs (registered via <see cref="RegisterAdditionalParams"/>)
+    /// to the already-adjusted config. Default returns the config unchanged.
+    /// </summary>
+    /// <param name="config">The config returned by <see cref="Adjust"/>.</param>
+    /// <param name="da">The data access for the current solve.</param>
+    /// <returns>The adjusted config.</returns>
+    protected virtual TConfig AdjustAdditional(TConfig config, IGH_DataAccess da) => config;
 
     /// <inheritdoc/>
     protected sealed override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -111,6 +131,6 @@ public abstract class TweakerComponentBase<TConfig> : PhyBase
             return;
         }
 
-        DA.SetData(0, new GH_ModelConfig(Adjust(existing, (float)temperature, (float)topP, thirdValue)));
+        DA.SetData(0, new GH_ModelConfig(AdjustAdditional(Adjust(existing, (float)temperature, (float)topP, thirdValue), DA)));
     }
 }

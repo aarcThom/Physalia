@@ -15,6 +15,7 @@ using System.Threading.Tasks;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Models;
+using Physalia.Core.Models.Defaults;
 using Physalia.Core.Models.Protocol;
 
 namespace Physalia.Core.Providers.OpenAiProtocol;
@@ -42,15 +43,39 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
         OpenAIProtocolConfig config,
         IReadOnlyList<ToolDefinition>? tools)
     {
+        OpenAIModelDefaults.Entry model = OpenAIModelDefaults.Resolve(config.ModelId);
+
         var body = new JsonObject
         {
             ["model"] = config.ModelId,
             ["stream"] = true,
-            ["max_tokens"] = config.MaxTokens,
-            ["temperature"] = config.Temperature,
-            ["top_p"] = config.TopP,
             ["messages"] = BuildMessagesArray(conversation, systemPrompt),
         };
+
+        // OpenAI reasoning models (o-series, GPT-5) reject the deprecated max_tokens
+        // and require max_completion_tokens instead.
+        body[model.UsesMaxCompletionTokens ? "max_completion_tokens" : "max_tokens"] = config.MaxTokens;
+
+        // Reasoning models also reject sampling parameters.
+        if (model.AllowsSampling)
+        {
+            body["temperature"] = config.Temperature;
+            body["top_p"] = config.TopP;
+        }
+
+        // reasoning_effort is only understood by reasoning-capable models/servers — omit otherwise.
+        if (!string.IsNullOrWhiteSpace(config.ReasoningEffort))
+        {
+            body["reasoning_effort"] = config.ReasoningEffort;
+        }
+
+        // DeepSeek V4 emits reasoning_content only when thinking is requested explicitly.
+        // null = auto (apply the model's known behaviour); other OpenAI-compatible servers
+        // may reject the unknown field, so the fallback keeps it omitted.
+        if (config.ThinkingEnabled ?? model.ThinkingOnByDefault)
+        {
+            body["thinking"] = new JsonObject { ["type"] = "enabled" };
+        }
 
         if (tools is { Count: > 0 })
         {
@@ -132,6 +157,11 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
         // Tool call argument accumulation keyed by the index field in each delta.
         var toolCallBuilders = new Dictionary<int, (string Id, string Name, StringBuilder Arguments)>();
 
+        // Reasoning deltas (DeepSeek reasoning_content / OpenRouter reasoning) are re-emitted
+        // inline as <think>…</think>; the flag spans chunks so the tag opens once and closes
+        // on the first visible content (or the final chunk).
+        bool inReasoning = false;
+
         while (!ct.IsCancellationRequested)
         {
             (string? line, LlmError? readError) = await ReadStreamLineAsync(reader);
@@ -159,6 +189,7 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
 
                 string? contentDelta = null;
                 bool isLast = false;
+                string? stopReason = null;
                 IReadOnlyList<LlmToolCall>? toolCalls = null;
 
                 if (root.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
@@ -167,11 +198,60 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
 
                     if (choice.TryGetProperty("delta", out var delta))
                     {
+                        // Reasoning delta — DeepSeek uses reasoning_content, OpenRouter uses reasoning.
+                        string? reasoningDelta = null;
+                        if (delta.TryGetProperty("reasoning_content", out var rc) &&
+                            rc.ValueKind == JsonValueKind.String)
+                        {
+                            reasoningDelta = rc.GetString();
+                        }
+                        else if (delta.TryGetProperty("reasoning", out var r) &&
+                            r.ValueKind == JsonValueKind.String)
+                        {
+                            reasoningDelta = r.GetString();
+                        }
+
                         // Text delta.
+                        string? visibleDelta = null;
                         if (delta.TryGetProperty("content", out var content) &&
                             content.ValueKind == JsonValueKind.String)
                         {
-                            contentDelta = content.GetString();
+                            visibleDelta = content.GetString();
+                        }
+
+                        if (!string.IsNullOrEmpty(reasoningDelta) || !string.IsNullOrEmpty(visibleDelta))
+                        {
+                            var composed = new StringBuilder();
+                            if (!string.IsNullOrEmpty(reasoningDelta))
+                            {
+                                if (!inReasoning)
+                                {
+                                    composed.Append(ThinkingTags.Open);
+                                    inReasoning = true;
+                                }
+
+                                composed.Append(reasoningDelta);
+                            }
+
+                            if (!string.IsNullOrEmpty(visibleDelta))
+                            {
+                                if (inReasoning)
+                                {
+                                    composed.Append(ThinkingTags.CloseAndSeparate);
+                                    inReasoning = false;
+                                }
+
+                                composed.Append(visibleDelta);
+                            }
+
+                            contentDelta = composed.ToString();
+                        }
+                        else
+                        {
+                            // Null or empty content (DeepSeek streams content:""/null while
+                            // reasoning) never closes the tag; the pre-reasoning behaviour
+                            // of yielding an empty-string content chunk is preserved.
+                            contentDelta = visibleDelta;
                         }
 
                         // Tool call argument deltas — accumulate by index.
@@ -208,6 +288,15 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
                         finishReason.ValueKind != JsonValueKind.Null)
                     {
                         isLast = true;
+                        stopReason = finishReason.GetString();
+
+                        // A stream cut while still reasoning (e.g. finish_reason "length")
+                        // closes the tag on this final chunk.
+                        if (inReasoning)
+                        {
+                            contentDelta = (contentDelta ?? string.Empty) + ThinkingTags.Close;
+                            inReasoning = false;
+                        }
 
                         if (toolCallBuilders.Count > 0)
                         {
@@ -228,7 +317,7 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
                 if (contentDelta != null || isLast)
                 {
                     parsed = new Result<LlmResponseChunk, LlmError>.Ok(
-                        new LlmResponseChunk(contentDelta, isLast, null, toolCalls));
+                        new LlmResponseChunk(contentDelta, isLast, null, toolCalls, stopReason));
                 }
             }
             catch (Exception ex)
@@ -265,8 +354,13 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
             messages.Add(new JsonObject { ["role"] = "system", ["content"] = systemPrompt });
         }
 
-        foreach (var message in conversation.Messages)
+        foreach (var inbound in conversation.Messages)
         {
+            // Thinking is display-only — assistant history is resent without <think> blocks.
+            var message = inbound.Role == Role.Assistant
+                ? ThinkingTags.StripAssistantMessage(inbound)
+                : inbound;
+
             if (message.Role == Role.Assistant)
             {
                 // Separate tool calls from other content — tool calls go in tool_calls[], not content[].

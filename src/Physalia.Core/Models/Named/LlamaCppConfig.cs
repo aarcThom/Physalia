@@ -34,11 +34,16 @@ namespace Physalia.Core.Models.Named;
 /// </param>
 /// <param name="Temperature">Sampling temperature. llama.cpp default is 0.8.</param>
 /// <param name="TopP">Nucleus sampling threshold.</param>
+/// <param name="ReasoningEffort">
+/// Reasoning effort passthrough. Null (the default) omits the field — llama-server
+/// ignores or rejects it depending on the loaded model.
+/// </param>
 public record LlamaCppConfig(
     string ModelId = "local",
     string ApiKey = "",
     int MaxTokens = 2048,
     string BaseUrl = "http://127.0.0.1:8080/v1",
     float Temperature = 0.8f,
-    float TopP = 1.0f)
-    : OpenAIProtocolConfig(ModelId, ApiKey, MaxTokens, BaseUrl, Temperature, TopP);
+    float TopP = 1.0f,
+    string? ReasoningEffort = null)
+    : OpenAIProtocolConfig(ModelId, ApiKey, MaxTokens, BaseUrl, Temperature, TopP, ReasoningEffort);

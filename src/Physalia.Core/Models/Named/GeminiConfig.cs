@@ -15,6 +15,11 @@ namespace Physalia.Core.Models.Named;
 /// <param name="Temperature">Sampling temperature in range 0.0–2.0. Defaults to 1.0.</param>
 /// <param name="TopP">Nucleus sampling threshold. Defaults to 0.95.</param>
 /// <param name="TopK">Top-K sampling pool size. Set to 0 to use the provider default.</param>
+/// <param name="ThinkingBudget">
+/// Gemini <c>thinkingConfig.thinkingBudget</c>. Null (the default) applies the model's
+/// known behaviour from <see cref="Physalia.Core.Models.Defaults.GeminiModelDefaults"/>;
+/// 0 disables thinking where supported; -1 is dynamic; positive values cap thinking tokens.
+/// </param>
 public record GeminiConfig(
     string ModelId,
     string ApiKey,
@@ -22,5 +27,6 @@ public record GeminiConfig(
     string BaseUrl = "https://generativelanguage.googleapis.com/v1beta",
     float Temperature = 1.0f,
     float TopP = 0.95f,
-    int TopK = 0)
-    : GeminiProtocolConfig(ModelId, ApiKey, MaxTokens, BaseUrl, Temperature, TopP, TopK);
+    int TopK = 0,
+    int? ThinkingBudget = null)
+    : GeminiProtocolConfig(ModelId, ApiKey, MaxTokens, BaseUrl, Temperature, TopP, TopK, ThinkingBudget);

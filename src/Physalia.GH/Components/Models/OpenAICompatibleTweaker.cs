@@ -58,4 +58,41 @@ public class OpenAICompatibleTweaker : TweakerComponentBase<OpenAIProtocolConfig
             TopP = topP,
             MaxTokens = thirdValue,
         };
+
+    /// <inheritdoc/>
+    protected override void RegisterAdditionalParams(GH_InputParamManager pManager)
+    {
+        int effortIndex = pManager.AddTextParameter(
+            "Reasoning Effort",
+            "E",
+            "Reasoning effort for reasoning-capable models: low, medium, or high. Sent as reasoning_effort; leave unwired for models/servers that do not support it.",
+            GH_ParamAccess.item);
+        pManager[effortIndex].Optional = true;
+
+        int thinkingIndex = pManager.AddBooleanParameter(
+            "Thinking",
+            "TH",
+            "Thinking mode (sent as thinking:{type:enabled}) — required before DeepSeek V4 emits its reasoning. Unwired applies the model's known default behaviour (on for DeepSeek V4, off elsewhere); wire true/false to override.",
+            GH_ParamAccess.item);
+        pManager[thinkingIndex].Optional = true;
+    }
+
+    /// <inheritdoc/>
+    protected override OpenAIProtocolConfig AdjustAdditional(OpenAIProtocolConfig config, IGH_DataAccess da)
+    {
+        string? effort = null;
+        if (da.GetData(4, ref effort) && !string.IsNullOrWhiteSpace(effort))
+        {
+            config = config with { ReasoningEffort = effort.Trim().ToLowerInvariant() };
+        }
+
+        // Wired true/false is an explicit override; unwired leaves null = model default.
+        bool thinking = false;
+        if (da.GetData(5, ref thinking))
+        {
+            config = config with { ThinkingEnabled = thinking };
+        }
+
+        return config;
+    }
 }

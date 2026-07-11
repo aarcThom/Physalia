@@ -28,8 +28,15 @@ public record LlmUsage(int InputTokens, int OutputTokens);
 /// Tool calls requested by the model, populated on the final chunk when the model
 /// invokes one or more tools. Null when the response contains only text.
 /// </param>
+/// <param name="StopReason">
+/// The raw provider stop/finish reason, populated on the final chunk when available.
+/// Examples: "end_turn", "max_tokens" (Anthropic), "stop", "length" (OpenAI protocol),
+/// "STOP", "MAX_TOKENS" (Gemini). Null on non-final chunks or when the provider
+/// omits it. Use <see cref="StopReasons.IsTruncation"/> to detect token-limit cuts.
+/// </param>
 public record LlmResponseChunk(
     string? ContentDelta,
     bool IsLast,
     LlmUsage? Usage,
-    IReadOnlyList<LlmToolCall>? ToolCalls = null);
+    IReadOnlyList<LlmToolCall>? ToolCalls = null,
+    string? StopReason = null);

@@ -32,6 +32,7 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
     private bool _isRunning;
     private string _response = string.Empty;
     private string? _apiError;
+    private string? _stopReason;
     private IReadOnlyList<LlmToolCall>? _toolCalls;
     private CancellationTokenSource? _cts;
 
@@ -158,6 +159,7 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
     {
         _apiError = null;
         _response = string.Empty;
+        _stopReason = null;
         _toolCalls = null;
 
         var modelGoo = new GH_ModelConfig();
@@ -185,6 +187,17 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
             return RoutingResult.Fail(_apiError, _apiError, GH_RuntimeMessageLevel.Error);
         }
 
+        // Truncation names the actionable fix, so it wins over the thinking-only warning.
+        string? warning = null;
+        if (StopReasons.IsTruncation(_stopReason))
+        {
+            warning = "Response was truncated at the max token limit — raise Max Tokens (or lower the Thinking Budget) on the model component.";
+        }
+        else if (StringHelpers.IsNonBlank(_response) && !StringHelpers.IsNonBlank(ThinkingTags.Strip(_response)))
+        {
+            warning = "The model spent its entire response thinking and produced no answer text.";
+        }
+
         if (_toolCalls is { Count: > 0 } calls)
         {
             // The model asked for tools. Build the assistant turn (optional text + one tool_use
@@ -201,10 +214,14 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
             }
 
             PhySignal signal = PhySignal.Mint(SignalOutcome.Success, _response, InstanceGuid, Name, blocks);
-            return RoutingResult.Aux(signal);
+            return warning is null
+                ? RoutingResult.Aux(signal)
+                : RoutingResult.Aux(signal, warning, GH_RuntimeMessageLevel.Warning);
         }
 
-        return RoutingResult.Ok(_response);
+        return warning is null
+            ? RoutingResult.Ok(_response)
+            : RoutingResult.Ok(_response, message: warning, level: GH_RuntimeMessageLevel.Warning);
     }
 
     private void StartInference(Instructions instructions, ModelConfig config, IReadOnlyList<ToolDefinition> tools)
@@ -264,6 +281,13 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
                         if (value.ToolCalls is { Count: > 0 } chunkCalls)
                         {
                             toolCalls = chunkCalls;
+                        }
+
+                        // Stop reason arrives on the final chunk; published to the read pass
+                        // like _response/_apiError.
+                        if (value.StopReason != null)
+                        {
+                            _stopReason = value.StopReason;
                         }
                     }
                     else

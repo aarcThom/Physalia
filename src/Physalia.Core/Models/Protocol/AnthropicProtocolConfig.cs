@@ -25,6 +25,15 @@ namespace Physalia.Core.Models.Protocol;
 /// Limits the sampling pool to the top-K tokens before nucleus sampling is applied.
 /// Set to 0 to omit from the request (provider default applies).
 /// </param>
+/// <param name="ThinkingBudget">
+/// Extended thinking control. Null (the default) means "auto" — the request builder
+/// consults <see cref="Defaults.AnthropicModelDefaults"/> for the model's behaviour
+/// (e.g. models that think by default get summarized display so the billed thinking is
+/// visible). 0 explicitly disables thinking where the model supports it; -1 requests
+/// adaptive thinking with summarized display; positive values request the manual
+/// <c>enabled</c>/<c>budget_tokens</c> form (raised to the API minimum of 1024 when
+/// smaller). Requests are mapped to the form the model actually accepts.
+/// </param>
 public abstract record AnthropicProtocolConfig(
     string ModelId,
     string ApiKey,
@@ -32,5 +41,6 @@ public abstract record AnthropicProtocolConfig(
     string BaseUrl,
     float Temperature,
     float TopP,
-    int TopK)
+    int TopK,
+    int? ThinkingBudget = null)
     : ModelConfig(ModelId, ApiKey, MaxTokens);

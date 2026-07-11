@@ -14,7 +14,9 @@ namespace Physalia.GH.Components;
 /// payload holds the result string on success or the feedback string on failure, so the
 /// contract is one wire per hop. The lifecycle state machine, signal intake/emission,
 /// and Clear menu item come from <see cref="StatefulComponentBase"/>. Subclasses supply
-/// only their extra inputs and the per-component processing logic.
+/// only their extra inputs and the per-component processing logic. A subclass whose two
+/// outputs would always carry the same signal can override <see cref="HasFailOutput"/> to
+/// false and expose a single Signal output instead.
 ///
 /// <para>Consuming a signal on the base-owned <c>Signal</c> input starts a run, split
 /// across solves. The <see cref="PushSolve"/> pass performs side effects (e.g. pushing
@@ -31,11 +33,36 @@ namespace Physalia.GH.Components;
 /// <typeparam name="TData">Type produced from the Data input and handed to the solve passes.</typeparam>
 public abstract class RoutingComponentBase<TData> : StatefulComponentBase
 {
-    /// <summary>Output index of the latched Success Signal.</summary>
+    /// <summary>Output index of the latched Success Signal (the single Signal output when <see cref="HasFailOutput"/> is false).</summary>
     protected const int OutSuccessSignal = 0;
 
-    /// <summary>Output index of the latched Fail Signal.</summary>
-    protected const int OutFailSignal = 1;
+    /// <summary>
+    /// Gets the output index of the latched Fail Signal, or −1 when <see cref="HasFailOutput"/>
+    /// is false and no Fail output exists.
+    /// </summary>
+    protected int OutFailSignal => HasFailOutput ? 1 : -1;
+
+    /// <summary>
+    /// Gets the index of the first output registered by <see cref="RegisterAdditionalOutputs"/>:
+    /// 2 after the fixed Success/Fail pair, or 1 after the single Signal output when
+    /// <see cref="HasFailOutput"/> is false. Compute <see cref="AuxOutputIndex"/> from this so
+    /// a subclass stays correct regardless of its Fail-output choice.
+    /// </summary>
+    protected int FirstAdditionalOutputIndex => HasFailOutput ? 2 : 1;
+
+    /// <summary>
+    /// Gets a value indicating whether the component has a separate Fail Signal output.
+    /// Default true: Success(0)/Fail(1), the standard routing contract. Override to false for
+    /// components whose two outputs would always carry the same signal (e.g. broadcast-style
+    /// observers), which register a single "Signal" output at index 0 instead — every latched
+    /// signal (success, failure, or broadcast) is emitted there, and the signal's own
+    /// <see cref="SignalOutcome"/> records how the run ended, so failures still fire downstream
+    /// and a loop never stalls quietly.
+    /// <para>Changing this on a shipped component shifts the output layout of saved documents
+    /// (wires reconnect by index) — the same hazard as inserting an input before the
+    /// base-appended Signal.</para>
+    /// </summary>
+    protected virtual bool HasFailOutput => true;
 
     /// <summary>
     /// Gets the latched aux signal, set when <see cref="ReadSolve"/> returns
@@ -109,8 +136,10 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     }
 
     /// <summary>
-    /// Registers extra outputs after the fixed Success(0)/Fail(1) signals. A subclass that
-    /// adds one here must also override <see cref="AuxOutputIndex"/> to its index so the base
+    /// Registers extra outputs after the base-owned signal outputs — starting at
+    /// <see cref="FirstAdditionalOutputIndex"/> (2 after Success/Fail, 1 after the single
+    /// Signal output when <see cref="HasFailOutput"/> is false). A subclass that adds one
+    /// here must also override <see cref="AuxOutputIndex"/> to its index so the base
     /// re-emits the latched aux signal there. Default implementation adds nothing.
     /// </summary>
     /// <param name="pManager">The output parameter manager.</param>
@@ -194,8 +223,16 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// <inheritdoc/>
     protected sealed override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Success Signal", "SS", "Latched signal minted when a run succeeds; its payload carries the result. Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_Signal(), "Fail Signal", "FS", "Latched signal minted when a run fails; its payload carries the feedback. Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
+        if (HasFailOutput)
+        {
+            pManager.AddParameter(new Param_Signal(), "Success Signal", "SS", "Latched signal minted when a run succeeds; its payload carries the result. Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
+            pManager.AddParameter(new Param_Signal(), "Fail Signal", "FS", "Latched signal minted when a run fails; its payload carries the feedback. Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
+        }
+        else
+        {
+            pManager.AddParameter(new Param_Signal(), "Signal", "S", "Latched signal minted when a run completes; its payload carries the result on success or the feedback on failure (the signal's outcome records which). Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
+        }
+
         RegisterAdditionalOutputs(pManager);
     }
 
@@ -275,7 +312,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
             }
             else
             {
-                LatchFailure(result.Output);
+                LatchFailure(result.Output, result.EmitSignal);
             }
 
             if (HasUnconsumedSignals(_signalIndex))
@@ -326,8 +363,17 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
 
     private void Emit(IGH_DataAccess da)
     {
-        EmitSignal(da, OutSuccessSignal, SuccessSignal);
-        EmitSignal(da, OutFailSignal, FailSignal);
+        if (HasFailOutput)
+        {
+            EmitSignal(da, OutSuccessSignal, SuccessSignal);
+            EmitSignal(da, OutFailSignal, FailSignal);
+        }
+        else
+        {
+            // Single Signal output: whichever signal the run latched rides the one wire.
+            // Broadcast latches the same signal on both fields, so it emits exactly once.
+            EmitSignal(da, OutSuccessSignal, SuccessSignal ?? FailSignal);
+        }
 
         if (AuxOutputIndex >= 0)
         {
@@ -384,7 +430,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     /// </summary>
     protected readonly record struct RoutingResult
     {
-        private RoutingResult(bool success, string output, string? message, GH_RuntimeMessageLevel messageLevel, PhySignal? auxSignal, PhySignal? broadcastSignal, Instructions? instructions)
+        private RoutingResult(bool success, string output, string? message, GH_RuntimeMessageLevel messageLevel, PhySignal? auxSignal, PhySignal? broadcastSignal, Instructions? instructions, bool emitSignal)
         {
             Success = success;
             Output = output;
@@ -393,6 +439,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
             AuxSignal = auxSignal;
             BroadcastSignal = broadcastSignal;
             Instructions = instructions;
+            EmitSignal = emitSignal;
         }
 
         /// <summary>Gets a value indicating whether the run succeeded.</summary>
@@ -432,6 +479,13 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         public Instructions? Instructions { get; }
 
         /// <summary>
+        /// Gets a value indicating whether the latch mints an outgoing signal. False for a quiet
+        /// failure — state and caption update but nothing fires downstream, so the result
+        /// dead-ends inside the component (e.g. Detect JSON swallowing plain conversation).
+        /// </summary>
+        public bool EmitSignal { get; }
+
+        /// <summary>
         /// Creates a success result carrying the forward-routed result string, optionally with full
         /// inference context on the minted signal and a runtime message to surface.
         /// </summary>
@@ -441,7 +495,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         /// <param name="level">The level for the runtime message.</param>
         /// <returns>A success <see cref="RoutingResult"/>.</returns>
         public static RoutingResult Ok(string data, Instructions? instructions = null, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Blank) =>
-            new(true, data, message, level, null, null, instructions);
+            new(true, data, message, level, null, null, instructions, emitSignal: true);
 
         /// <summary>
         /// Creates a failure result carrying the back-routed feedback string.
@@ -449,9 +503,13 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         /// <param name="feedback">The feedback string carried by the minted fail signal.</param>
         /// <param name="message">An optional runtime message to surface.</param>
         /// <param name="level">The level for the runtime message.</param>
+        /// <param name="emitSignal">
+        /// When false, the failure latches quietly — state and caption update but no signal is
+        /// minted, so nothing fires downstream and the result dead-ends inside the component.
+        /// </param>
         /// <returns>A failure <see cref="RoutingResult"/>.</returns>
-        public static RoutingResult Fail(string feedback, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Warning) =>
-            new(false, feedback, message, level, null, null, null);
+        public static RoutingResult Fail(string feedback, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Warning, bool emitSignal = true) =>
+            new(false, feedback, message, level, null, null, null, emitSignal);
 
         /// <summary>
         /// Creates a result that emits a caller-minted signal on the subclass's aux output
@@ -464,7 +522,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         /// <param name="level">The level for the runtime message.</param>
         /// <returns>An aux <see cref="RoutingResult"/>.</returns>
         public static RoutingResult Aux(PhySignal signal, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Blank) =>
-            new(true, string.Empty, message, level, signal, null, null);
+            new(true, string.Empty, message, level, signal, null, null, emitSignal: true);
 
         /// <summary>
         /// Creates a result that latches the same caller-minted signal on <em>both</em> the
@@ -477,6 +535,6 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
         /// <param name="level">The level for the runtime message.</param>
         /// <returns>A broadcast <see cref="RoutingResult"/>.</returns>
         public static RoutingResult Broadcast(PhySignal signal, string? message = null, GH_RuntimeMessageLevel level = GH_RuntimeMessageLevel.Blank) =>
-            new(true, string.Empty, message, level, null, signal, null);
+            new(true, string.Empty, message, level, null, signal, null, emitSignal: true);
     }
 }

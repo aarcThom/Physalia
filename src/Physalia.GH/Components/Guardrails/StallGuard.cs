@@ -20,8 +20,9 @@ namespace Physalia.GH.Components;
 /// each signal passes through; when the same failure text arrives for the Stall Limit-th
 /// consecutive time the signal still passes but with an escalation preamble prepended, telling
 /// the model to stop patching and explain the blocker to the human in prose; any identical
-/// failure beyond the limit is not re-emitted at all — the loop parks with a STALLED caption
-/// until something actually changes.
+/// failure beyond the limit is not re-emitted at all — the single Success Signal output stays
+/// silent and the loop parks with a STALLED caption (plus a runtime warning) until something
+/// actually changes.
 ///
 /// <para>Wire it between the Feedback Collector and the Conversation Log's Feedback Signal
 /// input to cap identical feedback rounds (the Signal Limiter remains the cap on <em>total</em>
@@ -33,18 +34,17 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class StallGuard : StatefulComponentBase
 {
-    private const int InSignal = 0;
-    private const int InStallLimit = 1;
+    private const int InStallLimit = 0;
+    private const int InSignal = 1;
 
     private const int OutPass = 0;
-    private const int OutStalled = 1;
 
     private const int DefaultStallLimit = 3;
 
     private string? _lastFingerprint;
     private int _repeatCount;
     private PhySignal? _passSignal;
-    private PhySignal? _stalledSignal;
+    private bool _stalled;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StallGuard"/> class.
@@ -60,16 +60,15 @@ public class StallGuard : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Signal", "S", "Signals to gate. Success signals always pass; consecutive identical failure payloads are counted against the Stall Limit.", GH_ParamAccess.list);
         pManager.AddIntegerParameter("Stall Limit", "SL", "Consecutive identical failure payloads tolerated. The repeat that reaches the limit passes with an escalation preamble telling the model to stop and explain the blocker to the human; repeats beyond the limit are not re-emitted (the loop parks until something changes). 0 disables the guard.", GH_ParamAccess.item, DefaultStallLimit);
+        pManager.AddParameter(new Param_Signal(), "Signal", "S", "Signals to gate. Success signals always pass; consecutive identical failure payloads are counted against the Stall Limit.", GH_ParamAccess.list);
         pManager[InSignal].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Pass", "P", "Carries each gated signal onward (unchanged, or with the escalation preamble at the limit). Latched until the next signal.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_Signal(), "Stalled", "X", "Carries the suppressed failure signal once the loop is parked, for optional human-facing wiring (a panel, a notification). Latched until the streak resets.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Success Signal", "SS", "Carries each gated signal onward (unchanged, or with the escalation preamble at the limit). Latched until the next signal. Stays silent while the loop is parked.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -93,7 +92,7 @@ public class StallGuard : StatefulComponentBase
                 // and reset the streak.
                 _lastFingerprint = null;
                 _repeatCount = 0;
-                _stalledSignal = null;
+                _stalled = false;
                 _passSignal = signal;
                 continue;
             }
@@ -104,7 +103,7 @@ public class StallGuard : StatefulComponentBase
 
             if (_repeatCount < limit)
             {
-                _stalledSignal = null;
+                _stalled = false;
                 _passSignal = signal;
             }
             else if (_repeatCount == limit)
@@ -121,23 +120,23 @@ public class StallGuard : StatefulComponentBase
             }
             else
             {
-                // The model ignored the escalation. Park the loop: nothing is re-emitted on
-                // Pass, so no inference fires. The suppressed signal latches on Stalled for
-                // human-facing wiring. The next different signal resumes the loop.
-                _stalledSignal = signal;
+                // The model ignored the escalation. Park the loop: the suppressed signal is
+                // not re-emitted, so no inference fires. The STALLED caption and the runtime
+                // warning are the human-facing indication. The next different signal resumes
+                // the loop.
+                _stalled = true;
                 AddRuntimeMessage(
                     GH_RuntimeMessageLevel.Warning,
                     $"Feedback loop stalled: {_repeatCount} consecutive identical failure payloads; re-emission halted. Fix the canvas manually or Clear this component to resume.");
             }
         }
 
-        Message = _stalledSignal is not null
+        Message = _stalled
             ? $"STALLED ({_repeatCount}x)"
             : _repeatCount > 0 ? $"{_repeatCount} / {limit}" : null;
         OnDisplayExpired(true);
 
         EmitSignal(DA, OutPass, _passSignal);
-        EmitSignal(DA, OutStalled, _stalledSignal);
     }
 
     /// <inheritdoc/>
@@ -146,7 +145,7 @@ public class StallGuard : StatefulComponentBase
         _lastFingerprint = null;
         _repeatCount = 0;
         _passSignal = null;
-        _stalledSignal = null;
+        _stalled = false;
     }
 
     /// <summary>

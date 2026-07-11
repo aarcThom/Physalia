@@ -18,7 +18,7 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// On receiving a signal, measures the geometry the watched graph currently produces and
-/// broadcasts a text digest: per-component bounding boxes, types, counts and closedness, the
+/// emits a text digest: per-component bounding boxes, types, counts and closedness, the
 /// whole-model bounding box, disjoint-cluster detection with gap distances, and neutral
 /// containment facts. This is the deterministic, text-only stand-in for visual feedback: a graph
 /// that solves cleanly can still be semantically wrong — wings floating away from the mass they
@@ -31,9 +31,8 @@ namespace Physalia.GH.Components;
 /// removed, session-only. When nothing is watched and the payload carries no GUIDs the whole
 /// document is measured, preserving use as a standalone probe.</para>
 ///
-/// <para>The result is a <see cref="StatefulComponentBase.SuccessSignal"/>-outcome signal latched
-/// identically on BOTH outputs (like Geometry Observation), payload = the report text, so a rig
-/// can route it forward to a Conversation Log and/or back through the feedback path. The report
+/// <para>The result is a success signal on the single Signal output, payload = the report text,
+/// routable forward to a Conversation Log or back through the feedback path. The report
 /// instructs the model: geometry matches intent → reply in prose (the Detect JSON gate parks the
 /// loop); mismatch → corrective ghpatch (the report carries a fresh base checksum for exactly
 /// that turn). Wire it after the Runtime Health Check's Success Signal so it only measures
@@ -62,12 +61,20 @@ public class GeometryReport : RoutingComponentBase<string>
     /// Initializes a new instance of the <see cref="GeometryReport"/> class.
     /// </summary>
     public GeometryReport()
-        : base("Geometry Report", "Geometry Report", "Measures the geometry the watched graph produces — per-component bounding boxes, counts, closedness, disjoint groups, containments — and broadcasts the digest as text on both outputs, so the model can compare realization against intent without images.", "Guardrails")
+        : base("Geometry Report", "Geometry Report", "Measures the geometry the watched graph produces — per-component bounding boxes, counts, closedness, disjoint groups, containments — and emits the digest as text on its single Signal output, so the model can compare realization against intent without images.", "Guardrails")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("8C2E5A17-4B9D-4E63-A0F8-D51B7C39E624");
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// A single Signal output: the report routed forward and the report routed back were the
+    /// same signal, so the separate Fail output only ever duplicated it. A genuine failure
+    /// (no document to measure) rides the same wire, keeping the loop alive.
+    /// </remarks>
+    protected override bool HasFailOutput => false;
 
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
@@ -155,8 +162,7 @@ public class GeometryReport : RoutingComponentBase<string>
         string? checksum = GhJsonBridge.TryExportCanvasState(doc)?.Checksum;
         string report = BuildReport(message ?? string.Empty, items, UnitsLabel(), checksum);
 
-        PhySignal signal = PhySignal.Mint(SignalOutcome.Success, report, InstanceGuid, Name);
-        return RoutingResult.Broadcast(signal, $"Measured {items.Count} geometry-producing component(s).", GH_RuntimeMessageLevel.Remark);
+        return RoutingResult.Ok(report, message: $"Measured {items.Count} geometry-producing component(s).", level: GH_RuntimeMessageLevel.Remark);
     }
 
     /// <inheritdoc/>

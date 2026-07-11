@@ -23,8 +23,9 @@ namespace Physalia.GH.Components;
 /// or, when the payload carries no GUIDs — e.g. from a Py Transmitter — the whole document's
 /// preview geometry) and captures a viewport snapshot. It then mints a single signal carrying the
 /// user's <c>Message</c> as its payload plus the snapshot image as an inline content block, and
-/// latches that <em>same</em> signal on both the Success and Fail outputs so either downstream
-/// branch (forward to a Conversation Log, or back to the LLM Call as feedback) receives identical content.
+/// emits it on the single Signal output — routable forward to a Conversation Log or back to the
+/// LLM Call as feedback. A capture failure emits on the same wire, so a feedback loop never
+/// stalls silently.
 /// </summary>
 public class GeometryObservation : RoutingComponentBase<string>
 {
@@ -45,13 +46,21 @@ public class GeometryObservation : RoutingComponentBase<string>
         : base(
             "Geometry Observation",
             "Geometry Observation",
-            "Zooms the Rhino viewport onto the upstream geometry and captures a snapshot. Emits the Message plus the snapshot image on both outputs.",
+            "Zooms the Rhino viewport onto the upstream geometry and captures a snapshot. Emits the Message plus the snapshot image on its single Signal output.",
             "Guardrails")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("4A969C47-C1E5-446D-BB20-9F973D5E2E3D");
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// A single Signal output: the snapshot routed forward and the snapshot routed back were the
+    /// same broadcast signal, so the separate Fail output only ever duplicated it. A capture
+    /// failure rides the same wire, keeping the loop alive.
+    /// </remarks>
+    protected override bool HasFailOutput => false;
 
     /// <inheritdoc/>
     /// <remarks>
@@ -126,6 +135,8 @@ public class GeometryObservation : RoutingComponentBase<string>
 
         blocks.Add(new ImageContent(new InlineImage(_imageBytes, "image/png")));
 
+        // The signal is caller-minted so it can carry the image content block; Broadcast latches
+        // it on both signal fields, which the single-output base emits exactly once.
         PhySignal signal = PhySignal.Mint(SignalOutcome.Success, message, InstanceGuid, Name, blocks);
         return RoutingResult.Broadcast(signal, "Snapshot captured.", GH_RuntimeMessageLevel.Remark);
     }

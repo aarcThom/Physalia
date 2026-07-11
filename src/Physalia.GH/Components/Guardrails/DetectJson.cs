@@ -9,12 +9,13 @@ using Physalia.Core.Validation;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Presence gate that routes a response by whether it contains attempted JSON at all. A response
-/// carrying any JSON — even malformed or truncated — passes through untouched on the Success
-/// Signal so the Schema Validator can validate it and the correction loop keeps working. A response with
-/// no JSON attempt (plain conversation) routes its raw text to the Fail Signal, which acts as a
-/// quiet switch: left unwired, casual chat dead-ends there instead of triggering validation
-/// feedback. Not a validator — well-formedness and schema checks stay in the Schema Validator.
+/// Presence gate that passes a response through only when it contains attempted JSON at all. A
+/// response carrying any JSON — even malformed or truncated — passes through untouched on the
+/// single Signal output so the Schema Validator can validate it and the correction loop keeps
+/// working. A response with no JSON attempt (plain conversation) dead-ends quietly inside the
+/// component: the state shows the swallowed event but nothing fires downstream, so casual chat
+/// never triggers validation feedback. Not a validator — well-formedness and schema checks stay
+/// in the Schema Validator.
 /// </summary>
 public class DetectJson : RoutingComponentBase<string>
 {
@@ -22,7 +23,7 @@ public class DetectJson : RoutingComponentBase<string>
     /// Initializes a new instance of the <see cref="DetectJson"/> class.
     /// </summary>
     public DetectJson()
-        : base("Detect JSON", "DJson", "Passes responses containing JSON (even malformed) to Success; routes plain conversation to Fail so it never triggers validation feedback.", "Guardrails")
+        : base("Detect JSON", "DJson", "Passes responses containing JSON (even malformed) through; plain conversation dead-ends quietly so it never triggers validation feedback.", "Guardrails")
     {
     }
 
@@ -31,8 +32,15 @@ public class DetectJson : RoutingComponentBase<string>
 
     /// <inheritdoc/>
     /// <remarks>
+    /// A single Signal output: the gate either passes the response through or swallows it, so a
+    /// separate Fail output would only ever duplicate the same raw text.
+    /// </remarks>
+    protected override bool HasFailOutput => false;
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// Accepts even a blank payload — unlike the Schema Validator's non-blank guard — because a blank
-    /// response is still a real event and should route to Fail, not be dropped with a warning.
+    /// response is still a real event and should be swallowed as non-JSON, not dropped with a warning.
     /// </remarks>
     protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out string data)
     {
@@ -49,14 +57,14 @@ public class DetectJson : RoutingComponentBase<string>
 
     /// <inheritdoc/>
     /// <remarks>
-    /// The fail payload is the raw response text (not a feedback message), so the gate is a pure
-    /// demultiplexer; the Remark level keeps the canvas quiet — routing chat to Fail is normal
+    /// The non-JSON case is a quiet failure (no signal minted): the event dead-ends here by
+    /// design, visible only as the Failed caption and a Remark — swallowing chat is normal
     /// operation, not an error.
     /// </remarks>
     protected override RoutingResult ReadSolve(string data, IGH_DataAccess da)
     {
         return JsonDetector.ContainsJson(data)
             ? RoutingResult.Ok(data)
-            : RoutingResult.Fail(data, "No JSON detected in the response; routed to Fail.", GH_RuntimeMessageLevel.Remark);
+            : RoutingResult.Fail(data, "No JSON detected in the response; nothing passed through.", GH_RuntimeMessageLevel.Remark, emitSignal: false);
     }
 }

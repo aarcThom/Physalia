@@ -10,7 +10,10 @@ namespace Physalia.Core.Models.Named;
 /// </summary>
 /// <param name="ModelId">The model identifier, e.g. "claude-sonnet-4-6".</param>
 /// <param name="ApiKey">The Anthropic API key.</param>
-/// <param name="MaxTokens">Maximum tokens to generate. Defaults to 8192.</param>
+/// <param name="MaxTokens">
+/// Maximum tokens to generate. Thinking and answer share this budget, so the default is a
+/// generous 32768 — 8192 truncated real responses mid-document once adaptive thinking ran.
+/// </param>
 /// <param name="BaseUrl">API base URL. Defaults to "https://api.anthropic.com/v1".</param>
 /// <param name="Temperature">Sampling temperature in range 0.0–1.0. Defaults to 1.0.</param>
 /// <param name="TopP">Nucleus sampling threshold. Defaults to 1.0.</param>
@@ -24,7 +27,7 @@ namespace Physalia.Core.Models.Named;
 public record AnthropicConfig(
     string ModelId,
     string ApiKey,
-    int MaxTokens = 8192,
+    int MaxTokens = 32768,
     string BaseUrl = "https://api.anthropic.com/v1",
     float Temperature = 1.0f,
     float TopP = 1.0f,

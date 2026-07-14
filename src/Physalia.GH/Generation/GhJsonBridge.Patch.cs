@@ -146,17 +146,18 @@ internal static partial class GhJsonBridge
         var removedGuids = new List<Guid>();
         var appliedOps = new List<string>();
 
-        // ---- Pre-pass on adds: stamp real component guids, remap colliding ids, and give
-        // pivot-less adds a fallback position. All before the document-level apply so the
-        // post-merge document carries the corrected components. (Rhino-referenced inputs need no
-        // reference pre-pass: they are ordinary components in the canvas state, marked
-        // physalia.rhinoRef, and the model wires to them by id like anything else.)
+        // ---- Pre-pass on adds: stamp real component guids, remap colliding ids, and replace the
+        // authored pivots with a relaid-out group anchored beside the LLM-built graph. All before
+        // the document-level apply so the post-merge document carries the corrected components.
+        // (Rhino-referenced inputs need no reference pre-pass: they are ordinary components in the
+        // canvas state, marked physalia.rhinoRef, and the model wires to them by id like anything
+        // else.)
         List<GhJsonComponent> adds = patch.Patch?.Components?.Add ?? new List<GhJsonComponent>();
         if (adds.Count > 0)
         {
             StampComponentGuids(new GhJsonDocument("1.0", null, adds, null, null));
             RemapCollidingAddIds(patch, adds, baseExport);
-            AssignFallbackPivots(adds, fallbackOrigin, ExistingCanvasBounds(doc));
+            AnchorPatchAdds(patch, adds, doc, baseExport, fallbackOrigin);
 
             // The added components' required-input lint now lives in the Required Input Check
             // guardrail (via GhJsonBridge.LintRequiredInputsJson), an explicit upstream node — the
@@ -414,6 +415,146 @@ internal static partial class GhJsonBridge
     // pivots relative to the existing layout it can see, so this is a net only — but when it fires
     // we keep the stack clear of the current graph: just below the existing content (adjacent to
     // it, not on top of it), falling back to the arrow tip when the canvas is empty.
+    // Horizontal/vertical clearance between the existing graph and a patch's added group.
+    private const float PatchAddGap = 60f;
+
+    /// <summary>
+    /// Positions a patch's added components: their authored pivots are discarded (the model
+    /// authors graph structure, never canvas placement — the full-graph path already relayouts
+    /// via <see cref="RelayoutLlmGraph"/>), the group is relaid out hierarchically from its
+    /// internal wires, and the whole group is anchored to the right of the LLM-built graph it
+    /// extends. Without this, authored pivots land at raw canvas coordinates in the model's own
+    /// frame — nowhere near the anchored graph (the 2026-07-13 balcony landed a screen away from
+    /// its tower).
+    /// </summary>
+    /// <param name="patch">The parsed patch (source of the add-internal connections).</param>
+    /// <param name="adds">The added components, mutated in place.</param>
+    /// <param name="doc">The live document.</param>
+    /// <param name="baseExport">The canvas-state export the patch was authored against.</param>
+    /// <param name="fallbackOrigin">The transmitter's arrow target, used when the canvas offers no anchor.</param>
+    private static void AnchorPatchAdds(
+        GhPatchDocument patch,
+        List<GhJsonComponent> adds,
+        GH_Document doc,
+        GhJsonDocument baseExport,
+        PointF fallbackOrigin)
+    {
+        var addIds = new HashSet<int>(adds.Where(a => a.Id is int).Select(a => a.Id!.Value));
+
+        // Relayout from the group's INTERNAL wires only — wires into existing components anchor
+        // the group as a whole, not individual nodes.
+        List<GhJsonConnection> internalWires = (patch.Patch?.Connections?.Add ?? new List<GhJsonConnection>())
+            .Where(c => c.From?.Id is int from && c.To?.Id is int to
+                && addIds.Contains(from) && addIds.Contains(to))
+            .ToList();
+        RelayoutLlmGraph(new GhJsonDocument("1.0", null, adds, internalWires, null));
+
+        // The anchor, best frame first: everything the model has placed so far (the graph the
+        // transmitter's arrow originally anchored), then the existing components this patch wires
+        // into, then the whole canvas. The group lands to the right of it, top-aligned.
+        RectangleF? anchor = LiveAuthoredBounds(doc)
+            ?? ConnectedExistingBounds(patch, addIds, baseExport, doc)
+            ?? ExistingCanvasBounds(doc);
+        PointF target = anchor is { } a ? new PointF(a.Right + PatchAddGap, a.Top) : fallbackOrigin;
+
+        // Translate the relaid-out group so its top-left pivot lands on the target.
+        float minX = float.MaxValue;
+        float minY = float.MaxValue;
+        foreach (GhJsonComponent add in adds)
+        {
+            if (add.Pivot is { } pivot)
+            {
+                minX = Math.Min(minX, pivot.X);
+                minY = Math.Min(minY, pivot.Y);
+            }
+        }
+
+        if (minX < float.MaxValue)
+        {
+            int dx = (int)MathF.Round(target.X - minX);
+            int dy = (int)MathF.Round(target.Y - minY);
+            foreach (GhJsonComponent add in adds)
+            {
+                if (add.Pivot is { } pivot)
+                {
+                    pivot.X += dx;
+                    pivot.Y += dy;
+                }
+            }
+        }
+
+        // Safety net for adds the relayout could not position (no integer id).
+        AssignFallbackPivots(adds, target, null);
+    }
+
+    /// <summary>
+    /// Union bounds of every live component the model has placed so far (via the
+    /// authored-placement ledger), or null when nothing of its authorship is alive.
+    /// </summary>
+    /// <param name="doc">The live document.</param>
+    /// <returns>The union bounds, or null.</returns>
+    private static RectangleF? LiveAuthoredBounds(GH_Document doc)
+    {
+        if (!AuthoredPlacementLedgers.TryGetValue(doc, out Dictionary<Guid, int>? ledger))
+        {
+            return null;
+        }
+
+        RectangleF union = RectangleF.Empty;
+        foreach (Guid guid in ledger.Keys)
+        {
+            if (doc.FindObject(guid, false) is { Attributes: { } attr } && !attr.Bounds.IsEmpty)
+            {
+                union = union.IsEmpty ? attr.Bounds : RectangleF.Union(union, attr.Bounds);
+            }
+        }
+
+        return union.IsEmpty ? null : union;
+    }
+
+    /// <summary>
+    /// Union bounds of the EXISTING components this patch's added wires connect to — the graph
+    /// being extended — resolved through the base export's id → instanceGuid mapping. The
+    /// fallback anchor when the authored-placement ledger is empty (fresh session, canvas built
+    /// in an earlier one).
+    /// </summary>
+    /// <param name="patch">The parsed patch.</param>
+    /// <param name="addIds">The ids of the added components.</param>
+    /// <param name="baseExport">The canvas-state export the patch was authored against.</param>
+    /// <param name="doc">The live document.</param>
+    /// <returns>The union bounds, or null.</returns>
+    private static RectangleF? ConnectedExistingBounds(
+        GhPatchDocument patch,
+        IReadOnlySet<int> addIds,
+        GhJsonDocument baseExport,
+        GH_Document doc)
+    {
+        var guidById = new Dictionary<int, Guid>();
+        foreach (GhJsonComponent component in baseExport.Components ?? Enumerable.Empty<GhJsonComponent>())
+        {
+            if (component.Id is int id && component.InstanceGuid is Guid guid)
+            {
+                guidById[id] = guid;
+            }
+        }
+
+        RectangleF union = RectangleF.Empty;
+        foreach (GhJsonConnection connection in patch.Patch?.Connections?.Add ?? Enumerable.Empty<GhJsonConnection>())
+        {
+            foreach (int? endpoint in new[] { connection.From?.Id, connection.To?.Id })
+            {
+                if (endpoint is int id && !addIds.Contains(id)
+                    && guidById.TryGetValue(id, out Guid guid)
+                    && doc.FindObject(guid, false) is { Attributes: { } attr } && !attr.Bounds.IsEmpty)
+                {
+                    union = union.IsEmpty ? attr.Bounds : RectangleF.Union(union, attr.Bounds);
+                }
+            }
+        }
+
+        return union.IsEmpty ? null : union;
+    }
+
     private static void AssignFallbackPivots(List<GhJsonComponent> adds, PointF fallbackOrigin, RectangleF? occupied)
     {
         float x = occupied is { } o ? o.X : fallbackOrigin.X;

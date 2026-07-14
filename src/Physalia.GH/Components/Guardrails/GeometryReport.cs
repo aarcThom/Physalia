@@ -57,6 +57,11 @@ public class GeometryReport : RoutingComponentBase<string>
     // the document (pruned at scan time). Session-only; never serialized.
     private readonly HashSet<Guid> _watchedGuids = new();
 
+    // Applied-op confirmations from THIS turn's consumed signals (the Component Transmitter
+    // appends them to its Success payload after the GUIDs). Folded into the next report and
+    // cleared — the confirmation is about the patch that just ran, not history.
+    private readonly List<string> _pendingAppliedOps = new();
+
     /// <summary>
     /// Initializes a new instance of the <see cref="GeometryReport"/> class.
     /// </summary>
@@ -110,6 +115,11 @@ public class GeometryReport : RoutingComponentBase<string>
         {
             _watchedGuids.Add(guid);
         }
+
+        foreach (string op in ParseAppliedOps(data))
+        {
+            _pendingAppliedOps.Add(op);
+        }
     }
 
     /// <inheritdoc/>
@@ -160,7 +170,8 @@ public class GeometryReport : RoutingComponentBase<string>
         // that triggered this report changed the canvas — carry the fresh checksum so that patch
         // cannot mismatch. IsReadReady settled the graph, so the export is stable here.
         string? checksum = GhJsonBridge.TryExportCanvasState(doc)?.Checksum;
-        string report = BuildReport(message ?? string.Empty, items, UnitsLabel(), checksum);
+        string report = BuildReport(message ?? string.Empty, items, UnitsLabel(), checksum, _pendingAppliedOps);
+        _pendingAppliedOps.Clear();
 
         return RoutingResult.Ok(report, message: $"Measured {items.Count} geometry-producing component(s).", level: GH_RuntimeMessageLevel.Remark);
     }
@@ -170,6 +181,7 @@ public class GeometryReport : RoutingComponentBase<string>
     {
         base.OnCleared();
         _watchedGuids.Clear();
+        _pendingAppliedOps.Clear();
     }
 
     // ---- Scope (mirrors Runtime Health Check; per-component code by convention) ----------------
@@ -249,13 +261,39 @@ public class GeometryReport : RoutingComponentBase<string>
         }
     }
 
+    /// <summary>
+    /// Parses the per-operation patch confirmations the Component Transmitter appends to its
+    /// Success payload (see <see cref="GhJsonBridge.AppliedOpLinePrefix"/>).
+    /// </summary>
+    /// <param name="payload">The incoming signal payload.</param>
+    /// <returns>The applied-op descriptions, prefix stripped.</returns>
+    private static IEnumerable<string> ParseAppliedOps(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            yield break;
+        }
+
+        foreach (string line in payload.Split('\n'))
+        {
+            string trimmed = line.Trim();
+            if (trimmed.StartsWith(GhJsonBridge.AppliedOpLinePrefix, StringComparison.Ordinal))
+            {
+                yield return trimmed[GhJsonBridge.AppliedOpLinePrefix.Length..];
+            }
+        }
+    }
+
     // ---- Harvest -------------------------------------------------------------------------------
 
-    // One geometry-bearing output: its kind tallies, item/null counts, and the union bbox of its
-    // items. A component is reported iff it has at least one of these.
-    private sealed record OutputGeometry(string PortName, int ItemCount, int NullCount, IReadOnlyList<(string Kind, int Count)> Kinds, BoundingBox Union);
+    // One geometry-bearing output: its kind tallies, item/null counts, the union bbox of its
+    // items, and the raw data-tree shape (per-branch item counts, geometry or not). The tree
+    // shape is what makes cross-product bugs visible: "169 breps" reads plausible until the
+    // report says they sit in 13 branches of 13. A component is reported iff it has at least
+    // one of these.
+    private sealed record OutputGeometry(string PortName, int ItemCount, int NullCount, IReadOnlyList<(string Kind, int Count)> Kinds, BoundingBox Union, IReadOnlyList<int> BranchCounts);
 
-    private sealed record ComponentGeometry(IGH_DocumentObject Owner, IReadOnlyList<OutputGeometry> Outputs, BoundingBox Union);
+    private sealed record ComponentGeometry(IGH_DocumentObject Owner, IReadOnlyList<OutputGeometry> Outputs, BoundingBox Union, string? InputModifiers);
 
     private static List<ComponentGeometry> HarvestGeometry(IEnumerable<IGH_DocumentObject> scope)
     {
@@ -291,7 +329,7 @@ public class GeometryReport : RoutingComponentBase<string>
                 union.Union(output.Union);
             }
 
-            items.Add(new ComponentGeometry(obj, outputs, union));
+            items.Add(new ComponentGeometry(obj, outputs, union, DescribeInputModifiers(obj)));
         }
 
         return items;
@@ -328,12 +366,81 @@ public class GeometryReport : RoutingComponentBase<string>
             return null;
         }
 
+        var branchCounts = new List<int>(port.VolatileData.PathCount);
+        for (int i = 0; i < port.VolatileData.PathCount; i++)
+        {
+            branchCounts.Add(port.VolatileData.get_Branch(i)?.Count ?? 0);
+        }
+
         return new OutputGeometry(
             string.IsNullOrWhiteSpace(port.NickName) ? port.Name ?? string.Empty : port.NickName,
             geometryItems,
             nulls,
             kinds.OrderByDescending(k => k.Value).Select(k => (k.Key, k.Value)).ToList(),
-            union);
+            union,
+            branchCounts);
+    }
+
+    /// <summary>
+    /// Summarises the input-side data-tree modifiers (graft/flatten, simplify, reverse) on a
+    /// component, or null when every input is unmodified. The model can only verify that a
+    /// dataMapping patch actually landed if the report states the live setting.
+    /// </summary>
+    /// <param name="obj">The measured object.</param>
+    /// <returns>For example "Curve A: graft, Curve B: graft", or null.</returns>
+    private static string? DescribeInputModifiers(IGH_DocumentObject obj)
+    {
+        if (obj is not IGH_Component component)
+        {
+            return null;
+        }
+
+        List<string>? parts = null;
+        foreach (IGH_Param input in component.Params.Input)
+        {
+            List<string>? mods = null;
+            if (input.DataMapping != GH_DataMapping.None)
+            {
+                (mods ??= new List<string>()).Add(input.DataMapping.ToString().ToLowerInvariant());
+            }
+
+            if (input.Simplify)
+            {
+                (mods ??= new List<string>()).Add("simplify");
+            }
+
+            if (input.Reverse)
+            {
+                (mods ??= new List<string>()).Add("reverse");
+            }
+
+            if (mods is not null)
+            {
+                (parts ??= new List<string>()).Add($"{input.Name}: {string.Join("+", mods)}");
+            }
+        }
+
+        return parts is null ? null : string.Join(", ", parts);
+    }
+
+    /// <summary>
+    /// Formats a data-tree shape for the report, e.g. "1 branch × 13 items",
+    /// "13 branches × 1 item", or "13 branches (1–3 items)" when branch sizes vary.
+    /// </summary>
+    /// <param name="branchCounts">Per-branch item counts.</param>
+    /// <returns>The tree-shape label.</returns>
+    private static string DescribeTree(IReadOnlyList<int> branchCounts)
+    {
+        if (branchCounts.Count == 1)
+        {
+            return $"1 branch × {branchCounts[0]} item{(branchCounts[0] == 1 ? string.Empty : "s")}";
+        }
+
+        int min = branchCounts.Min();
+        int max = branchCounts.Max();
+        return min == max
+            ? $"{branchCounts.Count} branches × {min} item{(min == 1 ? string.Empty : "s")}"
+            : $"{branchCounts.Count} branches ({min}–{max} items)";
     }
 
     // Classifies one goo as placed geometry (kind label + accurate bbox), or null for construction
@@ -451,7 +558,7 @@ public class GeometryReport : RoutingComponentBase<string>
 
     // ---- Formatting ----------------------------------------------------------------------------
 
-    private static string BuildReport(string message, IReadOnlyList<ComponentGeometry> items, string units, string? baseChecksum)
+    private static string BuildReport(string message, IReadOnlyList<ComponentGeometry> items, string units, string? baseChecksum, IReadOnlyList<string> appliedOps)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(
@@ -467,6 +574,19 @@ public class GeometryReport : RoutingComponentBase<string>
             + "what was built. If anything is wrong — a part in the wrong place or at the wrong size, "
             + "elements floating apart that should touch, or elements buried inside others that "
             + "should not be — reply with a corrective ghpatch.");
+
+        if (appliedOps.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine(
+                "Patch confirmation — your previous patch applied cleanly. These operations DID land "
+                + "(do not re-send them; if the geometry below still looks wrong, the fix itself was "
+                + "insufficient, not dropped):");
+            foreach (string op in appliedOps)
+            {
+                sb.AppendLine("  - " + op);
+            }
+        }
 
         if (!string.IsNullOrWhiteSpace(message))
         {
@@ -515,6 +635,11 @@ public class GeometryReport : RoutingComponentBase<string>
             foreach (OutputGeometry output in item.Outputs)
             {
                 lines.Add("  - " + FormatComponentLine(output, item.Owner, namePort: item.Outputs.Count > 1));
+            }
+
+            if (item.InputModifiers is not null)
+            {
+                lines.Add($"      input tree modifiers: {item.InputModifiers}");
             }
         }
 
@@ -611,7 +736,16 @@ public class GeometryReport : RoutingComponentBase<string>
 
         string nulls = output.NullCount > 0 ? $" ({output.NullCount} null)" : string.Empty;
         string union = output.ItemCount > 1 ? "union bbox" : "bbox";
-        return $"{label}: {kinds}{nulls}, {union} {FormatBox(output.Union)}, size {FormatSize(output.Union)}";
+
+        // Tree shape appears whenever the output holds more than one item or branch — the
+        // difference between "1 branch × 13 items" and "13 branches × 1 item" is invisible in
+        // the counts yet decides how downstream components pair the data.
+        int totalItems = output.BranchCounts.Sum();
+        string tree = output.BranchCounts.Count > 1 || totalItems > 1
+            ? $", tree {DescribeTree(output.BranchCounts)}"
+            : string.Empty;
+
+        return $"{label}: {kinds}{nulls}{tree}, {union} {FormatBox(output.Union)}, size {FormatSize(output.Union)}";
     }
 
     private static string FormatBox(BoundingBox box) =>

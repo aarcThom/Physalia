@@ -118,12 +118,19 @@ parser tests.
 ## Current axes (2026-07-11)
 
 - **Anthropic** (`Entry`: `SupportsAdaptive`, `SupportsManualBudget`,
-  `ThinkingOnByDefault`, `SupportsDisabled`, `AllowsSampling`): the generational split is
-  Sonnet 4.6 / Opus 4.6 and earlier (manual budget, sampling OK) vs Sonnet 5 / Opus 4.7+ /
-  Fable / Mythos (adaptive-only, sampling rejected on *every* request, thinking display
-  defaults to `"omitted"` so visible thinking requires `display:"summarized"`).
+  `ThinkingOnByDefault`, `SupportsDisabled`, `AllowsSampling`, `SupportsEffort`): the
+  generational split is Sonnet 4.6 / Opus 4.6 and earlier (manual budget, sampling OK) vs
+  Sonnet 5 / Opus 4.7+ / Fable / Mythos (adaptive-only, sampling rejected on *every*
+  request, thinking display defaults to `"omitted"` so visible thinking requires
+  `display:"summarized"`).
   `ThinkingBudget` intent: `null` auto, `0` off, `-1` adaptive+summarized, `>0` manual
   budget (clamped to the 1024 API minimum; `max_tokens` auto-bumped to exceed it).
+  `SupportsEffort` (4.6+ generations): adaptive thinking is sent with
+  `output_config:{effort:"medium"}` to temper the server default (`"high"`), which
+  over-reasons in pipeline loops and eats the shared `max_tokens` budget — the 2026-07-13
+  live-session truncation failures were exactly this. Default `max_tokens` when nothing is
+  wired is 32768 (thinking and answer share it); the manual-form default thinking budget
+  stays 8192, deliberately decoupled so the extra headroom goes to the answer.
 - **OpenAI protocol** (`Entry`: `ThinkingOnByDefault`, `UsesMaxCompletionTokens`,
   `AllowsSampling`): DeepSeek V4 needs `thinking:{type:"enabled"}` before it emits
   `reasoning_content`; o-series/GPT-5 need `max_completion_tokens` and reject sampling.

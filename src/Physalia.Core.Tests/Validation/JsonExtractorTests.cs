@@ -148,4 +148,41 @@ public class JsonExtractorTests
     {
         Assert.Equal("not json", JsonExtractor.PrettyPrint("not json"));
     }
+
+    [Fact]
+    public void LooksTruncated_DocumentCutMidObject_True()
+    {
+        // The shape of a max_tokens-truncated response: complete inner objects, then the cut.
+        string raw = "<think>reasoning</think>\n\n{\n  \"schema\": \"1.0\",\n  \"components\": [\n"
+            + "    { \"name\": \"Number Slider\", \"id\": 4 },\n    { \"name\": \"Division\", \"id\": 14, \"";
+
+        Assert.True(JsonExtractor.LooksTruncated(raw));
+    }
+
+    [Fact]
+    public void LooksTruncated_DocumentCutInsideStringLiteral_True()
+    {
+        string raw = "{ \"components\": [ { \"name\": \"Pi";
+
+        Assert.True(JsonExtractor.LooksTruncated(raw));
+    }
+
+    [Fact]
+    public void LooksTruncated_CompleteDocument_False()
+    {
+        Assert.False(JsonExtractor.LooksTruncated("prose {\"a\":1,\"b\":[2,3]} more prose"));
+    }
+
+    [Fact]
+    public void LooksTruncated_StrayBraceInProse_False()
+    {
+        // An unclosed brace with no string literal inside is prose, not a truncated document.
+        Assert.False(JsonExtractor.LooksTruncated("set the {width and height to taste"));
+    }
+
+    [Fact]
+    public void LooksTruncated_BlankInput_False()
+    {
+        Assert.False(JsonExtractor.LooksTruncated("   "));
+    }
 }

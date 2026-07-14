@@ -66,6 +66,16 @@ public class SchemaValidator : RoutingComponentBase<string>
         return Physalia.Core.Validation.SchemaValidator.Validate(extracted, schema) switch
         {
             Result<string, ValidationError>.Ok ok => RoutingResult.Ok(JsonExtractor.PrettyPrint(ok.Value)),
+
+            // A response cut off at the token limit leaves an unclosed JSON document; the
+            // extractor then recovers some inner fragment, and validating THAT against the
+            // document schema yields nonsense violations ("property 'name' is not allowed at
+            // the document root"). Say what actually happened instead of relaying them.
+            Result<string, ValidationError>.Err when JsonExtractor.LooksTruncated(data) => RoutingResult.Fail(
+                BuildTruncationFeedback(),
+                "The response was cut off mid-JSON (unclosed structure) — validation feedback replaced with a truncation notice.",
+                GH_RuntimeMessageLevel.Warning),
+
             Result<string, ValidationError>.Err err => RoutingResult.Fail(
                 BuildFeedback(err.Error), err.Error.Message, GH_RuntimeMessageLevel.Warning),
             _ => RoutingResult.Fail("Unknown validation result."),
@@ -91,15 +101,34 @@ public class SchemaValidator : RoutingComponentBase<string>
                 sb.AppendLine($"  - {v.Path}: {v.Message}");
         }
 
-        // The model may have applied a patch on an earlier turn, making its remembered base
-        // checksum stale; carry the fresh one so the corrected resubmission cannot mismatch.
+        AppendFreshChecksum(sb);
+        return sb.ToString().TrimEnd();
+    }
+
+    private string BuildTruncationFeedback()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(
+            "Your previous response was CUT OFF at the token limit in the middle of the JSON "
+            + "document (an opening brace is never closed), so it was rejected before any "
+            + "transmitter acted on it — nothing was placed or changed. This is a length problem, "
+            + "not a content problem: do not restructure the document. Re-send your ENTIRE "
+            + "response as one complete JSON document, keeping any reasoning brief so the full "
+            + "document fits within the response limit.");
+
+        AppendFreshChecksum(sb);
+        return sb.ToString().TrimEnd();
+    }
+
+    // The model may have applied a patch on an earlier turn, making its remembered base
+    // checksum stale; carry the fresh one so the corrected resubmission cannot mismatch.
+    private void AppendFreshChecksum(StringBuilder sb)
+    {
         if (OnPingDocument() is { } doc
             && Generation.GhJsonBridge.TryExportCanvasState(doc)?.Checksum is { Length: > 0 } checksum)
         {
             sb.AppendLine();
             sb.AppendLine("Current base checksum — copy this verbatim into patch.base.checksum: " + checksum);
         }
-
-        return sb.ToString().TrimEnd();
     }
 }

@@ -44,6 +44,15 @@ internal sealed record PlaceResult(
 internal static partial class GhJsonBridge
 {
     /// <summary>
+    /// Line prefix for per-operation patch confirmations riding the Component Transmitter's
+    /// Success payload after the placed/modified GUIDs. Downstream GUID parsers skip any
+    /// non-GUID line, so these lines are invisible to scan scoping; the Geometry Report lifts
+    /// them into its model-facing text so an applied modify is distinguishable from a silently
+    /// dropped one (the canvas checksum deliberately cannot answer that).
+    /// </summary>
+    internal const string AppliedOpLinePrefix = "applied-op: ";
+
+    /// <summary>
     /// True while <see cref="LoadAndPlace"/> is executing. Components that auto-place
     /// Pickers in <c>AddedToDocument</c> check this flag to suppress duplicate placement
     /// when the component was already wired in the imported file.

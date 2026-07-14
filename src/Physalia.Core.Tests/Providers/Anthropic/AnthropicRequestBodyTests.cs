@@ -139,6 +139,40 @@ public class AnthropicRequestBodyTests
     }
 
     [Fact]
+    public void Build_NoMaxTokens_DefaultsTo32K()
+    {
+        JsonObject body = Build(new AnthropicConfig("claude-sonnet-5", "key"));
+
+        Assert.Equal(32768, body["max_tokens"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Build_AdaptiveThinking_SendsMediumEffort()
+    {
+        JsonObject body = Build(new AnthropicConfig("claude-sonnet-5", "key"));
+
+        Assert.Equal("adaptive", body["thinking"]!["type"]!.GetValue<string>());
+        Assert.Equal("medium", body["output_config"]!["effort"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Build_Sonnet5_ThinkingDisabled_OmitsOutputConfig()
+    {
+        JsonObject body = Build(new AnthropicConfig("claude-sonnet-5", "key", ThinkingBudget: 0));
+
+        Assert.False(body.ContainsKey("output_config"));
+    }
+
+    [Fact]
+    public void Build_UnknownModel_ManualThinking_OmitsOutputConfig()
+    {
+        // The fallback profile is conservative: older models 400 on output_config.
+        JsonObject body = Build(new AnthropicConfig("claude-sonnet-4-5", "key", ThinkingBudget: 2048));
+
+        Assert.False(body.ContainsKey("output_config"));
+    }
+
+    [Fact]
     public void Build_AssistantHistoryWithThinkTags_Stripped()
     {
         Conversation conversation = Conversation.Empty

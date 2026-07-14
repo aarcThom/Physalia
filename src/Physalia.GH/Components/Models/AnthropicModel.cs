@@ -35,15 +35,19 @@ public class AnthropicModel : ModelComponentBase
         => new AnthropicConfig(ModelId: modelId, ApiKey: apiKey);
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Thinking and answer share this budget, so the default is a generous 32768 — 8192
+    /// truncated real responses mid-document once adaptive thinking ran.
+    /// </remarks>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddIntegerParameter("Max Tokens", "T", "Maximum number of tokens to generate (thinking + answer).", GH_ParamAccess.item, 8192);
+        pManager.AddIntegerParameter("Max Tokens", "T", "Maximum number of tokens to generate (thinking + answer).", GH_ParamAccess.item, 32768);
     }
 
     /// <inheritdoc/>
     protected override ModelConfig ApplyAdditionalInputs(ModelConfig config, IGH_DataAccess da)
     {
-        int maxTokens = 8192;
+        int maxTokens = 32768;
         da.GetData(2, ref maxTokens);
         return config is AnthropicConfig anthropic ? anthropic with { MaxTokens = maxTokens } : config;
     }

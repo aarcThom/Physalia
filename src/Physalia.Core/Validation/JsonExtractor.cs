@@ -70,6 +70,43 @@ public static class JsonExtractor
     }
 
     /// <summary>
+    /// Reports whether the raw output ends inside an unclosed JSON structure — the signature of
+    /// a response cut off at the token limit mid-document. When this is true, whatever
+    /// <see cref="ExtractJson"/> recovered is an inner fragment of the truncated document, and
+    /// validating that fragment produces misleading feedback ("property not allowed at the
+    /// document root") — the honest feedback is "your response was cut off".
+    /// </summary>
+    /// <param name="raw">Raw LLM output string.</param>
+    /// <returns>True when an opening brace or bracket never closes before the end of the text.</returns>
+    public static bool LooksTruncated(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return false;
+
+        int i = 0;
+        while (i < raw.Length)
+        {
+            if (raw[i] == '{' || raw[i] == '[')
+            {
+                if (TryScanBalanced(raw, i, out int end, out bool ranOffEnd))
+                {
+                    i = end + 1;
+                    continue;
+                }
+
+                // The structure swallowed the rest of the text without closing. Require a quote
+                // inside it so a stray brace in trailing prose ("...the {width} value") does not
+                // read as truncation — a real JSON document always contains string literals.
+                if (ranOffEnd && raw.IndexOf('"', i) > i)
+                    return true;
+            }
+
+            i++;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Collects the contents of every fenced block opened by <paramref name="fence"/> and closed
     /// by the next <c>```</c>, in document order.
     /// </summary>
@@ -115,7 +152,7 @@ public static class JsonExtractor
 
         while (i < raw.Length)
         {
-            if ((raw[i] == '{' || raw[i] == '[') && TryScanBalanced(raw, i, out int end))
+            if ((raw[i] == '{' || raw[i] == '[') && TryScanBalanced(raw, i, out int end, out _))
             {
                 candidates.Add(raw.Substring(i, end - i + 1));
                 i = end + 1;
@@ -136,10 +173,12 @@ public static class JsonExtractor
     /// <param name="raw">Raw LLM output string.</param>
     /// <param name="start">Index of the opening brace or bracket.</param>
     /// <param name="end">Receives the index of the matching closer.</param>
+    /// <param name="ranOffEnd">Receives true when the input ended while the structure was still open — a truncated document rather than a mismatched one.</param>
     /// <returns>True when the opener closes with matching nesting; false on mismatch or end of input.</returns>
-    private static bool TryScanBalanced(string raw, int start, out int end)
+    private static bool TryScanBalanced(string raw, int start, out int end, out bool ranOffEnd)
     {
         end = -1;
+        ranOffEnd = false;
         var closers = new Stack<char>();
         bool inString = false;
 
@@ -181,6 +220,7 @@ public static class JsonExtractor
             }
         }
 
+        ranOffEnd = closers.Count > 0;
         return false;
     }
 

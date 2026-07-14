@@ -12,13 +12,15 @@ namespace Physalia.Core.Models.Defaults;
 /// </summary>
 /// <remarks>
 /// Design guidelines for editing this table: <c>planning/model-defaults.md</c> (repo root).
-/// Source: platform.claude.com/docs/en/build-with-claude/adaptive-thinking
-/// (checked 2026-07-11). Generational summary: Sonnet 4.6 / Opus 4.6 and earlier accept
+/// Source: platform.claude.com/docs/en/build-with-claude/adaptive-thinking and
+/// platform.claude.com/docs/en/build-with-claude/effort (checked 2026-07-13).
+/// Generational summary: Sonnet 4.6 / Opus 4.6 and earlier accept
 /// the manual <c>enabled</c>/<c>budget_tokens</c> form and normal sampling parameters.
 /// Sonnet 5 / Opus 4.7+ / Fable / Mythos are adaptive-only (manual form is 400-rejected),
 /// reject non-default temperature/top_p/top_k on every request, and default their thinking
 /// display to "omitted" (empty thinking deltas) — visible thinking must be requested via
-/// <c>display: "summarized"</c>.
+/// <c>display: "summarized"</c>. The 4.6+ generations accept
+/// <c>output_config: { effort }</c> (server default "high"); older models 400 on it.
 /// </remarks>
 public static class AnthropicModelDefaults
 {
@@ -37,12 +39,19 @@ public static class AnthropicModelDefaults
     /// Whether non-default temperature/top_p/top_k are accepted. The newest generations
     /// reject them on every request, thinking or not.
     /// </param>
+    /// <param name="SupportsEffort">
+    /// Whether <c>output_config: { effort }</c> is accepted. The request builder sends
+    /// effort "medium" alongside adaptive thinking on these models to temper the server
+    /// default ("high"), which over-reasons in pipeline loops and starves the answer of
+    /// max_tokens budget. Older models 400 on the field, so the fallback omits it.
+    /// </param>
     public sealed record Entry(
         bool SupportsAdaptive,
         bool SupportsManualBudget,
         bool ThinkingOnByDefault,
         bool SupportsDisabled,
-        bool AllowsSampling);
+        bool AllowsSampling,
+        bool SupportsEffort);
 
     /// <summary>
     /// Conservative profile for models not in the table: manual budget form only,
@@ -54,7 +63,8 @@ public static class AnthropicModelDefaults
         SupportsManualBudget: true,
         ThinkingOnByDefault: false,
         SupportsDisabled: true,
-        AllowsSampling: true);
+        AllowsSampling: true,
+        SupportsEffort: false);
 
     // Ordered — first substring match wins, so put more specific patterns first.
     // Patterns are matched case-insensitively against the full model ID, which keeps
@@ -62,21 +72,21 @@ public static class AnthropicModelDefaults
     private static readonly (string Pattern, Entry Entry)[] KnownModels =
     {
         // Fable / Mythos: adaptive always on, cannot be disabled, no sampling params.
-        ("fable", new Entry(true, false, true, false, false)),
-        ("mythos-preview", new Entry(true, true, true, false, false)),
-        ("mythos", new Entry(true, false, true, false, false)),
+        ("fable", new Entry(true, false, true, false, false, true)),
+        ("mythos-preview", new Entry(true, true, true, false, false, true)),
+        ("mythos", new Entry(true, false, true, false, false, true)),
 
         // Opus 4.7 / 4.8: adaptive-only, thinking off unless requested, no sampling params.
-        ("opus-4-8", new Entry(true, false, false, true, false)),
-        ("opus-4-7", new Entry(true, false, false, true, false)),
+        ("opus-4-8", new Entry(true, false, false, true, false, true)),
+        ("opus-4-7", new Entry(true, false, false, true, false, true)),
 
         // Sonnet 5: adaptive-only, thinking ON by default, no sampling params.
-        ("sonnet-5", new Entry(true, false, true, true, false)),
+        ("sonnet-5", new Entry(true, false, true, true, false, true)),
 
         // Opus 4.6 / Sonnet 4.6: adaptive and (deprecated) manual both accepted,
         // thinking off by default, sampling params accepted.
-        ("opus-4-6", new Entry(true, true, false, true, true)),
-        ("sonnet-4-6", new Entry(true, true, false, true, true)),
+        ("opus-4-6", new Entry(true, true, false, true, true, true)),
+        ("sonnet-4-6", new Entry(true, true, false, true, true, true)),
     };
 
     /// <summary>

@@ -192,6 +192,23 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
         if (StopReasons.IsTruncation(_stopReason))
         {
             warning = "Response was truncated at the max token limit — raise Max Tokens (or lower the Thinking Budget) on the model component.";
+
+            // Truncated AND nothing usable after stripping thinking: routing this forward as
+            // Success would hand downstream an empty payload that dead-ends quietly (the exact
+            // silent-stall failure of the 2026-07-13 session). Fail the round with corrective
+            // feedback instead, so a wired feedback loop retries and an unwired one at least
+            // shows a failed component instead of nothing.
+            if (_toolCalls is not { Count: > 0 } && !StringHelpers.IsNonBlank(ThinkingTags.Strip(_response)))
+            {
+                return RoutingResult.Fail(
+                    "Your previous response hit the maximum token limit while still reasoning and "
+                    + "was cut off before any answer text was produced — nothing downstream received "
+                    + "it, and nothing was placed or changed. Re-send your ENTIRE response now: keep "
+                    + "the reasoning brief and produce the answer immediately, because the same token "
+                    + "limit applies to this attempt.",
+                    warning,
+                    GH_RuntimeMessageLevel.Warning);
+            }
         }
         else if (StringHelpers.IsNonBlank(_response) && !StringHelpers.IsNonBlank(ThinkingTags.Strip(_response)))
         {

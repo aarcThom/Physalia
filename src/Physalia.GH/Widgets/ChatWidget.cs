@@ -32,6 +32,12 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
     public override GH_LoadingInstruction PriorityLoad()
     {
         GH_Canvas.WidgetListCreated += AddWidgets;
+
+        // Runtime-message recording defaults ON so transient pipeline errors and warnings (a
+        // truncated LLM response, a failed guardrail) land in the signal trace without the user
+        // having opted in before the failure happened. The trace-window toggle still turns it
+        // off. No canvas exists yet at priority load; the trace defers its event hookup.
+        Diagnostics.RuntimeMessageTrace.Enabled = true;
         return GH_LoadingInstruction.Proceed;
     }
 

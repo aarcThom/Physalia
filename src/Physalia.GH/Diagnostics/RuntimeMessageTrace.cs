@@ -14,10 +14,12 @@ using Physalia.GH.Components;
 namespace Physalia.GH.Diagnostics;
 
 /// <summary>
-/// Opt-in recorder of runtime errors and warnings on signal-lifecycle components
+/// Recorder of runtime errors and warnings on signal-lifecycle components
 /// (<see cref="StatefulComponentBase"/> subclasses), interspersed with the signal trace by time
-/// in the trace window. Toggled from the trace window; recording continues while the window is
-/// closed (the toggle is process state, like the signal log itself).
+/// in the trace window. ON by default (enabled at plugin load — a truncated LLM response or a
+/// transient pipeline error must land in the trace without the user having opted in first);
+/// toggleable from the trace window, and recording continues while the window is closed (the
+/// toggle is process state, like the signal log itself).
 ///
 /// <para>Presence is sampled at every <c>GH_Document.SolutionEnd</c> of the active document:
 /// a message first seen at one solution end opens a record, and its disappearance at a later
@@ -116,15 +118,38 @@ internal static class RuntimeMessageTrace
     }
 
     // Subscribes to active-canvas document switches once per process; safe to call repeatedly.
+    // When recording is enabled before any canvas exists (the plugin-load default), the hookup
+    // is deferred until Grasshopper creates one.
     private static void HookCanvas()
     {
-        if (_canvasHooked || Instances.ActiveCanvas is not { } canvas)
+        if (_canvasHooked)
+        {
+            return;
+        }
+
+        if (Instances.ActiveCanvas is not { } canvas)
+        {
+            Instances.CanvasCreated -= OnCanvasCreated;
+            Instances.CanvasCreated += OnCanvasCreated;
+            return;
+        }
+
+        canvas.DocumentChanged += OnDocumentChanged;
+        _canvasHooked = true;
+    }
+
+    private static void OnCanvasCreated(GH_Canvas canvas)
+    {
+        Instances.CanvasCreated -= OnCanvasCreated;
+
+        if (!_enabled || _canvasHooked)
         {
             return;
         }
 
         canvas.DocumentChanged += OnDocumentChanged;
         _canvasHooked = true;
+        HookDocument(canvas.Document);
     }
 
     private static void OnDocumentChanged(GH_Canvas sender, GH_CanvasDocumentChangedEventArgs e)

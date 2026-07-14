@@ -202,15 +202,23 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 
         if (outcome.Success)
         {
-            // The Success payload stays pure GUIDs (the Runtime Health Check scopes its scan on
-            // it); the per-op confirmation surfaces as a component remark for the human. The
-            // model-facing confirmation contract is the grounding's checksum note: a clean patch
-            // outcome means every op landed, checksum movement notwithstanding.
-            string? applied = outcome.AppliedOps is { Count: > 0 } ops
-                ? $"Patch applied cleanly: {outcome.AddedGuids.Count} added, {outcome.ModifiedGuids.Count} modified ({ops.Count} modify op(s)), {outcome.RemovedGuids.Count} removed."
-                : null;
+            // The Success payload leads with the GUIDs (the Runtime Health Check scopes its
+            // scan on them) and appends one prefixed line per applied modify op. GUID parsers
+            // skip non-GUID lines, and the Geometry Report lifts the op lines into its
+            // model-facing text — without them the model cannot tell an applied-but-ineffective
+            // modify from a silently dropped one (the checksum deliberately cannot answer that)
+            // and wastes rounds re-testing both hypotheses.
+            string payload = SerializeGuids(outcome.AddedGuids.Concat(outcome.ModifiedGuids));
+            string? applied = null;
+            if (outcome.AppliedOps is { Count: > 0 } ops)
+            {
+                applied = $"Patch applied cleanly: {outcome.AddedGuids.Count} added, {outcome.ModifiedGuids.Count} modified ({ops.Count} modify op(s)), {outcome.RemovedGuids.Count} removed.";
+                string opLines = string.Join("\n", ops.Select(op => GhJsonBridge.AppliedOpLinePrefix + op));
+                payload = string.IsNullOrEmpty(payload) ? opLines : payload + "\n" + opLines;
+            }
+
             return RoutingResult.Ok(
-                SerializeGuids(outcome.AddedGuids.Concat(outcome.ModifiedGuids)),
+                payload,
                 message: applied,
                 level: GH_RuntimeMessageLevel.Remark);
         }

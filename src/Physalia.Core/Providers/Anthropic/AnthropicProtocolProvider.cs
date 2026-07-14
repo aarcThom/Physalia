@@ -27,9 +27,26 @@ namespace Physalia.Core.Providers.Anthropic;
 public abstract class AnthropicProtocolProvider : ProtocolProviderBase<AnthropicProtocolConfig>
 {
     private const string AnthropicVersion = "2023-06-01";
-    private const int FallbackMaxTokens = 8192;
+
+    // Thinking tokens share the max_tokens budget on this protocol, so the default must
+    // leave room for reasoning AND a full GhJSON document. 8192 was measured too small in
+    // live pipeline runs: adaptive thinking consumed it whole and the answer truncated
+    // mid-JSON (or never started). Streaming means the higher ceiling has no timeout cost.
+    private const int FallbackMaxTokens = 32768;
+
+    // Default budget for the manual thinking form (adaptive intent mapped onto a
+    // manual-budget-only model). Deliberately NOT tied to FallbackMaxTokens — the answer,
+    // not the reasoning, should get the extra room.
+    private const int DefaultManualThinkingBudget = 8192;
+
     private const int MinThinkingBudget = 1024;
     private const int ThinkingAnswerHeadroom = 4096;
+
+    // Effort sent alongside adaptive thinking on models that accept output_config. The
+    // server default is "high", which over-reasons in pipeline loops; "medium" tempers
+    // thinking depth while keeping it visible. Explicit Tweaker thinking values still
+    // control whether thinking runs at all.
+    private const string AdaptiveThinkingEffort = "medium";
 
     /// <summary>
     /// Builds the JSON request body. Override in subclasses to inject provider-specific fields.
@@ -45,7 +62,9 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
     /// applies the model's known behaviour (models that think by default get summarized
     /// display so the billed thinking is visible), while explicit values are mapped to the
     /// thinking form the model actually accepts (adaptive-only generations reject the manual
-    /// <c>enabled</c>/<c>budget_tokens</c> form and vice versa).
+    /// <c>enabled</c>/<c>budget_tokens</c> form and vice versa). Adaptive thinking is sent
+    /// with <c>output_config: { effort: "medium" }</c> on models that accept it, tempering
+    /// the server's "high" default so reasoning does not starve the answer of tokens.
     /// </remarks>
     protected virtual JsonObject BuildRequestBody(
         Conversation conversation,
@@ -92,7 +111,7 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
                 {
                     // Older generations have no adaptive form; honour the intent
                     // ("thinking on, visible") with a manual default budget.
-                    manualBudget = FallbackMaxTokens;
+                    manualBudget = DefaultManualThinkingBudget;
                 }
 
                 break;
@@ -142,6 +161,16 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
         if (thinking is not null)
         {
             body["thinking"] = thinking;
+        }
+
+        // Adaptive thinking without an effort level runs at the server default ("high"),
+        // which reasons far more than a canvas-editing loop needs and eats the shared
+        // max_tokens budget. Temper it to "medium" on models that accept the field.
+        if (model.SupportsEffort
+            && thinking is not null
+            && thinking["type"]!.GetValue<string>() == "adaptive")
+        {
+            body["output_config"] = new JsonObject { ["effort"] = AdaptiveThinkingEffort };
         }
 
         // Sampling parameters are omitted whenever thinking is active (extended thinking

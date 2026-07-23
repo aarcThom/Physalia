@@ -565,8 +565,10 @@ public class GeometryReport : RoutingComponentBase<string>
             "GEOMETRY REPORT — measured facts about the geometry your graph currently produces on "
             + "the canvas. The graph solved cleanly; nothing below is an error. Compare these facts "
             + "against your design intent: positions, sizes, proportions, and whether parts connect, "
-            + "float apart, or sit inside one another. Each entry names its component by nickname and "
-            + $"instanceGuid so you can address the exact component in a patch. Units: {units}; "
+            + "float apart, or sit inside one another. Each entry names its component by nickname, "
+            + "canvas id, and instanceGuid — the same identities the canvas state uses, so in a patch "
+            + "you can match the component by instanceGuid and reference its connection endpoints by "
+            + $"the id, without cross-referencing the canvas state. Units: {units}; "
             + "coordinates are world XYZ; bbox is the axis-aligned bounding box.");
         sb.AppendLine();
         sb.AppendLine(
@@ -766,15 +768,21 @@ public class GeometryReport : RoutingComponentBase<string>
 
     /// <summary>
     /// Labels a measured object for the report: name, nickname (when it differs from the name),
-    /// and instanceGuid — the same identity the canvas-state grounding exports, so the model can
-    /// address the exact component in a patch.
+    /// the session-stable canvas id (when the object has one — the id the canvas state shows and a
+    /// patch's connection endpoints use), and instanceGuid (the identity a patch's match block
+    /// uses). Both identity frames in one place, so the model never has to cross-reference the
+    /// full canvas export to map a report entry onto patch targets.
     /// </summary>
     /// <param name="obj">The measured object.</param>
     /// <returns>The report label.</returns>
     private static string Label(IGH_DocumentObject obj)
     {
+        string id = Generation.GhJsonBridge.TryGetStableId(obj.OnPingDocument(), obj.InstanceGuid, out int stable)
+            ? $"id {stable}, "
+            : string.Empty;
+
         return !string.IsNullOrWhiteSpace(obj.NickName) && !string.Equals(obj.NickName, obj.Name, StringComparison.Ordinal)
-            ? $"{obj.Name} '{obj.NickName}' ({obj.InstanceGuid})"
-            : $"{obj.Name} ({obj.InstanceGuid})";
+            ? $"{obj.Name} '{obj.NickName}' ({id}{obj.InstanceGuid})"
+            : $"{obj.Name} ({id}{obj.InstanceGuid})";
     }
 }

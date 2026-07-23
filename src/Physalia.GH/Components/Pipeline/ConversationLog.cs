@@ -759,10 +759,27 @@ public class ConversationLog : StatefulComponentBase
     // same as an empty canvas, which drops the model back to full-document generation.
     private Grounding FreshCanvasStateGrounding()
     {
-        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(OnPingDocument());
-        return snapshot is null
-            ? new CanvasStateGrounding(string.Empty, string.Empty, 0)
-            : new CanvasStateGrounding(snapshot.Json, snapshot.Checksum, snapshot.ComponentCount, GhJsonBridge.CountModelPlaced(OnPingDocument()));
+        GH_Document? doc = OnPingDocument();
+        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(doc);
+        if (snapshot is null)
+        {
+            return new CanvasStateGrounding(string.Empty, string.Empty, 0);
+        }
+
+        // One-shot: set exactly on the turn after a placement that lost the model's authored ids,
+        // so the model reads this canvas state's numbering as authoritative instead of patching
+        // against ids only it remembers.
+        string? numberingNote = GhJsonBridge.ConsumePlacementNumberingLoss(doc)
+            ? "IMPORTANT: your last placement could NOT keep the component ids you authored — the placed "
+              + "components have been renumbered. The ids shown in THIS canvas state are the authoritative "
+              + "numbering; use only these ids (never the ids from your own earlier submission) for "
+              + "connection endpoints and group members."
+            : null;
+
+        return new CanvasStateGrounding(snapshot.Json, snapshot.Checksum, snapshot.ComponentCount, GhJsonBridge.CountModelPlaced(doc))
+        {
+            NumberingNote = numberingNote,
+        };
     }
 
     // Maps a Signal input index to the turn kind it designates. Turn type comes from input

@@ -480,16 +480,22 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
 
     /// <summary>
     /// Labels a scanned object for the feedback report: name, nickname (when it differs from the
-    /// name), and instanceGuid — the same identity the canvas-state grounding exports, so the
-    /// model can address the exact component in a patch instead of guessing among same-named ones.
+    /// name), the session-stable canvas id when the object has one (the id a patch's connection
+    /// endpoints use), and instanceGuid — the same identities the canvas-state grounding exports,
+    /// so the model can address the exact component in a patch instead of guessing among
+    /// same-named ones.
     /// </summary>
     /// <param name="obj">The scanned object.</param>
     /// <returns>The feedback label.</returns>
     private static string Label(IGH_DocumentObject obj)
     {
+        string id = Generation.GhJsonBridge.TryGetStableId(obj.OnPingDocument(), obj.InstanceGuid, out int stable)
+            ? $"id {stable}, "
+            : string.Empty;
+
         return !string.IsNullOrWhiteSpace(obj.NickName) && !string.Equals(obj.NickName, obj.Name, StringComparison.Ordinal)
-            ? $"{obj.Name} '{obj.NickName}' ({obj.InstanceGuid})"
-            : $"{obj.Name} ({obj.InstanceGuid})";
+            ? $"{obj.Name} '{obj.NickName}' ({id}{obj.InstanceGuid})"
+            : $"{obj.Name} ({id}{obj.InstanceGuid})";
     }
 
     /// <inheritdoc/>

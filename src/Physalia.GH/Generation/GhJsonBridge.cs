@@ -1048,8 +1048,12 @@ internal static partial class GhJsonBridge
 
             // Claim the file's ids for the placed objects in the stable-id registry, so the next
             // canvas export keeps the numbering the model authored (ids already taken by earlier
-            // exports fall through to fresh assignment at export time).
-            RegisterStableIds(hostDoc, result.IdToGuidMapping);
+            // exports fall through to fresh assignment at export time). The claims are derived
+            // from the placed objects' CURRENT instanceGuids where possible — the library's
+            // creation-time mapping can go stale if anything regenerates a guid after creation,
+            // and a stale claim silently forfeits the numbering at the next export.
+            IReadOnlyList<KeyValuePair<int, Guid>> idClaims = DeriveIdClaims(doc, result);
+            RegisterStableIds(hostDoc, idClaims);
 
             // On the LLM path (with the authored numbering intact), also remember which authored
             // id each placed object realised — the Fidelity Check's ground truth. The stable-id
@@ -1058,7 +1062,34 @@ internal static partial class GhJsonBridge
             // ids the model authored.
             if (recordAuthoredIds)
             {
-                RecordAuthoredPlacement(hostDoc, result.IdToGuidMapping);
+                RecordAuthoredPlacement(hostDoc, idClaims);
+            }
+
+            // Verify the numbering promise on the LLM path: the system prompt tells the model
+            // "components you add keep the ids you gave them", and the model demonstrably patches
+            // by its own ids on later turns — so a broken promise must be LOUD, not silent. When
+            // the authored ids were not restored, or any claim failed to verify against the
+            // registry and the live document, flag the loss: the next canvas-state fold tells the
+            // model its numbering moved, and the transmitter surfaces a local warning.
+            if (paramIndexFirst)
+            {
+                int verifiedClaims = idClaims.Count(pair =>
+                    hostDoc?.FindObject(pair.Value, false) is not null
+                    && TryGetStableId(hostDoc, pair.Value, out int stable)
+                    && stable == pair.Key);
+
+                if (!recordAuthoredIds || verifiedClaims < idClaims.Count)
+                {
+                    MarkPlacementNumberingLoss(hostDoc);
+                    wireFailures.Add(
+                        "Model-authored component ids were not fully preserved through placement "
+                        + $"(authored numbering restored: {recordAuthoredIds}; id claims verified: {verifiedClaims}/{idClaims.Count}). "
+                        + "The model is warned via the next canvas state, which carries the authoritative renumbering.");
+                    Rhino.RhinoApp.WriteLine(
+                        $"[Physalia] Placement did not preserve the model's component ids (restored: {recordAuthoredIds}; "
+                        + $"claims verified: {verifiedClaims}/{idClaims.Count}; placed: {result.PlacedObjects.Count}; "
+                        + $"failed: {result.FailedComponents.Count}). The model will be warned via the next canvas state.");
+                }
             }
             bool clustersPlaced = clusterPlan is not null
                 && PlaceClusters(clusterPlan, hostDoc, result, clusterGuids, clusterWarnings, paramIndexFirst);
@@ -1082,6 +1113,33 @@ internal static partial class GhJsonBridge
         return result.Success
             ? new PlaceResult(true, result.ComponentsPlaced + clusterGuids.Count, result.ConnectionsCreated + wiredCount, warnings.Count, null, placedGuids, warnings, unfixedIssues)
             : new PlaceResult(false, 0, 0, 0, result.ErrorMessage, Array.Empty<Guid>(), Array.Empty<string>(), unfixedIssues);
+    }
+
+    // Pairs each placed object's id with its CURRENT instanceGuid for the stable-id registry and
+    // the authored-placement ledger. When every component placed, the Put loop's order matches the
+    // document exactly, so the pairs come from the live object references themselves; a partial
+    // placement falls back to the library's creation-time mapping (its guids can go stale, but
+    // order-based pairing would misalign past the first skipped component, which is worse).
+    private static IReadOnlyList<KeyValuePair<int, Guid>> DeriveIdClaims(GhJsonDocument doc, PutResult result)
+    {
+        IReadOnlyList<GhJsonComponent>? components = doc.Components;
+        if (components is not null
+            && result.FailedComponents.Count == 0
+            && result.PlacedObjects.Count == components.Count)
+        {
+            var pairs = new List<KeyValuePair<int, Guid>>(components.Count);
+            for (int i = 0; i < components.Count; i++)
+            {
+                if (components[i].Id is int id)
+                {
+                    pairs.Add(new KeyValuePair<int, Guid>(id, result.PlacedObjects[i].InstanceGuid));
+                }
+            }
+
+            return pairs;
+        }
+
+        return result.IdToGuidMapping.ToList();
     }
 
     // True when a component was stamped as a cluster reference by the Component Resolver (see StampClusterReference).

@@ -636,6 +636,17 @@ internal static partial class GhJsonBridge
                 continue;
             }
 
+            // A componentState extension that cannot apply to this component's type must fail
+            // LOUDLY here. Without this check the op falls to the replace path, the rebuilt
+            // component silently ignores the foreign extension, and the outcome reports the op as
+            // applied — the model is then told a do-nothing change landed and burns rounds
+            // reverse-engineering why the value never moved (observed live: gh.numberslider on a
+            // Construct Domain, confirmed "rebuilt with wires preserved" twice).
+            if (!ValidateModifyExtensions(modify, live, conflicts))
+            {
+                continue;
+            }
+
             if (TryFastPathModify(modify, live))
             {
                 modifiedGuids.Add(guid);
@@ -662,6 +673,45 @@ internal static partial class GhJsonBridge
                 appliedOps.Add(DescribeModify(modify, live, inPlace: false));
             }
         }
+    }
+
+    // Rejects componentState extension sets that cannot apply to the matched component's type:
+    // gh.numberslider only means something on a Number Slider, gh.panel only on a Panel. Anything
+    // else (physalia.* markers, library extensions) passes through unchecked as before. Returns
+    // false — with one model-facing conflict per offending key, naming the fix — when the modify
+    // must not be applied.
+    private static bool ValidateModifyExtensions(GhPatchComponentModify modify, IGH_DocumentObject live, List<string> conflicts)
+    {
+        if (modify.ComponentState?.Extensions?.Set is not { } sets)
+        {
+            return true;
+        }
+
+        bool valid = true;
+        foreach (string key in sets.Keys)
+        {
+            string? fix = key switch
+            {
+                "gh.numberslider" when live is not GHNumberSlider =>
+                    "gh.numberslider applies only to Number Slider components. To change this component's "
+                    + "values, set its inputSettings.byParameterName internalizedData instead; to change a "
+                    + "slider, match the slider component itself.",
+                "gh.panel" when live is not GHPanel =>
+                    "gh.panel applies only to Panel components. To change this component's values, set its "
+                    + "inputSettings.byParameterName internalizedData instead.",
+                _ => null,
+            };
+
+            if (fix is not null)
+            {
+                conflicts.Add(
+                    $"invalid_op: componentState extension '{key}' does not apply to '{live.NickName}' "
+                    + $"({live.Name}, {live.InstanceGuid}) — the modify was NOT applied. {fix}");
+                valid = false;
+            }
+        }
+
+        return valid;
     }
 
     // Names a modify's target for the match_not_found conflict, using whatever identity the model authored.
@@ -1179,8 +1229,28 @@ internal static partial class GhJsonBridge
         }
 
         // Claim the (possibly remapped) add ids for the placed objects, so the next canvas export
-        // keeps the numbering the model authored and its remembered ids stay valid.
-        RegisterStableIds(doc, result.IdToGuidMapping);
+        // keeps the numbering the model authored and its remembered ids stay valid. Claims come
+        // from DeriveIdClaims (the live objects' CURRENT guids when every add placed), and are
+        // verified: an add that lost its authored id flags the numbering loss so the next canvas
+        // state tells the model instead of leaving it to patch by remembered ids.
+        IReadOnlyList<KeyValuePair<int, Guid>> idClaims = DeriveIdClaims(addDoc, result);
+        RegisterStableIds(doc, idClaims);
+
+        int verifiedClaims = idClaims.Count(pair =>
+            doc.FindObject(pair.Value, false) is not null
+            && TryGetStableId(doc, pair.Value, out int stable)
+            && stable == pair.Key);
+        if (verifiedClaims < idClaims.Count)
+        {
+            MarkPlacementNumberingLoss(doc);
+            warnings.Add(
+                "Model-authored ids for this patch's added components were not fully preserved "
+                + $"(id claims verified: {verifiedClaims}/{idClaims.Count}). "
+                + "The model is warned via the next canvas state, which carries the authoritative renumbering.");
+            Rhino.RhinoApp.WriteLine(
+                $"[Physalia] Patch add did not preserve the model's component ids (claims verified: "
+                + $"{verifiedClaims}/{idClaims.Count}; placed: {result.PlacedObjects.Count}; failed: {result.FailedComponents.Count}).");
+        }
 
         // The library nulls internalized values it cannot cast (generic params like Division's B);
         // re-apply the authored data wherever the placed persistent data does not match it.

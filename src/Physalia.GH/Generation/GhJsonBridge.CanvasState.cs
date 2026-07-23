@@ -49,6 +49,12 @@ internal static partial class GhJsonBridge
     // process restarts, and the first export of a session defines the numbering from then on.
     private static readonly ConditionalWeakTable<GH_Document, StableIdRegistry> StableIdRegistries = new();
 
+    // Set when an LLM placement could not keep the model's authored component ids (the restore
+    // precondition failed, or the registry claims did not verify), consumed by the next canvas-state
+    // fold so the model is TOLD the numbering moved instead of silently patching against ids only it
+    // remembers. Weak-keyed and session-only, like the registry itself.
+    private static readonly ConditionalWeakTable<GH_Document, object> PlacementNumberingLossFlags = new();
+
     /// <summary>
     /// One export of the user's canvas: the parsed document (the patch base), its serialized JSON
     /// (the grounding text), the checksum over that JSON, and the component count.
@@ -270,12 +276,77 @@ internal static partial class GhJsonBridge
         }
     }
 
+    /// <summary>
+    /// Looks up the session-stable id an object was exported/placed under, without assigning one.
+    /// False when the object has never been through an export or a claimed placement — callers
+    /// (e.g. the Geometry Report) omit the id rather than mint numbering the model has not seen.
+    /// </summary>
+    /// <param name="doc">The document the object lives in; null returns false.</param>
+    /// <param name="guid">The object's instanceGuid.</param>
+    /// <param name="id">The stable id when known.</param>
+    /// <returns>True when the object has a registered stable id.</returns>
+    internal static bool TryGetStableId(GH_Document? doc, Guid guid, out int id)
+    {
+        id = 0;
+        return doc is not null
+            && StableIdRegistries.TryGetValue(doc, out StableIdRegistry? registry)
+            && registry.TryGet(guid, out id);
+    }
+
+    /// <summary>
+    /// Records that an LLM placement failed to keep the model's authored component ids on this
+    /// document, so the next canvas-state fold warns the model that the numbering moved.
+    /// </summary>
+    /// <param name="doc">The document the placement landed on; null is a no-op.</param>
+    internal static void MarkPlacementNumberingLoss(GH_Document? doc)
+    {
+        if (doc is not null)
+        {
+            PlacementNumberingLossFlags.AddOrUpdate(doc, new object());
+        }
+    }
+
+    /// <summary>
+    /// Consumes the placement-numbering-loss flag: true exactly once after a placement that lost
+    /// the model's numbering, then false until it happens again. Called by the Conversation Log
+    /// when folding the fresh canvas state, so the warning rides exactly the turn where the model
+    /// would otherwise patch against ids only it remembers.
+    /// </summary>
+    /// <param name="doc">The document to check; null returns false.</param>
+    /// <returns>True when a numbering loss was pending.</returns>
+    internal static bool ConsumePlacementNumberingLoss(GH_Document? doc)
+    {
+        if (doc is null || !PlacementNumberingLossFlags.TryGetValue(doc, out _))
+        {
+            return false;
+        }
+
+        PlacementNumberingLossFlags.Remove(doc);
+        return true;
+    }
+
     // Rewrites the export's insertion-order ids (components, connection endpoints, groups and
     // their members) onto the session-stable ids. Two passes: the old->stable map is computed
     // from the original ids first, then applied, so a swapped pair cannot alias mid-rewrite.
     private static void AssignStableIds(GhJsonDocument export, GH_Document doc)
     {
         StableIdRegistry registry = StableIdRegistries.GetOrCreateValue(doc);
+
+        // Second chance for model-authored numbering: objects the authored-placement ledger knows
+        // (placed from the model's own submissions) but the registry has never seen claim their
+        // authored ids before anything resolves fresh — so even a placement whose registry claims
+        // were lost still exports under the model's numbering wherever those ids are free. A
+        // pre-pass, so a fresh Resolve cannot mint an id the ledger is about to claim.
+        if (AuthoredPlacementLedgers.TryGetValue(doc, out Dictionary<Guid, int>? ledger))
+        {
+            foreach (GhJsonComponent component in export.Components ?? Enumerable.Empty<GhJsonComponent>())
+            {
+                if (component.InstanceGuid is Guid guid && ledger.TryGetValue(guid, out int authoredId))
+                {
+                    registry.Claim(guid, authoredId);
+                }
+            }
+        }
 
         var remap = new Dictionary<int, int>();
         foreach (GhJsonComponent component in export.Components ?? Enumerable.Empty<GhJsonComponent>())
@@ -335,6 +406,9 @@ internal static partial class GhJsonBridge
         private readonly Dictionary<Guid, int> _byGuid = new();
         private readonly HashSet<int> _used = new();
         private int _next = 1;
+
+        // Looks up the object's stable id without assigning one.
+        public bool TryGet(Guid guid, out int id) => _byGuid.TryGetValue(guid, out id);
 
         // Returns the object's stable id, assigning the next free one on first sight.
         public int Resolve(Guid guid)

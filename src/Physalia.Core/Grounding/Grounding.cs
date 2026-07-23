@@ -273,6 +273,14 @@ public sealed record ReferencedGeometryInput(string Name, string TypeName);
 /// </param>
 public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, int ComponentCount, int ModelPlacedCount = 0) : Grounding
 {
+    /// <summary>
+    /// Gets an optional one-shot warning rendered with the section — set when the model's last
+    /// placement could not keep its authored component ids, so it is told outright that the ids in
+    /// this canvas state are the authoritative renumbering (never its own remembered numbering).
+    /// Null renders nothing.
+    /// </summary>
+    public string? NumberingNote { get; init; }
+
     /// <inheritdoc/>
     public override string ToSystemPromptSection()
     {
@@ -304,6 +312,10 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
               + "the user's components without touching them); emit a ghpatch only if the user asks you "
               + "to change these existing components.";
 
+        string numberingLine = string.IsNullOrWhiteSpace(NumberingNote)
+            ? string.Empty
+            : NumberingNote!.Trim() + "\n";
+
         return "This is the CURRENT state of the Grasshopper canvas, serialized as GhJSON. It is the "
             + "definition the user is building. To EDIT existing components, emit a ghpatch document: "
             + "match them by their instanceGuid, reference connection endpoints by the "
@@ -314,6 +326,7 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
             + "physalia.rhinoRef extension reference live geometry in the Rhino model — wire FROM them "
             + "as data sources; never modify their values, remove them, or recreate them.\n"
             + provenanceLine + "\n"
+            + numberingLine
             + GhJsonText.Trim()
             + checksumLine;
     }

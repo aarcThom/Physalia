@@ -1,6 +1,7 @@
 # Physalia Project Memory
 
 ## Latest
+- [Geometry Snapshot grounding](geometry-snapshot-grounding.md) — 2026-07-23: composer geometry BUTTON sends viewport snapshot + editable predefined message as its own message (never auto-attached — explicit design call); shows only when grounding wired + transmitter geometry exists. Builds+300 tests clean, live test pending.
 - [Balcony session debug](balcony-session-debug.md) — 2026-07-13: truncation root cause + 7 fixes APPLIED (max_tokens 32K default, effort:medium w/ adaptive thinking, truncation fails the round, truncated-JSON feedback, applied-op confirmations, tree topology in Geometry Report, msg recording default ON). Builds+300 tests clean, live test pending; graft-169 mystery still open.
 - [Thinking passthrough](thinking-passthrough.md) — 2026-07-11: empty-payload root cause (providers dropped thinking deltas + no stop_reason); now inline `<think>` tags, stripped on resend, truncation/thinking-only warnings, Anthropic Max Tokens input + thinking budget controls. Builds+273 tests clean, live test pending.
 - [Signal Trace widget](signal-trace-widget.md) — 2026-07-10: signal debugging via 3 taps (EmitSignal/MarkConsumed/Inject) → static SignalTraceLog (lightweight snapshots, no image pinning) + Eto GridView window + canvas widget. Compiles clean, live test pending.

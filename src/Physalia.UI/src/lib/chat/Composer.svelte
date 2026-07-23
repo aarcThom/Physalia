@@ -13,6 +13,7 @@
 	import { onMount, tick } from 'svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
+	import Axis3dIcon from '@lucide/svelte/icons/axis-3d';
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import XIcon from '@lucide/svelte/icons/x';
@@ -36,6 +37,9 @@
 		apiKeyProvider?: { id: string; label: string } | null;
 		/** True when any grounding is wired — enables the grounding button. */
 		groundingWired?: boolean;
+		/** True when a Geometry Snapshot grounding is wired AND generated geometry is on the canvas —
+		 *  shows the geometry button, which sends a snapshot (with its predefined message) on press. */
+		snapshotArmed?: boolean;
 		/** Names of clusters the model may use, for the "/cl/" reference autocomplete. */
 		clusterNames?: string[];
 		/** Names of tools currently in use, for the "/t/" reference autocomplete. */
@@ -43,6 +47,8 @@
 		/** Grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete. */
 		componentTabs?: ComponentTabInfo[];
 		onsend: (message: SubmitMessage) => void;
+		/** Sends a viewport snapshot of the generated geometry as its own message (geometry button). */
+		onsnapshot?: () => void;
 		/** Called with the pasted API key when in apiKeyProvider mode. */
 		onsavekey?: (providerId: string, key: string) => void;
 		/** Opens the grounding selection panel. */
@@ -57,10 +63,12 @@
 		disabled = false,
 		apiKeyProvider = null,
 		groundingWired = false,
+		snapshotArmed = false,
 		clusterNames = [],
 		toolNames = [],
 		componentTabs = [],
 		onsend,
+		onsnapshot,
 		onsavekey,
 		ongrounding,
 		oncancel
@@ -826,6 +834,24 @@
 			>
 				<LayersIcon />
 			</Button>
+
+			{#if snapshotArmed}
+				<!-- Geometry-snapshot button: shown only while a Geometry Snapshot grounding is wired
+				     AND a transmitter has generated geometry. Pressing it captures a viewport snapshot
+				     and sends it, with its predefined message, as its own message — nothing is ever
+				     attached to a typed prompt automatically. The message is edited in the grounding
+				     panel's Geometry Snapshot page. -->
+				<Button
+					variant="ghost"
+					size="icon"
+					class="text-[var(--neu-accent)]"
+					onclick={() => onsnapshot?.()}
+					disabled={inert || !!apiKeyProvider}
+					title="Send a viewport snapshot of the generated geometry with its predefined message"
+				>
+					<Axis3dIcon />
+				</Button>
+			{/if}
 
 			<Button
 				variant="ghost"

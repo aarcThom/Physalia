@@ -22,6 +22,7 @@
 	import SquareCheckIcon from '@lucide/svelte/icons/square-check';
 	import SquareMinusIcon from '@lucide/svelte/icons/square-minus';
 	import BoxIcon from '@lucide/svelte/icons/box';
+	import Axis3dIcon from '@lucide/svelte/icons/axis-3d';
 	import RulerIcon from '@lucide/svelte/icons/ruler';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
 	import ShapesIcon from '@lucide/svelte/icons/shapes';
@@ -34,6 +35,7 @@
 		GroundingSelectionPayload,
 		PythonFunctionInfo,
 		ReferencedGeometryInfo,
+		SnapshotMessagePayload,
 		ToolsSelectionPayload,
 		UnitsOverridePayload
 	} from '$lib/bridge';
@@ -65,6 +67,12 @@
 		unitsOverride: string | null;
 		/** Unit-system choices for the dropdown (includes the current doc value + any override). */
 		unitOptions: string[];
+		/** True when a geometry-snapshot grounding is wired (shows the Geometry Snapshot pill). */
+		snapshotWired: boolean;
+		/** The grounding's default message sent alongside the snapshot image. */
+		snapshotDefaultMessage: string;
+		/** Current snapshot-message override, or null = use the grounding's default (default). */
+		snapshotMessage: string | null;
 		/** Applies a new component selection (host action). all=true returns to include-everything. */
 		onapply: (payload: GroundingSelectionPayload) => void;
 		/** Toggles typed component signatures in the grounded system prompt (host action). */
@@ -75,6 +83,8 @@
 		onapplytools: (payload: ToolsSelectionPayload) => void;
 		/** Applies a document-units override (host action). reset=true returns to the live doc units. */
 		onapplyunits: (payload: UnitsOverridePayload) => void;
+		/** Applies a snapshot-message override (host action). reset=true returns to the grounding's default. */
+		onapplysnapshot: (payload: SnapshotMessagePayload) => void;
 		/** Returns to the chat view. */
 		onclose: () => void;
 	}
@@ -93,18 +103,22 @@
 		documentUnits,
 		unitsOverride,
 		unitOptions,
+		snapshotWired,
+		snapshotDefaultMessage,
+		snapshotMessage,
 		onapply,
 		onapplysignatures,
 		onapplyclusters,
 		onapplytools,
 		onapplyunits,
+		onapplysnapshot,
 		onclose
 	}: Props = $props();
 
 	// Two-level page: the kind pills, then a chosen kind's detail.
-	let view = $state<'kinds' | 'components' | 'clusters' | 'tools' | 'canvas' | 'python' | 'units'>(
-		'kinds'
-	);
+	let view = $state<
+		'kinds' | 'components' | 'clusters' | 'tools' | 'canvas' | 'python' | 'units' | 'snapshot'
+	>('kinds');
 
 	// Unit Separator (U+001F) packs a (category, subCategory) pair into one Set key. It is guaranteed
 	// absent from any Grasshopper tab/panel name, so splitting the key back is unambiguous. A space
@@ -297,6 +311,31 @@
 	function resetUnits() {
 		onapplyunits({ reset: true, units: '' });
 	}
+
+	// Geometry-snapshot message: the text sent alongside the snapshot image is the override when
+	// set, else the grounding's default. Local source of truth, initialised once from props like
+	// the other kinds; edits drive the host on change/blur. Clearing the box (or typing the default
+	// verbatim) resets the override so the message keeps tracking the grounding's default.
+	let snapshotText = $state(snapshotMessage ?? snapshotDefaultMessage);
+	let snapshotOverridden = $state(snapshotMessage !== null);
+
+	function applySnapshotText() {
+		const trimmed = snapshotText.trim();
+		if (trimmed.length === 0 || trimmed === snapshotDefaultMessage.trim()) {
+			snapshotText = snapshotDefaultMessage;
+			snapshotOverridden = false;
+			onapplysnapshot({ reset: true, message: '' });
+		} else {
+			snapshotOverridden = true;
+			onapplysnapshot({ reset: false, message: snapshotText });
+		}
+	}
+
+	function resetSnapshotMessage() {
+		snapshotText = snapshotDefaultMessage;
+		snapshotOverridden = false;
+		onapplysnapshot({ reset: true, message: '' });
+	}
 </script>
 
 <div class="mx-auto flex w-full max-w-xl flex-col px-4 py-6">
@@ -314,7 +353,7 @@
 			below to refine what's included.
 		</p>
 
-		{#if tree.length > 0 || clusters.length > 0 || tools.length > 0 || referencedGeometry.length > 0 || pythonFunctions.length > 0 || unitsWired}
+		{#if tree.length > 0 || clusters.length > 0 || tools.length > 0 || referencedGeometry.length > 0 || pythonFunctions.length > 0 || unitsWired || snapshotWired}
 			<div class="mt-4 flex flex-col gap-2">
 				{#if tree.length > 0}
 					<Button
@@ -387,6 +426,19 @@
 						<span class="flex-1">Document Units</span>
 						<span class="text-muted-foreground text-xs">
 							{effectiveUnits || 'None'}{unitsOverride !== null ? ' (overridden)' : ''}
+						</span>
+					</Button>
+				{/if}
+				{#if snapshotWired}
+					<Button
+						variant="outline"
+						class="h-auto w-full justify-start gap-2 py-2.5 text-left"
+						onclick={() => (view = 'snapshot')}
+					>
+						<Axis3dIcon class="size-4 shrink-0" />
+						<span class="flex-1">Geometry Snapshot</span>
+						<span class="text-muted-foreground text-xs">
+							{snapshotOverridden ? 'Custom message' : 'Default message'}
 						</span>
 					</Button>
 				{/if}
@@ -608,6 +660,41 @@
 					{/if}
 				</div>
 			{/each}
+		</div>
+	{:else if view === 'snapshot'}
+		<div class="mb-4 flex items-center justify-between">
+			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+				<ArrowLeftIcon class="size-4" />
+				Grounding
+			</Button>
+			<Button variant="ghost" size="sm" onclick={resetSnapshotMessage} disabled={!snapshotOverridden}>
+				Reset to default
+			</Button>
+		</div>
+
+		<h2 class="text-lg font-semibold">Geometry Snapshot</h2>
+		<p class="text-muted-foreground mt-1 text-sm">
+			While geometry generated by a transmitter is on the canvas, the prompt box shows a geometry
+			button. Pressing it sends a snapshot of the Rhino viewport (framed on that geometry) as its
+			own message — nothing is ever attached automatically. Edit the text that accompanies the
+			snapshot below.
+		</p>
+
+		<div class="mt-4 flex flex-col gap-2">
+			<textarea
+				bind:value={snapshotText}
+				onchange={applySnapshotText}
+				rows="5"
+				placeholder={snapshotDefaultMessage}
+				class="neu-well text-foreground w-full resize-y rounded-lg p-3 text-sm focus:outline-none"
+			></textarea>
+
+			{#if snapshotOverridden}
+				<p class="text-muted-foreground text-xs">
+					Overriding the default snapshot message. Clear the box (or reset) to return to the
+					default.
+				</p>
+			{/if}
 		</div>
 	{:else}
 		<div class="mb-4 flex items-center justify-between">

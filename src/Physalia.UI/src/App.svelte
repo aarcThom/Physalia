@@ -36,6 +36,7 @@
 		PythonFunctionInfo,
 		ReferencedGeometryInfo,
 		SetupResult,
+		SnapshotMessagePayload,
 		SubmitMessage,
 		ToolsSelectionPayload,
 		UiChat,
@@ -95,9 +96,23 @@
 	let unitsOverride = $state<string | null>(null);
 	let unitOptions = $state<string[]>([]);
 
+	// Geometry-snapshot grounding state: whether a snapshot grounding is wired, whether generated
+	// geometry is present right now (both together light the composer's geometry indicator), the
+	// grounding's default message, and the current override (null = use the default).
+	let snapshotWired = $state(false);
+	let snapshotGeometryPresent = $state(false);
+	let snapshotDefaultMessage = $state('');
+	let snapshotMessage = $state<string | null>(null);
+
 	// The grounding button opens the panel whenever any grounding kind is wired.
 	let groundingAvailable = $derived(
-		groundingWired || clustersWired || toolsWired || referencedGeometryWired || pythonWired || unitsWired
+		groundingWired ||
+			clustersWired ||
+			toolsWired ||
+			referencedGeometryWired ||
+			pythonWired ||
+			unitsWired ||
+			snapshotWired
 	);
 
 	// The cluster names currently exposed to the model (selection applied), for the "/c/" autocomplete.
@@ -179,6 +194,10 @@
 				documentUnits = next.documentUnits ?? '';
 				unitsOverride = next.unitsOverride ?? null;
 				unitOptions = next.unitOptions ?? [];
+				snapshotWired = next.snapshotWired ?? false;
+				snapshotGeometryPresent = next.snapshotGeometryPresent ?? false;
+				snapshotDefaultMessage = next.snapshotDefaultMessage ?? '';
+				snapshotMessage = next.snapshotMessage ?? null;
 			},
 			setSetupResult: (result) => {
 				setupResult = result;
@@ -304,6 +323,19 @@
 	function setUnits(payload: UnitsOverridePayload) {
 		const json = JSON.stringify(payload);
 		window.location.href = `${BRIDGE_SCHEME}://setunits?sel=${encodeURIComponent(json)}`;
+	}
+
+	// Apply a geometry-snapshot message override to the wired ConversationLog. reset=true returns to
+	// the grounding's default message.
+	function setSnapshotMessage(payload: SnapshotMessagePayload) {
+		const json = JSON.stringify(payload);
+		window.location.href = `${BRIDGE_SCHEME}://setsnapshotmessage?sel=${encodeURIComponent(json)}`;
+	}
+
+	// Ask the host to capture a viewport snapshot of the generated geometry and send it (with its
+	// predefined message) as its own user message. Fired by the composer's geometry button.
+	function sendSnapshot() {
+		window.location.href = `${BRIDGE_SCHEME}://sendsnapshot`;
 	}
 
 	// Hand a pasted API key to the host, which writes it to API_KEY_CONFIG.YAML and reports back
@@ -468,11 +500,15 @@
 					{documentUnits}
 					{unitsOverride}
 					{unitOptions}
+					{snapshotWired}
+					{snapshotDefaultMessage}
+					{snapshotMessage}
 					onapply={setGrounding}
 					onapplysignatures={setSignatures}
 					onapplyclusters={setClusters}
 					onapplytools={setTools}
 					onapplyunits={setUnits}
+					onapplysnapshot={setSnapshotMessage}
 					onclose={closePanel}
 				/>
 			{:else if panel === 'manualdef'}
@@ -537,10 +573,12 @@
 			disabled={showSetup}
 			apiKeyProvider={keyProvider}
 			groundingWired={groundingAvailable}
+			snapshotArmed={snapshotWired && snapshotGeometryPresent}
 			clusterNames={includedClusterNames}
 			toolNames={includedToolNames}
 			componentTabs={availableComponents}
 			onsend={send}
+			onsnapshot={sendSnapshot}
 			onsavekey={saveKey}
 			ongrounding={() => openPanel('grounding')}
 			oncancel={cancel}

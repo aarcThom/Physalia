@@ -5,9 +5,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.IO;
 using System.Linq;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
@@ -31,9 +28,6 @@ public class GeometryObservation : RoutingComponentBase<string>
 {
     /// <summary>Index of the subclass-owned Message input (registered before the base Signal input).</summary>
     private const int MessageInputIndex = 0;
-
-    /// <summary>Longest-side pixel cap for the encoded snapshot, keeping the inline image bounded.</summary>
-    private const int MaxImageSide = 1568;
 
     private string _pendingScope = string.Empty;
     private byte[]? _imageBytes;
@@ -167,39 +161,7 @@ public class GeometryObservation : RoutingComponentBase<string>
     {
         Rhino.RhinoApp.Idle -= OnIdleCapture;
 
-        try
-        {
-            Rhino.Display.RhinoView? view = Rhino.RhinoDoc.ActiveDoc?.Views?.ActiveView;
-            if (view is null)
-            {
-                _captureError = "No active Rhino viewport to capture.";
-                RequestReadPass();
-                return;
-            }
-
-            BoundingBox bounds = ComputeScopeBounds(_pendingScope);
-            if (bounds.IsValid)
-            {
-                bounds.Inflate(bounds.Diagonal.Length * 0.05);
-                view.ActiveViewport.ZoomBoundingBox(bounds);
-                view.Redraw();
-            }
-
-            using Bitmap? frame = view.CaptureToBitmap();
-            if (frame is null)
-            {
-                _captureError = "Viewport capture returned no image.";
-            }
-            else
-            {
-                _imageBytes = EncodePng(frame);
-            }
-        }
-        catch (Exception ex)
-        {
-            _captureError = $"Snapshot failed: {ex.Message}";
-        }
-
+        Generation.ViewportSnapshot.TryCapture(ComputeScopeBounds(_pendingScope), out _imageBytes, out _captureError);
         RequestReadPass();
     }
 
@@ -242,42 +204,6 @@ public class GeometryObservation : RoutingComponentBase<string>
         }
 
         return union;
-    }
-
-    /// <summary>
-    /// Encodes a captured frame as PNG bytes, downscaling so its longest side does not exceed
-    /// <see cref="MaxImageSide"/> to keep the inline image payload bounded.
-    /// </summary>
-    /// <param name="frame">The captured viewport bitmap.</param>
-    /// <returns>The PNG-encoded bytes.</returns>
-    private static byte[] EncodePng(Bitmap frame)
-    {
-        Bitmap toEncode = frame;
-        bool dispose = false;
-
-        int longest = Math.Max(frame.Width, frame.Height);
-        if (longest > MaxImageSide)
-        {
-            double scale = (double)MaxImageSide / longest;
-            int width = Math.Max(1, (int)Math.Round(frame.Width * scale));
-            int height = Math.Max(1, (int)Math.Round(frame.Height * scale));
-            toEncode = new Bitmap(frame, new Size(width, height));
-            dispose = true;
-        }
-
-        try
-        {
-            using var ms = new MemoryStream();
-            toEncode.Save(ms, ImageFormat.Png);
-            return ms.ToArray();
-        }
-        finally
-        {
-            if (dispose)
-            {
-                toEncode.Dispose();
-            }
-        }
     }
 
     /// <summary>

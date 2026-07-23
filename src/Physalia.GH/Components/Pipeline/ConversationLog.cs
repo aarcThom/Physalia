@@ -71,6 +71,11 @@ public class ConversationLog : StatefulComponentBase
     // and is serialized.
     private string? _unitsOverride;
 
+    // Geometry-snapshot message override. Null = use the default message carried by the wired
+    // GeometrySnapshotGrounding (default); a non-null value is the text sent alongside the snapshot
+    // image instead. Configuration, not conversation state — survives Clear and is serialized.
+    private string? _snapshotMessageOverride;
+
     // Expose-signatures flag. False = hybrid component grounding (default): the curated common set
     // (CommonComponents.Names) carries typed input/output signatures, the long tail stays
     // names-only. True widens signatures to EVERY included component — for models without tool
@@ -98,6 +103,7 @@ public class ConversationLog : StatefulComponentBase
     private bool _hasCanvasStateGrounding;
     private IReadOnlyList<ReferencedGeometryInput> _liveReferencedGeometry = Array.Empty<ReferencedGeometryInput>();
     private IReadOnlyList<PythonFunctionGrounding> _livePythonFunctions = Array.Empty<PythonFunctionGrounding>();
+    private GeometrySnapshotGrounding? _liveSnapshotGrounding;
 
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
@@ -240,6 +246,30 @@ public class ConversationLog : StatefulComponentBase
     /// </summary>
     public bool ExposeComponentSignatures => _exposeSignatures;
 
+    /// <summary>
+    /// Gets a value indicating whether a geometry-snapshot grounding is currently wired (so the
+    /// chat UI can show its grounding page and its send-a-snapshot geometry button).
+    /// </summary>
+    public bool HasGeometrySnapshotGrounding => _liveSnapshotGrounding is not null;
+
+    /// <summary>
+    /// Gets the default snapshot message carried by the wired grounding — what accompanies the
+    /// snapshot image unless overridden. Empty when no geometry-snapshot grounding is wired.
+    /// </summary>
+    public string GeometrySnapshotDefaultMessage => _liveSnapshotGrounding?.Message ?? string.Empty;
+
+    /// <summary>
+    /// Gets the current snapshot-message override, or <see langword="null"/> when the wired
+    /// grounding's default message is used.
+    /// </summary>
+    public string? SnapshotMessageOverrideOrNull => _snapshotMessageOverride;
+
+    /// <summary>
+    /// Gets the text sent alongside the snapshot image: the override when set, else the wired
+    /// grounding's default. Empty when no geometry-snapshot grounding is wired.
+    /// </summary>
+    public string GeometrySnapshotMessage => _snapshotMessageOverride ?? GeometrySnapshotDefaultMessage;
+
     /// <inheritdoc/>
     protected override string ClearMenuText => "Clear Conversation";
 
@@ -287,6 +317,18 @@ public class ConversationLog : StatefulComponentBase
     public void SetUnitsOverride(string? units)
     {
         _unitsOverride = string.IsNullOrWhiteSpace(units) ? null : units;
+        ExpireSolution(true);
+    }
+
+    /// <summary>
+    /// Sets the geometry-snapshot message override (null = use the wired grounding's default
+    /// message) and re-solves. The message accompanies the viewport snapshot sent by the chat
+    /// window's geometry button. Called from the chat window on the UI thread.
+    /// </summary>
+    /// <param name="message">The override text, or null to use the grounding's default message.</param>
+    public void SetSnapshotMessageOverride(string? message)
+    {
+        _snapshotMessageOverride = string.IsNullOrWhiteSpace(message) ? null : message;
         ExpireSolution(true);
     }
 
@@ -483,6 +525,13 @@ public class ConversationLog : StatefulComponentBase
             writer.SetString("UnitsOverride", _unitsOverride);
         }
 
+        // Geometry-snapshot message override, persisted with the same null-vs-set flag discipline.
+        writer.SetBoolean("SnapshotMessageSet", _snapshotMessageOverride is not null);
+        if (_snapshotMessageOverride is not null)
+        {
+            writer.SetString("SnapshotMessage", _snapshotMessageOverride);
+        }
+
         writer.SetBoolean("ExposeComponentSignatures", _exposeSignatures);
 
         return base.Write(writer);
@@ -548,6 +597,15 @@ public class ConversationLog : StatefulComponentBase
         else
         {
             _unitsOverride = null;
+        }
+
+        if (reader.ItemExists("SnapshotMessageSet") && reader.GetBoolean("SnapshotMessageSet"))
+        {
+            _snapshotMessageOverride = reader.ItemExists("SnapshotMessage") ? reader.GetString("SnapshotMessage") : null;
+        }
+        else
+        {
+            _snapshotMessageOverride = null;
         }
 
         // Missing key = false, so files written before the flag existed keep the names-only default.
@@ -620,6 +678,10 @@ public class ConversationLog : StatefulComponentBase
             : Array.Empty<ReferencedGeometryInput>();
 
         _livePythonFunctions = _liveGroundings.OfType<PythonFunctionGrounding>().ToList();
+
+        // A geometry-snapshot grounding carries a single default message; last one wins if several
+        // are wired (same discipline as document units).
+        _liveSnapshotGrounding = _liveGroundings.OfType<GeometrySnapshotGrounding>().LastOrDefault();
     }
 
     // The tools advertised to the model: the live tools narrowed by the tools selection (null = all).

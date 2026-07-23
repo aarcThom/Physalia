@@ -196,6 +196,52 @@ public class Chat : StatefulComponentBase
     }
 
     /// <summary>
+    /// Sends a viewport snapshot of the transmitter-generated geometry as its own user message —
+    /// fired by the chat window's geometry button, never automatically. Captures the viewport
+    /// (framed on the generated geometry) and mints one Prompt Signal whose turn carries the
+    /// Geometry Snapshot grounding's message plus the snapshot image, exactly like a typed message
+    /// with an attached image. Quietly does nothing when the grounding is unwired, no generated
+    /// geometry exists, or the capture fails — the button only shows while the first two hold.
+    /// Marshalled onto the UI thread (the bridge invokes it off the GH solve thread), where the
+    /// viewport zoom + capture are safe between solves (the same operations Geometry Observation
+    /// defers to <c>RhinoApp.Idle</c> for, because it captures from inside a solve).
+    /// </summary>
+    public void SendGeometrySnapshotFromWindow()
+    {
+        Rhino.RhinoApp.InvokeOnUiThread(new Action(() =>
+        {
+            ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(this, 0);
+            if (conversationLog is null || !conversationLog.HasGeometrySnapshotGrounding)
+            {
+                return;
+            }
+
+            Rhino.Geometry.BoundingBox bounds = Generation.GeneratedGeometryScan.ComputeBounds(OnPingDocument());
+            if (!bounds.IsValid)
+            {
+                return;
+            }
+
+            if (!Generation.ViewportSnapshot.TryCapture(bounds, out byte[]? imageBytes, out _) || imageBytes is null)
+            {
+                return;
+            }
+
+            string message = conversationLog.GeometrySnapshotMessage;
+            var blocks = new List<MessageContent>();
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                blocks.Add(new TextContent(message));
+            }
+
+            blocks.Add(new ImageContent(new InlineImage(imageBytes, "image/png")));
+
+            LatchSuccess(message, contentBlocks: blocks);
+            ExpireSolution(true);
+        }));
+    }
+
+    /// <summary>
     /// Notifies the chat window when this component is removed from the document. If the
     /// window is currently viewing this Chat it switches to another one still on the
     /// canvas, or closes if this was the last; a circle for an unrelated removed Chat

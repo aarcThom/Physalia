@@ -357,6 +357,14 @@ public class ChatWindow : Form
             case "setunits":
                 HandleSetUnits(uri);
                 break;
+            case "setsnapshotmessage":
+                HandleSetSnapshotMessage(uri);
+                break;
+            case "sendsnapshot":
+                // The geometry button: capture a viewport snapshot of the generated geometry and
+                // send it (with its predefined message) as its own user message, right now.
+                _component.SendGeometrySnapshotFromWindow();
+                break;
             case "cancel":
                 HandleCancel();
                 break;
@@ -518,6 +526,38 @@ public class ChatWindow : Form
         }
 
         conversationLog.SetUnitsOverride(units);
+    }
+
+    // Applies a geometry-snapshot message override from the window to the wired ConversationLog. The
+    // payload is JSON {reset:bool, message:string} passed in the ?sel= query. reset:true (or a
+    // missing payload) clears the override back to null = use the grounding's default message.
+    private void HandleSetSnapshotMessage(Uri uri)
+    {
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
+        {
+            return;
+        }
+
+        string raw = GetQueryValue(uri.Query, "sel");
+        string? message = null;
+        if (!string.IsNullOrEmpty(raw))
+        {
+            try
+            {
+                SnapshotMessagePayload? payload = JsonSerializer.Deserialize<SnapshotMessagePayload>(raw, ReadOpts);
+                if (payload is not null && !payload.Reset)
+                {
+                    message = payload.Message;
+                }
+            }
+            catch (JsonException)
+            {
+                return;
+            }
+        }
+
+        conversationLog.SetSnapshotMessageOverride(message);
     }
 
     // The names of the components currently exposed to the model (the grounded catalog with the
@@ -1156,12 +1196,23 @@ public class ChatWindow : Form
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        // Geometry-snapshot grounding state: whether a snapshot grounding is wired, whether a
+        // transmitter has generated geometry right now (the composer shows its geometry button only
+        // while both hold — pressing it sends a snapshot as its own message), the grounding's
+        // default message, and the current override (null = use the default). The geometry scan is
+        // gated on the grounding being wired so idle documents pay nothing on the 0.15 s tick.
+        bool snapshotWired = conversationLog?.HasGeometrySnapshotGrounding == true;
+        bool snapshotGeometryPresent = snapshotWired
+            && Generation.GeneratedGeometryScan.HasGeneratedGeometry(conversationLog?.OnPingDocument());
+        string snapshotDefaultMessage = conversationLog?.GeometrySnapshotDefaultMessage ?? string.Empty;
+        string? snapshotMessage = conversationLog?.SnapshotMessageOverrideOrNull;
+
         // Cheap proxy for availableComponents in the signature (serializing the full list every tick
         // would churn); the tree/selection already trigger a push, this just catches a catalog resize.
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotDefaultMessage, snapshotMessage }, WriteOpts);
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -1178,7 +1229,7 @@ public class ChatWindow : Form
             _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotDefaultMessage, snapshotMessage }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 
@@ -1969,4 +2020,8 @@ public class ChatWindow : Form
     // Document-units override pushed from the window: reset=true clears to the live document units;
     // otherwise units is the override text handed to the model.
     private sealed record UnitsOverridePayload(bool Reset, string? Units);
+
+    // Geometry-snapshot message override pushed from the window: reset=true clears to the wired
+    // grounding's default message; otherwise message is the text sent alongside the snapshot image.
+    private sealed record SnapshotMessagePayload(bool Reset, string? Message);
 }

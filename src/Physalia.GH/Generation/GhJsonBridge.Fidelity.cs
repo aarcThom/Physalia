@@ -142,6 +142,29 @@ internal static partial class GhJsonBridge
     }
 
     /// <summary>
+    /// Enumerates the live document objects that were placed from the model's own submissions —
+    /// the authored-placement ledger entries (full-graph placements and ghpatch adds alike) still
+    /// alive on the canvas. Drives the Geometry Snapshot grounding's "generated geometry" scope.
+    /// </summary>
+    /// <param name="doc">The document to enumerate against; null returns nothing.</param>
+    /// <returns>The instanceGuids of the model-placed components still on the document.</returns>
+    internal static IEnumerable<Guid> ModelPlacedGuids(GH_Document? doc)
+    {
+        if (doc is null || !AuthoredPlacementLedgers.TryGetValue(doc, out Dictionary<Guid, int>? ledger))
+        {
+            yield break;
+        }
+
+        foreach (Guid guid in ledger.Keys)
+        {
+            if (doc.FindObject(guid, false) is not null)
+            {
+                yield return guid;
+            }
+        }
+    }
+
+    /// <summary>
     /// The result of a fidelity verification: one violation line per discrepancy, plus the fresh
     /// base checksum when there are violations (the placed-but-wrong graph is live, so the model's
     /// remembered checksum is stale for the corrective patch). A non-null

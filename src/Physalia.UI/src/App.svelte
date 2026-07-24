@@ -578,6 +578,7 @@
 			disabled={showSetup}
 			apiKeyProvider={keyProvider}
 			groundingWired={groundingAvailable}
+			{snapshotWired}
 			snapshotArmed={snapshotWired && snapshotGeometryPresent}
 			{imageToolWired}
 			clusterNames={includedClusterNames}

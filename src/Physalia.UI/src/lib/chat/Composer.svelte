@@ -37,8 +37,11 @@
 		apiKeyProvider?: { id: string; label: string } | null;
 		/** True when any grounding is wired — enables the grounding button. */
 		groundingWired?: boolean;
-		/** True when a Geometry Snapshot human tool is wired AND generated geometry is on the canvas —
-		 *  shows the geometry button, which sends a snapshot (with its predefined message) on press. */
+		/** True when a Geometry Snapshot human tool is wired — shows the geometry button (greyed
+		 *  until generated geometry exists on the canvas). */
+		snapshotWired?: boolean;
+		/** True when generated geometry is on the canvas too — arms the geometry button, which
+		 *  sends a snapshot (with its predefined message) on press. */
 		snapshotArmed?: boolean;
 		/** True when an Add Image human tool is wired — without it, image intake (paste, drag-drop,
 		 *  file picker) is fully disabled and prompts are text-only. */
@@ -66,6 +69,7 @@
 		disabled = false,
 		apiKeyProvider = null,
 		groundingWired = false,
+		snapshotWired = false,
 		snapshotArmed = false,
 		imageToolWired = false,
 		clusterNames = [],
@@ -855,35 +859,39 @@
 				<LayersIcon />
 			</Button>
 
-			{#if snapshotArmed}
-				<!-- Geometry-snapshot button: shown only while a Geometry Snapshot human tool is wired
-				     AND a transmitter has generated geometry. Pressing it captures a viewport snapshot
-				     and sends it, with its predefined message, as its own message — nothing is ever
-				     attached to a typed prompt automatically. The message is edited in the grounding
-				     panel's Geometry Snapshot page. -->
+			{#if snapshotWired}
+				<!-- Geometry-snapshot button: appears the moment a Geometry Snapshot human tool is
+				     wired, but stays greyed until a transmitter has generated geometry (snapshotArmed).
+				     Pressing it captures a viewport snapshot and sends it, with its predefined message,
+				     as its own message — nothing is ever attached to a typed prompt automatically. The
+				     message is edited in the grounding panel's Geometry Snapshot page. -->
 				<Button
 					variant="ghost"
 					size="icon"
-					class="text-[var(--neu-accent)]"
+					class={snapshotArmed ? 'text-[var(--neu-accent)]' : ''}
 					onclick={() => onsnapshot?.()}
-					disabled={inert || !!apiKeyProvider}
-					title="Send a viewport snapshot of the generated geometry with its predefined message"
+					disabled={inert || !!apiKeyProvider || !snapshotArmed}
+					title={snapshotArmed
+						? 'Send a viewport snapshot of the generated geometry with its predefined message'
+						: 'Geometry snapshot — enabled once generated geometry is on the canvas'}
 				>
 					<Axis3dIcon />
 				</Button>
 			{/if}
 
-			<Button
-				variant="ghost"
-				size="icon"
-				onclick={openPicker}
-				disabled={inert || !!apiKeyProvider || !imageToolWired}
-				title={imageToolWired
-					? 'Add image'
-					: 'Add image — wire an Add Image component into the Conversation Log’s Human Tools to enable'}
-			>
-				<ImagePlusIcon />
-			</Button>
+			{#if imageToolWired}
+				<!-- Add-image button: appears only while an Add Image human tool is wired into the
+				     Conversation Log's Human Tools input — without it, image intake does not exist. -->
+				<Button
+					variant="ghost"
+					size="icon"
+					onclick={openPicker}
+					disabled={inert || !!apiKeyProvider}
+					title="Add image"
+				>
+					<ImagePlusIcon />
+				</Button>
+			{/if}
 		</div>
 
 		<!-- Contenteditable prompt editor. Sans by default; "/" commands render monospace-on-chip

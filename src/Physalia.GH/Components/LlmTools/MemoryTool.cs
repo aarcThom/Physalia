@@ -24,9 +24,9 @@ namespace Physalia.GH.Components;
 /// memory exists and is nudged to consult it — without that grounding the model is never informed of
 /// the feature.</para>
 /// </summary>
-public class MemoryTool : ToolComponentBase
+public class MemoryTool : LlmToolComponentBase
 {
-    private static readonly ToolDefinition ToolDef = new(
+    private static readonly LlmToolDefinition ToolDef = new(
         "memory",
         "Read and write your persistent memory — files that survive across conversations. Commands: "
         + "\"view\" (list a directory or read a file), \"create\" (write/overwrite a file with file_text), "
@@ -62,7 +62,7 @@ public class MemoryTool : ToolComponentBase
     public override Guid ComponentGuid => new Guid("7B4D9E12-2C6A-4F58-9A31-5E0C7D8B4A16");
 
     /// <inheritdoc/>
-    protected override ToolDefinition Definition => ToolDef;
+    protected override LlmToolDefinition Definition => ToolDef;
 
     /// <inheritdoc/>
     /// <remarks>Resolve the memory roots once per solve so each dispatched call reuses them.</remarks>

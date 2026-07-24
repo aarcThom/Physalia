@@ -45,7 +45,7 @@
           "parameterName": "Feedback Signal"
         },
         {
-          "parameterName": "Tool Signal"
+          "parameterName": "LLM Tool Signal"
         }
       ],
       "outputSettings": [

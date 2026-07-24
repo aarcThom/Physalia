@@ -1,6 +1,7 @@
 # Physalia Project Memory
 
 ## Latest
+- [Human tools split](human-tools-split.md) — 2026-07-23: LLM Tools vs Human Tools taxonomy; LlmToolDefinition renames, HumanTool union (Geometry Snapshot + Add Image), ConvLog 7-input reorder (saved-doc break accepted), image intake gated on Add Image. Builds+300 tests clean, live test pending.
 - [Component-id robustness](component-id-robustness.md) — 2026-07-23: authored-id preservation hardened (live-guid claims + verify + model-facing renumber note in canvas state), canvas ids added to Geometry Report/Runtime Health Check labels, gh.numberslider-on-wrong-type patch modifies now fail loudly. Root cause of the White House renumber NOT pinned — Rhino command line will log `[Physalia] Placement did not preserve...` if it recurs. Builds+300 tests clean.
 - [Geometry Snapshot grounding](geometry-snapshot-grounding.md) — 2026-07-23: composer geometry BUTTON sends viewport snapshot + editable predefined message as its own message (never auto-attached — explicit design call); shows only when grounding wired + transmitter geometry exists. Builds+300 tests clean, live test pending.
 - [Balcony session debug](balcony-session-debug.md) — 2026-07-13: truncation root cause + 7 fixes APPLIED (max_tokens 32K default, effort:medium w/ adaptive thinking, truncation fails the round, truncated-JSON feedback, applied-op confirmations, tree topology in Geometry Report, msg recording default ON). Builds+300 tests clean, live test pending; graft-169 mystery still open.

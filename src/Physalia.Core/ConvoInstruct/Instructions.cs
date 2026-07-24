@@ -23,5 +23,5 @@ public record Instructions(string SystemPrompt, Conversation Conversation)
     /// compaction component carries it forward unchanged, so the LLM Call reads its tools here rather
     /// than from a separate input.
     /// </summary>
-    public IReadOnlyList<ToolDefinition> Tools { get; init; } = Array.Empty<ToolDefinition>();
+    public IReadOnlyList<LlmToolDefinition> Tools { get; init; } = Array.Empty<LlmToolDefinition>();
 }

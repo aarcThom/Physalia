@@ -7,24 +7,24 @@ using Physalia.Core.Common;
 namespace Physalia.GH.Goo;
 
 /// <summary>
-/// Grasshopper goo wrapping a <see cref="ToolDefinition"/> — a tool a tool node advertises to the
+/// Grasshopper goo wrapping a <see cref="LlmToolDefinition"/> — a tool a tool node advertises to the
 /// model. Tool nodes output it; the LLM Call collects the wired definitions and sends them to the
 /// provider so the model can call the tool.
 /// </summary>
-public class GH_ToolDefinition : PhyGoo<GH_ToolDefinition, ToolDefinition>
+public class GH_LlmToolDefinition : PhyGoo<GH_LlmToolDefinition, LlmToolDefinition>
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="GH_ToolDefinition"/> class with no value.
+    /// Initializes a new instance of the <see cref="GH_LlmToolDefinition"/> class with no value.
     /// </summary>
-    public GH_ToolDefinition()
+    public GH_LlmToolDefinition()
     {
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="GH_ToolDefinition"/> class wrapping the given definition.
+    /// Initializes a new instance of the <see cref="GH_LlmToolDefinition"/> class wrapping the given definition.
     /// </summary>
     /// <param name="definition">The tool definition to wrap.</param>
-    public GH_ToolDefinition(ToolDefinition definition)
+    public GH_LlmToolDefinition(LlmToolDefinition definition)
         : base(definition)
     {
     }

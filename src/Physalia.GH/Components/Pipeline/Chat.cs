@@ -199,8 +199,8 @@ public class Chat : StatefulComponentBase
     /// Sends a viewport snapshot of the transmitter-generated geometry as its own user message —
     /// fired by the chat window's geometry button, never automatically. Captures the viewport
     /// (framed on the generated geometry) and mints one Prompt Signal whose turn carries the
-    /// Geometry Snapshot grounding's message plus the snapshot image, exactly like a typed message
-    /// with an attached image. Quietly does nothing when the grounding is unwired, no generated
+    /// Geometry Snapshot tool's message plus the snapshot image, exactly like a typed message
+    /// with an attached image. Quietly does nothing when the tool is unwired, no generated
     /// geometry exists, or the capture fails — the button only shows while the first two hold.
     /// Marshalled onto the UI thread (the bridge invokes it off the GH solve thread), where the
     /// viewport zoom + capture are safe between solves (the same operations Geometry Observation
@@ -211,7 +211,7 @@ public class Chat : StatefulComponentBase
         Rhino.RhinoApp.InvokeOnUiThread(new Action(() =>
         {
             ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(this, 0);
-            if (conversationLog is null || !conversationLog.HasGeometrySnapshotGrounding)
+            if (conversationLog is null || !conversationLog.HasGeometrySnapshotTool)
             {
                 return;
             }

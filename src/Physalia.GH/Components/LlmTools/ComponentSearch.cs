@@ -23,13 +23,13 @@ namespace Physalia.GH.Components;
 /// wired Component Catalog, and it emits the matches as a tool result (wire its Result output through
 /// a Feedback component into a Feedback Collector and back to the Router's Results input).
 /// </summary>
-public class ComponentSearch : ToolComponentBase
+public class ComponentSearch : LlmToolComponentBase
 {
     private const int InCatalog = 1;
 
     private const int MaxResults = 15;
 
-    private static readonly ToolDefinition ToolDef = new(
+    private static readonly LlmToolDefinition ToolDef = new(
         "search_components",
         "Search the user's installed Grasshopper components by keyword. Call this when you need the exact name of a component to place (for example \"loft\", \"construct point\", or \"voronoi\"). Returns matching component names with their categories and full input/output signatures (Nickname:Type).",
         "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Keywords describing the component you are looking for.\"}},\"required\":[\"query\"]}");
@@ -48,7 +48,7 @@ public class ComponentSearch : ToolComponentBase
     public override Guid ComponentGuid => new Guid("C5F2A9D4-6B81-4E37-A0C2-9D4F1B6E8350");
 
     /// <inheritdoc/>
-    protected override ToolDefinition Definition => ToolDef;
+    protected override LlmToolDefinition Definition => ToolDef;
 
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)

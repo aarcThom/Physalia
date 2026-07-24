@@ -96,15 +96,18 @@ export interface UiState {
 	unitsOverride: string | null;
 	/** Unit-system choices for the Document Units dropdown (includes the current doc value + any override). */
 	unitOptions: string[];
-	/** True when a geometry-snapshot grounding is wired into the Conversation Log (shows the Geometry Snapshot page). */
+	/** True when a Geometry Snapshot human tool is wired into the Conversation Log (shows the Geometry Snapshot page). */
 	snapshotWired: boolean;
-	/** True when a transmitter has generated geometry on the canvas right now — with the grounding wired,
+	/** True when a transmitter has generated geometry on the canvas right now — with the tool wired,
 	 *  the composer shows its geometry button (press to send a snapshot as its own message). */
 	snapshotGeometryPresent: boolean;
-	/** The grounding's default message sent alongside the snapshot image (the Geometry Observation wording). */
+	/** The tool's default message sent alongside the snapshot image (the Geometry Observation wording). */
 	snapshotDefaultMessage: string;
-	/** The current snapshot-message override, or null = use the grounding's default message (default). */
+	/** The current snapshot-message override, or null = use the tool's default message (default). */
 	snapshotMessage: string | null;
+	/** True when an Add Image human tool is wired into the Conversation Log — without it, image
+	 *  intake (paste, drag-drop, file picker) is fully disabled in the composer. */
+	imageToolWired: boolean;
 }
 
 /** One tab (category) and its panels (sub-categories) in the grounding selector. */
@@ -167,7 +170,7 @@ export interface UnitsOverridePayload {
 	units: string;
 }
 
-/** Geometry-snapshot message override sent back to the host. reset=true clears to the grounding's default. */
+/** Geometry-snapshot message override sent back to the host. reset=true clears to the tool's default. */
 export interface SnapshotMessagePayload {
 	reset: boolean;
 	/** The override message text sent alongside the snapshot image. Ignored when reset is true. */

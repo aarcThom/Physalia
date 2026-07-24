@@ -530,7 +530,7 @@ public class ChatWindow : Form
 
     // Applies a geometry-snapshot message override from the window to the wired ConversationLog. The
     // payload is JSON {reset:bool, message:string} passed in the ?sel= query. reset:true (or a
-    // missing payload) clears the override back to null = use the grounding's default message.
+    // missing payload) clears the override back to null = use the tool's default message.
     private void HandleSetSnapshotMessage(Uri uri)
     {
         ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
@@ -815,6 +815,14 @@ public class ChatWindow : Form
 
         string msgText = NormalizeRefs(message.Text ?? string.Empty);
         IReadOnlyList<SubmitImage> images = message.Images ?? (IReadOnlyList<SubmitImage>)Array.Empty<SubmitImage>();
+
+        // Image intake is gated on the Add Image human tool: the UI disables paste/drop/picker when
+        // it is unwired, but the wire state can flip between compose and submit — drop stale images
+        // here (keeping the text) so no image ever bypasses the tool contract.
+        if (images.Count > 0 && PromptPipelineView.FindConversationLog(_component, 0)?.HasAddImageTool != true)
+        {
+            images = Array.Empty<SubmitImage>();
+        }
 
         var blocks = new List<MessageContent>();
         if (!string.IsNullOrEmpty(msgText))
@@ -1196,23 +1204,25 @@ public class ChatWindow : Form
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // Geometry-snapshot grounding state: whether a snapshot grounding is wired, whether a
-        // transmitter has generated geometry right now (the composer shows its geometry button only
-        // while both hold — pressing it sends a snapshot as its own message), the grounding's
-        // default message, and the current override (null = use the default). The geometry scan is
-        // gated on the grounding being wired so idle documents pay nothing on the 0.15 s tick.
-        bool snapshotWired = conversationLog?.HasGeometrySnapshotGrounding == true;
+        // Human-tool state: whether a Geometry Snapshot tool is wired, whether a transmitter has
+        // generated geometry right now (the composer shows its geometry button only while both
+        // hold — pressing it sends a snapshot as its own message), the tool's default message, and
+        // the current override (null = use the default). The geometry scan is gated on the tool
+        // being wired so idle documents pay nothing on the 0.15 s tick. An Add Image tool gates
+        // image intake in the composer — without it, paste/drop/picker are fully disabled.
+        bool snapshotWired = conversationLog?.HasGeometrySnapshotTool == true;
         bool snapshotGeometryPresent = snapshotWired
             && Generation.GeneratedGeometryScan.HasGeneratedGeometry(conversationLog?.OnPingDocument());
         string snapshotDefaultMessage = conversationLog?.GeometrySnapshotDefaultMessage ?? string.Empty;
         string? snapshotMessage = conversationLog?.SnapshotMessageOverrideOrNull;
+        bool imageToolWired = conversationLog?.HasAddImageTool == true;
 
         // Cheap proxy for availableComponents in the signature (serializing the full list every tick
         // would churn); the tree/selection already trigger a push, this just catches a catalog resize.
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotDefaultMessage, snapshotMessage }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotDefaultMessage, snapshotMessage, imageToolWired }, WriteOpts);
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -1229,7 +1239,7 @@ public class ChatWindow : Form
             _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotDefaultMessage, snapshotMessage }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotDefaultMessage, snapshotMessage, imageToolWired }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 

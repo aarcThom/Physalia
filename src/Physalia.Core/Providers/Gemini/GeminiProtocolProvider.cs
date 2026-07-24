@@ -124,7 +124,7 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase<GeminiProtoc
         Conversation conversation,
         string systemPrompt,
         GeminiProtocolConfig config,
-        IReadOnlyList<ToolDefinition>? tools,
+        IReadOnlyList<LlmToolDefinition>? tools,
         CancellationToken ct)
     {
         var body = BuildRequestBody(conversation, systemPrompt, config, tools);
@@ -143,7 +143,7 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase<GeminiProtoc
         Conversation conversation,
         string systemPrompt,
         GeminiProtocolConfig config,
-        IReadOnlyList<ToolDefinition>? tools)
+        IReadOnlyList<LlmToolDefinition>? tools)
     {
         var body = new JsonObject
         {
@@ -176,10 +176,10 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase<GeminiProtoc
     /// </summary>
     /// <param name="tools">The tool definitions to serialise.</param>
     /// <returns>A JSON array for the request body's <c>tools</c> field.</returns>
-    private static JsonArray BuildToolsArray(IReadOnlyList<ToolDefinition> tools)
+    private static JsonArray BuildToolsArray(IReadOnlyList<LlmToolDefinition> tools)
     {
         var declarations = new JsonArray();
-        foreach (ToolDefinition tool in tools)
+        foreach (LlmToolDefinition tool in tools)
         {
             declarations.Add(new JsonObject
             {

@@ -17,7 +17,7 @@ using Physalia.GH.Parameters;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Base for model-invoked tool nodes. Advertises a <see cref="ToolDefinition"/> on the Tool output
+/// Base for model-invoked tool nodes. Advertises a <see cref="LlmToolDefinition"/> on the Tool output
 /// (wire into the LLM Call's Tools input), receives dispatched tool-call signals from a Router on the
 /// Signal input, and emits a single tool-result signal on the Result output (wire through a Feedback
 /// component into a Feedback Collector and back to the Router's Results input).
@@ -38,7 +38,7 @@ namespace Physalia.GH.Components;
 /// never blocks on the network. Each dispatched signal is processed one at a time in the async path;
 /// signals that arrive mid-run wait, latched on the wire, and are serviced after the current batch.</para>
 /// </summary>
-public abstract class ToolComponentBase : StatefulComponentBase
+public abstract class LlmToolComponentBase : StatefulComponentBase
 {
     /// <summary>Index of the base-owned Signal input (always first).</summary>
     protected const int InSignal = 0;
@@ -58,13 +58,13 @@ public abstract class ToolComponentBase : StatefulComponentBase
     private CancellationTokenSource? _cts;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="ToolComponentBase"/> class in the Tools sub-category.
+    /// Initializes a new instance of the <see cref="LlmToolComponentBase"/> class in the Tools sub-category.
     /// </summary>
     /// <param name="name">Component display name.</param>
     /// <param name="nickname">Component nickname.</param>
     /// <param name="description">Component description.</param>
-    protected ToolComponentBase(string name, string nickname, string description)
-        : base(name, nickname, description, "Tools")
+    protected LlmToolComponentBase(string name, string nickname, string description)
+        : base(name, nickname, description, "LLM Tools")
     {
     }
 
@@ -72,13 +72,13 @@ public abstract class ToolComponentBase : StatefulComponentBase
     /// Gets the tool definition advertised to the model — its name, when-to-call description, and
     /// argument JSON Schema. The name is what the model emits and what a Router output is matched to.
     /// </summary>
-    protected abstract ToolDefinition Definition { get; }
+    protected abstract LlmToolDefinition Definition { get; }
 
     /// <summary>
     /// Gets the tool definition this node advertises. Public so a Tools In Use scanner can collect
     /// it directly off the canvas without relying on the node having solved.
     /// </summary>
-    public ToolDefinition AdvertisedDefinition => Definition;
+    public LlmToolDefinition AdvertisedDefinition => Definition;
 
     /// <summary>
     /// Gets a value indicating whether this tool runs its calls asynchronously off the solve thread.
@@ -139,7 +139,7 @@ public abstract class ToolComponentBase : StatefulComponentBase
     /// <inheritdoc/>
     protected sealed override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ToolDefinition(), "Tool", "T", "The tool definition advertised to the model. The Tools Present grounder collects this automatically once a Router dispatches to this node — no wire needed.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_LlmToolDefinition(), "Tool", "T", "The tool definition advertised to the model. The Tools Present grounder collects this automatically once a Router dispatches to this node — no wire needed.", GH_ParamAccess.item);
         pManager.AddParameter(new Param_Signal(), "Result", "R", "Tool result signal. Wire through a Feedback component into a Feedback Collector, then into the Router's Results input.", GH_ParamAccess.item);
     }
 
@@ -147,7 +147,7 @@ public abstract class ToolComponentBase : StatefulComponentBase
     protected sealed override void SolveInstance(IGH_DataAccess DA)
     {
         // Always advertise the tool so the LLM Call sees it regardless of run state.
-        DA.SetData(OutTool, new GH_ToolDefinition(Definition));
+        DA.SetData(OutTool, new GH_LlmToolDefinition(Definition));
 
         OnSolveTick(DA);
         ObserveSignalInputs(DA, InSignal);

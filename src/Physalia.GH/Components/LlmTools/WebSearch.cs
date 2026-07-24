@@ -24,14 +24,14 @@ namespace Physalia.GH.Components;
 /// <c>tavily</c>) or the <c>TAVILY_API_KEY</c> environment variable — never serialized. The HTTP call
 /// is bounded by a timeout and run synchronously within the dispatched call.</para>
 /// </summary>
-public class WebSearch : ToolComponentBase
+public class WebSearch : LlmToolComponentBase
 {
     // Shared, not per-instance: HttpClient is thread-safe and reuse avoids socket exhaustion.
     private static readonly HttpClient _httpClient = new();
 
     private const int TimeoutMs = 20000;
 
-    private static readonly ToolDefinition ToolDef = new(
+    private static readonly LlmToolDefinition ToolDef = new(
         "web_search",
         "Search the internet for current information, documentation, or facts beyond your training data. Returns a synthesized answer (when available) plus a short list of result titles, URLs, and snippets. Follow up with read_url to read a specific result in full.",
         "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"The search query.\"},\"count\":{\"type\":\"integer\",\"description\":\"Number of results to return (1-10).\",\"default\":5}},\"required\":[\"query\"]}");
@@ -50,7 +50,7 @@ public class WebSearch : ToolComponentBase
     public override Guid ComponentGuid => new Guid("02315974-8633-4BCF-B4B3-9C33DC193778");
 
     /// <inheritdoc/>
-    protected override ToolDefinition Definition => ToolDef;
+    protected override LlmToolDefinition Definition => ToolDef;
 
     /// <inheritdoc/>
     protected override bool RunsAsync => true;

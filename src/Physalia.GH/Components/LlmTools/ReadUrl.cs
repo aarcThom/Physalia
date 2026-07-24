@@ -25,14 +25,14 @@ namespace Physalia.GH.Components;
 /// <c>JINA_API_KEY</c> environment variable) raises rate limits. The HTTP call is bounded by a timeout
 /// and run synchronously within the dispatched call.</para>
 /// </summary>
-public class ReadUrl : ToolComponentBase
+public class ReadUrl : LlmToolComponentBase
 {
     // Shared, not per-instance: HttpClient is thread-safe and reuse avoids socket exhaustion.
     private static readonly HttpClient _httpClient = new();
 
     private const int TimeoutMs = 30000;
 
-    private static readonly ToolDefinition ToolDef = new(
+    private static readonly LlmToolDefinition ToolDef = new(
         "read_url",
         "Fetch a web page and read its main content as clean text. Call this to read a specific URL in full — typically a result returned by web_search. Returns the page content (truncated to max_chars).",
         "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\",\"description\":\"The absolute http(s) URL to fetch and read.\"},\"max_chars\":{\"type\":\"integer\",\"description\":\"Truncate the returned text to this many characters.\",\"default\":8000}},\"required\":[\"url\"]}");
@@ -51,7 +51,7 @@ public class ReadUrl : ToolComponentBase
     public override Guid ComponentGuid => new Guid("7F8E6EB2-B012-4068-A90B-D9EF87229B7F");
 
     /// <inheritdoc/>
-    protected override ToolDefinition Definition => ToolDef;
+    protected override LlmToolDefinition Definition => ToolDef;
 
     /// <inheritdoc/>
     protected override bool RunsAsync => true;

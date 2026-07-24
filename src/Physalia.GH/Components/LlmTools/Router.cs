@@ -55,7 +55,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     /// Initializes a new instance of the <see cref="Router"/> class.
     /// </summary>
     public Router()
-        : base("Router", "Rtr", "Dispatches tool calls to named outputs and routes the request and results back to the Conversation Log.", "Tools")
+        : base("Router", "Rtr", "Dispatches tool calls to named outputs and routes the request and results back to the Conversation Log.", "LLM Tools")
     {
     }
 
@@ -354,7 +354,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
 
             foreach (IGH_Param toolParam in component.Params.Output)
             {
-                if (toolParam is not Param_ToolDefinition)
+                if (toolParam is not Param_LlmToolDefinition)
                 {
                     continue;
                 }
@@ -362,7 +362,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
                 connectedToTool = true;
                 foreach (IGH_Goo goo in toolParam.VolatileData.AllData(true))
                 {
-                    if (goo is GH_ToolDefinition def && def.Value is { } definition &&
+                    if (goo is GH_LlmToolDefinition def && def.Value is { } definition &&
                         !string.IsNullOrWhiteSpace(definition.Name))
                     {
                         return new ToolConnection(true, definition.Name);

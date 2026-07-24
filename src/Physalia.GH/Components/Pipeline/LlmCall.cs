@@ -241,7 +241,7 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
             : RoutingResult.Ok(_response, message: warning, level: GH_RuntimeMessageLevel.Warning);
     }
 
-    private void StartInference(Instructions instructions, ModelConfig config, IReadOnlyList<ToolDefinition> tools)
+    private void StartInference(Instructions instructions, ModelConfig config, IReadOnlyList<LlmToolDefinition> tools)
     {
         _cts?.Cancel();
         _cts?.Dispose();

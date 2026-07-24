@@ -37,9 +37,12 @@
 		apiKeyProvider?: { id: string; label: string } | null;
 		/** True when any grounding is wired — enables the grounding button. */
 		groundingWired?: boolean;
-		/** True when a Geometry Snapshot grounding is wired AND generated geometry is on the canvas —
+		/** True when a Geometry Snapshot human tool is wired AND generated geometry is on the canvas —
 		 *  shows the geometry button, which sends a snapshot (with its predefined message) on press. */
 		snapshotArmed?: boolean;
+		/** True when an Add Image human tool is wired — without it, image intake (paste, drag-drop,
+		 *  file picker) is fully disabled and prompts are text-only. */
+		imageToolWired?: boolean;
 		/** Names of clusters the model may use, for the "/cl/" reference autocomplete. */
 		clusterNames?: string[];
 		/** Names of tools currently in use, for the "/t/" reference autocomplete. */
@@ -64,6 +67,7 @@
 		apiKeyProvider = null,
 		groundingWired = false,
 		snapshotArmed = false,
+		imageToolWired = false,
 		clusterNames = [],
 		toolNames = [],
 		componentTabs = [],
@@ -132,8 +136,22 @@
 		}
 	});
 
-	// Whole-window drag-and-drop.
+	// If the Add Image tool is unwired mid-composition (component deleted/unwired on the canvas),
+	// discard the pending images and their [image#N] tokens — nothing image-shaped may survive.
 	$effect(() => {
+		if (!imageToolWired && pending.length > 0) {
+			pending = [];
+			text = tidy(text.replace(TOKEN, ''));
+			void tick().then(() => render());
+		}
+	});
+
+	// Whole-window drag-and-drop. Listeners exist only while the Add Image tool is wired — the
+	// reactive dep detaches them live, so an unwired window rejects drops at the browser level.
+	$effect(() => {
+		if (!imageToolWired) {
+			return;
+		}
 		let onDragOver = (e: DragEvent) => {
 			if (e.dataTransfer?.types?.includes('Files')) {
 				e.preventDefault();
@@ -606,7 +624,9 @@
 	}
 
 	async function addImages(files: FileList | File[] | null | undefined) {
-		if (!files) {
+		// The single choke point for every intake path (picker, paste, drop): no Add Image tool
+		// wired means no image enters the composer, however it arrived.
+		if (!files || !imageToolWired) {
 			return;
 		}
 		let images = Array.from(files).filter((f) => f.type.startsWith('image/'));
@@ -709,7 +729,7 @@
 	function onPaste(e: ClipboardEvent) {
 		let items = e.clipboardData?.items;
 		let files: File[] = [];
-		if (items) {
+		if (items && imageToolWired) {
 			for (let i = 0; i < items.length; i++) {
 				if (items[i].kind === 'file') {
 					let file = items[i].getAsFile();
@@ -836,7 +856,7 @@
 			</Button>
 
 			{#if snapshotArmed}
-				<!-- Geometry-snapshot button: shown only while a Geometry Snapshot grounding is wired
+				<!-- Geometry-snapshot button: shown only while a Geometry Snapshot human tool is wired
 				     AND a transmitter has generated geometry. Pressing it captures a viewport snapshot
 				     and sends it, with its predefined message, as its own message — nothing is ever
 				     attached to a typed prompt automatically. The message is edited in the grounding
@@ -857,8 +877,10 @@
 				variant="ghost"
 				size="icon"
 				onclick={openPicker}
-				disabled={inert || !!apiKeyProvider}
-				title="Add image"
+				disabled={inert || !!apiKeyProvider || !imageToolWired}
+				title={imageToolWired
+					? 'Add image'
+					: 'Add image — wire an Add Image component into the Conversation Log’s Human Tools to enable'}
 			>
 				<ImagePlusIcon />
 			</Button>
@@ -901,14 +923,16 @@
 	</div>
 </div>
 
-<input
-	bind:this={fileInputRef}
-	type="file"
-	accept="image/*"
-	multiple
-	class="hidden"
-	onchange={onFileChange}
-/>
+{#if imageToolWired}
+	<input
+		bind:this={fileInputRef}
+		type="file"
+		accept="image/*"
+		multiple
+		class="hidden"
+		onchange={onFileChange}
+	/>
+{/if}
 
 <style>
 	/* Placeholder for the empty contenteditable (it has no native placeholder). Scoped styles reach

@@ -27,12 +27,12 @@ namespace Physalia.GH.Components;
 /// user's Rhino. Building it is comparatively expensive, so the node runs asynchronously and builds
 /// the index off the solve thread on the first call (cached thereafter) — Grasshopper never freezes.</para>
 /// </summary>
-public class RhinoCommonSearch : ToolComponentBase
+public class RhinoCommonSearch : LlmToolComponentBase
 {
     private const int DefaultCount = 10;
     private const int MaxCount = 25;
 
-    private static readonly ToolDefinition ToolDef = new(
+    private static readonly LlmToolDefinition ToolDef = new(
         "search_rhinocommon",
         "Search the RhinoCommon API (Rhino's .NET SDK, usable from Python or C# script components) for types, methods, and properties by keyword or symbol name. Call this before writing code that uses RhinoCommon to get exact, version-correct signatures — return types, parameter types and names, and static/instance — plus summaries. Query with a symbol (\"Brep.CreateFromLoft\"), a type (\"Mesh\"), or keywords (\"offset surface\").",
         "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"A symbol, type name, or keywords describing the API you need.\"},\"count\":{\"type\":\"integer\",\"description\":\"Maximum number of results to return (1-25).\",\"default\":10}},\"required\":[\"query\"]}");
@@ -49,7 +49,7 @@ public class RhinoCommonSearch : ToolComponentBase
     public override Guid ComponentGuid => new Guid("7A3C1E92-5D44-4B8F-9C21-3E6A8F0D1B57");
 
     /// <inheritdoc/>
-    protected override ToolDefinition Definition => ToolDef;
+    protected override LlmToolDefinition Definition => ToolDef;
 
     /// <inheritdoc/>
     protected override bool RunsAsync => true;

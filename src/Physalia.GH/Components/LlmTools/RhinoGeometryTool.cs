@@ -33,7 +33,7 @@ namespace Physalia.GH.Components;
 /// a plain confirmation of what was created; the geometry and its referencing parameter appear on the
 /// canvas a moment later.</para>
 /// </summary>
-public class RhinoGeometryTool : ToolComponentBase
+public class RhinoGeometryTool : LlmToolComponentBase
 {
     // Placement layout. A referencing param is placed at the Component Transmitter's arrow tip (its drop
     // target, where the generated graph lands) with its LEFT-MIDDLE just right of the arrow head — so
@@ -44,7 +44,7 @@ public class RhinoGeometryTool : ToolComponentBase
     private const float PlacementGapX = 220f;
     private const float PlacementGapY = 70f;
 
-    private static readonly ToolDefinition ToolDef = new(
+    private static readonly LlmToolDefinition ToolDef = new(
         "create_rhino_geometry",
         "Create a piece of geometry in the active Rhino document and reference it into Grasshopper via a "
         + "parameter node (a Point or Curve parameter). Use this to hand the definition a real Rhino input "
@@ -79,7 +79,7 @@ public class RhinoGeometryTool : ToolComponentBase
     public override Guid ComponentGuid => new Guid("7D3F1A94-2C6B-4E58-9A1F-3B0C7E5D8A21");
 
     /// <inheritdoc/>
-    protected override ToolDefinition Definition => ToolDef;
+    protected override LlmToolDefinition Definition => ToolDef;
 
     /// <inheritdoc/>
     /// <remarks>

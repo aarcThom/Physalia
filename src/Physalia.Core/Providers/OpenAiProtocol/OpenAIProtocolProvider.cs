@@ -41,7 +41,7 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
         Conversation conversation,
         string systemPrompt,
         OpenAIProtocolConfig config,
-        IReadOnlyList<ToolDefinition>? tools)
+        IReadOnlyList<LlmToolDefinition>? tools)
     {
         OpenAIModelDefaults.Entry model = OpenAIModelDefaults.Resolve(config.ModelId);
 
@@ -91,10 +91,10 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
     /// </summary>
     /// <param name="tools">The tool definitions to serialise.</param>
     /// <returns>A JSON array for the request body's <c>tools</c> field.</returns>
-    private static JsonArray BuildToolsArray(IReadOnlyList<ToolDefinition> tools)
+    private static JsonArray BuildToolsArray(IReadOnlyList<LlmToolDefinition> tools)
     {
         var array = new JsonArray();
-        foreach (ToolDefinition tool in tools)
+        foreach (LlmToolDefinition tool in tools)
         {
             array.Add(new JsonObject
             {
@@ -134,7 +134,7 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
         Conversation conversation,
         string systemPrompt,
         OpenAIProtocolConfig config,
-        IReadOnlyList<ToolDefinition>? tools,
+        IReadOnlyList<LlmToolDefinition>? tools,
         CancellationToken ct)
     {
         var body = BuildRequestBody(conversation, systemPrompt, config, tools);

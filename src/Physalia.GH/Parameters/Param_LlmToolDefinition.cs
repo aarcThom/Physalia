@@ -7,15 +7,15 @@ using Physalia.GH.Goo;
 namespace Physalia.GH.Parameters;
 
 /// <summary>
-/// A hidden Grasshopper parameter that carries <see cref="GH_ToolDefinition"/> values from tool
+/// A hidden Grasshopper parameter that carries <see cref="GH_LlmToolDefinition"/> values from tool
 /// nodes into the LLM Call's Tools input.
 /// </summary>
-public class Param_ToolDefinition : PhyParam<GH_ToolDefinition>
+public class Param_LlmToolDefinition : PhyParam<GH_LlmToolDefinition>
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="Param_ToolDefinition"/> class.
+    /// Initializes a new instance of the <see cref="Param_LlmToolDefinition"/> class.
     /// </summary>
-    public Param_ToolDefinition()
+    public Param_LlmToolDefinition()
         : base("Tool Definition", "Tool", "A tool advertised to the model (name, description, argument schema).")
     {
     }

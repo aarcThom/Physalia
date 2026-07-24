@@ -14,7 +14,7 @@ public class AnthropicRequestBodyTests
 {
     private sealed class TestableAnthropicProvider : AnthropicProtocolProvider
     {
-        public JsonObject Build(Conversation conversation, AnthropicConfig config, IReadOnlyList<ToolDefinition>? tools = null)
+        public JsonObject Build(Conversation conversation, AnthropicConfig config, IReadOnlyList<LlmToolDefinition>? tools = null)
             => BuildRequestBody(conversation, "system", config, tools);
     }
 

@@ -13,6 +13,7 @@ using Physalia.Core.Grounding;
 using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
 using Physalia.Core.Grounding.Tools;
+using Physalia.Core.HumanTools;
 using Physalia.Core.Recording;
 using Physalia.GH.Generation;
 using Physalia.GH.Goo;
@@ -28,7 +29,7 @@ namespace Physalia.GH.Components;
 /// copy on the signal; the LLM Call's response flows back (wirelessly, via Feedback Collector) and
 /// appends to this full log.
 ///
-/// <para>Events arrive on dedicated Signal inputs — Prompt, Response, Feedback, Tool — so the turn
+/// <para>Events arrive on dedicated Signal inputs — Prompt, Response, Feedback, LLM Tool — so the turn
 /// type comes from event identity, never from conversation parity. Signals are consumed in global
 /// sequence order (causal order), which guarantees a response is recorded before the feedback it
 /// provoked even when both arrive in the same solve. User-side text arriving while the last turn is
@@ -38,12 +39,13 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class ConversationLog : StatefulComponentBase
 {
-    private const int InPromptSignal = 0;
-    private const int InSystemPrompt = 1;
+    private const int InSystemPrompt = 0;
+    private const int InPromptSignal = 1;
     private const int InGrounding = 2;
-    private const int InResponseSignal = 3;
-    private const int InFeedbackSignal = 4;
-    private const int InToolSignal = 5;
+    private const int InHumanTools = 3;
+    private const int InResponseSignal = 4;
+    private const int InFeedbackSignal = 5;
+    private const int InLlmToolSignal = 6;
 
     private const int OutSignal = 0;
 
@@ -72,7 +74,7 @@ public class ConversationLog : StatefulComponentBase
     private string? _unitsOverride;
 
     // Geometry-snapshot message override. Null = use the default message carried by the wired
-    // GeometrySnapshotGrounding (default); a non-null value is the text sent alongside the snapshot
+    // GeometrySnapshotTool (default); a non-null value is the text sent alongside the snapshot
     // image instead. Configuration, not conversation state — survives Clear and is serialized.
     private string? _snapshotMessageOverride;
 
@@ -95,7 +97,7 @@ public class ConversationLog : StatefulComponentBase
     // The tool definitions carried by every wired ToolsGrounding (the Tools Present grounder), merged.
     // Lifted onto the Instructions minted for inference so the LLM Call advertises them to the model,
     // and their names feed the chat input's "/t/" reference. Empty when no tools grounding is wired.
-    private IReadOnlyList<ToolDefinition> _liveTools = Array.Empty<ToolDefinition>();
+    private IReadOnlyList<LlmToolDefinition> _liveTools = Array.Empty<LlmToolDefinition>();
 
     // Caches of the other grounding kinds wired this solve, so every kind has a live read for the chat
     // UI's grounding pages: whether a canvas-state grounding is wired, the Rhino-referenced geometry
@@ -103,7 +105,11 @@ public class ConversationLog : StatefulComponentBase
     private bool _hasCanvasStateGrounding;
     private IReadOnlyList<ReferencedGeometryInput> _liveReferencedGeometry = Array.Empty<ReferencedGeometryInput>();
     private IReadOnlyList<PythonFunctionGrounding> _livePythonFunctions = Array.Empty<PythonFunctionGrounding>();
-    private GeometrySnapshotGrounding? _liveSnapshotGrounding;
+
+    // Caches of the human tools wired this solve — the chat-window affordances the user enabled by
+    // wiring components into the Human Tools input. Session-only, refreshed every solve.
+    private GeometrySnapshotTool? _liveSnapshotTool;
+    private bool _hasAddImageTool;
 
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
@@ -247,26 +253,32 @@ public class ConversationLog : StatefulComponentBase
     public bool ExposeComponentSignatures => _exposeSignatures;
 
     /// <summary>
-    /// Gets a value indicating whether a geometry-snapshot grounding is currently wired (so the
-    /// chat UI can show its grounding page and its send-a-snapshot geometry button).
+    /// Gets a value indicating whether a Geometry Snapshot human tool is currently wired (so the
+    /// chat UI can show its panel page and its send-a-snapshot geometry button).
     /// </summary>
-    public bool HasGeometrySnapshotGrounding => _liveSnapshotGrounding is not null;
+    public bool HasGeometrySnapshotTool => _liveSnapshotTool is not null;
 
     /// <summary>
-    /// Gets the default snapshot message carried by the wired grounding — what accompanies the
-    /// snapshot image unless overridden. Empty when no geometry-snapshot grounding is wired.
+    /// Gets a value indicating whether an Add Image human tool is currently wired (so the chat UI
+    /// can enable image attachments in the prompt box; without it image intake is fully disabled).
     /// </summary>
-    public string GeometrySnapshotDefaultMessage => _liveSnapshotGrounding?.Message ?? string.Empty;
+    public bool HasAddImageTool => _hasAddImageTool;
+
+    /// <summary>
+    /// Gets the default snapshot message carried by the wired tool — what accompanies the
+    /// snapshot image unless overridden. Empty when no Geometry Snapshot tool is wired.
+    /// </summary>
+    public string GeometrySnapshotDefaultMessage => _liveSnapshotTool?.Message ?? string.Empty;
 
     /// <summary>
     /// Gets the current snapshot-message override, or <see langword="null"/> when the wired
-    /// grounding's default message is used.
+    /// tool's default message is used.
     /// </summary>
     public string? SnapshotMessageOverrideOrNull => _snapshotMessageOverride;
 
     /// <summary>
     /// Gets the text sent alongside the snapshot image: the override when set, else the wired
-    /// grounding's default. Empty when no geometry-snapshot grounding is wired.
+    /// tool's default. Empty when no Geometry Snapshot tool is wired.
     /// </summary>
     public string GeometrySnapshotMessage => _snapshotMessageOverride ?? GeometrySnapshotDefaultMessage;
 
@@ -321,11 +333,11 @@ public class ConversationLog : StatefulComponentBase
     }
 
     /// <summary>
-    /// Sets the geometry-snapshot message override (null = use the wired grounding's default
+    /// Sets the geometry-snapshot message override (null = use the wired tool's default
     /// message) and re-solves. The message accompanies the viewport snapshot sent by the chat
     /// window's geometry button. Called from the chat window on the UI thread.
     /// </summary>
-    /// <param name="message">The override text, or null to use the grounding's default message.</param>
+    /// <param name="message">The override text, or null to use the tool's default message.</param>
     public void SetSnapshotMessageOverride(string? message)
     {
         _snapshotMessageOverride = string.IsNullOrWhiteSpace(message) ? null : message;
@@ -346,18 +358,20 @@ public class ConversationLog : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn; the signal payload is the prompt text. Use Construct Signal to combine a text payload with a manual trigger.", GH_ParamAccess.list);
         pManager.AddTextParameter("System Prompt", "S", "System prompt from the System Prompt component.", GH_ParamAccess.item, string.Empty);
+        pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn; the signal payload is the prompt text. Use Construct Signal to combine a text payload with a manual trigger.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Optional grounding context (e.g. the Component Catalog); each grounding's section is folded into the system prompt. Narrow what is included via the chat window's grounding panel.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_HumanTool(), "Human Tools", "HT", "Optional human tools — affordances enabled in the chat window (Geometry Snapshot, Add Image). Never sent to the model.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the LLM Call's Success Signal.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Records feedback as a user turn. Wire one or more Feedback Collectors directly — no OR gate needed.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_Signal(), "Tool Signal", "TS", "Records tool turns from a Router (via Feedback Collector): a signal whose content blocks carry tool_use is logged as an assistant turn; one whose blocks carry tool_result is logged as a user turn.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "LLM Tool Signal", "TS", "Records tool turns from a Router (via Feedback Collector): a signal whose content blocks carry tool_use is logged as an assistant turn; one whose blocks carry tool_result is logged as a user turn.", GH_ParamAccess.list);
 
         pManager[InPromptSignal].Optional = true;
         pManager[InResponseSignal].Optional = true;
         pManager[InFeedbackSignal].Optional = true;
-        pManager[InToolSignal].Optional = true;
+        pManager[InLlmToolSignal].Optional = true;
         pManager[InGrounding].Optional = true;
+        pManager[InHumanTools].Optional = true;
     }
 
     /// <inheritdoc/>
@@ -381,13 +395,14 @@ public class ConversationLog : StatefulComponentBase
 
         DA.GetData(InSystemPrompt, ref systemPrompt);
 
-        // Read the wired grounding every solve so the latch (and the chat UI's tree) sees the live
-        // catalog. Cheap: this is just projecting goo references already on the wire.
+        // Read the wired grounding and human tools every solve so the latch (and the chat UI) sees
+        // the live state. Cheap: this is just projecting goo references already on the wire.
         ReadGroundingInputs(DA);
+        ReadHumanToolInputs(DA);
 
         // Observe every solve, even mid-run: events arriving while busy wait, latched on
         // their wires, and are serviced after the latch.
-        ObserveSignalInputs(DA, InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal);
+        ObserveSignalInputs(DA, InPromptSignal, InResponseSignal, InFeedbackSignal, InLlmToolSignal);
 
         if (_doLatch)
         {
@@ -415,7 +430,7 @@ public class ConversationLog : StatefulComponentBase
                     break;
             }
 
-            if (HasUnconsumedSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal))
+            if (HasUnconsumedSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InLlmToolSignal))
             {
                 // Events arrived mid-run; nothing was dropped. One follow-up solve
                 // services them in sequence order.
@@ -432,7 +447,7 @@ public class ConversationLog : StatefulComponentBase
             // always minted after the response that provoked it, so even when both land
             // in this one solve the assistant turn is recorded first.
             IReadOnlyList<ConsumedSignal> consumed =
-                ConsumeAllSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InToolSignal);
+                ConsumeAllSignals(InPromptSignal, InResponseSignal, InFeedbackSignal, InLlmToolSignal);
 
             if (consumed.Count > 0)
             {
@@ -660,7 +675,7 @@ public class ConversationLog : StatefulComponentBase
         // Present grounder is the norm, but two wired ones must not advertise a tool twice).
         _liveTools = _liveGroundings
             .OfType<ToolsGrounding>()
-            .SelectMany(g => g.Tools ?? Array.Empty<ToolDefinition>())
+            .SelectMany(g => g.Tools ?? Array.Empty<LlmToolDefinition>())
             .Where(t => t is not null)
             .GroupBy(t => t.Name, StringComparer.Ordinal)
             .Select(g => g.First())
@@ -678,14 +693,28 @@ public class ConversationLog : StatefulComponentBase
             : Array.Empty<ReferencedGeometryInput>();
 
         _livePythonFunctions = _liveGroundings.OfType<PythonFunctionGrounding>().ToList();
+    }
 
-        // A geometry-snapshot grounding carries a single default message; last one wins if several
-        // are wired (same discipline as document units).
-        _liveSnapshotGrounding = _liveGroundings.OfType<GeometrySnapshotGrounding>().LastOrDefault();
+    // Reads the Human Tools input and caches which chat-window affordances are enabled. Human tools
+    // never touch the system prompt — their presence on this input is the whole contract.
+    private void ReadHumanToolInputs(IGH_DataAccess da)
+    {
+        var goos = new List<GH_HumanTool>();
+        da.GetDataList(InHumanTools, goos);
+
+        List<HumanTool> tools = goos
+            .Where(g => g?.Value is not null)
+            .Select(g => g.Value)
+            .ToList();
+
+        // A Geometry Snapshot tool carries a single default message; last one wins if several are
+        // wired (same discipline as document units).
+        _liveSnapshotTool = tools.OfType<GeometrySnapshotTool>().LastOrDefault();
+        _hasAddImageTool = tools.OfType<AddImageTool>().Any();
     }
 
     // The tools advertised to the model: the live tools narrowed by the tools selection (null = all).
-    private IReadOnlyList<ToolDefinition> SelectedTools() =>
+    private IReadOnlyList<LlmToolDefinition> SelectedTools() =>
         _toolsSelection is { } selection
             ? _liveTools.Where(t => selection.Includes(t.Name)).ToList()
             : _liveTools;
@@ -791,7 +820,7 @@ public class ConversationLog : StatefulComponentBase
             case InPromptSignal: kind = RecordedTurnKind.Prompt; return true;
             case InResponseSignal: kind = RecordedTurnKind.Response; return true;
             case InFeedbackSignal: kind = RecordedTurnKind.Feedback; return true;
-            case InToolSignal: kind = RecordedTurnKind.Tool; return true;
+            case InLlmToolSignal: kind = RecordedTurnKind.Tool; return true;
             default: kind = default; return false;
         }
     }

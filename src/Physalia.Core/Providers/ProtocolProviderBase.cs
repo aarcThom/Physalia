@@ -47,7 +47,7 @@ public abstract class ProtocolProviderBase<TConfig> : ILlmProvider
         Conversation conversation,
         string systemPrompt,
         ModelConfig config,
-        IReadOnlyList<ToolDefinition>? tools,
+        IReadOnlyList<LlmToolDefinition>? tools,
         [EnumeratorCancellation] CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(conversation);
@@ -108,7 +108,7 @@ public abstract class ProtocolProviderBase<TConfig> : ILlmProvider
         Conversation conversation,
         string systemPrompt,
         TConfig config,
-        IReadOnlyList<ToolDefinition>? tools,
+        IReadOnlyList<LlmToolDefinition>? tools,
         CancellationToken ct);
 
     /// <summary>

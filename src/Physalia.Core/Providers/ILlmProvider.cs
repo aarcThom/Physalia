@@ -33,7 +33,7 @@ public interface ILlmProvider
         Conversation conversation,
         string systemPrompt,
         ModelConfig config,
-        IReadOnlyList<ToolDefinition>? tools,
+        IReadOnlyList<LlmToolDefinition>? tools,
         CancellationToken ct);
 
     /// <summary>

@@ -14,7 +14,7 @@ public class OpenAIRequestBodyTests
 {
     private sealed class TestableOpenAIProvider : OpenAIProtocolProvider
     {
-        public JsonObject Build(OpenAICompatibleConfig config, Conversation? conversation = null, IReadOnlyList<ToolDefinition>? tools = null)
+        public JsonObject Build(OpenAICompatibleConfig config, Conversation? conversation = null, IReadOnlyList<LlmToolDefinition>? tools = null)
             => BuildRequestBody(
                 conversation ?? Conversation.Empty.Append(new ConversationMessage(Role.User, "hi")),
                 "system",

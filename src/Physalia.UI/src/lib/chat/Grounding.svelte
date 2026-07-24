@@ -22,6 +22,7 @@
 	import SquareCheckIcon from '@lucide/svelte/icons/square-check';
 	import SquareMinusIcon from '@lucide/svelte/icons/square-minus';
 	import BoxIcon from '@lucide/svelte/icons/box';
+	import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
 	import Axis3dIcon from '@lucide/svelte/icons/axis-3d';
 	import RulerIcon from '@lucide/svelte/icons/ruler';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
@@ -67,12 +68,14 @@
 		unitsOverride: string | null;
 		/** Unit-system choices for the dropdown (includes the current doc value + any override). */
 		unitOptions: string[];
-		/** True when a geometry-snapshot grounding is wired (shows the Geometry Snapshot pill). */
+		/** True when a Geometry Snapshot human tool is wired (shows its pill in the Human Tools section). */
 		snapshotWired: boolean;
-		/** The grounding's default message sent alongside the snapshot image. */
+		/** The tool's default message sent alongside the snapshot image. */
 		snapshotDefaultMessage: string;
-		/** Current snapshot-message override, or null = use the grounding's default (default). */
+		/** Current snapshot-message override, or null = use the tool's default (default). */
 		snapshotMessage: string | null;
+		/** True when an Add Image human tool is wired (shows its row in the Human Tools section). */
+		imageToolWired: boolean;
 		/** Applies a new component selection (host action). all=true returns to include-everything. */
 		onapply: (payload: GroundingSelectionPayload) => void;
 		/** Toggles typed component signatures in the grounded system prompt (host action). */
@@ -106,6 +109,7 @@
 		snapshotWired,
 		snapshotDefaultMessage,
 		snapshotMessage,
+		imageToolWired,
 		onapply,
 		onapplysignatures,
 		onapplyclusters,
@@ -313,9 +317,9 @@
 	}
 
 	// Geometry-snapshot message: the text sent alongside the snapshot image is the override when
-	// set, else the grounding's default. Local source of truth, initialised once from props like
+	// set, else the tool's default. Local source of truth, initialised once from props like
 	// the other kinds; edits drive the host on change/blur. Clearing the box (or typing the default
-	// verbatim) resets the override so the message keeps tracking the grounding's default.
+	// verbatim) resets the override so the message keeps tracking the tool's default.
 	let snapshotText = $state(snapshotMessage ?? snapshotDefaultMessage);
 	let snapshotOverridden = $state(snapshotMessage !== null);
 
@@ -353,7 +357,7 @@
 			below to refine what's included.
 		</p>
 
-		{#if tree.length > 0 || clusters.length > 0 || tools.length > 0 || referencedGeometry.length > 0 || pythonFunctions.length > 0 || unitsWired || snapshotWired}
+		{#if tree.length > 0 || clusters.length > 0 || tools.length > 0 || referencedGeometry.length > 0 || pythonFunctions.length > 0 || unitsWired || snapshotWired || imageToolWired}
 			<div class="mt-4 flex flex-col gap-2">
 				{#if tree.length > 0}
 					<Button
@@ -388,7 +392,7 @@
 						onclick={() => (view = 'tools')}
 					>
 						<WrenchIcon class="size-4 shrink-0" />
-						<span class="flex-1">Tools</span>
+						<span class="flex-1">LLM Tools</span>
 						<span class="text-muted-foreground text-xs">
 							{allToolsIncluded ? 'All enabled' : `${includedTools.size} of ${tools.length}`}
 						</span>
@@ -429,20 +433,47 @@
 						</span>
 					</Button>
 				{/if}
-				{#if snapshotWired}
-					<Button
-						variant="outline"
-						class="h-auto w-full justify-start gap-2 py-2.5 text-left"
-						onclick={() => (view = 'snapshot')}
-					>
-						<Axis3dIcon class="size-4 shrink-0" />
-						<span class="flex-1">Geometry Snapshot</span>
-						<span class="text-muted-foreground text-xs">
-							{snapshotOverridden ? 'Custom message' : 'Default message'}
-						</span>
-					</Button>
-				{/if}
 			</div>
+
+			<!-- Human tools sit apart from the grounding kinds: they are affordances for the human in
+			     this window (a geometry button, image attachments), never folded into the prompt or
+			     advertised to the model. Each appears only while its component is wired into the
+			     Conversation Log's Human Tools input. -->
+			{#if snapshotWired || imageToolWired}
+				<div class="border-muted-foreground/20 mt-5 border-t pt-4">
+					<h3 class="text-sm font-semibold">Human Tools</h3>
+					<p class="text-muted-foreground mt-1 text-xs">
+						Affordances for you in this chat window — never sent to the model.
+					</p>
+					<div class="mt-3 flex flex-col gap-2">
+						{#if snapshotWired}
+							<Button
+								variant="outline"
+								class="h-auto w-full justify-start gap-2 py-2.5 text-left"
+								onclick={() => (view = 'snapshot')}
+							>
+								<Axis3dIcon class="size-4 shrink-0" />
+								<span class="flex-1">Geometry Snapshot</span>
+								<span class="text-muted-foreground text-xs">
+									{snapshotOverridden ? 'Custom message' : 'Default message'}
+								</span>
+							</Button>
+						{/if}
+						{#if imageToolWired}
+							<!-- Read-only: the Add Image tool has nothing to configure — images ride the
+							     prompt itself. The row just confirms the affordance is enabled. -->
+							<div
+								class="neu-raised-sm flex items-center gap-2 rounded-md px-3 py-2.5 text-sm"
+								title="Images can be pasted, dragged in, or picked from disk in the prompt box"
+							>
+								<ImagePlusIcon class="text-muted-foreground size-4 shrink-0" />
+								<span class="flex-1">Image attachments</span>
+								<span class="text-muted-foreground text-xs">Enabled</span>
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/if}
 		{:else}
 			<div class="mt-6 flex flex-col items-center gap-4">
 				<HappyFace />
@@ -592,7 +623,7 @@
 			</Button>
 		</div>
 
-		<h2 class="text-lg font-semibold">Tools</h2>
+		<h2 class="text-lg font-semibold">LLM Tools</h2>
 		<p class="text-muted-foreground mt-1 text-sm">
 			Choose which of the tools on the canvas the model may call. Everything is enabled by default;
 			disabling a tool keeps it on the canvas but hides it from the model.

@@ -34,7 +34,7 @@ public class ToolsInUse : PhyBase
     /// Initializes a new instance of the <see cref="ToolsInUse"/> class.
     /// </summary>
     public ToolsInUse()
-        : base("Tools Present", "ToolsUsed", "Grounds the model with every tool node wired into a Router. Wire into a Conversation Log's Grounding input.", "Tools")
+        : base("Tools Present", "ToolsUsed", "Grounds the model with every tool node wired into a Router. Wire into a Conversation Log's Grounding input.", "LLM Tools")
     {
     }
 
@@ -88,14 +88,14 @@ public class ToolsInUse : PhyBase
     /// </summary>
     /// <param name="doc">The owning document, or null.</param>
     /// <returns>The in-use tool nodes.</returns>
-    private static IEnumerable<ToolComponentBase> InUseTools(GH_Document? doc)
+    private static IEnumerable<LlmToolComponentBase> InUseTools(GH_Document? doc)
     {
         if (doc is null)
         {
             yield break;
         }
 
-        foreach (ToolComponentBase tool in doc.Objects.OfType<ToolComponentBase>())
+        foreach (LlmToolComponentBase tool in doc.Objects.OfType<LlmToolComponentBase>())
         {
             if (IsDispatchedFromRouter(tool))
             {
@@ -110,7 +110,7 @@ public class ToolsInUse : PhyBase
     /// </summary>
     /// <param name="tool">The tool node to inspect.</param>
     /// <returns>True when at least one Signal-input source is a Router.</returns>
-    private static bool IsDispatchedFromRouter(ToolComponentBase tool)
+    private static bool IsDispatchedFromRouter(LlmToolComponentBase tool)
     {
         foreach (IGH_Param source in tool.Params.Input[0].Sources)
         {
@@ -130,7 +130,7 @@ public class ToolsInUse : PhyBase
     /// </summary>
     /// <param name="tools">The in-use tool nodes.</param>
     /// <returns>A signature string.</returns>
-    private static string Signature(IEnumerable<ToolComponentBase> tools) =>
+    private static string Signature(IEnumerable<LlmToolComponentBase> tools) =>
         string.Join("|", tools.Select(t => $"{t.InstanceGuid:N}:{t.AdvertisedDefinition.Name}").OrderBy(s => s, StringComparer.Ordinal));
 
     private void OnDocumentSolutionEnd(object sender, GH_SolutionEventArgs e)

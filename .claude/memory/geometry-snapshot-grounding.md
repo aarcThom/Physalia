@@ -9,6 +9,8 @@ metadata:
 
 # Geometry Snapshot grounding (2026-07-22, button rework 2026-07-23)
 
+> **SUPERSEDED 2026-07-23 (later same day): no longer a grounding.** Now the `GeometrySnapshotTool` HUMAN tool (component "Geometry Snapshot", Human Tools tab, same GUID) wired into the Conversation Log's **Human Tools** input — see [[human-tools-split]]. Flow/override/UI below still accurate otherwise.
+
 New grounding kind: the Geometry Observation guardrail's capture, sent on demand from the chat window. **Thomas's explicit design call: the snapshot is NEVER auto-attached to a typed prompt — the geometry button sends it as its own message, on press only.** (First cut auto-attached to every prompt; reworked same session.)
 
 **How it works**

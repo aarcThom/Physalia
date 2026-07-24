@@ -96,15 +96,17 @@
 	let unitsOverride = $state<string | null>(null);
 	let unitOptions = $state<string[]>([]);
 
-	// Geometry-snapshot grounding state: whether a snapshot grounding is wired, whether generated
-	// geometry is present right now (both together light the composer's geometry indicator), the
-	// grounding's default message, and the current override (null = use the default).
+	// Human-tool state: whether a Geometry Snapshot tool is wired, whether generated geometry is
+	// present right now (both together light the composer's geometry indicator), the tool's default
+	// message, the current override (null = use the default), and whether an Add Image tool is
+	// wired (without it image intake is fully disabled in the composer).
 	let snapshotWired = $state(false);
 	let snapshotGeometryPresent = $state(false);
 	let snapshotDefaultMessage = $state('');
 	let snapshotMessage = $state<string | null>(null);
+	let imageToolWired = $state(false);
 
-	// The grounding button opens the panel whenever any grounding kind is wired.
+	// The grounding button opens the panel whenever any grounding kind — or human tool — is wired.
 	let groundingAvailable = $derived(
 		groundingWired ||
 			clustersWired ||
@@ -112,7 +114,8 @@
 			referencedGeometryWired ||
 			pythonWired ||
 			unitsWired ||
-			snapshotWired
+			snapshotWired ||
+			imageToolWired
 	);
 
 	// The cluster names currently exposed to the model (selection applied), for the "/c/" autocomplete.
@@ -198,6 +201,7 @@
 				snapshotGeometryPresent = next.snapshotGeometryPresent ?? false;
 				snapshotDefaultMessage = next.snapshotDefaultMessage ?? '';
 				snapshotMessage = next.snapshotMessage ?? null;
+				imageToolWired = next.imageToolWired ?? false;
 			},
 			setSetupResult: (result) => {
 				setupResult = result;
@@ -503,6 +507,7 @@
 					{snapshotWired}
 					{snapshotDefaultMessage}
 					{snapshotMessage}
+					{imageToolWired}
 					onapply={setGrounding}
 					onapplysignatures={setSignatures}
 					onapplyclusters={setClusters}
@@ -574,6 +579,7 @@
 			apiKeyProvider={keyProvider}
 			groundingWired={groundingAvailable}
 			snapshotArmed={snapshotWired && snapshotGeometryPresent}
+			{imageToolWired}
 			clusterNames={includedClusterNames}
 			toolNames={includedToolNames}
 			componentTabs={availableComponents}

@@ -53,7 +53,7 @@ public sealed class ClaudeCodeProvider : ILlmProvider
         Conversation conversation,
         string systemPrompt,
         ModelConfig config,
-        IReadOnlyList<ToolDefinition>? tools,
+        IReadOnlyList<LlmToolDefinition>? tools,
         [EnumeratorCancellation] CancellationToken ct)
     {
         if (config is not ClaudeCodeConfig claudeConfig)

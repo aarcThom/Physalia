@@ -11,12 +11,12 @@ namespace Physalia.Core.Tests.Grounding;
 
 public class ToolsGroundingTests
 {
-    private static ToolDefinition Tool(string name) => new(name, $"{name} description", "{}");
+    private static LlmToolDefinition Tool(string name) => new(name, $"{name} description", "{}");
 
     [Fact]
     public void ToSystemPromptSection_ListsToolNames_WithOnlyTheseInstruction()
     {
-        var grounding = new ToolsGrounding(new List<ToolDefinition>
+        var grounding = new ToolsGrounding(new List<LlmToolDefinition>
         {
             Tool("create_rhino_geometry"),
             Tool("web_search"),
@@ -32,6 +32,6 @@ public class ToolsGroundingTests
     [Fact]
     public void ToSystemPromptSection_NoTools_ReturnsEmpty()
     {
-        Assert.Equal(string.Empty, new ToolsGrounding(Array.Empty<ToolDefinition>()).ToSystemPromptSection());
+        Assert.Equal(string.Empty, new ToolsGrounding(Array.Empty<LlmToolDefinition>()).ToSystemPromptSection());
     }
 }

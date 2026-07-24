@@ -190,35 +190,6 @@ public sealed record DocumentUnitsGrounding(string Units) : Grounding
 }
 
 /// <summary>
-/// Grounds the model with a viewport snapshot of the geometry generated so far — the analog of the
-/// Geometry Observation guardrail, sent on demand from the chat window instead of routed as a
-/// feedback signal. Because a system prompt carries only text, this grounding contributes nothing
-/// there; instead its presence (plus generated geometry on the canvas) shows a geometry button in
-/// the chat window's prompt box. Pressing it captures the Rhino viewport (framed on the
-/// transmitter-generated geometry) and sends the snapshot, with <see cref="Message"/>, as its own
-/// user message — a snapshot is never attached to a typed prompt automatically. The message
-/// defaults to <see cref="DefaultMessage"/> and is editable from the chat window's grounding panel.
-/// </summary>
-/// <param name="Message">The text sent alongside the snapshot image.</param>
-public sealed record GeometrySnapshotGrounding(string Message) : Grounding
-{
-    /// <summary>
-    /// The message sent with the snapshot unless the user edits it in the chat window's
-    /// grounding panel — the same text a Geometry Observation component would carry.
-    /// </summary>
-    public const string DefaultMessage =
-        "Attached is a snapshot of the Rhino viewport showing the geometry currently generated "
-        + "on the canvas. Ground your response in what has actually been built.";
-
-    /// <inheritdoc/>
-    /// <remarks>
-    /// The snapshot is an image and rides the user turn, not the system prompt, so this grounding
-    /// contributes no prompt section (the assembler drops empty sections).
-    /// </remarks>
-    public override string ToSystemPromptSection() => string.Empty;
-}
-
-/// <summary>
 /// Grounds the model with a python function available for use.
 /// </summary>
 /// <param name="Signature">The function signature (e.g. <c>def foo(a, b) -> float</c>).</param>
@@ -345,7 +316,7 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
 /// matches what the model can actually call.
 /// </summary>
 /// <param name="Tools">The definitions of every tool in use.</param>
-public sealed record ToolsGrounding(IReadOnlyList<ToolDefinition> Tools) : Grounding
+public sealed record ToolsGrounding(IReadOnlyList<LlmToolDefinition> Tools) : Grounding
 {
     /// <inheritdoc/>
     public override string ToSystemPromptSection()

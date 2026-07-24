@@ -21,4 +21,4 @@ namespace Physalia.Core.Common;
 /// <c>{ "type": "object", "properties": { ... }, "required": [ ... ] }</c>. Blank or unparseable
 /// schemas fall back to an empty object schema.
 /// </param>
-public record ToolDefinition(string Name, string Description, string InputSchemaJson);
+public record LlmToolDefinition(string Name, string Description, string InputSchemaJson);

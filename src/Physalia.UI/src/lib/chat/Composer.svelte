@@ -11,11 +11,6 @@
 	// inserts a Claude-Code-style "[image#N]" token at the caret and a thumbnail in the strip above; the
 	// tokens are composer-only scaffolding, stripped before send (images travel as real image blocks).
 	import { onMount, tick } from 'svelte';
-	import { Button } from '$lib/components/ui/button/index.js';
-	import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
-	import Axis3dIcon from '@lucide/svelte/icons/axis-3d';
-	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
-	import SquareIcon from '@lucide/svelte/icons/square';
 	import XIcon from '@lucide/svelte/icons/x';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import BoxIcon from '@lucide/svelte/icons/box';
@@ -35,14 +30,6 @@
 		disabled?: boolean;
 		/** When set, the box captures an API key for this provider instead of sending a message. */
 		apiKeyProvider?: { id: string; label: string } | null;
-		/** True when any grounding is wired — enables the grounding button. */
-		groundingWired?: boolean;
-		/** True when a Geometry Snapshot human tool is wired — shows the geometry button (greyed
-		 *  until generated geometry exists on the canvas). */
-		snapshotWired?: boolean;
-		/** True when generated geometry is on the canvas too — arms the geometry button, which
-		 *  sends a snapshot (with its predefined message) on press. */
-		snapshotArmed?: boolean;
 		/** True when an Add Image human tool is wired — without it, image intake (paste, drag-drop,
 		 *  file picker) is fully disabled and prompts are text-only. */
 		imageToolWired?: boolean;
@@ -53,14 +40,8 @@
 		/** Grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete. */
 		componentTabs?: ComponentTabInfo[];
 		onsend: (message: SubmitMessage) => void;
-		/** Sends a viewport snapshot of the generated geometry as its own message (geometry button). */
-		onsnapshot?: () => void;
 		/** Called with the pasted API key when in apiKeyProvider mode. */
 		onsavekey?: (providerId: string, key: string) => void;
-		/** Opens the grounding selection panel. */
-		ongrounding?: () => void;
-		/** Cancels the in-flight request; only invokable while busy. */
-		oncancel?: () => void;
 	}
 
 	let {
@@ -68,18 +49,12 @@
 		busy,
 		disabled = false,
 		apiKeyProvider = null,
-		groundingWired = false,
-		snapshotWired = false,
-		snapshotArmed = false,
 		imageToolWired = false,
 		clusterNames = [],
 		toolNames = [],
 		componentTabs = [],
 		onsend,
-		onsnapshot,
-		onsavekey,
-		ongrounding,
-		oncancel
+		onsavekey
 	}: Props = $props();
 
 	interface PendingImage {
@@ -672,7 +647,9 @@
 		return value.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/gm, '');
 	}
 
-	function submit() {
+	// Sends the box's contents (or saves a pasted API key). Also invoked from outside via
+	// bind:this — the submit button lives in App's right-hand rail, not in this component.
+	export function submit() {
 		if (inert) {
 			return;
 		}
@@ -758,7 +735,9 @@
 		}
 	}
 
-	function openPicker() {
+	// Opens the image file picker. Invoked from outside via bind:this — the Add Image button
+	// lives in App's right-hand rail — while the picker's <input> stays here with the intake logic.
+	export function openPicker() {
 		fileInputRef?.click();
 	}
 
@@ -845,61 +824,15 @@
 		</div>
 	{/if}
 
-	<div class="neu-well flex items-end gap-1.5 rounded-xl p-2">
-		<div class="flex flex-col gap-1.5">
-			<Button
-				variant="ghost"
-				size="icon"
-				onclick={() => ongrounding?.()}
-				disabled={inert || !!apiKeyProvider || !groundingWired}
-				title={groundingWired
-					? 'Grounding — choose what context is available to the model'
-					: 'Grounding — wire a grounding into the Conversation Log to enable'}
-			>
-				<LayersIcon />
-			</Button>
-
-			{#if snapshotWired}
-				<!-- Geometry-snapshot button: appears the moment a Geometry Snapshot human tool is
-				     wired, but stays greyed until a transmitter has generated geometry (snapshotArmed).
-				     Pressing it captures a viewport snapshot and sends it, with its predefined message,
-				     as its own message — nothing is ever attached to a typed prompt automatically. The
-				     message is edited in the grounding panel's Geometry Snapshot page. -->
-				<Button
-					variant="ghost"
-					size="icon"
-					class={snapshotArmed ? 'text-[var(--neu-accent)]' : ''}
-					onclick={() => onsnapshot?.()}
-					disabled={inert || !!apiKeyProvider || !snapshotArmed}
-					title={snapshotArmed
-						? 'Send a viewport snapshot of the generated geometry with its predefined message'
-						: 'Geometry snapshot — enabled once generated geometry is on the canvas'}
-				>
-					<Axis3dIcon />
-				</Button>
-			{/if}
-
-			{#if imageToolWired}
-				<!-- Add-image button: appears only while an Add Image human tool is wired into the
-				     Conversation Log's Human Tools input — without it, image intake does not exist. -->
-				<Button
-					variant="ghost"
-					size="icon"
-					onclick={openPicker}
-					disabled={inert || !!apiKeyProvider}
-					title="Add image"
-				>
-					<ImagePlusIcon />
-				</Button>
-			{/if}
-		</div>
-
+	<!-- The prompt box is the editor alone — the send / cancel / human-tool buttons live in App's
+	     right-hand rail, outside this box, so the well spans the same width as the conversation. -->
+	<div class="neu-well rounded-xl p-2">
 		<!-- Contenteditable prompt editor. Sans by default; "/" commands render monospace-on-chip
 		     (.slash-cmd, styled in app.css). The caret lives in the styled content, so per-token fonts
 		     do not drift it. -->
 		<div
 			bind:this={editorRef}
-			class="prompt-editor max-h-56 min-h-16 flex-1 resize-none overflow-y-auto whitespace-pre-wrap break-words p-2 text-base focus:outline-none"
+			class="prompt-editor max-h-56 min-h-16 resize-none overflow-y-auto whitespace-pre-wrap break-words p-2 text-base focus:outline-none"
 			class:opacity-60={inert}
 			contenteditable={!inert}
 			role="textbox"
@@ -914,20 +847,6 @@
 			oncompositionstart={onCompositionStart}
 			oncompositionend={onCompositionEnd}
 		></div>
-
-		<Button
-			variant="ghost"
-			size="icon"
-			onclick={() => oncancel?.()}
-			disabled={!busy}
-			title={busy ? 'Cancel the active request' : 'No active request to cancel'}
-		>
-			<SquareIcon />
-		</Button>
-
-		<Button size="icon" onclick={submit} disabled={inert} title="Send">
-			<ArrowUpIcon />
-		</Button>
 	</div>
 </div>
 

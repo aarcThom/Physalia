@@ -23,8 +23,11 @@
 	} from '$lib/components/ui/dropdown-menu/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import MenuIcon from '@lucide/svelte/icons/menu';
-	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
+	import Axis3dIcon from '@lucide/svelte/icons/axis-3d';
+	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
+	import OctagonIcon from '@lucide/svelte/icons/octagon';
 	import { getProvider } from '$lib/chat/providers';
 	import { cn } from '$lib/utils';
 	import type {
@@ -379,6 +382,18 @@
 		panel = null;
 	}
 
+	// The composer instance, for the rail buttons that drive it from outside the box: the submit
+	// arrow calls its exported submit(), the Add Image human tool its exported openPicker().
+	let composer = $state<{ submit: () => void; openPicker: () => void } | null>(null);
+
+	// Mirror of the Composer's own inert gate (busy / setup / disconnected, except in API-key
+	// mode), so the external submit button greys out exactly when the box itself is inert.
+	let composerInert = $derived(busy || ((showSetup || !connected) && !keyProvider));
+
+	// The geometry button arms only when a Geometry Snapshot tool is wired AND generated
+	// geometry exists on the canvas right now.
+	let snapshotArmed = $derived(snapshotWired && snapshotGeometryPresent);
+
 	let isEmpty = $derived(messages.length === 0 && !stream);
 	// Provider configured (not setup) but no ConversationLog wired and nothing said yet: offer the
 	// connect-a-conversation log / workflow / configure options instead of a bare empty conversation.
@@ -423,58 +438,55 @@
 </script>
 
 <main class="bg-transparent text-foreground relative flex h-screen flex-col overflow-hidden">
-	<!-- Header: a small menu at the very top. Its dropdown reopens the provider setup screen,
-	     opens the preset gallery, or the manual-definition page. The clear-all button on the
-	     right wipes every Physalia component's signals / conversations in the open document. -->
-	<!-- pr matches the chat content's right edge: p-4 gutter (16px) + the reserved scrollbar gutter
-	     (14px, see app.css ::-webkit-scrollbar + scrollbar-gutter), so "Clear all components"
-	     right-aligns with the user message bubbles. -->
-	<header class="flex shrink-0 items-center gap-2 py-1 pl-2 pr-[30px]">
-		<DropdownMenu>
-			<DropdownMenuTrigger>
-				{#snippet child({ props })}
-					<Button variant="ghost" size="sm" class="gap-1 px-2" title="Menu" {...props}>
-						<MenuIcon class="size-4" />
-						<ChevronDownIcon class="size-3.5" />
-					</Button>
-				{/snippet}
-			</DropdownMenuTrigger>
-			<DropdownMenuContent align="start" class="w-60">
-				<DropdownMenuItem class="whitespace-nowrap" onSelect={openSetup}>
-					Set up providers…
-				</DropdownMenuItem>
-				<DropdownMenuSeparator />
-				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('preset')}>
-					Add preset
-				</DropdownMenuItem>
-				<DropdownMenuSeparator />
-				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('manualdef')}>
-					Add new manual definition
-				</DropdownMenuItem>
-				{#if harnessCount > 0}
-					<DropdownMenuSeparator />
-					<DropdownMenuItem class="whitespace-nowrap" onSelect={toggleHarness}>
-						{collapsed ? `Show harness (${harnessCount})` : `Hide harness (${harnessCount})`}
-					</DropdownMenuItem>
-				{/if}
-			</DropdownMenuContent>
-		</DropdownMenu>
-		<span class="text-muted-foreground text-xs font-medium">Physalia Chat</span>
-		<Button
-			variant="outline"
-			size="sm"
-			class="ml-auto gap-1.5"
-			title="Clear signals, conversations and histories from every Physalia component in the open document"
-			onclick={clearAllComponents}
-		>
-			<Trash2Icon class="size-3.5" />
-			Clear all components
-		</Button>
-	</header>
+	<!-- Two columns: the main column (menu, conversation, prompt box — all one width, so the
+	     conversation and its scrollbar align with the prompt box) and a right-hand rail holding
+	     every icon button (human tools at the top, clear / cancel / submit at the bottom). -->
+	<div class="flex min-h-0 flex-1">
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col pl-3">
+			<!-- Header: just the menu. Its dropdown reopens the provider setup screen, opens the
+			     grounding / tool options panel, the preset gallery, or the manual-definition page. -->
+			<header class="flex shrink-0 items-center py-2">
+				<DropdownMenu>
+					<DropdownMenuTrigger>
+						{#snippet child({ props })}
+							<Button variant="outline" size="icon-lg" title="Menu" {...props}>
+								<MenuIcon class="size-4" />
+							</Button>
+						{/snippet}
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="start" class="w-60">
+						<DropdownMenuItem class="whitespace-nowrap" onSelect={openSetup}>
+							Set up providers…
+						</DropdownMenuItem>
+						<DropdownMenuSeparator />
+						<DropdownMenuItem
+							class="whitespace-nowrap"
+							disabled={!groundingAvailable}
+							onSelect={() => openPanel('grounding')}
+						>
+							Grounding & tool options…
+						</DropdownMenuItem>
+						<DropdownMenuSeparator />
+						<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('preset')}>
+							Add preset
+						</DropdownMenuItem>
+						<DropdownMenuSeparator />
+						<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('manualdef')}>
+							Add new manual definition
+						</DropdownMenuItem>
+						{#if harnessCount > 0}
+							<DropdownMenuSeparator />
+							<DropdownMenuItem class="whitespace-nowrap" onSelect={toggleHarness}>
+								{collapsed ? `Show harness (${harnessCount})` : `Hide harness (${harnessCount})`}
+							</DropdownMenuItem>
+						{/if}
+					</DropdownMenuContent>
+				</DropdownMenu>
+			</header>
 
-	<!-- flex-1 + min-h-0 lets this region size to the space left by the composer and
-	     shrink, so the composer stays pinned at the bottom and the chat scrolls within. -->
-	<div class="relative min-h-0 flex-1">
+			<!-- flex-1 + min-h-0 lets this region size to the space left by the composer and
+			     shrink, so the composer stays pinned at the bottom and the chat scrolls within. -->
+			<div class="relative min-h-0 flex-1">
 		<Conversation class="h-full">
 			<ConversationContent class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
 			{#if showSetup}
@@ -567,29 +579,96 @@
 		</Conversation>
 	</div>
 
-	{#if status && !showSetup}
-		<div class="text-muted-foreground shrink-0 px-4 py-1 text-xs">{status}</div>
-	{/if}
+			{#if status && !showSetup}
+				<div class="text-muted-foreground shrink-0 px-4 py-1 text-xs">{status}</div>
+			{/if}
 
-	<div class="shrink-0 p-3">
-		<Composer
-			disconnected={!connected}
-			{busy}
-			disabled={showSetup}
-			apiKeyProvider={keyProvider}
-			groundingWired={groundingAvailable}
-			{snapshotWired}
-			snapshotArmed={snapshotWired && snapshotGeometryPresent}
-			{imageToolWired}
-			clusterNames={includedClusterNames}
-			toolNames={includedToolNames}
-			componentTabs={availableComponents}
-			onsend={send}
-			onsnapshot={sendSnapshot}
-			onsavekey={saveKey}
-			ongrounding={() => openPanel('grounding')}
-			oncancel={cancel}
-		/>
+			<div class="shrink-0 py-3">
+				<Composer
+					bind:this={composer}
+					disconnected={!connected}
+					{busy}
+					disabled={showSetup}
+					apiKeyProvider={keyProvider}
+					{imageToolWired}
+					clusterNames={includedClusterNames}
+					toolNames={includedToolNames}
+					componentTabs={availableComponents}
+					onsend={send}
+					onsavekey={saveKey}
+				/>
+			</div>
+		</div>
+
+		<!-- Right-hand rail. Human tools stack at the top and are added downwards as they are
+		     wired into the Conversation Log; the bottom stack (clear all components, cancel,
+		     submit) bottom-aligns with the prompt box. -->
+		<aside class="flex w-16 shrink-0 flex-col items-center gap-3 px-2 pt-2 pb-3">
+			{#if imageToolWired}
+				<!-- Add-image button: appears only while an Add Image human tool is wired into the
+				     Conversation Log's Human Tools input — without it, image intake does not exist. -->
+				<Button
+					variant="outline"
+					size="icon-lg"
+					onclick={() => composer?.openPicker()}
+					disabled={composerInert || !!keyProvider}
+					title="Add image"
+				>
+					<ImagePlusIcon class="size-4" />
+				</Button>
+			{/if}
+
+			{#if snapshotWired}
+				<!-- Geometry-snapshot button: appears the moment a Geometry Snapshot human tool is
+				     wired, but stays greyed until a transmitter has generated geometry (snapshotArmed).
+				     Pressing it captures a viewport snapshot and sends it, with its predefined message,
+				     as its own message — nothing is ever attached to a typed prompt automatically. The
+				     message is edited in the grounding panel's Geometry Snapshot page. -->
+				<Button
+					variant="outline"
+					size="icon-lg"
+					class={snapshotArmed ? 'text-[var(--neu-accent)]' : ''}
+					onclick={sendSnapshot}
+					disabled={composerInert || !!keyProvider || !snapshotArmed}
+					title={snapshotArmed
+						? 'Send a viewport snapshot of the generated geometry with its predefined message'
+						: 'Geometry snapshot — enabled once generated geometry is on the canvas'}
+				>
+					<Axis3dIcon class="size-4" />
+				</Button>
+			{/if}
+
+			<div class="flex-1"></div>
+
+			<Button
+				variant="outline"
+				size="icon-lg"
+				title="Clear signals, conversations and histories from every Physalia component in the open document"
+				onclick={clearAllComponents}
+			>
+				<Trash2Icon class="size-4" />
+			</Button>
+
+			<Button
+				variant="outline"
+				size="icon-lg"
+				onclick={cancel}
+				disabled={!busy}
+				title={busy ? 'Cancel the active request' : 'No active request to cancel'}
+			>
+				<OctagonIcon class="size-4" />
+			</Button>
+
+			<Button
+				variant="outline"
+				size="icon-lg"
+				onclick={() => composer?.submit()}
+				disabled={composerInert}
+				title="Send"
+			>
+				<ArrowUpIcon class="size-4" />
+			</Button>
+		</aside>
 	</div>
 
 	<!-- Switcher row at the very bottom: one emoji per Chat on the canvas — its assigned

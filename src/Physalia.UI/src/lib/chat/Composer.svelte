@@ -770,7 +770,9 @@
 	</div>
 {/if}
 
-<div class="relative">
+<!-- flex-1 stretches the box to fill App's bottom-row column, so its top and bottom edges stay
+     pinned to the action stack on its right even when the stack is the taller of the two. -->
+<div class="relative flex flex-1 flex-col">
 	{#if refMenuOpen}
 		<div
 			class="neu-raised absolute bottom-full left-0 z-10 mb-1.5 max-h-56 w-full overflow-y-auto rounded-lg p-1"
@@ -824,15 +826,15 @@
 		</div>
 	{/if}
 
-	<!-- The prompt box is the editor alone — the send / cancel / human-tool buttons live in App's
-	     right-hand rail, outside this box, so the well spans the same width as the conversation. -->
-	<div class="neu-well rounded-xl p-2">
+	<!-- The prompt box is the editor alone — the send / cancel / clear buttons live in App's
+	     action stack to the right of this box, and the human tools along the window's top row. -->
+	<div class="neu-well flex flex-1 flex-col rounded-xl p-2">
 		<!-- Contenteditable prompt editor. Sans by default; "/" commands render monospace-on-chip
 		     (.slash-cmd, styled in app.css). The caret lives in the styled content, so per-token fonts
 		     do not drift it. -->
 		<div
 			bind:this={editorRef}
-			class="prompt-editor max-h-56 min-h-16 resize-none overflow-y-auto whitespace-pre-wrap break-words p-2 text-base focus:outline-none"
+			class="prompt-editor max-h-56 min-h-16 flex-1 resize-none overflow-y-auto whitespace-pre-wrap break-words p-2 text-base focus:outline-none"
 			class:opacity-60={inert}
 			contenteditable={!inert}
 			role="textbox"

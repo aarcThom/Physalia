@@ -438,55 +438,87 @@
 </script>
 
 <main class="bg-transparent text-foreground relative flex h-screen flex-col overflow-hidden">
-	<!-- Two columns: the main column (menu, conversation, prompt box — all one width, so the
-	     conversation and its scrollbar align with the prompt box) and a right-hand rail holding
-	     every icon button (human tools at the top, clear / cancel / submit at the bottom). -->
-	<div class="flex min-h-0 flex-1">
-		<div class="flex min-h-0 min-w-0 flex-1 flex-col pl-3">
-			<!-- Header: just the menu. Its dropdown reopens the provider setup screen, opens the
-			     grounding / tool options panel, the preset gallery, or the manual-definition page. -->
-			<header class="flex shrink-0 items-center py-2">
-				<DropdownMenu>
-					<DropdownMenuTrigger>
-						{#snippet child({ props })}
-							<Button variant="outline" size="icon-lg" title="Menu" {...props}>
-								<MenuIcon class="size-4" />
-							</Button>
-						{/snippet}
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="start" class="w-60">
-						<DropdownMenuItem class="whitespace-nowrap" onSelect={openSetup}>
-							Set up providers…
-						</DropdownMenuItem>
-						<DropdownMenuSeparator />
-						<DropdownMenuItem
-							class="whitespace-nowrap"
-							disabled={!groundingAvailable}
-							onSelect={() => openPanel('grounding')}
-						>
-							Grounding & tool options…
-						</DropdownMenuItem>
-						<DropdownMenuSeparator />
-						<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('preset')}>
-							Add preset
-						</DropdownMenuItem>
-						<DropdownMenuSeparator />
-						<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('manualdef')}>
-							Add new manual definition
-						</DropdownMenuItem>
-						{#if harnessCount > 0}
-							<DropdownMenuSeparator />
-							<DropdownMenuItem class="whitespace-nowrap" onSelect={toggleHarness}>
-								{collapsed ? `Show harness (${harnessCount})` : `Hide harness (${harnessCount})`}
-							</DropdownMenuItem>
-						{/if}
-					</DropdownMenuContent>
-				</DropdownMenu>
-			</header>
+	<!-- Header row: the menu, then the human tools spreading rightwards across the top — each
+	     appears as it is wired into the Conversation Log's Human Tools input. -->
+	<header class="flex shrink-0 items-center gap-3 px-3 py-2">
+		<DropdownMenu>
+			<DropdownMenuTrigger>
+				{#snippet child({ props })}
+					<Button variant="outline" size="icon-lg" title="Menu" {...props}>
+						<MenuIcon class="size-4" />
+					</Button>
+				{/snippet}
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="start" class="w-60">
+				<DropdownMenuItem class="whitespace-nowrap" onSelect={openSetup}>
+					Set up providers…
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<DropdownMenuItem
+					class="whitespace-nowrap"
+					disabled={!groundingAvailable}
+					onSelect={() => openPanel('grounding')}
+				>
+					Grounding & tool options…
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('preset')}>
+					Add preset
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('manualdef')}>
+					Add new manual definition
+				</DropdownMenuItem>
+				{#if harnessCount > 0}
+					<DropdownMenuSeparator />
+					<DropdownMenuItem class="whitespace-nowrap" onSelect={toggleHarness}>
+						{collapsed ? `Show harness (${harnessCount})` : `Hide harness (${harnessCount})`}
+					</DropdownMenuItem>
+				{/if}
+			</DropdownMenuContent>
+		</DropdownMenu>
 
-			<!-- flex-1 + min-h-0 lets this region size to the space left by the composer and
-			     shrink, so the composer stays pinned at the bottom and the chat scrolls within. -->
-			<div class="relative min-h-0 flex-1">
+		{#if imageToolWired}
+			<!-- Add-image button: appears only while an Add Image human tool is wired into the
+			     Conversation Log's Human Tools input — without it, image intake does not exist. -->
+			<Button
+				variant="outline"
+				size="icon-lg"
+				onclick={() => composer?.openPicker()}
+				disabled={composerInert || !!keyProvider}
+				title="Add image"
+			>
+				<ImagePlusIcon class="size-4" />
+			</Button>
+		{/if}
+
+		{#if snapshotWired}
+			<!-- Geometry-snapshot button: appears the moment a Geometry Snapshot human tool is
+			     wired, but stays greyed until a transmitter has generated geometry (snapshotArmed).
+			     Pressing it captures a viewport snapshot and sends it, with its predefined message,
+			     as its own message — nothing is ever attached to a typed prompt automatically. The
+			     message is edited in the grounding panel's Geometry Snapshot page. -->
+			<Button
+				variant="outline"
+				size="icon-lg"
+				class={snapshotArmed ? 'text-[var(--neu-accent)]' : ''}
+				onclick={sendSnapshot}
+				disabled={composerInert || !!keyProvider || !snapshotArmed}
+				title={snapshotArmed
+					? 'Send a viewport snapshot of the generated geometry with its predefined message'
+					: 'Geometry snapshot — enabled once generated geometry is on the canvas'}
+			>
+				<Axis3dIcon class="size-4" />
+			</Button>
+		{/if}
+	</header>
+
+	<!-- flex-1 + min-h-0 lets this region size to the space left by the composer and
+	     shrink, so the composer stays pinned at the bottom and the chat scrolls within.
+	     pr-[23px] centres the scrollbar on the action stack below: the stack's buttons sit
+	     30px in from the window edge (px-3 row + half a 36px button), the scrollbar's centre
+	     7px in from this container's edge (half the 14px ::-webkit-scrollbar) — 30 − 7 = 23. -->
+	<div class="relative min-h-0 flex-1 pr-[23px]">
 		<Conversation class="h-full">
 			<ConversationContent class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
 			{#if showSetup}
@@ -579,67 +611,32 @@
 		</Conversation>
 	</div>
 
-			{#if status && !showSetup}
-				<div class="text-muted-foreground shrink-0 px-4 py-1 text-xs">{status}</div>
-			{/if}
+	{#if status && !showSetup}
+		<div class="text-muted-foreground shrink-0 px-4 py-1 text-xs">{status}</div>
+	{/if}
 
-			<div class="shrink-0 py-3">
-				<Composer
-					bind:this={composer}
-					disconnected={!connected}
-					{busy}
-					disabled={showSetup}
-					apiKeyProvider={keyProvider}
-					{imageToolWired}
-					clusterNames={includedClusterNames}
-					toolNames={includedToolNames}
-					componentTabs={availableComponents}
-					onsend={send}
-					onsavekey={saveKey}
-				/>
-			</div>
+	<!-- Bottom row: the prompt box with the action stack on its right (clear all components,
+	     cancel, submit). items-stretch + justify-between pin the stack's top and bottom buttons
+	     to the box's top and bottom edges; the Composer's editor min-height keeps the box at
+	     least as tall as the stack. -->
+	<div class="flex shrink-0 items-stretch gap-2 px-3 pb-3">
+		<div class="flex min-w-0 flex-1 flex-col">
+			<Composer
+				bind:this={composer}
+				disconnected={!connected}
+				{busy}
+				disabled={showSetup}
+				apiKeyProvider={keyProvider}
+				{imageToolWired}
+				clusterNames={includedClusterNames}
+				toolNames={includedToolNames}
+				componentTabs={availableComponents}
+				onsend={send}
+				onsavekey={saveKey}
+			/>
 		</div>
 
-		<!-- Right-hand rail. Human tools stack at the top and are added downwards as they are
-		     wired into the Conversation Log; the bottom stack (clear all components, cancel,
-		     submit) bottom-aligns with the prompt box. -->
-		<aside class="flex w-16 shrink-0 flex-col items-center gap-3 px-2 pt-2 pb-3">
-			{#if imageToolWired}
-				<!-- Add-image button: appears only while an Add Image human tool is wired into the
-				     Conversation Log's Human Tools input — without it, image intake does not exist. -->
-				<Button
-					variant="outline"
-					size="icon-lg"
-					onclick={() => composer?.openPicker()}
-					disabled={composerInert || !!keyProvider}
-					title="Add image"
-				>
-					<ImagePlusIcon class="size-4" />
-				</Button>
-			{/if}
-
-			{#if snapshotWired}
-				<!-- Geometry-snapshot button: appears the moment a Geometry Snapshot human tool is
-				     wired, but stays greyed until a transmitter has generated geometry (snapshotArmed).
-				     Pressing it captures a viewport snapshot and sends it, with its predefined message,
-				     as its own message — nothing is ever attached to a typed prompt automatically. The
-				     message is edited in the grounding panel's Geometry Snapshot page. -->
-				<Button
-					variant="outline"
-					size="icon-lg"
-					class={snapshotArmed ? 'text-[var(--neu-accent)]' : ''}
-					onclick={sendSnapshot}
-					disabled={composerInert || !!keyProvider || !snapshotArmed}
-					title={snapshotArmed
-						? 'Send a viewport snapshot of the generated geometry with its predefined message'
-						: 'Geometry snapshot — enabled once generated geometry is on the canvas'}
-				>
-					<Axis3dIcon class="size-4" />
-				</Button>
-			{/if}
-
-			<div class="flex-1"></div>
-
+		<div class="flex shrink-0 flex-col items-center justify-between">
 			<Button
 				variant="outline"
 				size="icon-lg"
@@ -668,7 +665,7 @@
 			>
 				<ArrowUpIcon class="size-4" />
 			</Button>
-		</aside>
+		</div>
 	</div>
 
 	<!-- Switcher row at the very bottom: one emoji per Chat on the canvas — its assigned

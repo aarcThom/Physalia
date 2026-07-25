@@ -28,6 +28,9 @@
 		busy: boolean;
 		/** Setup not finished (no provider configured) — block input; there's nothing to send to. */
 		disabled?: boolean;
+		/** Supplementary instruction text from the host (hook up a Conversation Log, add an LLM
+		 *  Call, …). Shown as this box's placeholder — the window has no separate status row. */
+		status?: string;
 		/** When set, the box captures an API key for this provider instead of sending a message. */
 		apiKeyProvider?: { id: string; label: string } | null;
 		/** True when an Add Image human tool is wired — without it, image intake (paste, drag-drop,
@@ -48,6 +51,7 @@
 		disconnected,
 		busy,
 		disabled = false,
+		status = '',
 		apiKeyProvider = null,
 		imageToolWired = false,
 		clusterNames = [],
@@ -75,14 +79,21 @@
 	let composing = false; // true during IME composition — skip re-canonicalising the DOM
 	let nextId = 0;
 
+	// Placeholder priority: API-key capture > blank while the LLM is actively working > setup
+	// hint > the host's supplementary instructions (hook up components, …) > the send hint.
+	// The host's "Working…" status is deliberately unreachable — busy blanks the box first.
 	let placeholder = $derived(
 		apiKeyProvider
 			? `Paste your ${apiKeyProvider.label} API key here, then press Enter`
-			: disabled
-				? 'Finish setup to start chatting…'
-				: disconnected
-					? ''
-					: 'Send a message…  (Enter to send, Shift+Enter for a new line)'
+			: busy
+				? ''
+				: disabled
+					? 'Finish setup to start chatting…'
+					: status
+						? status
+						: disconnected
+							? ''
+							: 'Send a message…  (Enter to send, Shift+Enter for a new line)'
 	);
 
 	// All [image#N] tokens. Order in the text mirrors insertion order, which mirrors `pending`.

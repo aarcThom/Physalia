@@ -1,6 +1,7 @@
 # Physalia Project Memory
 
 ## Latest
+- [Chat UI overhaul](chat-ui-overhaul-2026-07.md) — 2026-07-25: top-row human tools, action stack pinned to prompt box, recessed 36px scrollbar, fade edges (oklab-seam gotcha), status row → composer placeholder. Builds clean, live test pending.
 - [Human tools split](human-tools-split.md) — 2026-07-23: LLM Tools vs Human Tools taxonomy; LlmToolDefinition renames, HumanTool union (Geometry Snapshot + Add Image), ConvLog 7-input reorder (saved-doc break accepted), image intake gated on Add Image. Builds+300 tests clean, live test pending.
 - [Component-id robustness](component-id-robustness.md) — 2026-07-23: authored-id preservation hardened (live-guid claims + verify + model-facing renumber note in canvas state), canvas ids added to Geometry Report/Runtime Health Check labels, gh.numberslider-on-wrong-type patch modifies now fail loudly. Root cause of the White House renumber NOT pinned — Rhino command line will log `[Physalia] Placement did not preserve...` if it recurs. Builds+300 tests clean.
 - [Geometry Snapshot grounding](geometry-snapshot-grounding.md) — 2026-07-23: composer geometry BUTTON sends viewport snapshot + editable predefined message as its own message (never auto-attached — explicit design call); shows only when grounding wired + transmitter geometry exists. Builds+300 tests clean, live test pending.

@@ -226,9 +226,13 @@
 	/* The conversation's scrollbar (.chat-scroll is the ConversationContent element in App.svelte):
 	   a recessed channel like the prompt box, as wide as the action-stack buttons below it (36px)
 	   so the two centre on the same vertical line (see the pr-3 note in App.svelte). The element
-	   uses overflow-y: scroll, so the channel is always visible; the thumb — an accent-blue raised
-	   pill, echoing the active chat button in the switcher row — only renders when there is
-	   something to scroll, and grows/shrinks with the scrollable amount (native behaviour). */
+	   uses overflow-y: scroll, so the channel is always visible; the thumb — a raised white pill
+	   in the message-bubble style, inset from the channel's edges — only renders when there is
+	   something to scroll, and grows/shrinks with the scrollable amount (native behaviour).
+	   The inset comes from a transparent border + background-clip (webkit scrollbars have no
+	   other thumb-margin mechanism); box-shadow always sits at the border box, so each shadow
+	   takes a -4px spread to contract it back onto the visible pill instead of haloing the
+	   full channel width. */
 	.chat-scroll::-webkit-scrollbar {
 		width: 36px;
 	}
@@ -236,15 +240,34 @@
 		background-color: var(--neu-bg);
 		box-shadow: var(--neu-inset);
 		border-radius: 12px;
+		/* Inset the channel's ends to the content area: the conversation content's p-4 (16px)
+		   padding is where the first bubble begins and where the bottom fade resolves, so the
+		   track spans exactly the text region between them. */
+		margin-block: 16px;
+	}
+	.chat-scroll::-webkit-scrollbar-track-piece {
+		/* Never let the un-thumbed stretch of track paint its own fill over the recess. */
+		background: transparent;
 	}
 	.chat-scroll::-webkit-scrollbar-thumb {
-		background-color: var(--neu-accent);
-		border-radius: 9999px;
-		border: none;
-		box-shadow: var(--neu-shadow-sm);
+		/* The standard button surface, same as the action-stack buttons beside it. */
+		background-color: var(--neu-bg);
+		/* A rounded rectangle, not a pill. border-radius applies to the border box, and the 4px
+		   transparent inset border eats 4px of it — 12px here renders as an 8px radius on the
+		   visible pill (the channel's 12px minus the 4px offset). */
+		border-radius: 12px;
+		border: 4px solid transparent;
+		background-clip: padding-box;
+		/* Raised lighting as an inset emboss — highlight along the top/left edge, shade along
+		   the bottom/right. Outer shadows barely render on webkit thumbs (and would need
+		   negative spreads to clear the transparent border), so the light is painted inside
+		   the pill instead; inner shadows clip to the padding box, i.e. the visible pill. */
+		box-shadow:
+			inset 2px 2px 4px var(--neu-light),
+			inset -2px -2px 4px var(--neu-dark);
 	}
 	.chat-scroll::-webkit-scrollbar-thumb:hover {
-		background-color: oklch(0.55 0.14 250);
+		background-color: oklch(0.945 0.015 236);
 	}
 }
 
@@ -279,6 +302,20 @@
 		background-color: var(--slash-command-bg);
 		border-radius: 4px;
 		box-shadow: 0 0 0 2px var(--slash-command-bg);
+	}
+
+	/* Fade strips over the conversation's top/bottom edges (App.svelte). Hand-rolled gradients
+	   rather than Tailwind from-/to- utilities: those interpolate in oklab, and fading to
+	   `transparent` (black at alpha 0) muddies the ramp's midpoint over the flat blue page —
+	   it rendered as a faint darker seam across the fade. Both stops here are --neu-bg (the
+	   end at alpha 0 via relative colour syntax), so only the alpha ramps and no seam can
+	   appear. The first 20% is fully solid so a message bubble clipped at the container edge
+	   never ghosts through the last pixels. */
+	.chat-fade-top {
+		background: linear-gradient(to bottom, var(--neu-bg) 20%, oklch(from var(--neu-bg) l c h / 0));
+	}
+	.chat-fade-bottom {
+		background: linear-gradient(to top, var(--neu-bg) 20%, oklch(from var(--neu-bg) l c h / 0));
 	}
 
 	/* Pressable button: raised, lifts on hover, presses in (inset) when active / open. */

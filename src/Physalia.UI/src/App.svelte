@@ -521,8 +521,10 @@
 	<div class="relative min-h-0 flex-1 pr-3">
 		<Conversation class="h-full">
 			<!-- overflow-y-scroll (not auto) keeps the recessed scrollbar channel (.chat-scroll,
-			     app.css) always visible; the thumb only appears when there is something to scroll. -->
-			<ConversationContent class="chat-scroll min-h-0 flex-1 overflow-y-scroll">
+			     app.css) always visible; the thumb only appears when there is something to scroll.
+			     overflow-x-hidden: a horizontal scrollbar must never appear — overlong unbreakable
+			     content clips instead (and bubble text breaks/hyphenates, see the user Message). -->
+			<ConversationContent class="chat-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-scroll">
 			{#if showSetup}
 				<Setup
 					selectedId={selectedProviderId}
@@ -595,7 +597,11 @@
 						{/if}
 						{#if group.message.text}
 							<MessageContent>
-								<div class="whitespace-pre-wrap">{group.message.text}</div>
+								<!-- break-words + hyphens-auto: unbreakable runs (checksums, ids, URLs)
+								     split inside the bubble instead of overflowing it sideways. -->
+								<div class="whitespace-pre-wrap break-words hyphens-auto">
+									{group.message.text}
+								</div>
 							</MessageContent>
 						{/if}
 					</Message>
@@ -611,11 +617,15 @@
 		</ConversationContent>
 			<ConversationScrollButton />
 		</Conversation>
-	</div>
 
-	{#if status && !showSetup}
-		<div class="text-muted-foreground shrink-0 px-4 py-1 text-xs">{status}</div>
-	{/if}
+		<!-- Fade the text out at the scroll area's top and bottom edges instead of clipping it
+		     abruptly. Overlay strips rather than a CSS mask — a mask on the scroll container
+		     would fade the scrollbar recess with it. They stop 48px short of the right edge
+		     (36px channel + the pr-3 inset) so the recess stays crisp, and pointer-events-none
+		     keeps the content underneath scrollable and clickable. -->
+		<div class="chat-fade-top pointer-events-none absolute top-0 right-12 left-0 h-8"></div>
+		<div class="chat-fade-bottom pointer-events-none absolute right-12 bottom-0 left-0 h-8"></div>
+	</div>
 
 	<!-- Bottom row: the prompt box with the action stack on its right (clear all components,
 	     cancel, submit). items-stretch + justify-between pin the stack's top and bottom buttons
@@ -628,6 +638,7 @@
 				disconnected={!connected}
 				{busy}
 				disabled={showSetup}
+				status={showSetup ? '' : status}
 				apiKeyProvider={keyProvider}
 				{imageToolWired}
 				clusterNames={includedClusterNames}

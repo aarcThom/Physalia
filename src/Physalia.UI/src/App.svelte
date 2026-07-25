@@ -515,12 +515,14 @@
 
 	<!-- flex-1 + min-h-0 lets this region size to the space left by the composer and
 	     shrink, so the composer stays pinned at the bottom and the chat scrolls within.
-	     pr-[23px] centres the scrollbar on the action stack below: the stack's buttons sit
-	     30px in from the window edge (px-3 row + half a 36px button), the scrollbar's centre
-	     7px in from this container's edge (half the 14px ::-webkit-scrollbar) — 30 − 7 = 23. -->
-	<div class="relative min-h-0 flex-1 pr-[23px]">
+	     The chat-scroll scrollbar (app.css) is as wide as the action-stack buttons below
+	     (36px), so pr-3 lines its centre up with theirs: both sit 30px in from the window
+	     edge (12px margin + half of 36px). -->
+	<div class="relative min-h-0 flex-1 pr-3">
 		<Conversation class="h-full">
-			<ConversationContent class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+			<!-- overflow-y-scroll (not auto) keeps the recessed scrollbar channel (.chat-scroll,
+			     app.css) always visible; the thumb only appears when there is something to scroll. -->
+			<ConversationContent class="chat-scroll min-h-0 flex-1 overflow-y-scroll">
 			{#if showSetup}
 				<Setup
 					selectedId={selectedProviderId}
@@ -636,7 +638,9 @@
 			/>
 		</div>
 
-		<div class="flex shrink-0 flex-col items-center justify-between">
+		<!-- gap-3 sets the stack's minimum button spacing to match the top row's horizontal
+		     gap-3; justify-between spreads them further only when the prompt box grows taller. -->
+		<div class="flex shrink-0 flex-col items-center justify-between gap-3">
 			<Button
 				variant="outline"
 				size="icon-lg"

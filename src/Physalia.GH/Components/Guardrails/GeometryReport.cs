@@ -206,11 +206,23 @@ public class GeometryReport : RoutingComponentBase<string>
     /// been removed (by a patch, an undo, or the user) so the list tracks the graph as it exists
     /// now. Locked components stay watched but are excluded — they never solve, so their volatile
     /// geometry is stale.
+    /// <para>The authored-placement ledger is folded in first, because signal payloads alone leave
+    /// permanent holes: this component sits downstream of the Runtime Health Check's SUCCESS output,
+    /// so a turn whose graph was unhealthy never delivers its GUIDs here and they are never
+    /// recovered. That is what made the 2026-07-25 23:19 session report "no geometry-producing
+    /// components" for a model full of boxes — the 48-component placement failed the health check,
+    /// so the only GUIDs ever accumulated were the next patch's delta (two number components). The
+    /// ledger records everything the model has placed regardless of which guardrails ran.</para>
     /// </summary>
     /// <param name="doc">The active document.</param>
     /// <returns>The live watched objects.</returns>
     private List<IGH_DocumentObject> ResolveWatchedObjects(GH_Document doc)
     {
+        foreach (Guid guid in GhJsonBridge.ModelPlacedGuids(doc))
+        {
+            _watchedGuids.Add(guid);
+        }
+
         var resolved = new List<IGH_DocumentObject>();
         List<Guid>? stale = null;
 
@@ -598,11 +610,22 @@ public class GeometryReport : RoutingComponentBase<string>
 
         if (items.Count == 0)
         {
+            // A zero-geometry result is a DEFECT report, not a clean bill of health, and the header
+            // above has already offered "reply in prose if it matches your intent" — which a model
+            // will take, ending the loop on a model that renders nothing. Say plainly that prose is
+            // not an available answer here. (In the 2026-07-25 23:19 session a model did exactly
+            // that, and justified it by citing an earlier geometry report that never existed.)
             sb.AppendLine();
             sb.AppendLine(
-                "No geometry-producing components were found in the scanned scope. The graph solved "
-                + "but produced no geometry items — every output holds construction data (numbers, "
-                + "vectors, planes) or nothing at all.");
+                "NO GEOMETRY WAS PRODUCED. Not one component in the scanned scope output a geometric "
+                + "item — every output holds construction data (numbers, vectors, planes) or nothing "
+                + "at all. The request was for geometry, so this is a DEFECT, not a result to "
+                + "confirm: do NOT reply in prose and do NOT report the model as built. Trace the "
+                + "chain from your geometry-producing components (Domain Box, Extrude, Cylinder, "
+                + "Boundary Surfaces and the like) back to their inputs, find where the data stops, "
+                + "and reply with a corrective ghpatch. If you believe geometry does exist, trust "
+                + "THIS measurement over any earlier turn — it was taken just now, against the live "
+                + "canvas.");
         }
         else
         {

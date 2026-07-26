@@ -217,6 +217,11 @@ internal static partial class GhJsonBridge
             ApplyConnectionRemoves(patch, doc, addIds, baseIndex, removedGuids, modifiedGuids, conflicts, warnings);
             ApplyConnectionAdds(patch, doc, addIds, addedById, baseIndex, modifiedGuids, conflicts);
 
+            // Group membership is final here, so every area the patch touched can be rebuilt around
+            // its new members — inserting them into the data flow and pushing the existing downstream
+            // components right — and any remaining overlap nudged out.
+            SeparatePlacedOverlaps(doc, addedGuids);
+
             doc.NewSolution(false);
             Grasshopper.Instances.ActiveCanvas?.Refresh();
         }
@@ -419,13 +424,13 @@ internal static partial class GhJsonBridge
     private const float PatchAddGap = 60f;
 
     /// <summary>
-    /// Positions a patch's added components: their authored pivots are discarded (the model
-    /// authors graph structure, never canvas placement — the full-graph path already relayouts
-    /// via <see cref="RelayoutLlmGraph"/>), the group is relaid out hierarchically from its
-    /// internal wires, and the whole group is anchored to the right of the LLM-built graph it
-    /// extends. Without this, authored pivots land at raw canvas coordinates in the model's own
-    /// frame — nowhere near the anchored graph (the 2026-07-13 balcony landed a screen away from
-    /// its tower).
+    /// Positions a patch's added components. Their authored pivots are the intended RELATIVE
+    /// arrangement and <see cref="RelayoutLlmGraph"/> keeps them (falling back to a hierarchical
+    /// relayout from the group's internal wires only when that arrangement is degenerate), then the
+    /// whole group is translated as one block and anchored to the right of the LLM-built graph it
+    /// extends. The translation is what makes authoring in the model's own coordinate frame safe:
+    /// without it, authored pivots land at those raw coordinates, nowhere near the anchored graph
+    /// (the 2026-07-13 balcony landed a screen away from its tower).
     /// </summary>
     /// <param name="patch">The parsed patch (source of the add-internal connections).</param>
     /// <param name="adds">The added components, mutated in place.</param>
@@ -441,14 +446,16 @@ internal static partial class GhJsonBridge
     {
         var addIds = new HashSet<int>(adds.Where(a => a.Id is int).Select(a => a.Id!.Value));
 
-        // Adds that no wire touches — a documentation Panel is the archetype — have no place in a
-        // data-flow layout, and dragging them along with the wired block strands them far from
-        // whatever they annotate. Group membership is what says where they belong, so they are
-        // pulled out here and positioned against their group's live members instead.
-        List<GhJsonComponent> annotations = ExtractGroupAnchoredAnnotations(patch, adds, doc, baseExport);
+        // An add that JOINS A GROUP belongs beside that group, not out at the right-hand end of the
+        // whole graph — whether it is an unwired documentation Panel or a wired node extending the
+        // area's maths. Anchoring these with the general block is what stretched every group box
+        // across the canvas in the 2026-07-25 White House session: three math nodes joining the
+        // Main Block group landed past the Wings group, so all three boxes overlapped and the new
+        // upstream nodes sat far to the RIGHT of the components they feed.
+        List<GhJsonComponent> homed = ExtractGroupHomedAdds(patch, adds, doc, baseExport);
 
-        // Relayout from the group's INTERNAL wires only — wires into existing components anchor
-        // the group as a whole, not individual nodes.
+        // The relayout fallback reads the group's INTERNAL wires only — wires into existing
+        // components anchor the group as a whole, not individual nodes.
         List<GhJsonConnection> internalWires = (patch.Patch?.Connections?.Add ?? new List<GhJsonConnection>())
             .Where(c => c.From?.Id is int from && c.To?.Id is int to
                 && addIds.Contains(from) && addIds.Contains(to))
@@ -492,13 +499,13 @@ internal static partial class GhJsonBridge
         // Safety net for adds the relayout could not position (no integer id).
         AssignFallbackPivots(adds, target, null);
 
-        // The annotations rejoin the add list once the wired block has been anchored, so nothing
+        // The group-homed adds rejoin the list once the general block has been anchored, so nothing
         // downstream has to know they were treated specially. Any that found no live group anchor
-        // stacks below the wired block rather than on top of it.
-        if (annotations.Count > 0)
+        // stacks below the general block rather than on top of it.
+        if (homed.Count > 0)
         {
             RectangleF placed = PivotBounds(adds) ?? new RectangleF(target, SizeF.Empty);
-            adds.AddRange(annotations);
+            adds.AddRange(homed);
             AssignFallbackPivots(adds, target, placed);
         }
     }
@@ -531,27 +538,49 @@ internal static partial class GhJsonBridge
             : null;
     }
 
+    // Clearance below a group's live bounds for a row of wired adds joining it, and the step used
+    // when that row has to be pushed further down to clear unrelated components.
+    private const float GroupRowGap = 60f;
+
+    // Nominal size of a placed component, used to turn pivot POINTS into an approximate occupied
+    // rectangle for the clear-space search. A pivot sits at the capsule's mid-left, so the box runs
+    // right from it and is centred vertically.
+    private const float NominalComponentWidth = 130f;
+    private const float NominalComponentHeight = 32f;
+
     /// <summary>
-    /// Removes from <paramref name="adds"/> every added component that no added wire touches but
-    /// that a group in the same patch makes a member of, and positions it directly above the live
-    /// bounds of that group's other members — so an explanatory Panel lands on top of the part it
-    /// explains and inside the group box that will enclose them both. Members that are themselves
-    /// new (added by this same patch) offer no live bounds yet and are skipped; an annotation with
-    /// no live anchor at all is returned unpositioned for the caller's fallback.
+    /// One group a patch's added components are joining, and the live canvas bounds of the members
+    /// it already has.
     /// </summary>
-    /// <param name="patch">The parsed patch, read for its added wires and group memberships.</param>
-    /// <param name="adds">The added components; group-anchored annotations are removed from it.</param>
+    /// <param name="LiveBounds">Union bounds of the group's members already on the canvas.</param>
+    /// <param name="JoiningIds">Ids of this patch's adds that become members of the group.</param>
+    private sealed record GroupHome(RectangleF LiveBounds, HashSet<int> JoiningIds);
+
+    /// <summary>
+    /// Removes from <paramref name="adds"/> every added component that a group in this patch makes
+    /// a member of, and positions it against that group's live bounds instead of letting it ride the
+    /// general right-of-graph anchor. Unwired adds (a documentation Panel) stack ABOVE the group so
+    /// the note reads as a caption; wired adds are laid out as their own island and placed in a row
+    /// BELOW it, pushed down until clear of unrelated components, so the group box grows by one row
+    /// instead of stretching across the canvas. Covers both groups the patch creates
+    /// (<c>groups.add</c>) and groups it extends (<c>groups.modify</c> with <c>members.add</c>).
+    /// An add whose group offers no live bounds — a brand-new group of brand-new components — is
+    /// returned unpositioned for the caller's fallback.
+    /// </summary>
+    /// <param name="patch">The parsed patch, read for its added wires and group operations.</param>
+    /// <param name="adds">The added components; group-homed ones are removed from it.</param>
     /// <param name="doc">The live document, source of the members' real bounds.</param>
     /// <param name="baseExport">The canvas-state export, mapping member ids to live instanceGuids.</param>
-    /// <returns>The extracted annotations, pivoted where a live anchor was found.</returns>
-    private static List<GhJsonComponent> ExtractGroupAnchoredAnnotations(
+    /// <returns>The extracted adds, pivoted where a live group anchor was found.</returns>
+    private static List<GhJsonComponent> ExtractGroupHomedAdds(
         GhPatchDocument patch,
         List<GhJsonComponent> adds,
         GH_Document doc,
         GhJsonDocument baseExport)
     {
-        List<GhJsonGroup> groups = patch.Patch?.Groups?.Add ?? new List<GhJsonGroup>();
-        if (groups.Count == 0)
+        var addIds = new HashSet<int>(adds.Where(a => a.Id is int).Select(a => a.Id!.Value));
+        List<GroupHome> homes = BuildGroupHomes(patch, doc, baseExport, addIds);
+        if (homes.Count == 0)
         {
             return new List<GhJsonComponent>();
         }
@@ -568,6 +597,143 @@ internal static partial class GhJsonBridge
             }
         }
 
+        var extracted = new List<GhJsonComponent>();
+        var claimed = new HashSet<int>();
+
+        foreach (GroupHome home in homes)
+        {
+            // A component listed by two groups belongs to the first that claims it — never moved twice.
+            List<GhJsonComponent> joining = adds
+                .Where(a => a.Id is int id && home.JoiningIds.Contains(id) && !claimed.Contains(id))
+                .ToList();
+            if (joining.Count == 0)
+            {
+                continue;
+            }
+
+            foreach (GhJsonComponent add in joining)
+            {
+                adds.Remove(add);
+                extracted.Add(add);
+                claimed.Add(add.Id!.Value);
+            }
+
+            if (home.LiveBounds.IsEmpty)
+            {
+                // Nothing of this group is on canvas yet: leave them for the caller's fallback.
+                foreach (GhJsonComponent add in joining)
+                {
+                    add.Pivot = null;
+                }
+
+                continue;
+            }
+
+            List<GhJsonComponent> annotations = joining.Where(a => !wiredIds.Contains(a.Id!.Value)).ToList();
+            List<GhJsonComponent> wired = joining.Where(a => wiredIds.Contains(a.Id!.Value)).ToList();
+
+            // Captions stack upward off the group's top-left corner.
+            float stackY = home.LiveBounds.Top;
+            foreach (GhJsonComponent annotation in annotations)
+            {
+                stackY -= AnnotationGap;
+                annotation.Pivot = new GhJsonPivot(
+                    (int)MathF.Round(home.LiveBounds.Left),
+                    (int)MathF.Round(stackY));
+            }
+
+            if (wired.Count > 0)
+            {
+                PlaceWiredRowBelowGroup(patch, wired, home, doc);
+            }
+        }
+
+        return extracted;
+    }
+
+    /// <summary>
+    /// Lays a patch's wired adds out as their own island and parks it in clear space below the group
+    /// it is joining, left-aligned with it. This is a STAGING position, not the final layout: the
+    /// wires do not exist yet at this point in the apply, so the column a new node really belongs in
+    /// is not yet knowable. Once they do, <see cref="SeparatePlacedOverlaps"/> rebuilds every area
+    /// that gained a member and the island is absorbed into its proper columns. The staged position
+    /// only survives for an area with no usable wiring to rebuild from.
+    /// </summary>
+    /// <param name="patch">The parsed patch, source of the island's internal wires.</param>
+    /// <param name="wired">The wired adds joining this group, pivoted in place.</param>
+    /// <param name="home">The group being extended.</param>
+    /// <param name="doc">The live document, scanned for components the row must clear.</param>
+    private static void PlaceWiredRowBelowGroup(
+        GhPatchDocument patch,
+        List<GhJsonComponent> wired,
+        GroupHome home,
+        GH_Document doc)
+    {
+        var islandIds = new HashSet<int>(wired.Select(a => a.Id!.Value));
+        List<GhJsonConnection> islandWires = (patch.Patch?.Connections?.Add ?? new List<GhJsonConnection>())
+            .Where(c => c.From?.Id is int from && c.To?.Id is int to
+                && islandIds.Contains(from) && islandIds.Contains(to))
+            .ToList();
+        RelayoutLlmGraph(new GhJsonDocument("1.0", null, wired, islandWires, null));
+
+        RectangleF island = PivotBounds(wired) ?? RectangleF.Empty;
+        float targetX = home.LiveBounds.Left;
+        float targetY = home.LiveBounds.Bottom + GroupRowGap;
+
+        // Walk down until the row's footprint clears every live component. The footprint spans only
+        // the group's own column, so this steps over whatever sits directly beneath it. Capped
+        // deliberately low: pushing a row hundreds of units down to find a gap would strand it from
+        // the group it belongs to, so past the cap the first candidate is accepted and a little
+        // overlap is left for the user to nudge.
+        for (int attempt = 0; attempt < 12; attempt++)
+        {
+            var footprint = new RectangleF(
+                targetX,
+                targetY - (NominalComponentHeight / 2f),
+                island.Width + NominalComponentWidth,
+                island.Height + NominalComponentHeight);
+
+            if (!IntersectsAnyLiveComponent(doc, footprint))
+            {
+                break;
+            }
+
+            targetY += GroupRowGap;
+        }
+
+        int dx = (int)MathF.Round(targetX - island.X);
+        int dy = (int)MathF.Round(targetY - island.Y);
+        foreach (GhJsonComponent add in wired)
+        {
+            if (add.Pivot is { } pivot)
+            {
+                pivot.X += dx;
+                pivot.Y += dy;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Collects the groups this patch's adds belong beside, paired with the live bounds of the
+    /// members each group already has. Three sources, most explicit first: <c>groups.add</c> (a new
+    /// group whose member list may name existing components), <c>groups.modify</c> with
+    /// <c>members.add</c> (an existing group gaining new components), and — for an add the model
+    /// grouped nowhere — the group its own WIRES point at.
+    /// </summary>
+    /// <param name="patch">The parsed patch.</param>
+    /// <param name="doc">The live document.</param>
+    /// <param name="baseExport">The canvas-state export the patch was authored against.</param>
+    /// <param name="addIds">Ids of every component this patch adds.</param>
+    /// <returns>One entry per group that at least one add belongs beside.</returns>
+    private static List<GroupHome> BuildGroupHomes(
+        GhPatchDocument patch,
+        GH_Document doc,
+        GhJsonDocument baseExport,
+        IReadOnlySet<int> addIds)
+    {
+        var homes = new List<GroupHome>();
+        GhPatchGroupsOp? groups = patch.Patch?.Groups;
+
         var guidById = new Dictionary<int, Guid>();
         foreach (GhJsonComponent component in baseExport.Components ?? Enumerable.Empty<GhJsonComponent>())
         {
@@ -577,22 +743,10 @@ internal static partial class GhJsonBridge
             }
         }
 
-        var extracted = new List<GhJsonComponent>();
-        foreach (GhJsonGroup group in groups)
+        RectangleF LiveBoundsOf(IEnumerable<int> memberIds)
         {
-            IReadOnlyList<int> members = group.Members ?? (IReadOnlyList<int>)Array.Empty<int>();
-
-            List<GhJsonComponent> annotations = adds
-                .Where(a => a.Id is int id && !wiredIds.Contains(id) && members.Contains(id))
-                .ToList();
-            if (annotations.Count == 0)
-            {
-                continue;
-            }
-
-            // Anchor on the members that already exist on the canvas — the part being documented.
             RectangleF union = RectangleF.Empty;
-            foreach (int member in members)
+            foreach (int member in memberIds)
             {
                 if (guidById.TryGetValue(member, out Guid guid)
                     && doc.FindObject(guid, false) is { Attributes: { } attr } && !attr.Bounds.IsEmpty)
@@ -601,28 +755,156 @@ internal static partial class GhJsonBridge
                 }
             }
 
-            float stackY = union.IsEmpty ? 0f : union.Top;
-            foreach (GhJsonComponent annotation in annotations)
+            return union;
+        }
+
+        // New groups: the live half of the member list anchors the new half.
+        foreach (GhJsonGroup add in groups?.Add ?? Enumerable.Empty<GhJsonGroup>())
+        {
+            IReadOnlyList<int> members = add.Members ?? (IReadOnlyList<int>)Array.Empty<int>();
+            if (members.Count > 0)
             {
-                adds.Remove(annotation);
-                extracted.Add(annotation);
-
-                if (union.IsEmpty)
-                {
-                    // No live anchor: leave it pivot-less for the caller's fallback stack.
-                    annotation.Pivot = null;
-                    continue;
-                }
-
-                // Stack upward, so several annotations on one group do not overlap.
-                stackY -= AnnotationGap;
-                annotation.Pivot = new GhJsonPivot(
-                    (int)MathF.Round(union.Left),
-                    (int)MathF.Round(stackY));
+                homes.Add(new GroupHome(LiveBoundsOf(members), new HashSet<int>(members)));
             }
         }
 
-        return extracted;
+        // Existing groups gaining members: the group's CURRENT membership is the anchor.
+        foreach (GhPatchGroupModify modify in groups?.Modify ?? Enumerable.Empty<GhPatchGroupModify>())
+        {
+            List<int> joining = (modify.Members?.Add ?? Enumerable.Empty<int>()).ToList();
+            if (joining.Count == 0)
+            {
+                continue;
+            }
+
+            GhJsonGroup? baseGroup = (baseExport.Groups ?? Enumerable.Empty<GhJsonGroup>())
+                .FirstOrDefault(g => (modify.Match.InstanceGuid is Guid ig && g.InstanceGuid == ig)
+                    || (modify.Match.InstanceGuid is null && modify.Match.Id is int i && g.Id == i));
+            if (baseGroup is null)
+            {
+                continue;
+            }
+
+            homes.Add(new GroupHome(
+                LiveBoundsOf(baseGroup.Members ?? Enumerable.Empty<int>()),
+                new HashSet<int>(joining)));
+        }
+
+        AddWireInferredHomes(patch, baseExport, addIds, homes, LiveBoundsOf);
+        return homes;
+    }
+
+    /// <summary>
+    /// Homes the adds no group operation mentions, by following their wires: an add whose new wires
+    /// reach existing components sitting in exactly one group belongs beside THAT group, not out at
+    /// the right-hand end of the whole graph. This is the case that stranded a lone Deconstruct
+    /// Domain across the canvas in the 2026-07-25 23:19 session — the model wired it into the
+    /// Portico's Construct Domain and Division but never put it in a group, so nothing tied it to
+    /// the area it serves. Adds whose wires straddle several groups, reach only ungrouped
+    /// components, or reach only other adds are left alone for the general anchor.
+    /// </summary>
+    /// <param name="patch">The parsed patch.</param>
+    /// <param name="baseExport">The canvas-state export the patch was authored against.</param>
+    /// <param name="addIds">Ids of every component this patch adds.</param>
+    /// <param name="homes">The homes collected so far; inferred ones are appended.</param>
+    /// <param name="liveBoundsOf">Resolves a member-id set to its live union bounds.</param>
+    private static void AddWireInferredHomes(
+        GhPatchDocument patch,
+        GhJsonDocument baseExport,
+        IReadOnlySet<int> addIds,
+        List<GroupHome> homes,
+        Func<IEnumerable<int>, RectangleF> liveBoundsOf)
+    {
+        var alreadyHomed = new HashSet<int>(homes.SelectMany(h => h.JoiningIds));
+        List<int> orphans = addIds.Where(id => !alreadyHomed.Contains(id)).ToList();
+        if (orphans.Count == 0)
+        {
+            return;
+        }
+
+        // Which base group owns each existing component. A component in two groups is ambiguous and
+        // is simply not used as evidence.
+        var groupByMember = new Dictionary<int, GhJsonGroup>();
+        var ambiguous = new HashSet<int>();
+        foreach (GhJsonGroup group in baseExport.Groups ?? Enumerable.Empty<GhJsonGroup>())
+        {
+            foreach (int member in group.Members ?? Enumerable.Empty<int>())
+            {
+                if (!groupByMember.TryAdd(member, group))
+                {
+                    ambiguous.Add(member);
+                }
+            }
+        }
+
+        foreach (int member in ambiguous)
+        {
+            groupByMember.Remove(member);
+        }
+
+        if (groupByMember.Count == 0)
+        {
+            return;
+        }
+
+        // For each orphan, the distinct groups its wires reach.
+        var reachedByOrphan = new Dictionary<int, HashSet<GhJsonGroup>>();
+        foreach (GhJsonConnection connection in patch.Patch?.Connections?.Add ?? Enumerable.Empty<GhJsonConnection>())
+        {
+            if (connection.From?.Id is not int from || connection.To?.Id is not int to)
+            {
+                continue;
+            }
+
+            foreach ((int mine, int theirs) in new[] { (from, to), (to, from) })
+            {
+                if (!orphans.Contains(mine)
+                    || addIds.Contains(theirs)
+                    || !groupByMember.TryGetValue(theirs, out GhJsonGroup? group))
+                {
+                    continue;
+                }
+
+                if (!reachedByOrphan.TryGetValue(mine, out HashSet<GhJsonGroup>? reached))
+                {
+                    reached = reachedByOrphan[mine] = new HashSet<GhJsonGroup>();
+                }
+
+                reached.Add(group);
+            }
+        }
+
+        // One group reached, unambiguously → that is the home. Orphans sharing a home share an island.
+        foreach (IGrouping<GhJsonGroup, int> byGroup in reachedByOrphan
+            .Where(pair => pair.Value.Count == 1)
+            .GroupBy(pair => pair.Value.Single(), pair => pair.Key))
+        {
+            homes.Add(new GroupHome(
+                liveBoundsOf(byGroup.Key.Members ?? Enumerable.Empty<int>()),
+                new HashSet<int>(byGroup)));
+        }
+    }
+
+    // True when a rectangle overlaps any live document object's bounds — the clear-space test for a
+    // row of adds joining an existing group.
+    private static bool IntersectsAnyLiveComponent(GH_Document doc, RectangleF area)
+    {
+        foreach (IGH_DocumentObject obj in doc.Objects)
+        {
+            // Group boxes enclose their members and would always "hit"; the members themselves are
+            // what a new row has to avoid.
+            if (obj is GHGroupObject || obj.Attributes is not IGH_Attributes attr || attr.Bounds.IsEmpty)
+            {
+                continue;
+            }
+
+            if (attr.Bounds.IntersectsWith(area))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -1499,7 +1781,12 @@ internal static partial class GhJsonBridge
         {
             if (!sink.Sources.Contains(source))
             {
-                conflicts.Add($"connection_not_found: no wire from {DescribeEndpoint(from, fromObj, source)} to {DescribeEndpoint(to, toObj, sink)} exists.");
+                // Already absent — the state the model asked for. Reporting this as a failed
+                // operation is a trap it cannot escape: "resubmit the corrected operations" has no
+                // correction to make, so the same remove comes back forever (three rounds of it in
+                // the 2026-07-25 White House session, on a wire an earlier rewire had already
+                // taken out). Symmetric with the add path below, which treats an existing wire as
+                // satisfied rather than failing the turn.
                 return;
             }
 

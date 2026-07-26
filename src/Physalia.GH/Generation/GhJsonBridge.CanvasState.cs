@@ -270,10 +270,27 @@ internal static partial class GhJsonBridge
         }
 
         StableIdRegistry registry = StableIdRegistries.GetOrCreateValue(doc);
-        foreach (KeyValuePair<int, Guid> pair in idToGuid)
+        registry.ClaimBatch(idToGuid);
+    }
+
+    /// <summary>
+    /// Frees the stable ids of objects no longer on the document, so a fresh full-graph placement
+    /// can keep the numbering it authored. Called only on that path: ids stay retired for the whole
+    /// life of a patch conversation, where the model reasons from ids it saw on earlier turns and a
+    /// recycled id would silently retarget its next patch. A full document supersedes that history —
+    /// the model has just renumbered everything from 1 — and the canvas state it reads next carries
+    /// whatever numbering actually resulted.
+    /// </summary>
+    /// <param name="doc">The document whose registry to compact; null is a no-op.</param>
+    /// <returns>How many ids were released.</returns>
+    internal static int ReleaseRetiredStableIds(GH_Document? doc)
+    {
+        if (doc is null || !StableIdRegistries.TryGetValue(doc, out StableIdRegistry? registry))
         {
-            registry.Claim(pair.Value, pair.Key);
+            return 0;
         }
+
+        return registry.ReleaseRetired(guid => doc.FindObject(guid, false) is not null);
     }
 
     /// <summary>
@@ -427,8 +444,44 @@ internal static partial class GhJsonBridge
             return _next;
         }
 
-        // Claims a specific id for a guid (a patch add keeping the model's numbering, or a full
-        // placement keeping the file's). No-op when the guid is known or the id is taken.
+        // Claims the authored id for each freshly placed object, as one batch.
+        //
+        // Two phases, and the first is essential. GhJsonGrasshopper.Put calls NewSolution
+        // internally, the CanvasStateGrounder exports canvas state on EVERY solve, and that export
+        // calls Resolve — so by the time a placement reaches this method, every object it just
+        // created already holds an export-order id. Those interim ids overlap the authored ones the
+        // batch is about to claim (48 objects holding 5..52 while asking for 1..50), so claiming
+        // one at a time refuses every single time: the id wanted is "taken" by another object in
+        // the same batch. That is the 1-of-48 in the 2026-07-25 23:19 session, and the tidy +4
+        // offset in the 23:03 one — the model's components were numbered by export order, not by
+        // its own authoring.
+        //
+        // Releasing the interim ids first is safe precisely because they are interim: these guids
+        // were created moments ago by this placement, and the export the model actually reads
+        // happens after this. Ids belonging to anything NOT in the batch are never touched, so a
+        // number the model has already seen can neither move nor be handed to a different object.
+        public void ClaimBatch(IEnumerable<KeyValuePair<int, Guid>> idToGuid)
+        {
+            List<KeyValuePair<int, Guid>> pairs = idToGuid.ToList();
+
+            foreach (KeyValuePair<int, Guid> pair in pairs)
+            {
+                if (_byGuid.TryGetValue(pair.Value, out int interim))
+                {
+                    _byGuid.Remove(pair.Value);
+                    _used.Remove(interim);
+                }
+            }
+
+            foreach (KeyValuePair<int, Guid> pair in pairs)
+            {
+                Claim(pair.Value, pair.Key);
+            }
+        }
+
+        // Claims a specific id for a guid. Refused when the guid is already registered or when a
+        // DIFFERENT object holds the id (live or retired) — stealing a retired id would silently
+        // retarget a patch that still referenced it.
         public void Claim(Guid guid, int id)
         {
             if (_byGuid.ContainsKey(guid) || !_used.Add(id))
@@ -437,6 +490,26 @@ internal static partial class GhJsonBridge
             }
 
             _byGuid[guid] = id;
+        }
+
+        // Frees every id whose object is no longer on the document. Retiring ids forever is what
+        // keeps a patch safe (a stale id resolves to nothing instead of to a different component),
+        // but it also means a whole graph placed and then deleted burns its numbers for the rest of
+        // the session — and a full document always numbers from 1, so the SECOND full placement in a
+        // session could never keep its authored ids. That is the 1-of-48 in the 2026-07-25 23:19
+        // session: the previous run's graph had already claimed 1..48 and been deleted. Live objects
+        // keep their ids, so nothing the model can currently see is ever renumbered by this.
+        public int ReleaseRetired(Predicate<Guid> isAlive)
+        {
+            List<Guid> retired = _byGuid.Keys.Where(guid => !isAlive(guid)).ToList();
+            foreach (Guid guid in retired)
+            {
+                _used.Remove(_byGuid[guid]);
+                _byGuid.Remove(guid);
+            }
+
+            _next = 1;
+            return retired.Count;
         }
     }
 }

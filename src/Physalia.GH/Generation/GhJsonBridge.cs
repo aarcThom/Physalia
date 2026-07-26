@@ -445,21 +445,34 @@ internal static partial class GhJsonBridge
         if (placed.Success)
         {
             RecordAuthoredDefinition(Grasshopper.Instances.ActiveCanvas?.Document, json, placed.PlacedGuids);
+
+            // Now that the objects are live, their REAL sizes are knowable — which the model authoring
+            // pivots never was. Nudge out whatever overlaps its authored spacing could not have
+            // predicted (a nicknamed slider rendering 200+ wide into a 150-unit stage gap, a tall
+            // documentation Panel pushing its group box into the area above).
+            SeparatePlacedOverlaps(Grasshopper.Instances.ActiveCanvas?.Document);
         }
 
         return placed;
     }
 
     /// <summary>
-    /// Recomputes a clean left-to-right hierarchical layout for an LLM-authored GhJSON graph,
-    /// overwriting the model's own (typically tight and overlapping) pivots. Nodes are layered by
-    /// data-flow depth and stacked vertically within each layer, so sources such as sliders sit in
-    /// their own column instead of colliding with the components they feed. Layer 0's top node lands
-    /// at the layout origin, so the bounding-box corner PlaceDocument anchors to the transmitter is a
-    /// real component. Applied only on the LLM placement path; preset/Deserializer placements (which
-    /// carry intended pivots) go through PlaceDocument directly and keep their authored layout.
+    /// Settles the layout of an LLM-authored GhJSON graph. The model's authored pivots are the
+    /// intended RELATIVE arrangement and are kept — the prompt asks it to lay the graph out
+    /// deliberately, grouping each functional area and spacing the areas apart, which no automatic
+    /// layout can infer from wires alone. The whole document is translated as one block by the
+    /// caller, so authoring in the model's own coordinate frame is correct and cannot land it away
+    /// from the anchor.
+    /// <para>The hierarchical relayout survives as a SAFETY NET for a degenerate authored layout
+    /// (everything stacked on one point, or components piled on top of one another): there, wires
+    /// are the only usable signal, so nodes are layered by data-flow depth and stacked within each
+    /// layer. Sources such as sliders then sit in their own column instead of colliding with what
+    /// they feed, and unwired group annotations are lifted clear of that column — a rearrangement
+    /// only worth making when the authored layout was unusable to begin with.</para>
+    /// <para>Applied only on the LLM placement path; preset/Deserializer placements go through
+    /// PlaceDocument directly.</para>
     /// </summary>
-    /// <param name="doc">The parsed GhJSON document to relayout in place.</param>
+    /// <param name="doc">The parsed GhJSON document, laid out in place.</param>
     private static void RelayoutLlmGraph(GhJsonDocument doc)
     {
         if (doc.Components is null || doc.Components.Count == 0)
@@ -478,6 +491,13 @@ internal static partial class GhJsonBridge
 
         if (nodeIds.Count == 0)
         {
+            return;
+        }
+
+        if (IsAuthoredLayoutUsable(doc.Components))
+        {
+            // Trust the authored arrangement; only fill in components that carry no pivot at all.
+            FillMissingAuthoredPivots(doc.Components);
             return;
         }
 
@@ -510,7 +530,91 @@ internal static partial class GhJsonBridge
             }
         }
 
+        // Only after a relayout: the hierarchical pass drops unwired nodes into the source column,
+        // so an annotation Panel needs lifting out of it. When the authored layout was kept, the
+        // model already placed its panels where it meant them to go.
         LiftGroupAnnotationsAboveLayout(doc);
+    }
+
+    // Two pivots this close together mean the components they belong to overlap on canvas. A GH
+    // node's pivot sits at its mid-left edge, so these are deliberately tighter than a typical
+    // capsule (~90 x 24): the test is for a genuine pile-up, not for a snug-but-legible layout.
+    private const float PivotCollisionX = 45f;
+    private const float PivotCollisionY = 16f;
+
+    // Share of components allowed to be involved in a collision before the authored layout counts
+    // as degenerate. A stray overlap or two is normal in a hand-authored graph and GH renders it
+    // fine; a third of the graph piled up is a model that did not lay anything out.
+    private const double MaxCollidingShare = 0.30;
+
+    /// <summary>
+    /// Judges whether a model's authored pivots describe a real layout worth keeping. Degenerate
+    /// cases — no pivots at all, every component on the same point, or a large share of components
+    /// overlapping each other — fall through to the hierarchical relayout.
+    /// </summary>
+    /// <param name="components">The authored components.</param>
+    /// <returns>true to keep the authored arrangement; false to relayout from wires.</returns>
+    private static bool IsAuthoredLayoutUsable(IReadOnlyList<GhJsonComponent> components)
+    {
+        List<GhJsonPivot> pivots = components
+            .Where(c => c.Pivot is not null)
+            .Select(c => c.Pivot!)
+            .ToList();
+
+        // Nothing authored, or a single node (trivially fine either way).
+        if (pivots.Count == 0)
+        {
+            return false;
+        }
+
+        if (components.Count == 1)
+        {
+            return true;
+        }
+
+        // Every pivot on one point is the classic "did not lay anything out" signature.
+        if (pivots.All(p => p.X == pivots[0].X && p.Y == pivots[0].Y))
+        {
+            return false;
+        }
+
+        var colliding = new HashSet<GhJsonPivot>();
+        for (int i = 0; i < pivots.Count; i++)
+        {
+            for (int j = i + 1; j < pivots.Count; j++)
+            {
+                if (Math.Abs(pivots[i].X - pivots[j].X) < PivotCollisionX
+                    && Math.Abs(pivots[i].Y - pivots[j].Y) < PivotCollisionY)
+                {
+                    colliding.Add(pivots[i]);
+                    colliding.Add(pivots[j]);
+                }
+            }
+        }
+
+        return colliding.Count <= components.Count * MaxCollidingShare;
+    }
+
+    /// <summary>
+    /// Gives a pivot to any component the model left without one, stacking them below everything
+    /// it did place so they cannot land on top of the authored layout.
+    /// </summary>
+    /// <param name="components">The authored components, mutated in place.</param>
+    private static void FillMissingAuthoredPivots(IReadOnlyList<GhJsonComponent> components)
+    {
+        List<GhJsonComponent> missing = components.Where(c => c.Pivot is null).ToList();
+        if (missing.Count == 0)
+        {
+            return;
+        }
+
+        float x = components.Where(c => c.Pivot is not null).Min(c => c.Pivot!.X);
+        float y = components.Where(c => c.Pivot is not null).Max(c => c.Pivot!.Y) + 80f;
+
+        for (int i = 0; i < missing.Count; i++)
+        {
+            missing[i].Pivot = new GhJsonPivot((int)MathF.Round(x), (int)MathF.Round(y + (i * 80)));
+        }
     }
 
     // Vertical clearance between the top of a relaid-out graph and the band its group annotations
@@ -1143,8 +1247,28 @@ internal static partial class GhJsonBridge
             // from the placed objects' CURRENT instanceGuids where possible — the library's
             // creation-time mapping can go stale if anything regenerates a guid after creation,
             // and a stale claim silently forfeits the numbering at the next export.
+            // Free the ids of components no longer on the canvas first. Without this, a session that
+            // has already placed and deleted a graph has those numbers permanently burned, and since
+            // a full document always numbers from 1, every later full placement forfeits its whole
+            // authored numbering (1 of 48 claims verified, in the session that exposed it). Only
+            // truly dead ids are released — anything still on the canvas keeps the id the model has
+            // already seen it under.
+            if (paramIndexFirst)
+            {
+                ReleaseRetiredStableIds(hostDoc);
+            }
+
             IReadOnlyList<KeyValuePair<int, Guid>> idClaims = DeriveIdClaims(doc, result);
             RegisterStableIds(hostDoc, idClaims);
+
+            // Groups need the same treatment as components, and used not to get it: the library's
+            // PutResult carries no group id → guid mapping, so a full document's authored group ids
+            // were dropped and the next export renumbered every group. The model then targets a
+            // groups.modify by the number IT gave the group and gets MatchNotFound (601-605 became
+            // 58… in the 2026-07-26 00:26 session), which costs a round AND, because the failed
+            // modify was the only thing tying the patch's new components to an area, leaves them
+            // placed with no home. Matching by membership recovers the mapping exactly.
+            RegisterPlacedGroupIds(doc, idClaims, hostDoc);
 
             // On the LLM path (with the authored numbering intact), also remember which authored
             // id each placed object realised — the Fidelity Check's ground truth. The stable-id
@@ -1231,6 +1355,74 @@ internal static partial class GhJsonBridge
         }
 
         return result.IdToGuidMapping.ToList();
+    }
+
+    /// <summary>
+    /// Claims each authored group's id for the live group the placement created for it, so the
+    /// numbering the model gave its groups survives into the next canvas state and a later
+    /// <c>groups.modify</c> can target them by that number. The library reports only how many groups
+    /// it created, so the pairing is recovered from MEMBERSHIP: the live group whose member set is
+    /// exactly the placed guids of the authored group's members is that group.
+    /// </summary>
+    /// <param name="doc">The authored document, source of the group ids and member lists.</param>
+    /// <param name="idClaims">Authored component id → placed instanceGuid, from this placement.</param>
+    /// <param name="hostDoc">The document the groups landed on; null is a no-op.</param>
+    private static void RegisterPlacedGroupIds(
+        GhJsonDocument doc,
+        IReadOnlyList<KeyValuePair<int, Guid>> idClaims,
+        GH_Document? hostDoc)
+    {
+        if (hostDoc is null || doc.Groups is null || doc.Groups.Count == 0)
+        {
+            return;
+        }
+
+        var guidById = new Dictionary<int, Guid>();
+        foreach (KeyValuePair<int, Guid> claim in idClaims)
+        {
+            guidById[claim.Key] = claim.Value;
+        }
+
+        List<Grasshopper.Kernel.Special.GH_Group> live = hostDoc.Objects
+            .OfType<Grasshopper.Kernel.Special.GH_Group>()
+            .ToList();
+
+        var claims = new List<KeyValuePair<int, Guid>>();
+        var taken = new HashSet<Guid>();
+        foreach (GhJsonGroup group in doc.Groups)
+        {
+            if (group.Id is not int id)
+            {
+                continue;
+            }
+
+            var expected = new HashSet<Guid>();
+            foreach (int member in group.Members ?? Enumerable.Empty<int>())
+            {
+                if (guidById.TryGetValue(member, out Guid guid))
+                {
+                    expected.Add(guid);
+                }
+            }
+
+            if (expected.Count == 0)
+            {
+                continue;
+            }
+
+            Grasshopper.Kernel.Special.GH_Group? match = live.FirstOrDefault(g =>
+                !taken.Contains(g.InstanceGuid)
+                && g.ObjectIDs is { } ids
+                && expected.SetEquals(ids));
+
+            if (match is not null)
+            {
+                taken.Add(match.InstanceGuid);
+                claims.Add(new KeyValuePair<int, Guid>(id, match.InstanceGuid));
+            }
+        }
+
+        RegisterStableIds(hostDoc, claims);
     }
 
     // True when a component was stamped as a cluster reference by the Component Resolver (see StampClusterReference).

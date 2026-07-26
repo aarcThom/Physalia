@@ -528,11 +528,21 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
     /// been removed (by a patch, an undo, or the user) so the list tracks the graph as it exists
     /// now. Locked components stay watched but are excluded from the scan — they never solve, so
     /// their state is stale and waiting on them would jam the settle gate.
+    /// <para>The authored-placement ledger is folded in first: signal payloads only arrive on turns
+    /// where every upstream guardrail passed, so a turn that failed earlier in the chain would
+    /// otherwise leave its components permanently unwatched. The ledger records everything the model
+    /// has placed regardless of which guardrails ran — see the Geometry Report, where the same hole
+    /// produced a "no geometry" verdict on a model full of boxes.</para>
     /// </summary>
     /// <param name="doc">The active document.</param>
     /// <returns>The live watched objects.</returns>
     private List<IGH_DocumentObject> ResolveWatchedObjects(GH_Document doc)
     {
+        foreach (Guid guid in GhJsonBridge.ModelPlacedGuids(doc))
+        {
+            _watchedGuids.Add(guid);
+        }
+
         var resolved = new List<IGH_DocumentObject>();
         List<Guid>? stale = null;
 

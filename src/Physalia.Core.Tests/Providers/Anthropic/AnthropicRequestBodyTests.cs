@@ -109,6 +109,60 @@ public class AnthropicRequestBodyTests
     }
 
     [Fact]
+    public void Build_Opus5_Unspecified_DefaultsToAdaptiveSummarizedNoSampling()
+    {
+        JsonObject body = Build(new AnthropicConfig("claude-opus-5", "key", Temperature: 0.7f, TopK: 40));
+
+        Assert.Equal("adaptive", body["thinking"]!["type"]!.GetValue<string>());
+        Assert.Equal("summarized", body["thinking"]!["display"]!.GetValue<string>());
+        Assert.Equal("medium", body["output_config"]!["effort"]!.GetValue<string>());
+        Assert.False(body.ContainsKey("temperature"));
+        Assert.False(body.ContainsKey("top_p"));
+        Assert.False(body.ContainsKey("top_k"));
+    }
+
+    [Fact]
+    public void Build_Opus5_ExplicitZero_SendsThinkingDisabledWithoutEffort()
+    {
+        // Disabled thinking is accepted on Opus 5 only at effort "high" or below; the
+        // builder sends no effort at all, so the server default ("high") applies.
+        JsonObject body = Build(new AnthropicConfig("claude-opus-5", "key", ThinkingBudget: 0));
+
+        Assert.Equal("disabled", body["thinking"]!["type"]!.GetValue<string>());
+        Assert.False(body.ContainsKey("output_config"));
+    }
+
+    [Fact]
+    public void Build_Opus5_ManualBudget_MappedToAdaptive()
+    {
+        JsonObject body = Build(new AnthropicConfig("claude-opus-5", "key", ThinkingBudget: 2048));
+
+        Assert.Equal("adaptive", body["thinking"]!["type"]!.GetValue<string>());
+        Assert.False(body["thinking"]!.AsObject().ContainsKey("budget_tokens"));
+    }
+
+    [Fact]
+    public void Build_Opus45_DoesNotMatchOpus5Pattern()
+    {
+        // "opus-5" must not collide with the neighbouring generation "opus-4-5", which
+        // still takes the manual thinking form and normal sampling parameters.
+        JsonObject body = Build(new AnthropicConfig("claude-opus-4-5", "key", Temperature: 0.5f, ThinkingBudget: 2048));
+
+        Assert.Equal("enabled", body["thinking"]!["type"]!.GetValue<string>());
+        Assert.Equal(2048, body["thinking"]!["budget_tokens"]!.GetValue<int>());
+        Assert.False(body.ContainsKey("output_config"));
+    }
+
+    [Fact]
+    public void Build_Opus48_Unspecified_SendsNoThinking()
+    {
+        // Guards the Opus 5 break from 4.8: omitting the field still means no thinking there.
+        JsonObject body = Build(new AnthropicConfig("claude-opus-4-8", "key"));
+
+        Assert.False(body.ContainsKey("thinking"));
+    }
+
+    [Fact]
     public void Build_OlderModel_AdaptiveSentinel_MappedToManualDefaultBudget()
     {
         JsonObject body = Build(new AnthropicConfig("claude-sonnet-4-5", "key", MaxTokens: 16000, ThinkingBudget: -1));

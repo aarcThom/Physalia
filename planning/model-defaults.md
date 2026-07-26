@@ -120,9 +120,17 @@ parser tests.
 - **Anthropic** (`Entry`: `SupportsAdaptive`, `SupportsManualBudget`,
   `ThinkingOnByDefault`, `SupportsDisabled`, `AllowsSampling`, `SupportsEffort`): the
   generational split is Sonnet 4.6 / Opus 4.6 and earlier (manual budget, sampling OK) vs
-  Sonnet 5 / Opus 4.7+ / Fable / Mythos (adaptive-only, sampling rejected on *every*
-  request, thinking display defaults to `"omitted"` so visible thinking requires
-  `display:"summarized"`).
+  Opus 5 / Sonnet 5 / Opus 4.7+ / Fable / Mythos (adaptive-only, sampling rejected on
+  *every* request, thinking display defaults to `"omitted"` so visible thinking requires
+  `display:"summarized"`). **Opus 5** (added 2026-07-25) is adaptive-only and thinks *by
+  default* — the break from Opus 4.7/4.8, where omitting the field meant no thinking — so
+  it takes `ThinkingOnByDefault: true` like Sonnet 5, and its `max_tokens` must cover
+  reasoning plus the answer. One Opus 5 constraint is deliberately **not** in the table:
+  `thinking:{type:"disabled"}` is accepted only at effort `"high"` or below and 400s at
+  `"xhigh"`/`"max"`. The builder hard-codes `"medium"` and never sends effort alongside a
+  disabled thinking config, so the pairing is unreachable; if an effort input is ever
+  exposed on the Tweaker, that becomes a new `Entry` axis (a max-effort-when-disabled
+  cap), not a special case in the provider.
   `ThinkingBudget` intent: `null` auto, `0` off, `-1` adaptive+summarized, `>0` manual
   budget (clamped to the 1024 API minimum; `max_tokens` auto-bumped to exceed it).
   `SupportsEffort` (4.6+ generations): adaptive thinking is sent with

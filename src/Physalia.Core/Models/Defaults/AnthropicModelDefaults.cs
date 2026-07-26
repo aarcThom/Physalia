@@ -13,14 +13,20 @@ namespace Physalia.Core.Models.Defaults;
 /// <remarks>
 /// Design guidelines for editing this table: <c>planning/model-defaults.md</c> (repo root).
 /// Source: platform.claude.com/docs/en/build-with-claude/adaptive-thinking and
-/// platform.claude.com/docs/en/build-with-claude/effort (checked 2026-07-13).
+/// platform.claude.com/docs/en/build-with-claude/effort (checked 2026-07-25).
 /// Generational summary: Sonnet 4.6 / Opus 4.6 and earlier accept
 /// the manual <c>enabled</c>/<c>budget_tokens</c> form and normal sampling parameters.
-/// Sonnet 5 / Opus 4.7+ / Fable / Mythos are adaptive-only (manual form is 400-rejected),
-/// reject non-default temperature/top_p/top_k on every request, and default their thinking
-/// display to "omitted" (empty thinking deltas) — visible thinking must be requested via
-/// <c>display: "summarized"</c>. The 4.6+ generations accept
+/// Opus 5 / Sonnet 5 / Opus 4.7+ / Fable / Mythos are adaptive-only (manual form is
+/// 400-rejected), reject non-default temperature/top_p/top_k on every request, and default
+/// their thinking display to "omitted" (empty thinking deltas) — visible thinking must be
+/// requested via <c>display: "summarized"</c>. The 4.6+ generations accept
 /// <c>output_config: { effort }</c> (server default "high"); older models 400 on it.
+/// Opus 5 additionally thinks by DEFAULT (unlike Opus 4.7/4.8, where omitting the field
+/// meant no thinking), so max_tokens must leave room for reasoning plus the answer.
+/// Opus 5 caveat not modelled here because the request builder never sends a high effort
+/// level: <c>thinking: { type: "disabled" }</c> is accepted only at effort "high" or
+/// below, and 400s at "xhigh"/"max". If an effort input is ever exposed, that pairing
+/// becomes a new <see cref="Entry"/> axis rather than a special case in the provider.
 /// </remarks>
 public static class AnthropicModelDefaults
 {
@@ -75,6 +81,11 @@ public static class AnthropicModelDefaults
         ("fable", new Entry(true, false, true, false, false, true)),
         ("mythos-preview", new Entry(true, true, true, false, false, true)),
         ("mythos", new Entry(true, false, true, false, false, true)),
+
+        // Opus 5: adaptive-only, thinking ON by default (the break from 4.7/4.8), no
+        // sampling params. "opus-5" cannot collide with "opus-4-5" — the generation digit
+        // sits directly after "opus-".
+        ("opus-5", new Entry(true, false, true, true, false, true)),
 
         // Opus 4.7 / 4.8: adaptive-only, thinking off unless requested, no sampling params.
         ("opus-4-8", new Entry(true, false, false, true, false, true)),

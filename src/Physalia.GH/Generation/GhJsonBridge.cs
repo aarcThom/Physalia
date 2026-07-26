@@ -509,6 +509,97 @@ internal static partial class GhJsonBridge
                 }
             }
         }
+
+        LiftGroupAnnotationsAboveLayout(doc);
+    }
+
+    // Vertical clearance between the top of a relaid-out graph and the band its group annotations
+    // sit in, and between two annotations stacked in that band.
+    private const float AnnotationBandGap = 140f;
+
+    /// <summary>
+    /// Lifts each unwired group member — an explanatory Panel is the archetype — out of the
+    /// hierarchical layout's source column and into a clear band above the graph, horizontally
+    /// aligned with the leftmost member of the group it documents. The group box then stretches up
+    /// to enclose it, so the note reads as a caption over the part it explains instead of landing
+    /// among the sliders. Groups whose members are all wired, and documents with no groups at all,
+    /// are untouched.
+    /// </summary>
+    /// <param name="doc">The relaid-out document, mutated in place.</param>
+    private static void LiftGroupAnnotationsAboveLayout(GhJsonDocument doc)
+    {
+        List<GhJsonGroup> groups = (doc.Groups ?? Enumerable.Empty<GhJsonGroup>()).ToList();
+        if (groups.Count == 0)
+        {
+            return;
+        }
+
+        var wiredIds = new HashSet<int>();
+        foreach (GhJsonConnection connection in doc.Connections ?? Enumerable.Empty<GhJsonConnection>())
+        {
+            foreach (int? endpoint in new[] { connection.From?.Id, connection.To?.Id })
+            {
+                if (endpoint is int id)
+                {
+                    wiredIds.Add(id);
+                }
+            }
+        }
+
+        var byId = new Dictionary<int, GhJsonComponent>();
+        float layoutTop = float.MaxValue;
+        foreach (GhJsonComponent component in doc.Components ?? Enumerable.Empty<GhJsonComponent>())
+        {
+            if (component.Id is int id)
+            {
+                byId[id] = component;
+            }
+
+            if (component.Pivot is { } pivot)
+            {
+                layoutTop = Math.Min(layoutTop, pivot.Y);
+            }
+        }
+
+        if (layoutTop == float.MaxValue)
+        {
+            return;
+        }
+
+        foreach (GhJsonGroup group in groups)
+        {
+            IReadOnlyList<int> members = group.Members ?? (IReadOnlyList<int>)Array.Empty<int>();
+
+            // The group's own horizontal position comes from the members that ARE in the data flow.
+            float anchorX = float.MaxValue;
+            foreach (int member in members)
+            {
+                if (wiredIds.Contains(member)
+                    && byId.TryGetValue(member, out GhJsonComponent? wired)
+                    && wired.Pivot is { } pivot)
+                {
+                    anchorX = Math.Min(anchorX, pivot.X);
+                }
+            }
+
+            if (anchorX == float.MaxValue)
+            {
+                continue;
+            }
+
+            float y = layoutTop - AnnotationBandGap;
+            foreach (int member in members)
+            {
+                if (wiredIds.Contains(member)
+                    || !byId.TryGetValue(member, out GhJsonComponent? annotation))
+                {
+                    continue;
+                }
+
+                annotation.Pivot = new GhJsonPivot((int)MathF.Round(anchorX), (int)MathF.Round(y));
+                y -= AnnotationBandGap;
+            }
+        }
     }
 
     /// <summary>

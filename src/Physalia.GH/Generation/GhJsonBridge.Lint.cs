@@ -102,10 +102,22 @@ internal static partial class GhJsonBridge
         }
 
         StampComponentGuids(new GhJsonDocument("1.0", null, adds, null, null));
+
+        // A patch endpoint may name a component the patch adds OR one already on the canvas, so
+        // resolution needs both id sets. Without the canvas half this check had to skip resolution
+        // entirely — which let a wire to an id that exists NOWHERE (the model wiring a component it
+        // forgot to add) through to a partial apply, costing a round of "endpoint id N does not
+        // resolve to a live object" feedback for a defect that was knowable here.
+        IReadOnlySet<int>? existingIds = TryExportCanvasState()?.Document.Components?
+            .Where(c => c.Id is int)
+            .Select(c => c.Id!.Value)
+            .ToHashSet();
+
         return LintRequiredInputs(
             adds,
             patch.Patch?.Connections?.Add ?? Enumerable.Empty<GhJsonConnection>(),
-            endpointIdsMustResolve: false);
+            endpointIdsMustResolve: existingIds is not null,
+            existingIds: existingIds);
     }
 
     /// <summary>
@@ -120,24 +132,38 @@ internal static partial class GhJsonBridge
     /// <param name="components">The authored components (component-type guids already stamped).</param>
     /// <param name="connections">Every authored connection that could feed those components.</param>
     /// <param name="endpointIdsMustResolve">
-    /// True on the full-document path, where every endpoint id must name an authored component;
-    /// false on the patch path, where an id may resolve to a component already on the canvas.
+    /// True when an endpoint id naming no known component is a defect. Always true on the
+    /// full-document path; true on the patch path whenever the canvas ids could be read.
+    /// </param>
+    /// <param name="existingIds">
+    /// Ids of components already on the canvas, which a patch endpoint may legitimately reference.
+    /// Null on the full-document path, where the document is the whole world.
     /// </param>
     /// <returns>One violation line per defect; empty when the graph is clean.</returns>
     private static List<string> LintRequiredInputs(
         IEnumerable<GhJsonComponent> components,
         IEnumerable<GhJsonConnection> connections,
-        bool endpointIdsMustResolve)
+        bool endpointIdsMustResolve,
+        IReadOnlySet<int>? existingIds = null)
     {
         List<GhJsonComponent> componentList = components.ToList();
-        List<GhJsonConnection> connectionList = connections.ToList();
+
+        // Deduplicate identical wires before anything counts them. The same (source port → target
+        // port) pair authored twice is ONE wire on the canvas — Grasshopper treats the repeat as a
+        // no-op — so counting it twice used to report a phantom "receives 2 wires but consumes ONE
+        // item" and push the model into inventing a component to combine a value with itself.
+        List<GhJsonConnection> connectionList = connections
+            .GroupBy(ConnectionIdentity, StringComparer.Ordinal)
+            .Select(g => g.First())
+            .ToList();
         connections = connectionList;
         components = componentList;
-        // Signature map for every introspectable authored component, plus the full authored id
-        // set (introspection failures included) so endpoint-id resolution is judged separately
-        // from port-level checks.
+        // Signature map for every introspectable authored component, plus every id an endpoint may
+        // legitimately name — the authored components (introspection failures included) and, on the
+        // patch path, the components already on the canvas — so endpoint-id resolution is judged
+        // separately from port-level checks.
         var sigById = new Dictionary<int, (GhJsonComponent Component, IReadOnlyList<ComponentPort> Inputs, IReadOnlyList<ComponentPort> Outputs)>();
-        var authoredIds = new HashSet<int>();
+        var resolvableIds = new HashSet<int>(existingIds ?? (IEnumerable<int>)Array.Empty<int>());
         foreach (GhJsonComponent component in components)
         {
             if (component.Id is not int id)
@@ -145,7 +171,7 @@ internal static partial class GhJsonBridge
                 continue;
             }
 
-            authoredIds.Add(id);
+            resolvableIds.Add(id);
             if (component.ComponentGuid is Guid typeGuid
                 && ComponentSignatureProvider.TryGetSignature(typeGuid, out IReadOnlyList<ComponentPort> ins, out IReadOnlyList<ComponentPort> outs))
             {
@@ -198,12 +224,12 @@ internal static partial class GhJsonBridge
         {
             if (conn.From is { } from)
             {
-                LintEndpoint(from, output: true, sigById, authoredIds, endpointIdsMustResolve, violations);
+                LintEndpoint(from, output: true, sigById, resolvableIds, endpointIdsMustResolve, violations);
             }
 
             if (conn.To is { } target)
             {
-                LintEndpoint(target, output: false, sigById, authoredIds, endpointIdsMustResolve, violations);
+                LintEndpoint(target, output: false, sigById, resolvableIds, endpointIdsMustResolve, violations);
             }
         }
 
@@ -268,23 +294,23 @@ internal static partial class GhJsonBridge
     /// <param name="endpoint">The authored endpoint.</param>
     /// <param name="output">True when the endpoint is a FROM (output side); false for TO (input side).</param>
     /// <param name="sigById">Signatures of the introspectable authored components.</param>
-    /// <param name="authoredIds">Every authored component id, introspectable or not.</param>
+    /// <param name="resolvableIds">Every id an endpoint may name: the authored components, plus the canvas's own on the patch path.</param>
     /// <param name="idsMustResolve">Whether an unresolved id is a defect (full-document path).</param>
     /// <param name="violations">The violation sink.</param>
     private static void LintEndpoint(
         GhJsonConnectionEndpoint endpoint,
         bool output,
         Dictionary<int, (GhJsonComponent Component, IReadOnlyList<ComponentPort> Inputs, IReadOnlyList<ComponentPort> Outputs)> sigById,
-        HashSet<int> authoredIds,
+        HashSet<int> resolvableIds,
         bool idsMustResolve,
         List<string> violations)
     {
-        if (!authoredIds.Contains(endpoint.Id))
+        if (!resolvableIds.Contains(endpoint.Id))
         {
             if (idsMustResolve)
             {
                 violations.Add(
-                    $"a connection references component id {endpoint.Id}, which does not exist in the document — fix the endpoint id or remove the connection.");
+                    $"a connection references component id {endpoint.Id}, which is neither on the canvas nor added by this submission — add the missing component, correct the endpoint id, or remove the connection.");
             }
 
             return;
@@ -312,6 +338,18 @@ internal static partial class GhJsonBridge
             violations.Add(
                 $"a connection references {authored} on '{sig.Component.Name}' (id {endpoint.Id}), but its {side}s are: {available} — fix the {(output ? "from" : "to")} endpoint.");
         }
+    }
+
+    // Identity of a wire: its two endpoints, each as id + port. An endpoint addressed by
+    // paramIndex and the same endpoint addressed by paramName are not recognised as the same wire
+    // — the lint would rather miss a duplicate than merge two distinct ports.
+    private static string ConnectionIdentity(GhJsonConnection connection)
+    {
+        static string Endpoint(GhJsonConnectionEndpoint? e) => e is null
+            ? "-"
+            : $"{e.Id}:{(e.ParamIndex is int i ? i.ToString() : e.ParamName ?? string.Empty)}";
+
+        return $"{Endpoint(connection.From)}>{Endpoint(connection.To)}";
     }
 
     // The trailing "…" sentinel marks a variable-parameter component (Merge, Entwine, zui) whose

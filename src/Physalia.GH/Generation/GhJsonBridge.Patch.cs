@@ -441,6 +441,12 @@ internal static partial class GhJsonBridge
     {
         var addIds = new HashSet<int>(adds.Where(a => a.Id is int).Select(a => a.Id!.Value));
 
+        // Adds that no wire touches — a documentation Panel is the archetype — have no place in a
+        // data-flow layout, and dragging them along with the wired block strands them far from
+        // whatever they annotate. Group membership is what says where they belong, so they are
+        // pulled out here and positioned against their group's live members instead.
+        List<GhJsonComponent> annotations = ExtractGroupAnchoredAnnotations(patch, adds, doc, baseExport);
+
         // Relayout from the group's INTERNAL wires only — wires into existing components anchor
         // the group as a whole, not individual nodes.
         List<GhJsonConnection> internalWires = (patch.Patch?.Connections?.Add ?? new List<GhJsonConnection>())
@@ -485,6 +491,138 @@ internal static partial class GhJsonBridge
 
         // Safety net for adds the relayout could not position (no integer id).
         AssignFallbackPivots(adds, target, null);
+
+        // The annotations rejoin the add list once the wired block has been anchored, so nothing
+        // downstream has to know they were treated specially. Any that found no live group anchor
+        // stacks below the wired block rather than on top of it.
+        if (annotations.Count > 0)
+        {
+            RectangleF placed = PivotBounds(adds) ?? new RectangleF(target, SizeF.Empty);
+            adds.AddRange(annotations);
+            AssignFallbackPivots(adds, target, placed);
+        }
+    }
+
+    // Vertical clearance between an annotation Panel and the top of the group it documents, and
+    // between two annotations stacked on the same group. Panels auto-size to their text, so this
+    // is generous enough that a paragraph-length note clears the one above it.
+    private const float AnnotationGap = 120f;
+
+    // Bounding box of the pivots already assigned in a set of adds, or null when none are placed.
+    // Pivots are points, not bounds — good enough to keep a fallback stack off the placed block.
+    private static RectangleF? PivotBounds(IEnumerable<GhJsonComponent> adds)
+    {
+        float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+        foreach (GhJsonComponent add in adds)
+        {
+            if (add.Pivot is not { } pivot)
+            {
+                continue;
+            }
+
+            minX = Math.Min(minX, pivot.X);
+            minY = Math.Min(minY, pivot.Y);
+            maxX = Math.Max(maxX, pivot.X);
+            maxY = Math.Max(maxY, pivot.Y);
+        }
+
+        return minX < float.MaxValue
+            ? new RectangleF(minX, minY, maxX - minX, maxY - minY)
+            : null;
+    }
+
+    /// <summary>
+    /// Removes from <paramref name="adds"/> every added component that no added wire touches but
+    /// that a group in the same patch makes a member of, and positions it directly above the live
+    /// bounds of that group's other members — so an explanatory Panel lands on top of the part it
+    /// explains and inside the group box that will enclose them both. Members that are themselves
+    /// new (added by this same patch) offer no live bounds yet and are skipped; an annotation with
+    /// no live anchor at all is returned unpositioned for the caller's fallback.
+    /// </summary>
+    /// <param name="patch">The parsed patch, read for its added wires and group memberships.</param>
+    /// <param name="adds">The added components; group-anchored annotations are removed from it.</param>
+    /// <param name="doc">The live document, source of the members' real bounds.</param>
+    /// <param name="baseExport">The canvas-state export, mapping member ids to live instanceGuids.</param>
+    /// <returns>The extracted annotations, pivoted where a live anchor was found.</returns>
+    private static List<GhJsonComponent> ExtractGroupAnchoredAnnotations(
+        GhPatchDocument patch,
+        List<GhJsonComponent> adds,
+        GH_Document doc,
+        GhJsonDocument baseExport)
+    {
+        List<GhJsonGroup> groups = patch.Patch?.Groups?.Add ?? new List<GhJsonGroup>();
+        if (groups.Count == 0)
+        {
+            return new List<GhJsonComponent>();
+        }
+
+        var wiredIds = new HashSet<int>();
+        foreach (GhJsonConnection connection in patch.Patch?.Connections?.Add ?? Enumerable.Empty<GhJsonConnection>())
+        {
+            foreach (int? endpoint in new[] { connection.From?.Id, connection.To?.Id })
+            {
+                if (endpoint is int id)
+                {
+                    wiredIds.Add(id);
+                }
+            }
+        }
+
+        var guidById = new Dictionary<int, Guid>();
+        foreach (GhJsonComponent component in baseExport.Components ?? Enumerable.Empty<GhJsonComponent>())
+        {
+            if (component.Id is int id && component.InstanceGuid is Guid guid)
+            {
+                guidById[id] = guid;
+            }
+        }
+
+        var extracted = new List<GhJsonComponent>();
+        foreach (GhJsonGroup group in groups)
+        {
+            IReadOnlyList<int> members = group.Members ?? (IReadOnlyList<int>)Array.Empty<int>();
+
+            List<GhJsonComponent> annotations = adds
+                .Where(a => a.Id is int id && !wiredIds.Contains(id) && members.Contains(id))
+                .ToList();
+            if (annotations.Count == 0)
+            {
+                continue;
+            }
+
+            // Anchor on the members that already exist on the canvas — the part being documented.
+            RectangleF union = RectangleF.Empty;
+            foreach (int member in members)
+            {
+                if (guidById.TryGetValue(member, out Guid guid)
+                    && doc.FindObject(guid, false) is { Attributes: { } attr } && !attr.Bounds.IsEmpty)
+                {
+                    union = union.IsEmpty ? attr.Bounds : RectangleF.Union(union, attr.Bounds);
+                }
+            }
+
+            float stackY = union.IsEmpty ? 0f : union.Top;
+            foreach (GhJsonComponent annotation in annotations)
+            {
+                adds.Remove(annotation);
+                extracted.Add(annotation);
+
+                if (union.IsEmpty)
+                {
+                    // No live anchor: leave it pivot-less for the caller's fallback stack.
+                    annotation.Pivot = null;
+                    continue;
+                }
+
+                // Stack upward, so several annotations on one group do not overlap.
+                stackY -= AnnotationGap;
+                annotation.Pivot = new GhJsonPivot(
+                    (int)MathF.Round(union.Left),
+                    (int)MathF.Round(stackY));
+            }
+        }
+
+        return extracted;
     }
 
     /// <summary>
@@ -1488,6 +1626,11 @@ internal static partial class GhJsonBridge
             }
         }
 
+        // Authored group ids claim their objects in the stable-id registry alongside components, so
+        // the number the model gave a group keeps meaning that group on the next canvas export —
+        // the same invariant component adds rely on.
+        var groupIds = new List<KeyValuePair<int, Guid>>();
+
         foreach (GhJsonGroup add in groups.Add ?? Enumerable.Empty<GhJsonGroup>())
         {
             var group = new GHGroupObject();
@@ -1518,7 +1661,14 @@ internal static partial class GhJsonBridge
             {
                 group.Attributes.Selected = false;
             }
+
+            if (add.Id is int authoredId)
+            {
+                groupIds.Add(new KeyValuePair<int, Guid>(authoredId, group.InstanceGuid));
+            }
         }
+
+        RegisterStableIds(doc, groupIds);
     }
 
     // Parses the GhJSON colour form "argb:255,200,220,255" (a bare "255,200,220,255" is tolerated).

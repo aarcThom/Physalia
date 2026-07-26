@@ -12,7 +12,7 @@
     "name must exactly match the component's name in the Grasshopper library (case-sensitive), e.g. 'Addition', 'Construct Point', 'Number Slider'.",
     "The grounding's installed-component list, when present, is the sole source of truth for which components may be placed: use only names it contains — plug-in components are allowed when listed, and unlisted components are not allowed however common. Without such a list, keep to native Grasshopper components. Do NOT use any scripting components (Python 3 Script, C# Script, GhPython, VB Script, or any other code-bearing node).",
     "Every component needs a unique integer id; connections reference this id. In a ghpatch, existing components keep the ids shown in the canvas state, and every ADDED component gets a fresh id HIGHER than the highest id in the canvas state.",
-    "Every component needs a pivot 'X,Y'. Full document: lay the graph out left to right following data flow, about 150 units between stages (X) and 80 between parallel inputs (Y). Ghpatch: read the existing pivots in the canvas state and place additions so they continue the flow without overlapping.",
+    "Every component needs a pivot 'X,Y', but canvas placement is automatic in BOTH output forms: emit simple placeholder pivots in rough data-flow order (0,0 / 150,0 / 300,0 …) and spend no reasoning on coordinates. Your pivots are discarded — the graph is relaid out and anchored for you — so never read existing pivots from the canvas state and never reason about overlap.",
     "connections has one entry per wire. Reference each endpoint by { id, paramIndex }: paramIndex is the parameter's zero-based position in the component's OUTPUT list (for 'from') or INPUT list (for 'to'), counting in the order shown in componentCatalog (or the component's installed order). paramName is optional and for readability only; the wire is matched by paramIndex. An input may receive SEVERAL wires — their items collect into a list in wire order, which is the idiomatic way to gather a few points or curves into one input (prefer this over Entwine/Merge for small fixed lists). But NEVER wire several sources into an input that consumes ONE item — a Construct Point coordinate, a math operand: the wires still collect into a list and every downstream item multiplies. To combine two values (an origin plus an offset, say), compute the combination upstream (Addition) and wire the single result.",
     "DATA TREES: for simple gathering, prefer wiring and list order (above) over tree edits. Reach for the parameterSettings modifiers (dataMapping graft/flatten, isSimplified, isReversed) on a specific port only to fix a branch-count mismatch — the classic case being pairing a list against another input one-to-one: graft the port whose items must each stand alone so a per-branch component sees one item per branch instead of matching one item against a whole list. Modifiers attach to a single input or output, not the whole component. In a FULL document, set them inside the component's inputSettings/outputSettings array entry for that parameter. In a ghpatch, MODIFY the component (do NOT remove and re-add it): inputSettings.byParameterName['<full parameter name>'].set = { \"dataMapping\": \"graft\" } (or isSimplified/isReversed/expression); clear one by setting it back ('dataMapping':'none', 'isSimplified':false).",
     "Number Slider value uses the format 'default<min~max>', e.g. '5<0~10>', at componentState.extensions['gh.numberslider'].value. min must be strictly less than max. This is the most common mistake — do not use a plain number.",
@@ -23,7 +23,9 @@
     "Components marked with the physalia.rhinoRef extension in the canvas state reference live geometry in the Rhino model. Wire FROM them by their id as data sources; never modify their values, remove them, or recreate them.",
     "GHPATCH FEEDBACK: if some operations are reported as not applied, everything else DID land — resubmit a patch containing ONLY the corrected operations, regenerated against the current canvas state.",
     "Inputs marked * in the grounding's component signatures are REQUIRED: wire them or internalize a value. A required input left empty produces nulls or no output, which silently breaks every component downstream.",
-    "FULL DOCUMENT: do not leave a non-source component's inputs all unwired; source components (Number Slider, Panel as input, Boolean Toggle, value params) legitimately have none. instanceGuid may be omitted (regenerated on placement). Omit document metadata and groups."
+    "FULL DOCUMENT: do not leave a non-source component's inputs all unwired; source components (Number Slider, Panel as input, Boolean Toggle, value params) legitimately have none. instanceGuid may be omitted (regenerated on placement). Omit document metadata.",
+    "GROUPS: never carry an instanceGuid — it is generated on placement — and always carry an id and members. Group ids share the number space with component ids, so a group id must not collide with any component id or another group id. Group each logical part of the graph (one group per part, named for it) whenever the definition is big enough to have parts; groups are annotation only and never change what the graph computes.",
+    "EXPLANATORY PANELS: to document a part, add a Panel whose gh.panel.text explains it and put that Panel in the SAME group as the components it describes — group membership is what places it beside them. A documentation Panel is wired to nothing; leaving it out of a group leaves it stranded away from what it explains."
   ],
 
   "componentCatalog": {
@@ -95,6 +97,11 @@
           "type": "array",
           "description": "Wires between component parameters. One entry per wire.",
           "items": { "$ref": "#/$defs/connection" }
+        },
+        "groups": {
+          "type": "array",
+          "description": "Coloured group boxes around the components of each logical part of the definition. Optional but recommended on any graph large enough to have distinct parts.",
+          "items": { "$ref": "#/$defs/group" }
         }
       }
     },
@@ -166,15 +173,8 @@
               "properties": {
                 "add": {
                   "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                      "name":    { "type": "string" },
-                      "color":   { "$ref": "#/$defs/argbString" },
-                      "members": { "type": "array", "items": { "type": "integer" } }
-                    }
-                  }
+                  "description": "New group boxes. Each needs a fresh id (above every component and group id in the canvas state) and its members; never an instanceGuid, which is generated on placement.",
+                  "items": { "$ref": "#/$defs/group" }
                 },
                 "remove": {
                   "type": "array",
@@ -315,6 +315,33 @@
               }
             }
           }
+        }
+      }
+    },
+
+    "group": {
+      "type": "object",
+      "description": "A coloured group box drawn around a set of components. Groups are pure annotation — they never change what the graph computes.",
+      "required": ["id", "members"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Unique integer identifier for this group, drawn from the same number space as component ids: it must not collide with any component id or any other group id. In a ghpatch add, HIGHER than every id in the canvas state.",
+          "minimum": 1
+        },
+        "name": {
+          "type": "string",
+          "description": "Group caption, naming the part it encloses, e.g. 'Colonnade'."
+        },
+        "color": {
+          "$ref": "#/$defs/argbString"
+        },
+        "members": {
+          "type": "array",
+          "description": "Component ids enclosed by the group. Include the explanatory Panel for this part, if there is one: a Panel is positioned next to the components it is grouped with.",
+          "items": { "type": "integer" },
+          "minItems": 1
         }
       }
     },

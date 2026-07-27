@@ -14,14 +14,16 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// A deterministic guardrail that inspects an LLM-generated payload (arriving as the consumed
-/// signal's payload) for statically knowable input-wiring defects: a required input left with
-/// neither a wire nor an internalized value, and multiple wires collecting into an item-access
-/// input (they build a list and multiply every downstream item). Either would otherwise cost
-/// whole solve-and-feedback rounds of "failed to collect data" warnings and degenerate geometry
-/// once placed. A clean payload routes forward on the Success Signal unchanged (for the Component
-/// Transmitter to place); defects route a crisp, actionable list back on the Fail Signal so the
-/// model can correct and resubmit. Handles both a full GhJSON graph (every component) and a
-/// ghpatch (its added components).
+/// signal's payload) for statically knowable wiring defects: a required input left with neither a
+/// wire nor an internalized value, multiple wires collecting into an item-access input (they build
+/// a list and multiply every downstream item), a component whose outputs nothing consumes, and an
+/// operator taking both operands from one source port. The first two would cost whole
+/// solve-and-feedback rounds of "failed to collect data" warnings and degenerate geometry; the last
+/// two a solve can NEVER report — the graph runs clean and produces geometry, just not the geometry
+/// the model believes it built. A clean payload routes forward on the Success Signal unchanged (for
+/// the Component Transmitter to place); defects route a crisp, actionable list back on the Fail
+/// Signal so the model can correct and resubmit. Handles both a full GhJSON graph (every component)
+/// and a ghpatch (the graph the patch would produce, scoped to what the patch touches).
 /// </summary>
 public class RequiredInputCheck : RoutingComponentBase<string>
 {
@@ -82,16 +84,20 @@ public class RequiredInputCheck : RoutingComponentBase<string>
     {
         var sb = new StringBuilder();
         sb.AppendLine(isPatch
-            ? "The patch was NOT applied: it was rejected before it reached the canvas because added "
-              + "components have input-wiring defects (a required input with no value, or multiple "
-              + "wires collecting into a one-item input). The canvas is unchanged and the base "
-              + "checksum you used is still valid. Resubmit the corrected ghpatch: fix ONLY the inputs "
-              + "listed below and keep every other operation identical."
+            ? "The patch was NOT applied: it was rejected before it reached the canvas because of the "
+              + "wiring defects listed below in the graph it would have produced (a required input "
+              + "with no value, multiple wires collecting into a one-item input, a component left "
+              + "feeding nothing, or an operator taking both operands from one source). Each defect "
+              + "is on a component this patch adds or rewires — not on pre-existing canvas work. The "
+              + "canvas is unchanged and the base checksum you used is still valid. Resubmit the "
+              + "corrected ghpatch: fix ONLY the defects listed below and keep every other operation "
+              + "identical."
             : "Nothing was placed: your submission was rejected before it reached the canvas because "
-              + "of the input-wiring defects listed below (a required input with no value, or multiple "
-              + "wires collecting into a one-item input), so the canvas is unchanged from the state "
-              + "you were shown. Resubmit your ENTIRE corrected full GhJSON document — do NOT switch "
-              + "to a ghpatch; none of your components exist on the canvas yet. Fix ONLY the inputs "
+              + "of the wiring defects listed below (a required input with no value, multiple wires "
+              + "collecting into a one-item input, a component feeding nothing, or an operator taking "
+              + "both operands from one source), so the canvas is unchanged from the state you were "
+              + "shown. Resubmit your ENTIRE corrected full GhJSON document — do NOT switch "
+              + "to a ghpatch; none of your components exist on the canvas yet. Fix ONLY the defects "
               + "listed below and keep every other component and connection identical to your "
               + "previous submission.");
 

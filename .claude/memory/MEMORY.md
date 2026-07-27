@@ -9,6 +9,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Commit/PR messages output-only](commit-and-pr-messages-output-only.md) — print them in chat; never run `git commit`/`push`/`gh`.
 
 ## Latest
+- [Dead-wire lint + projected patch graph](dead-wire-lint-projected-graph.md) — 2026-07-26: unwired sliders and self-fed operators now rejected; a ghpatch lints the graph it PRODUCES. Report-side gaps (driving scalars, checksum-diff attribution) still open. NOT yet run in Rhino.
 - [Grouping + panel placement](grouping-and-panel-placement-fixes.md) — 2026-07-25: group-add schema deadlock (Physalia forbade `id`, library required it) + `not`-branch error noise; panels anchored by group membership; patch endpoint resolution + duplicate-wire dedup.
 - [Chat UI overhaul](chat-ui-overhaul-2026-07.md) — 2026-07-25: top-row human tools, action stack on prompt box, recessed scrollbar, fade edges (oklab-seam gotcha).
 - [Human tools split](human-tools-split.md) — 2026-07-23: LLM Tools vs Human Tools taxonomy; HumanTool union; ConvLog 7-input reorder; image intake gated on Add Image.

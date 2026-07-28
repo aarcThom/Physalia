@@ -100,11 +100,13 @@
 	let unitOptions = $state<string[]>([]);
 
 	// Human-tool state: whether a Geometry Snapshot tool is wired, whether generated geometry is
-	// present right now (both together light the composer's geometry indicator), the tool's default
+	// present right now (both together light the composer's geometry indicator), whether pressing the
+	// button sends the snapshot as its own message or attaches it to the prompt box, the tool's default
 	// message, the current override (null = use the default), and whether an Add Image tool is
 	// wired (without it image intake is fully disabled in the composer).
 	let snapshotWired = $state(false);
 	let snapshotGeometryPresent = $state(false);
+	let snapshotSendsMessage = $state(true);
 	let snapshotDefaultMessage = $state('');
 	let snapshotMessage = $state<string | null>(null);
 	let imageToolWired = $state(false);
@@ -202,6 +204,7 @@
 				unitOptions = next.unitOptions ?? [];
 				snapshotWired = next.snapshotWired ?? false;
 				snapshotGeometryPresent = next.snapshotGeometryPresent ?? false;
+				snapshotSendsMessage = next.snapshotSendsMessage ?? true;
 				snapshotDefaultMessage = next.snapshotDefaultMessage ?? '';
 				snapshotMessage = next.snapshotMessage ?? null;
 				imageToolWired = next.imageToolWired ?? false;
@@ -217,6 +220,11 @@
 			},
 			setChats: (next) => {
 				chats = next ?? [];
+			},
+			attachSnapshot: (image) => {
+				// Attach mode: the host captured a snapshot and hands it here instead of sending it —
+				// it joins the composer's attachment strip and rides the message the user types.
+				void composer?.addSnapshot(image?.base64 ?? '', image?.mediaType ?? 'image/png');
 			}
 		};
 
@@ -339,10 +347,21 @@
 		window.location.href = `${BRIDGE_SCHEME}://setsnapshotmessage?sel=${encodeURIComponent(json)}`;
 	}
 
-	// Ask the host to capture a viewport snapshot of the generated geometry and send it (with its
-	// predefined message) as its own user message. Fired by the composer's geometry button.
+	// Switch the wired Geometry Snapshot tool between sending its snapshot as its own message and
+	// attaching it to the prompt box. The flag lives on the component (its context menu shows the same
+	// state), so the new value arrives back on the next state push rather than being held here.
+	function setSnapshotSends(on: boolean) {
+		window.location.href = `${BRIDGE_SCHEME}://setsnapshotsends?on=${on ? '1' : '0'}`;
+	}
+
+	// Ask the host to capture a viewport snapshot of the generated geometry. Fired by the composer's
+	// geometry button, whose terminus is the tool's choice: send it straight off as its own user
+	// message carrying the predefined message, or attach it to the prompt box (the host pushes the
+	// image back through window.physalia.attachSnapshot) for the user to caption themselves.
 	function sendSnapshot() {
-		window.location.href = `${BRIDGE_SCHEME}://sendsnapshot`;
+		window.location.href = snapshotSendsMessage
+			? `${BRIDGE_SCHEME}://sendsnapshot`
+			: `${BRIDGE_SCHEME}://attachsnapshot`;
 	}
 
 	// Hand a pasted API key to the host, which writes it to API_KEY_CONFIG.YAML and reports back
@@ -383,8 +402,13 @@
 	}
 
 	// The composer instance, for the rail buttons that drive it from outside the box: the submit
-	// arrow calls its exported submit(), the Add Image human tool its exported openPicker().
-	let composer = $state<{ submit: () => void; openPicker: () => void } | null>(null);
+	// arrow calls its exported submit(), the Add Image human tool its exported openPicker(), and a
+	// host-captured snapshot in attach mode its exported addSnapshot().
+	let composer = $state<{
+		submit: () => void;
+		openPicker: () => void;
+		addSnapshot: (base64: string, mediaType: string) => Promise<void>;
+	} | null>(null);
 
 	// Mirror of the Composer's own inert gate (busy / setup / disconnected, except in API-key
 	// mode), so the external submit button greys out exactly when the box itself is inert.
@@ -495,18 +519,22 @@
 		{#if snapshotWired}
 			<!-- Geometry-snapshot button: appears the moment a Geometry Snapshot human tool is
 			     wired, but stays greyed until a transmitter has generated geometry (snapshotArmed).
-			     Pressing it captures a viewport snapshot and sends it, with its predefined message,
-			     as its own message — nothing is ever attached to a typed prompt automatically. The
-			     message is edited in the grounding panel's Geometry Snapshot page. -->
+			     Pressing it captures a viewport snapshot; where that snapshot goes is the tool's
+			     choice (its "Send With Default Message" toggle). On: it is sent immediately as its own
+			     message carrying the predefined message, edited in the grounding panel's Geometry
+			     Snapshot page — nothing is ever attached to a typed prompt behind the user's back.
+			     Off: it lands in the prompt box like a pasted image, for the user to caption. -->
 			<Button
 				variant="outline"
 				size="icon-lg"
 				class={snapshotArmed ? 'text-[var(--neu-accent)]' : ''}
 				onclick={sendSnapshot}
 				disabled={composerInert || !!keyProvider || !snapshotArmed}
-				title={snapshotArmed
-					? 'Send a viewport snapshot of the generated geometry with its predefined message'
-					: 'Geometry snapshot — enabled once generated geometry is on the canvas'}
+				title={!snapshotArmed
+					? 'Geometry snapshot — enabled once generated geometry is on the canvas'
+					: snapshotSendsMessage
+						? 'Send a viewport snapshot of the generated geometry with its predefined message'
+						: 'Attach a viewport snapshot of the generated geometry to your message'}
 			>
 				<Axis3dIcon class="size-4" />
 			</Button>
@@ -553,6 +581,7 @@
 					{unitsOverride}
 					{unitOptions}
 					{snapshotWired}
+					{snapshotSendsMessage}
 					{snapshotDefaultMessage}
 					{snapshotMessage}
 					{imageToolWired}
@@ -562,6 +591,7 @@
 					onapplytools={setTools}
 					onapplyunits={setUnits}
 					onapplysnapshot={setSnapshotMessage}
+					onapplysnapshotsends={setSnapshotSends}
 					onclose={closePanel}
 				/>
 			{:else if panel === 'manualdef'}
@@ -641,6 +671,7 @@
 				status={showSetup ? '' : status}
 				apiKeyProvider={keyProvider}
 				{imageToolWired}
+				snapshotAttachWired={snapshotWired && !snapshotSendsMessage}
 				clusterNames={includedClusterNames}
 				toolNames={includedToolNames}
 				componentTabs={availableComponents}

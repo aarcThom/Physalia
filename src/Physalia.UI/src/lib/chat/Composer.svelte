@@ -36,6 +36,10 @@
 		/** True when an Add Image human tool is wired — without it, image intake (paste, drag-drop,
 		 *  file picker) is fully disabled and prompts are text-only. */
 		imageToolWired?: boolean;
+		/** True when a Geometry Snapshot human tool is wired in attach mode ("Send With Default
+		 *  Message" unchecked) — it grants its own image lane (addSnapshot), independent of the Add
+		 *  Image tool, which still gates paste/drop/picker. */
+		snapshotAttachWired?: boolean;
 		/** Names of clusters the model may use, for the "/cl/" reference autocomplete. */
 		clusterNames?: string[];
 		/** Names of tools currently in use, for the "/t/" reference autocomplete. */
@@ -54,6 +58,7 @@
 		status = '',
 		apiKeyProvider = null,
 		imageToolWired = false,
+		snapshotAttachWired = false,
 		clusterNames = [],
 		toolNames = [],
 		componentTabs = [],
@@ -66,6 +71,10 @@
 		base64: string;
 		mediaType: string;
 		filename: string;
+		/** Which human tool let this image in — the tool that granted it is the tool that can revoke
+		 *  it (see the stale-attachment effect). 'user' = paste/drop/picker (Add Image);
+		 *  'snapshot' = the geometry button in attach mode (Geometry Snapshot). */
+		source: 'user' | 'snapshot';
 	}
 
 	// Block while the pipeline is busy, during setup (no provider yet), or while no Conversation Log is wired —
@@ -126,14 +135,18 @@
 		}
 	});
 
-	// If the Add Image tool is unwired mid-composition (component deleted/unwired on the canvas),
-	// discard the pending images and their [image#N] tokens — nothing image-shaped may survive.
+	// If the tool that admitted an image is unwired mid-composition (component deleted/unwired on the
+	// canvas), discard that image and its [image#N] token — nothing image-shaped may outlive the tool
+	// that granted it. Each lane is revoked by its own tool: Add Image for pasted/dropped/picked
+	// images, Geometry Snapshot (in attach mode) for captured snapshots.
 	$effect(() => {
-		if (!imageToolWired && pending.length > 0) {
-			pending = [];
-			text = tidy(text.replace(TOKEN, ''));
-			void tick().then(() => render());
-		}
+		let stale = new Set<number>();
+		pending.forEach((image, i) => {
+			if (image.source === 'snapshot' ? !snapshotAttachWired : !imageToolWired) {
+				stale.add(i);
+			}
+		});
+		dropImagesAt(stale);
 	});
 
 	// Whole-window drag-and-drop. Listeners exist only while the Add Image tool is wired — the
@@ -631,20 +644,48 @@
 				id: nextId++,
 				base64: stripDataUrl(dataUrl),
 				mediaType: file.type || 'image/png',
-				filename: file.name || 'image'
+				filename: file.name || 'image',
+				source: 'user'
 			});
 			await insertToken(`[image#${pending.length}]`);
 		}
 	}
 
+	// Attaches a viewport snapshot captured by the host's geometry button (attach mode), landing it in
+	// the strip with an [image#N] token exactly like a pasted image — the user then types the message
+	// it belongs to. Invoked from outside via bind:this, so it re-checks its own gate: the Geometry
+	// Snapshot tool grants this lane, and the Add Image tool is irrelevant to it.
+	export async function addSnapshot(base64: string, mediaType: string) {
+		if (!snapshotAttachWired || !base64) {
+			return;
+		}
+		pending.push({
+			id: nextId++,
+			base64,
+			mediaType: mediaType || 'image/png',
+			filename: 'geometry-snapshot.png',
+			source: 'snapshot'
+		});
+		await insertToken(`[image#${pending.length}]`);
+	}
+
 	// Remove a pending image: drop the matching token and renumber the rest so tokens stay 1..N.
 	function removeImage(index: number) {
-		pending.splice(index, 1);
+		dropImagesAt(new Set([index]));
+	}
+
+	// Drops the pending images at the given positions, deleting their [image#N] tokens and renumbering
+	// the survivors so the tokens stay 1..N. Returns early on an empty set — which also keeps `text`
+	// out of the calling effect's dependencies, so typing does not re-run the stale-attachment scan.
+	function dropImagesAt(positions: Set<number>) {
+		if (positions.size === 0) {
+			return;
+		}
+		pending = pending.filter((_, i) => !positions.has(i));
 		let occurrence = 0;
 		let kept = 0;
 		text = text.replace(TOKEN, () => {
-			occurrence++;
-			if (occurrence === index + 1) {
+			if (positions.has(occurrence++)) {
 				return '';
 			}
 			kept++;

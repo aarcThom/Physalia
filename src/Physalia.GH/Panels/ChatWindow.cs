@@ -360,15 +360,56 @@ public class ChatWindow : Form
             case "setsnapshotmessage":
                 HandleSetSnapshotMessage(uri);
                 break;
+            case "setsnapshotsends":
+                HandleSetSnapshotSends(uri);
+                break;
             case "sendsnapshot":
                 // The geometry button: capture a viewport snapshot of the generated geometry and
                 // send it (with its predefined message) as its own user message, right now.
                 _component.SendGeometrySnapshotFromWindow();
                 break;
+            case "attachsnapshot":
+                // The same geometry button with "Send With Default Message" unchecked: capture the
+                // snapshot and hand it to the prompt box as an attachment instead of sending it.
+                HandleAttachSnapshot();
+                break;
             case "cancel":
                 HandleCancel();
                 break;
         }
+    }
+
+    // Applies the send-with-default-message switch from the window's Geometry Snapshot page. ?on=1
+    // sends the snapshot as its own message; anything else attaches it to the prompt box. The flag is
+    // set on the wired Geometry Snapshot component itself (same field its context menu toggles), so the
+    // window and the canvas can never drift apart — the new value comes back on the next state push.
+    private void HandleSetSnapshotSends(Uri uri)
+    {
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
+        {
+            return;
+        }
+
+        conversationLog.SetGeometrySnapshotSendsMessage(GetQueryValue(uri.Query, "on") == "1");
+    }
+
+    // Captures a viewport snapshot of the generated geometry and pushes it into the composer's
+    // pending-attachment strip, where it behaves exactly like a pasted image: the human types their
+    // own message and the snapshot rides that turn. Nothing is minted here — this is the attach half
+    // of the geometry button, taken when the wired Geometry Snapshot tool has its default message
+    // switched off. Silently does nothing when there is nothing to capture (the button is already
+    // gated on armed geometry). Runs on the UI thread, where the viewport zoom + capture are safe.
+    private void HandleAttachSnapshot()
+    {
+        if (!_component.TryCaptureGeneratedGeometryPng(out byte[]? png) || png is null)
+        {
+            return;
+        }
+
+        string json = JsonSerializer.Serialize(
+            new UiImage(Convert.ToBase64String(png), "image/png"), WriteOpts);
+        Exec($"window.physalia&&window.physalia.attachSnapshot&&window.physalia.attachSnapshot({json});");
     }
 
     // Cancels the active inference on the wired pipeline's LLM Call(s). Fired by the chat window's
@@ -1214,13 +1255,16 @@ public class ChatWindow : Form
 
         // Human-tool state: whether a Geometry Snapshot tool is wired, whether a transmitter has
         // generated geometry right now (the composer shows its geometry button only while both
-        // hold — pressing it sends a snapshot as its own message), the tool's default message, and
+        // hold), whether that press sends the snapshot as its own message or attaches it to the
+        // prompt box for the human to caption (the tool's "Send With Default Message" toggle — off
+        // also hides the message editor, which is dead text then), the tool's default message, and
         // the current override (null = use the default). The geometry scan is gated on the tool
         // being wired so idle documents pay nothing on the 0.15 s tick. An Add Image tool gates
         // image intake in the composer — without it, paste/drop/picker are fully disabled.
         bool snapshotWired = conversationLog?.HasGeometrySnapshotTool == true;
         bool snapshotGeometryPresent = snapshotWired
             && Generation.GeneratedGeometryScan.HasGeneratedGeometry(conversationLog?.OnPingDocument());
+        bool snapshotSendsMessage = conversationLog?.GeometrySnapshotSendsMessage == true;
         string snapshotDefaultMessage = conversationLog?.GeometrySnapshotDefaultMessage ?? string.Empty;
         string? snapshotMessage = conversationLog?.SnapshotMessageOverrideOrNull;
         bool imageToolWired = conversationLog?.HasAddImageTool == true;
@@ -1230,7 +1274,7 @@ public class ChatWindow : Form
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotDefaultMessage, snapshotMessage, imageToolWired }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, imageToolWired }, WriteOpts);
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -1247,7 +1291,7 @@ public class ChatWindow : Form
             _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotDefaultMessage, snapshotMessage, imageToolWired }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, imageToolWired }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 

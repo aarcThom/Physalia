@@ -211,18 +211,7 @@ public class Chat : StatefulComponentBase
         Rhino.RhinoApp.InvokeOnUiThread(new Action(() =>
         {
             ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(this, 0);
-            if (conversationLog is null || !conversationLog.HasGeometrySnapshotTool)
-            {
-                return;
-            }
-
-            Rhino.Geometry.BoundingBox bounds = Generation.GeneratedGeometryScan.ComputeBounds(OnPingDocument());
-            if (!bounds.IsValid)
-            {
-                return;
-            }
-
-            if (!Generation.ViewportSnapshot.TryCapture(bounds, out byte[]? imageBytes, out _) || imageBytes is null)
+            if (conversationLog is null || !TryCaptureGeneratedGeometryPng(out byte[]? imageBytes) || imageBytes is null)
             {
                 return;
             }
@@ -239,6 +228,33 @@ public class Chat : StatefulComponentBase
             LatchSuccess(message, contentBlocks: blocks);
             ExpireSolution(true);
         }));
+    }
+
+    /// <summary>
+    /// Captures a viewport snapshot of the transmitter-generated geometry and hands back the PNG
+    /// bytes without minting anything — the attach half of the geometry button, used when the wired
+    /// Geometry Snapshot tool has "Send With Default Message" unchecked. The image is pushed into the
+    /// chat window's prompt box like a pasted attachment and leaves on the human's own turn, so no
+    /// signal is latched and no solve is expired here.
+    /// </summary>
+    /// <param name="png">The captured PNG bytes, or null when there is nothing to capture.</param>
+    /// <returns>True when a snapshot was captured.</returns>
+    public bool TryCaptureGeneratedGeometryPng(out byte[]? png)
+    {
+        png = null;
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(this, 0);
+        if (conversationLog is null || !conversationLog.HasGeometrySnapshotTool)
+        {
+            return false;
+        }
+
+        Rhino.Geometry.BoundingBox bounds = Generation.GeneratedGeometryScan.ComputeBounds(OnPingDocument());
+        if (!bounds.IsValid)
+        {
+            return false;
+        }
+
+        return Generation.ViewportSnapshot.TryCapture(bounds, out png, out _) && png is not null;
     }
 
     /// <summary>

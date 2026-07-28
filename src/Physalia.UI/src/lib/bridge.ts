@@ -99,8 +99,13 @@ export interface UiState {
 	/** True when a Geometry Snapshot human tool is wired into the Conversation Log (shows the Geometry Snapshot page). */
 	snapshotWired: boolean;
 	/** True when a transmitter has generated geometry on the canvas right now — with the tool wired,
-	 *  the composer shows its geometry button (press to send a snapshot as its own message). */
+	 *  the composer shows its geometry button. */
 	snapshotGeometryPresent: boolean;
+	/** True when pressing the geometry button sends the snapshot straight off as its own message
+	 *  carrying snapshotDefaultMessage (the tool's "Send With Default Message" toggle, on by
+	 *  default); false attaches the snapshot to the prompt box instead, for the user to caption —
+	 *  the message is unused then, so its editor is hidden. */
+	snapshotSendsMessage: boolean;
 	/** The tool's default message sent alongside the snapshot image (the Geometry Observation wording). */
 	snapshotDefaultMessage: string;
 	/** The current snapshot-message override, or null = use the tool's default message (default). */
@@ -220,6 +225,10 @@ export interface PhysaliaHost {
 	setPresets(presets: UiPreset[]): void;
 	/** Every Chat on the canvas, for the bottom switcher row. */
 	setChats(chats: UiChat[]): void;
+	/** A viewport snapshot captured by the geometry button in attach mode (the Geometry Snapshot
+	 *  tool's default message switched off): lands in the composer's attachment strip like a pasted
+	 *  image and leaves on the user's own turn. */
+	attachSnapshot(image: UiImage): void;
 }
 
 /** Strips a `data:<mime>;base64,` prefix, returning the raw base64 payload. The

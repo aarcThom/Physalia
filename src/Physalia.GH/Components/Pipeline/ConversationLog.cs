@@ -275,6 +275,13 @@ public class ConversationLog : StatefulComponentBase
     public bool HasAddImageTool => _hasAddImageTool;
 
     /// <summary>
+    /// Gets a value indicating whether the wired Geometry Snapshot tool sends its snapshot
+    /// immediately as its own message (carrying <see cref="GeometrySnapshotMessage"/>) rather than
+    /// attaching it to the prompt box for the human to caption. False when no tool is wired.
+    /// </summary>
+    public bool GeometrySnapshotSendsMessage => _liveSnapshotTool?.SendWithMessage == true;
+
+    /// <summary>
     /// Gets the default snapshot message carried by the wired tool — what accompanies the
     /// snapshot image unless overridden. Empty when no Geometry Snapshot tool is wired.
     /// </summary>
@@ -352,6 +359,25 @@ public class ConversationLog : StatefulComponentBase
     {
         _snapshotMessageOverride = string.IsNullOrWhiteSpace(message) ? null : message;
         ExpireSolution(true);
+    }
+
+    /// <summary>
+    /// Switches the wired Geometry Snapshot tool(s) between sending the snapshot as its own message
+    /// and attaching it to the prompt box. The flag lives on the Geometry Snapshot component (whose
+    /// context menu shows the same checkmark), not here: the chat window's switch and the canvas menu
+    /// are two views of one setting, so nothing has to be reconciled. Every wired tool is set, since
+    /// the last one collected is the one that wins. Called from the chat window on the UI thread.
+    /// </summary>
+    /// <param name="on">True to send the snapshot as its own message with its default text; false to attach it to the prompt box.</param>
+    public void SetGeometrySnapshotSendsMessage(bool on)
+    {
+        foreach (IGH_Param source in Params.Input[InHumanTools].Sources)
+        {
+            if (source.Attributes?.GetTopLevel?.DocObject is GeometrySnapshot snapshot)
+            {
+                snapshot.SetSendWithMessage(on);
+            }
+        }
     }
 
     /// <summary>

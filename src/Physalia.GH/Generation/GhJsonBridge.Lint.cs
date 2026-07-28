@@ -110,7 +110,15 @@ internal static partial class GhJsonBridge
             StampComponentGuids(new GhJsonDocument("1.0", null, adds, null, null));
         }
 
-        GhJsonDocument? canvas = TryExportCanvasState()?.Document;
+        // Project against the frame the model authored in (same rule as the apply): a group-scoped
+        // base checksum means it saw only the master group's contents, and linting the full canvas
+        // would name components it cannot see.
+        string? carried = patch.Patch?.Base?.Checksum?.Trim();
+        bool groupFrame = string.IsNullOrEmpty(carried)
+            ? ActiveFrameIsGroupScoped(Grasshopper.Instances.ActiveCanvas?.Document)
+            : carried.StartsWith(GroupChecksumPrefix, StringComparison.OrdinalIgnoreCase);
+
+        GhJsonDocument? canvas = TryExportCanvasState(null, groupFrame)?.Document;
         if (canvas?.Components is null || canvas.Components.Count == 0)
         {
             // Nothing to project onto (no document, or an empty canvas the model should not have
@@ -427,7 +435,7 @@ internal static partial class GhJsonBridge
                         LintFindingKind.MultiWireItem,
                         id,
                         i,
-                        $"'{component.Name}' (id {id}) input '{port.Name}' (paramIndex {i}) receives {wireCount} wires but consumes ONE item — the wires collect into a {wireCount}-item list and every downstream item multiplies. Wire a single source, or combine the values upstream first (e.g. an Addition component)."));
+                        $"'{component.Name}' (id {id}) input '{port.Name}' (paramIndex {i}): {wireCount} wires into an item-access input collect into a {wireCount}-item list and everything downstream multiplies. Wire ONE source, or combine the values upstream (e.g. Addition)."));
                 }
 
                 if (!port.Required)
@@ -444,7 +452,7 @@ internal static partial class GhJsonBridge
                         LintFindingKind.RequiredInput,
                         id,
                         i,
-                        $"'{component.Name}' (id {id}) input '{port.Name}' (paramIndex {i}) is required but has no wire and no internalized value — wire it or internalize a value."));
+                        $"'{component.Name}' (id {id}) input '{port.Name}' (paramIndex {i}): required, but has no wire and no internalized value — wire it or internalize one."));
                 }
             }
 
@@ -495,8 +503,8 @@ internal static partial class GhJsonBridge
             id,
             null,
             inputCount == 0
-                ? $"{Describe(component, id)} is a value source nothing reads — no wire leaves its {kinds} output, so its value cannot affect the graph at all. Wire it to the input it is meant to drive, or remove it."
-                : $"{Describe(component, id)} produces only data ({kinds}) and nothing consumes its outputs — wire its result somewhere or remove the component; a dangling data component is almost always abandoned intent."));
+                ? $"{Describe(component, id)} is a value source nothing reads — wire its {kinds} output to the input it should drive, or remove it."
+                : $"{Describe(component, id)} produces only data ({kinds}) and nothing consumes it — wire its result somewhere or remove it."));
     }
 
     /// <summary>
@@ -563,7 +571,7 @@ internal static partial class GhJsonBridge
                 LintFindingKind.SelfCombination,
                 id,
                 firstPort,
-                $"{Describe(component, id)} takes {ports} from the SAME source — {source}. An operator fed one value twice is degenerate (A−A is 0, A÷A is 1, min(A,A) is A) and the solve cannot report it. Wire the operand that should differ to the source it was meant to come from, or internalize a value on it."));
+                $"{Describe(component, id)} takes {ports} from the SAME source — {source}. That is degenerate (A−A=0, A÷A=1, min(A,A)=A); wire the operand that should differ to its intended source, or internalize a value on it."));
         }
     }
 

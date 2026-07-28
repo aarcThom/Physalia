@@ -35,7 +35,7 @@ public class GroundingComposerTests
 
         // Same shape as the old System Prompt component's catalog append: base, blank line, header line, CSV of sorted names.
         Assert.Equal(
-            "BASE PROMPT\n\nThese Grasshopper components are installed and available — native and plug-in alike. This list is the authoritative catalogue of what may be placed: use these exact names, and only components from this list:\nConstruct Point, Move",
+            "BASE PROMPT\n\nThese are the ONLY Grasshopper components you may place — use these exact names:\nConstruct Point, Move",
             result);
     }
 
@@ -51,7 +51,7 @@ public class GroundingComposerTests
         string result = GroundingComposer.Append("BASE", groundings);
 
         Assert.Equal(
-            "BASE\n\nThese Grasshopper components are installed and available — native and plug-in alike. This list is the authoritative catalogue of what may be placed: use these exact names, and only components from this list:\nMove\n\nThe following python function is available — use it where it fits:\ndef foo(a)\nDoes foo.",
+            "BASE\n\nThese are the ONLY Grasshopper components you may place — use these exact names:\nMove\n\nThe following python function is available — use it where it fits:\ndef foo(a)\nDoes foo.",
             result);
     }
 

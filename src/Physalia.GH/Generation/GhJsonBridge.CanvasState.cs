@@ -37,6 +37,12 @@ namespace Physalia.GH.Generation;
 /// </summary>
 internal static partial class GhJsonBridge
 {
+    /// <summary>Checksum prefix of the full-canvas frame.</summary>
+    internal const string ChecksumPrefix = "sha256-";
+
+    /// <summary>Checksum prefix of the group-scoped frame. Test it BEFORE <see cref="ChecksumPrefix"/> — it shares the same start.</summary>
+    internal const string GroupChecksumPrefix = "sha256-group-";
+
     // componentState.extensions key marking an exported parameter as referencing live geometry in
     // the Rhino model. Injected into the canvas-state export (with the baked geometry stripped) so
     // the model treats the parameter as a data source: wire FROM it, never modify its value or
@@ -63,11 +69,13 @@ internal static partial class GhJsonBridge
     /// <param name="Json">The document serialized compactly, exactly as handed to the model.</param>
     /// <param name="Checksum">Structural fingerprint of <paramref name="Document"/> (<c>sha256-…</c>).</param>
     /// <param name="ComponentCount">Number of exported components; zero for an empty canvas.</param>
+    /// <param name="GroupScoped">True when the export covers only the master group's contents.</param>
     internal sealed record CanvasStateSnapshot(
         GhJsonDocument Document,
         string Json,
         string Checksum,
-        int ComponentCount);
+        int ComponentCount,
+        bool GroupScoped = false);
 
     /// <summary>
     /// Exports the current state of the user's canvas — every object whose type does not come from
@@ -76,8 +84,13 @@ internal static partial class GhJsonBridge
     /// Returns null when there is no document to export.
     /// </summary>
     /// <param name="doc">The Grasshopper document to export; null falls back to the active canvas.</param>
+    /// <param name="groupScope">
+    /// True to export only the master group's contents (nested groups expanded) — the frame the
+    /// group-scoped grounder shows the model. The master group itself is excluded from BOTH frames:
+    /// it is Physalia infrastructure, not part of the model's or the user's graph.
+    /// </param>
     /// <returns>The snapshot, or null when no document is available.</returns>
-    internal static CanvasStateSnapshot? TryExportCanvasState(GH_Document? doc = null)
+    internal static CanvasStateSnapshot? TryExportCanvasState(GH_Document? doc = null, bool groupScope = false)
     {
         doc ??= Grasshopper.Instances.ActiveCanvas?.Document;
         if (doc is null)
@@ -85,14 +98,18 @@ internal static partial class GhJsonBridge
             return null;
         }
 
+        HashSet<Guid>? scope = groupScope ? MasterGroupScope(doc) : null;
         var guids = doc.Objects
-            .Where(o => o is not null && o.GetType().Assembly != typeof(PhyBase).Assembly)
+            .Where(o => o is not null
+                && o.GetType().Assembly != typeof(PhyBase).Assembly
+                && !IsMasterGroup(o)
+                && (scope is null || scope.Contains(o.InstanceGuid)))
             .Select(o => o.InstanceGuid)
             .ToList();
 
         if (guids.Count == 0)
         {
-            return new CanvasStateSnapshot(new GhJsonDocument(), string.Empty, string.Empty, 0);
+            return new CanvasStateSnapshot(new GhJsonDocument(), string.Empty, string.Empty, 0, groupScope);
         }
 
         GhJsonDocument export = GhJsonGrasshopper.GetByGuids(guids);
@@ -110,8 +127,9 @@ internal static partial class GhJsonBridge
         return new CanvasStateSnapshot(
             export,
             json,
-            ComputeCanvasChecksum(export),
-            export.Components?.Count ?? 0);
+            ComputeCanvasChecksum(export, groupScope),
+            export.Components?.Count ?? 0,
+            groupScope);
     }
 
     /// <summary>
@@ -126,8 +144,13 @@ internal static partial class GhJsonBridge
     /// fingerprint and force the model to regenerate against the fresh canvas state.
     /// </summary>
     /// <param name="export">The exported canvas-state document.</param>
+    /// <param name="groupScoped">
+    /// True when the export is the group-scoped frame. The prefix makes the checksum
+    /// self-describing: a patch carrying it back tells the apply path which frame the model saw,
+    /// so the drift check re-exports the same frame instead of comparing across frames.
+    /// </param>
     /// <returns>The fingerprint in <c>sha256-&lt;hex&gt;</c> form, or an empty string for an empty export.</returns>
-    internal static string ComputeCanvasChecksum(GhJsonDocument export)
+    internal static string ComputeCanvasChecksum(GhJsonDocument export, bool groupScoped = false)
     {
         if (export.Components is null || export.Components.Count == 0)
         {
@@ -169,7 +192,8 @@ internal static partial class GhJsonBridge
         }
 
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
-        return "sha256-" + Convert.ToHexString(hash).ToLowerInvariant();
+        return (groupScoped ? GroupChecksumPrefix : ChecksumPrefix)
+            + Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     // Appends one fingerprint line per parameter that carries a data-tree modifier, so grafting or

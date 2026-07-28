@@ -451,6 +451,10 @@ internal static partial class GhJsonBridge
             // predicted (a nicknamed slider rendering 200+ wide into a 150-unit stage gap, a tall
             // documentation Panel pushing its group box into the area above).
             SeparatePlacedOverlaps(Grasshopper.Instances.ActiveCanvas?.Document);
+
+            // Everything the model placed lands in the master "Physalia" group — the shared
+            // workspace the group-scoped grounding exports and the user can add their own work to.
+            EnrollPlaced(Grasshopper.Instances.ActiveCanvas?.Document, placed.PlacedGuids);
         }
 
         return placed;
@@ -1383,8 +1387,11 @@ internal static partial class GhJsonBridge
             guidById[claim.Key] = claim.Value;
         }
 
+        // The master group is Physalia infrastructure, never a model-authored group — with a single
+        // authored group on the canvas its membership could otherwise set-match and steal the claim.
         List<Grasshopper.Kernel.Special.GH_Group> live = hostDoc.Objects
             .OfType<Grasshopper.Kernel.Special.GH_Group>()
+            .Where(g => !IsMasterGroup(g))
             .ToList();
 
         var claims = new List<KeyValuePair<int, Guid>>();

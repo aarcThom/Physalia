@@ -409,6 +409,13 @@ public class ChatWindow : Form
                         .Select(l => (l[0] ?? string.Empty, l[1] ?? string.Empty));
                     selection = GroundingSelection.FromLeaves(leaves);
                 }
+                else if (payload is not null)
+                {
+                    // "Reset to all" means literally everything, plug-ins included — an EXPLICIT
+                    // selection of every leaf. A null selection is no longer that: it is the
+                    // native-only default, which the window re-checking every leaf would contradict.
+                    selection = GroundingSelection.All(conversationLog.AvailableGroundingTree);
+                }
             }
             catch (JsonException)
             {
@@ -1105,15 +1112,16 @@ public class ChatWindow : Form
         int harnessCount = _component.Group.Count;
 
         // Grounding state for the window's grounding panel: whether a component catalog is wired
-        // (greys the icon when not), the available tab → panels tree, and the current selection
-        // (null = include everything). The selection's flat leaves are regrouped to the tree's shape.
+        // (greys the icon when not), the available tab → panels tree, and the EFFECTIVE selection —
+        // never null-as-all, so the native-only default renders with plug-in tabs unchecked. The
+        // selection's flat leaves are regrouped to the tree's shape.
         bool groundingWired = conversationLog?.HasComponentGrounding == true;
         bool exposeSignatures = conversationLog?.ExposeComponentSignatures == true;
         var groundingTree = (conversationLog?.AvailableGroundingTree ?? Array.Empty<CatalogCategory>())
             .Select(c => new { category = c.Category, subCategories = c.SubCategories })
             .ToList();
         object? groundingSelection = null;
-        if (conversationLog?.GroundingSelectionOrNull is { } sel)
+        if (conversationLog?.EffectiveGroundingSelection is { } sel)
         {
             groundingSelection = sel.Leaves
                 .GroupBy(l => l.Category, StringComparer.OrdinalIgnoreCase)

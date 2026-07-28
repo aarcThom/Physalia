@@ -45,8 +45,27 @@ public class CanvasStateGrounder : PhyBase
     {
     }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CanvasStateGrounder"/> class with subclass
+    /// identity — the scoped grounder shares this component's whole refresh machinery and differs
+    /// only in which frame it exports.
+    /// </summary>
+    /// <param name="name">The component display name.</param>
+    /// <param name="nickname">The component nickname.</param>
+    /// <param name="description">The component description.</param>
+    protected CanvasStateGrounder(string name, string nickname, string description)
+        : base(name, nickname, description, "Grounding")
+    {
+    }
+
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("A4C8E7D2-91B5-4F63-8D0A-6E2F3B7C5A19");
+
+    /// <summary>
+    /// Gets a value indicating whether this grounder exports the group-scoped frame (only the
+    /// master "Physalia" group's contents) instead of the whole canvas.
+    /// </summary>
+    protected virtual bool GroupScope => false;
 
     /// <inheritdoc/>
     /// <remarks>
@@ -82,7 +101,7 @@ public class CanvasStateGrounder : PhyBase
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(OnPingDocument());
+        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(OnPingDocument(), GroupScope);
         _lastChecksum = snapshot?.Checksum ?? string.Empty;
         _lastScanUtc = DateTime.UtcNow;
 
@@ -90,7 +109,10 @@ public class CanvasStateGrounder : PhyBase
             snapshot?.Json ?? string.Empty,
             snapshot?.Checksum ?? string.Empty,
             snapshot?.ComponentCount ?? 0,
-            GhJsonBridge.CountModelPlaced(OnPingDocument()));
+            GhJsonBridge.CountModelPlaced(OnPingDocument()))
+        {
+            GroupScoped = GroupScope,
+        };
 
         DA.SetData(OutGrounding, new GH_Grounding(grounding));
     }
@@ -132,7 +154,7 @@ public class CanvasStateGrounder : PhyBase
     {
         _lastScanUtc = DateTime.UtcNow;
 
-        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(OnPingDocument());
+        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(OnPingDocument(), GroupScope);
         if ((snapshot?.Checksum ?? string.Empty) != _lastChecksum)
         {
             OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(false));

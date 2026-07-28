@@ -19,6 +19,7 @@ public sealed class ComponentCatalog
 {
     private IReadOnlyList<CatalogCategory>? _categoryTree;
     private HashSet<Guid>? _guids;
+    private GroundingSelection? _nativeSelection;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ComponentCatalog"/> class.
@@ -77,6 +78,19 @@ public sealed class ComponentCatalog
                 .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
                 .ToList()))
         .ToList();
+
+    /// <summary>
+    /// Returns the selection covering every leaf that holds at least one native (core-library)
+    /// component — the default grounding selection, so plug-in tabs start unchecked and the model
+    /// is only offered what Grasshopper ships with until the user opts a plug-in in. A panel mixing
+    /// native and plug-in entries is included whole (selection granularity is the leaf). Computed
+    /// lazily and cached, since the catalog is immutable.
+    /// </summary>
+    /// <returns>The native-only default selection.</returns>
+    public GroundingSelection NativeSelection() => _nativeSelection ??= GroundingSelection.FromLeaves(
+        Entries
+            .Where(e => e.IsNative && !string.IsNullOrWhiteSpace(e.Category))
+            .Select(e => (e.Category, e.SubCategory ?? string.Empty)));
 
     /// <summary>
     /// Returns a catalog narrowed to the supplied grounding selection. A <see langword="null"/>

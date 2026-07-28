@@ -95,10 +95,9 @@ public class SchemaValidator : RoutingComponentBase<string>
     {
         var sb = new StringBuilder();
         sb.AppendLine(
-            "Your previous response failed validation and was rejected before any transmitter acted "
-            + "on it — nothing was placed or changed. Resubmit your ENTIRE corrected response in the "
-            + "SAME document kind as before: fix ONLY the violations listed below and keep everything "
-            + "else identical.");
+            "Your response failed schema validation — nothing was placed or changed. Fix ONLY the "
+            + "violations below and resubmit your ENTIRE response in the SAME document kind, keeping "
+            + "everything else identical.");
         sb.AppendLine();
         sb.AppendLine($"Error: {error.Message}");
 
@@ -118,12 +117,10 @@ public class SchemaValidator : RoutingComponentBase<string>
     {
         var sb = new StringBuilder();
         sb.AppendLine(
-            "Your previous response was CUT OFF at the token limit in the middle of the JSON "
-            + "document (an opening brace is never closed), so it was rejected before any "
-            + "transmitter acted on it — nothing was placed or changed. This is a length problem, "
-            + "not a content problem: do not restructure the document. Re-send your ENTIRE "
-            + "response as one complete JSON document, keeping any reasoning brief so the full "
-            + "document fits within the response limit.");
+            "Your response was CUT OFF at the token limit mid-JSON — nothing was placed or changed. "
+            + "This is a length problem, not a content problem: do not restructure the document. "
+            + "Re-send your ENTIRE response as one complete JSON document, keeping any reasoning "
+            + "brief so it fits.");
 
         AppendFreshChecksum(sb);
         return sb.ToString().TrimEnd();
@@ -133,18 +130,11 @@ public class SchemaValidator : RoutingComponentBase<string>
     {
         var sb = new StringBuilder();
         sb.AppendLine(
-            "Your previous response is not parseable JSON and was rejected before any transmitter "
-            + "acted on it — nothing was placed or changed. The document's brackets do not pair up: "
-            + "somewhere a closing brace or bracket is missing (a closer arrives that matches the "
-            + "wrong opener), so the document ends up one level short. The response was NOT cut off "
-            + "— it reached its end — and the CONTENT is not in question: no schema violation is "
-            + "being reported, because the document could not be read far enough to check one.");
-        sb.AppendLine();
-        sb.AppendLine(
-            "Re-send the SAME document with balanced brackets. Walk it once from the top counting "
-            + "depth, and pay particular attention to the deepest nesting — the internalizedData "
-            + "objects and the componentState.extensions blocks are three and four levels deep, and "
-            + "that is where a closer goes missing. Do not restructure anything else.");
+            "Your response is not parseable JSON — a closing brace or bracket is missing somewhere — "
+            + "so nothing was placed or changed. It was NOT cut off, and no schema violation is being "
+            + "reported: the document simply could not be read. Re-send the SAME document with "
+            + "balanced brackets — the deepest nesting (internalizedData, componentState.extensions) "
+            + "is where a closer usually goes missing. Do not restructure anything else.");
 
         AppendFreshChecksum(sb);
         return sb.ToString().TrimEnd();
@@ -155,7 +145,7 @@ public class SchemaValidator : RoutingComponentBase<string>
     private void AppendFreshChecksum(StringBuilder sb)
     {
         if (OnPingDocument() is { } doc
-            && Generation.GhJsonBridge.TryExportCanvasState(doc)?.Checksum is { Length: > 0 } checksum)
+            && Generation.GhJsonBridge.CurrentBaseChecksum(doc) is { Length: > 0 } checksum)
         {
             sb.AppendLine();
             sb.AppendLine("Current base checksum — copy this verbatim into patch.base.checksum: " + checksum);

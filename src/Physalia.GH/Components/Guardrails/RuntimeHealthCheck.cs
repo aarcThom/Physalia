@@ -290,7 +290,7 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
         // The last patch APPLIED, so the model's remembered base checksum is stale; carry the fresh
         // one in the feedback so the corrective patch cannot mismatch. Payload text only — carrier
         // discipline holds. IsReadReady settled the graph, so the export is stable here.
-        string? checksum = doc is null ? null : GhJsonBridge.TryExportCanvasState(doc)?.Checksum;
+        string? checksum = GhJsonBridge.CurrentBaseChecksum(doc);
         return RoutingResult.Fail(BuildFeedback(errors, warnings, dead, nullProducers, signatures, dataFlow, scopedScan, checksum), $"{hard + warnings.Count} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
     }
 
@@ -597,15 +597,15 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
     {
         var sb = new StringBuilder();
         sb.AppendLine(scopedScan
-            ? "The graph from your last response was placed on the canvas, and it reported the problems below. Each problem names its component by nickname and instanceGuid so you can address the exact component. Correct the definition and resubmit."
-            : "The scanned document reported problems. Please correct the definition and resubmit.");
+            ? "Your graph was placed, but it reported the problems below. Correct the definition and resubmit."
+            : "The scanned document reported problems. Correct the definition and resubmit.");
 
         AppendSection(sb, "Errors:", errors);
         AppendSection(sb, "Warnings:", warnings);
-        AppendSection(sb, "Input signatures of the components that reported problems (match your data types to these):", signatures);
+        AppendSection(sb, "Input signatures of the problem components (match your data types to these):", signatures);
         AppendSection(sb, "Components that produced no output (check their inputs and upstream wiring):", dead);
-        AppendSection(sb, "Components that produced NULL values (a null usually means an unwired required input or an invalid construction upstream — trace the data flow below and wire or internalize the missing value):", nullProducers);
-        AppendSection(sb, "Data flow of the problem components (items collected per input -> items produced per output, with sampled values; an input at 0 received nothing from upstream; nulls are counted in parentheses; '(only N distinct)' means the port holds duplicate items — usually two wires collecting into one input):", dataFlow);
+        AppendSection(sb, "Components that produced NULL values (usually an unwired required input or an invalid construction upstream):", nullProducers);
+        AppendSection(sb, "Data flow of the problem components (items per input -> items per output, sampled; 0 = received nothing; nulls counted in parentheses; '(only N distinct)' = duplicate items, usually two wires into one input):", dataFlow);
 
         if (!string.IsNullOrEmpty(baseChecksum))
         {

@@ -103,6 +103,7 @@ public class ConversationLog : StatefulComponentBase
     // UI's grounding pages: whether a canvas-state grounding is wired, the Rhino-referenced geometry
     // params detected on the canvas, and the available python functions.
     private bool _hasCanvasStateGrounding;
+    private bool _groupScopedCanvasGrounding;
     private IReadOnlyList<ReferencedGeometryInput> _liveReferencedGeometry = Array.Empty<ReferencedGeometryInput>();
     private IReadOnlyList<PythonFunctionGrounding> _livePythonFunctions = Array.Empty<PythonFunctionGrounding>();
 
@@ -156,12 +157,21 @@ public class ConversationLog : StatefulComponentBase
     /// when no component-catalog grounding is wired.
     /// </summary>
     public IReadOnlyList<CatalogEntry> IncludedComponentEntries =>
-        _liveCatalog?.Filtered(_selection).Entries ?? Array.Empty<CatalogEntry>();
+        _liveCatalog?.Filtered(EffectiveGroundingSelection).Entries ?? Array.Empty<CatalogEntry>();
 
     /// <summary>
-    /// Gets the current grounding selection, or <see langword="null"/> for the default (include all).
+    /// Gets the current grounding selection, or <see langword="null"/> for the default — only the
+    /// leaves holding native components; plug-in tabs stay listed but unchecked until opted in.
     /// </summary>
     public GroundingSelection? GroundingSelectionOrNull => _selection;
+
+    /// <summary>
+    /// Gets the selection actually applied to the component catalog: the user's explicit selection
+    /// when one is set, otherwise the native-only default computed from the live catalog. Null only
+    /// when no catalog grounding is wired. The chat UI renders THIS (never null-as-all), so plug-in
+    /// tabs show unchecked by default instead of silently checked.
+    /// </summary>
+    public GroundingSelection? EffectiveGroundingSelection => _selection ?? _liveCatalog?.NativeSelection();
 
     /// <summary>
     /// Gets the clusters wired into the Grounding input, merged across every wired cluster grounding.
@@ -686,6 +696,11 @@ public class ConversationLog : StatefulComponentBase
         // the document (the params themselves are the registry), gated on a canvas-state grounding
         // being wired — without it the model cannot see those params anyway.
         _hasCanvasStateGrounding = _liveGroundings.OfType<CanvasStateGrounding>().Any();
+
+        // A group-scoped grounder narrows the model's whole canvas view; if one is wired at all it
+        // wins over a plain Canvas State (the restrictive intent is the deliberate one), and the
+        // fresh re-export at mint time follows the same frame.
+        _groupScopedCanvasGrounding = _liveGroundings.OfType<CanvasStateGrounding>().Any(g => g.GroupScoped);
         _liveReferencedGeometry = _hasCanvasStateGrounding
             ? Generation.CanvasRhinoReferences.Collect(OnPingDocument())
                 .Select(r => new ReferencedGeometryInput(r.Name, r.TypeName))
@@ -742,7 +757,9 @@ public class ConversationLog : StatefulComponentBase
                     // carries signatures (the model's worst failure mode is guessing a common
                     // component's parameter order) while the long tail stays names-only; the user's
                     // expose-signatures toggle widens enrichment to the whole filtered catalog.
-                    ComponentCatalog filteredCatalog = cc.Catalog.Filtered(_selection);
+                    // No explicit selection = the native-only default: plug-in components stay out
+                    // of the prompt until the user checks their tabs in the grounding selector.
+                    ComponentCatalog filteredCatalog = cc.Catalog.Filtered(_selection ?? cc.Catalog.NativeSelection());
                     mapped.Add(new ComponentCatalogGrounding(
                         _exposeSignatures
                             ? ComponentSignatureProvider.EnrichWithSignatures(filteredCatalog)
@@ -789,7 +806,12 @@ public class ConversationLog : StatefulComponentBase
     private Grounding FreshCanvasStateGrounding()
     {
         GH_Document? doc = OnPingDocument();
-        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(doc);
+
+        // Record which frame the model is being shown, so every guardrail that hands it a fresh
+        // base checksum (GhJsonBridge.CurrentBaseChecksum) reports the same frame.
+        GhJsonBridge.RecordActiveFrame(doc, _groupScopedCanvasGrounding);
+
+        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(doc, _groupScopedCanvasGrounding);
         if (snapshot is null)
         {
             return new CanvasStateGrounding(string.Empty, string.Empty, 0);
@@ -799,15 +821,15 @@ public class ConversationLog : StatefulComponentBase
         // so the model reads this canvas state's numbering as authoritative instead of patching
         // against ids only it remembers.
         string? numberingNote = GhJsonBridge.ConsumePlacementNumberingLoss(doc)
-            ? "IMPORTANT: your last placement could NOT keep the component ids you authored — the placed "
-              + "components have been renumbered. The ids shown in THIS canvas state are the authoritative "
-              + "numbering; use only these ids (never the ids from your own earlier submission) for "
-              + "connection endpoints and group members."
+            ? "IMPORTANT: your last placement could NOT keep the component ids you authored — they were "
+              + "renumbered. The ids in THIS canvas state are authoritative; never use ids from your "
+              + "own earlier submission."
             : null;
 
         return new CanvasStateGrounding(snapshot.Json, snapshot.Checksum, snapshot.ComponentCount, GhJsonBridge.CountModelPlaced(doc))
         {
             NumberingNote = numberingNote,
+            GroupScoped = _groupScopedCanvasGrounding,
         };
     }
 

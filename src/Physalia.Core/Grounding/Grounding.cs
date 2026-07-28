@@ -56,9 +56,7 @@ public sealed record ComponentCatalogGrounding(ComponentCatalog Catalog, bool In
 
         if (!IncludeSignatures)
         {
-            return "These Grasshopper components are installed and available — native and plug-in alike. "
-                + "This list is the authoritative catalogue of what may be placed: use these exact names, "
-                + "and only components from this list:\n"
+            return "These are the ONLY Grasshopper components you may place — use these exact names:\n"
                 + string.Join(", ", Catalog.ComponentNames);
         }
 
@@ -81,18 +79,14 @@ public sealed record ComponentCatalogGrounding(ComponentCatalog Catalog, bool In
         }
 
         var section = new System.Text.StringBuilder();
-        section.Append("These Grasshopper components are installed and available — native and plug-in alike. ");
-        section.Append("This list is the authoritative catalogue of what may be placed: use these exact names, ");
-        section.Append("and only components from this list.");
+        section.Append("These are the ONLY Grasshopper components you may place — use these exact names.");
 
         if (signatureLines.Count > 0)
         {
-            section.Append(" Each signature entry shows its input and output parameters as Name:Type, ");
-            section.Append("listed in paramIndex order — the first parameter is paramIndex 0; ");
+            section.Append(" Signatures list parameters as Name:Type in paramIndex order (first = 0); ");
             section.Append("use these exact Names in inputSettings.parameterName. ");
-            section.Append("An input marked * is REQUIRED: it has no built-in default, so wire it or ");
-            section.Append("internalize a value — left empty it produces nulls or nothing downstream. ");
-            section.Append("Supply data matching these types:\n");
+            section.Append("An input marked * is REQUIRED — wire it or internalize a value, ");
+            section.Append("or it produces nothing downstream:\n");
             section.Append(string.Join("\n", signatureLines));
         }
 
@@ -252,6 +246,14 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
     /// </summary>
     public string? NumberingNote { get; init; }
 
+    /// <summary>
+    /// Gets a value indicating whether this state covers only the contents of the master
+    /// "Physalia" group — the shared model/user workspace — instead of the whole canvas. The
+    /// rendered section explains the visibility contract so the model neither reasons about the
+    /// hidden canvas nor wonders where its placed components went.
+    /// </summary>
+    public bool GroupScoped { get; init; }
+
     /// <inheritdoc/>
     public override string ToSystemPromptSection()
     {
@@ -267,35 +269,43 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
         string checksumLine = string.IsNullOrWhiteSpace(Checksum)
             ? string.Empty
             : "\nBase checksum — copy this verbatim into patch.base.checksum: " + Checksum.Trim()
-              + "\nThe checksum fingerprints structure only (components, wires, groups, data-tree "
-              + "modifiers) — internalized-data and slider-value changes do NOT alter it, so never "
-              + "conclude from an unchanged checksum that such a modify failed; trust the patch "
-              + "outcome report instead.";
+              + "\nIt fingerprints structure only — slider-value and internalized-data edits do not "
+              + "change it, so an unchanged checksum never means such a modify failed; trust the "
+              + "patch outcome report.";
 
         // Stated outright so the model never infers placement status from the canvas contents —
         // a rejected submission leaves the canvas unchanged, and inferring "did my graph land?"
         // from first principles is exactly what makes corrective turns wobble between modes.
         string provenanceLine = ModelPlacedCount > 0
             ? "Provenance: " + ModelPlacedCount + " of these components were placed from your previous "
-              + "responses — your graph is live on the canvas; edit it via ghpatch, matched by instanceGuid."
-            : "Provenance: NONE of these components came from you — the canvas holds only the user's own "
-              + "work so far. To build something new, emit a full GhJSON document (it places alongside "
-              + "the user's components without touching them); emit a ghpatch only if the user asks you "
-              + "to change these existing components.";
+              + "responses — your graph is live; edit it via ghpatch, matched by instanceGuid."
+            : "Provenance: NONE of these components came from you — the "
+              + (GroupScoped ? "group" : "canvas") + " holds only the user's own work so far. "
+              + "To build something new, emit a full GhJSON document (it places alongside the user's "
+              + "components); use a ghpatch only to change these existing components.";
 
         string numberingLine = string.IsNullOrWhiteSpace(NumberingNote)
             ? string.Empty
             : NumberingNote!.Trim() + "\n";
 
-        return "This is the CURRENT state of the Grasshopper canvas, serialized as GhJSON. It is the "
-            + "definition the user is building. To EDIT existing components, emit a ghpatch document: "
-            + "match them by their instanceGuid, reference connection endpoints by the "
-            + "integer id shown here (ids are stable for the whole session: a component keeps its id "
-            + "across turns, components you add keep the ids you gave them, and a removed component's "
-            + "id is never reused), and change ONLY what the request requires. Never re-emit "
-            + "components that already exist and are not being changed. Components marked with the "
-            + "physalia.rhinoRef extension reference live geometry in the Rhino model — wire FROM them "
-            + "as data sources; never modify their values, remove them, or recreate them.\n"
+        // The scoped intro states the visibility contract outright: what the model places lands in
+        // the group mechanically (no group op needed for that), the hidden canvas is not its
+        // business, and the user widens its view by moving components INTO the group.
+        string intro = GroupScoped
+            ? "This is the CURRENT contents of the 'Physalia' group, serialized as GhJSON — the shared "
+              + "workspace between you and the user, and your whole view of the canvas. Everything you "
+              + "place is added to this group automatically. The rest of the canvas is hidden: never "
+              + "reference or reason about components not shown here. The user can move their own "
+              + "components into the group to bring them into your view. "
+            : "This is the CURRENT state of the Grasshopper canvas, serialized as GhJSON. It is the "
+              + "definition the user is building. ";
+
+        return intro
+            + "To EDIT existing components, emit a ghpatch: match them by instanceGuid, reference "
+            + "connection endpoints by the integer id shown here (ids are session-stable and never "
+            + "reused), change ONLY what the request requires, and never re-emit unchanged "
+            + "components. Components marked physalia.rhinoRef reference live Rhino geometry — wire "
+            + "FROM them as data sources; never modify, remove, or recreate them.\n"
             + provenanceLine + "\n"
             + numberingLine
             + GhJsonText.Trim()

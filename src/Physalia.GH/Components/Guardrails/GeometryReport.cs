@@ -179,7 +179,7 @@ public class GeometryReport : RoutingComponentBase<string>
         // The report is the turn where the model may emit a corrective patch, and the placement
         // that triggered this report changed the canvas — carry the fresh checksum so that patch
         // cannot mismatch. IsReadReady settled the graph, so the export is stable here.
-        string? checksum = GhJsonBridge.TryExportCanvasState(doc)?.Checksum;
+        string? checksum = GhJsonBridge.CurrentBaseChecksum(doc);
         string report = BuildReport(message ?? string.Empty, items, UnitsLabel(), checksum, _pendingAppliedOps);
         _pendingAppliedOps.Clear();
 
@@ -614,14 +614,11 @@ public class GeometryReport : RoutingComponentBase<string>
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(
-            "GEOMETRY REPORT — measured facts about the geometry your graph currently produces on "
-            + "the canvas. The graph solved cleanly; nothing below is an error. Compare these facts "
-            + "against your design intent: positions, sizes, proportions, and whether parts connect, "
-            + "float apart, or sit inside one another. Each entry names its component by nickname, "
-            + "canvas id, and instanceGuid — the same identities the canvas state uses, so in a patch "
-            + "you can match the component by instanceGuid and reference its connection endpoints by "
-            + $"the id, without cross-referencing the canvas state. Units: {units}; "
-            + "coordinates are world XYZ; bbox is the axis-aligned bounding box.");
+            "GEOMETRY REPORT — measured facts about the geometry your graph currently produces. The "
+            + "graph solved cleanly; nothing below is an error. Compare these facts against your "
+            + "design intent: positions, sizes, proportions, and whether parts connect, float apart, "
+            + "or sit inside one another. Entries use the same nickname/id/instanceGuid identities "
+            + $"as the canvas state. Units: {units}; coordinates are world XYZ; bbox is axis-aligned.");
 
         // A progress digest is an instruction as well as a note, and it contradicts the single-shot
         // wording below — so it replaces it outright rather than sitting alongside it. It leads the

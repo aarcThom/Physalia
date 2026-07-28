@@ -164,16 +164,27 @@ skips a document-shaped opener **whole** instead of walking into it, and the Sch
 the brackets do not balance and where to look. Verified against the session's actual 4,989-char
 payload.
 
+### Two modelling traps, now in the schema
+
+Both schema files (`Node Graph.json` and `Incremental Node Graph.json`) gained notes for the two
+traps that each cost a round:
+
+- **Cap Holes failed identically in both balcony stages** — 42 single-face open breps in, 42 nulls
+  out, `Capping algorithm failed to return a result`. Cap Holes closes only openings bounded by a
+  closed planar loop of naked edges; extruding an *open* curve gives one surface with no such
+  loop. The note names the recipe (close the profile, extrude, then cap) and ties the diagnosis to
+  the geometry report's own vocabulary — a solid reads `closed brep`, a failure reads `open brep,
+  1 face(s)` — so the model can recognise it in the feedback it already gets. The Extrude note now
+  points at the same distinction from the other side.
+- **`rounding` authored directly under `extensions`** instead of inside `gh.numberslider`. The
+  slider rule now shows the literal shape. Two tests pin it: the schema accepts the form the rule
+  teaches, and rejects the form the model wrote — so the advice cannot drift from the schema.
+
 ### Not fixed, worth knowing
 
 - **Fidelity Check erroring on every placement** (20×): `The Definition input did not parse as
   GhJSON (… character '#')` — its Definition input is wired to the wrong output on that canvas. It
   is inert in a staged build regardless (full graphs only), which is why the preset omits it.
-- **Cap Holes failed identically in both balcony stages** — 42 single-face open breps in, 42 nulls
-  out. Cap Holes needs planar openings on a joined brep; a lone extrusion surface has no hole to
-  cap. Worth a `componentNotes` entry.
-- **`rounding` authored directly under `extensions`** instead of inside `gh.numberslider`: one
-  round lost.
 - **Context growth**: system prompt 85k → 127k chars over 41 turns, on top of ~20 documents and
   ~20 reports in the history. In a staged build the model's own prior documents are redundant with
   the canvas state grounding in a way they are not in ordinary chat — the canvas already says what

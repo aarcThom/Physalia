@@ -85,6 +85,36 @@ public class PromptSchemaAssetTests
             "{\"schema\":\"1.0\",\"components\":[],\"prose\":\"hi\"}", schema).IsErr(out _, out _));
     }
 
+    // The slider rule now spells out where 'rounding' goes, because a model put it one level up
+    // and lost a round to "property 'rounding' is not allowed at .../componentState/extensions".
+    // These two pin the shape the rule teaches: inside gh.numberslider, never beside it.
+    [Theory]
+    [InlineData("Node Graph.json")]
+    [InlineData("Incremental Node Graph.json")]
+    public void NodeGraphSchema_AcceptsRoundingInsideTheSliderExtension(string fileName)
+    {
+        const string document = "{\"schema\":\"1.0\",\"components\":[{\"name\":\"Number Slider\",\"id\":1,"
+            + "\"pivot\":\"0,0\",\"componentState\":{\"extensions\":{\"gh.numberslider\":"
+            + "{\"value\":\"5<0~10>\",\"rounding\":\"Integer\"}}}}]}";
+
+        var result = SchemaValidator.Validate(document, LoadSchema(fileName));
+        Assert.True(
+            result.IsOk(out _, out ValidationError? error),
+            $"the slider rule tells the model to write it this way: {error?.Message}");
+    }
+
+    [Theory]
+    [InlineData("Node Graph.json")]
+    [InlineData("Incremental Node Graph.json")]
+    public void NodeGraphSchema_RejectsRoundingBesideTheSliderExtension(string fileName)
+    {
+        const string document = "{\"schema\":\"1.0\",\"components\":[{\"name\":\"Number Slider\",\"id\":1,"
+            + "\"pivot\":\"0,0\",\"componentState\":{\"extensions\":{\"rounding\":\"Integer\","
+            + "\"gh.numberslider\":{\"value\":\"5<0~10>\"}}}}]}";
+
+        Assert.True(SchemaValidator.Validate(document, LoadSchema(fileName)).IsErr(out _, out _));
+    }
+
     [Fact]
     public void NodeGraphSchema_RejectsMatchByNameOnly()
     {

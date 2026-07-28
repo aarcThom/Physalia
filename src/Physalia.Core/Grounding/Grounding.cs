@@ -29,6 +29,14 @@ public abstract record Grounding
     /// drops empty sections).
     /// </returns>
     public abstract string ToSystemPromptSection();
+
+    /// <summary>
+    /// Gets a value indicating whether this grounding's section is rewritten from turn to turn.
+    /// Volatile sections are sorted behind the stable ones so they cannot invalidate a provider's
+    /// cached prefix; a grounding that renders the same text all session leaves this false and
+    /// rides inside the cache. Override it in any grounding that reads live document state.
+    /// </summary>
+    public virtual bool IsVolatile => false;
 }
 
 /// <summary>
@@ -253,6 +261,14 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
     /// hidden canvas nor wonders where its placed components went.
     /// </summary>
     public bool GroupScoped { get; init; }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The canvas is re-exported at every mint, so this section differs on essentially every turn.
+    /// It is the one grounding that must sit behind the cache breakpoint — with it inside the
+    /// cached prefix, nothing in the system prompt would ever cache.
+    /// </remarks>
+    public override bool IsVolatile => true;
 
     /// <inheritdoc/>
     public override string ToSystemPromptSection()

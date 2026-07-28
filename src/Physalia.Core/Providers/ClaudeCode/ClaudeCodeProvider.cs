@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System.Collections.Concurrent;
@@ -51,7 +51,7 @@ public sealed class ClaudeCodeProvider : ILlmProvider
     /// </remarks>
     public async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
         Conversation conversation,
-        string systemPrompt,
+        SystemPrompt systemPrompt,
         ModelConfig config,
         IReadOnlyList<LlmToolDefinition>? tools,
         [EnumeratorCancellation] CancellationToken ct)
@@ -71,7 +71,7 @@ public sealed class ClaudeCodeProvider : ILlmProvider
         // process that seeds the full history, then dispose it — same behaviour as a cold call.
         if (claudeConfig.SessionKey is not Guid sessionKey)
         {
-            var ephemeral = new ClaudeCodeSession(claudeConfig.ModelId, systemPrompt);
+            var ephemeral = new ClaudeCodeSession(claudeConfig.ModelId, systemPrompt.Text);
             try
             {
                 await foreach (var chunk in StreamTurnAsync(ephemeral, BuildSeedContent(conversation), consumedAfter, ct))
@@ -87,7 +87,7 @@ public sealed class ClaudeCodeProvider : ILlmProvider
             yield break;
         }
 
-        ClaudeCodeSession session = ResolveSession(sessionKey, claudeConfig.ModelId, systemPrompt);
+        ClaudeCodeSession session = ResolveSession(sessionKey, claudeConfig.ModelId, systemPrompt.Text);
 
         // Decide seed vs. delta. A conversation is append-only, so anything that is not a clean
         // one-user-message extension of what the session already absorbed forces a fresh seed.
@@ -107,7 +107,7 @@ public sealed class ClaudeCodeProvider : ILlmProvider
             // including one ResolveSession just recreated after a dead process) is seeded as-is.
             if (session.ConsumedMessageCount > 0)
             {
-                session = ReplaceSession(sessionKey, claudeConfig.ModelId, systemPrompt);
+                session = ReplaceSession(sessionKey, claudeConfig.ModelId, systemPrompt.Text);
             }
 
             content = BuildSeedContent(conversation);

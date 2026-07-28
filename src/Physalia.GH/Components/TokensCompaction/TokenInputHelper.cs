@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using Grasshopper.Kernel.Types;
@@ -62,6 +62,6 @@ internal static class TokenInputHelper
     /// <returns>A string that changes whenever the content changes.</returns>
     internal static string BuildDataKey(Instructions instructions)
     {
-        return instructions.SystemPrompt + "||" + ConversationHelpers.ToDisplayString(instructions.Conversation);
+        return instructions.SystemPrompt.Text + "||" + ConversationHelpers.ToDisplayString(instructions.Conversation);
     }
 }

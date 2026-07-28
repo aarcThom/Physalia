@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -122,7 +122,7 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase<GeminiProtoc
     /// <inheritdoc/>
     protected override async Task<Result<HttpResponseMessage, LlmError>> SendHttpRequestAsync(
         Conversation conversation,
-        string systemPrompt,
+        SystemPrompt systemPrompt,
         GeminiProtocolConfig config,
         IReadOnlyList<LlmToolDefinition>? tools,
         CancellationToken ct)
@@ -141,7 +141,7 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase<GeminiProtoc
 
     private JsonObject BuildRequestBody(
         Conversation conversation,
-        string systemPrompt,
+        SystemPrompt systemPrompt,
         GeminiProtocolConfig config,
         IReadOnlyList<LlmToolDefinition>? tools)
     {
@@ -151,13 +151,13 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase<GeminiProtoc
             ["generationConfig"] = BuildGenerationConfig(config),
         };
 
-        if (!string.IsNullOrEmpty(systemPrompt))
+        if (!systemPrompt.IsEmpty)
         {
             body["systemInstruction"] = new JsonObject
             {
                 ["parts"] = new JsonArray
                 {
-                    new JsonObject { ["text"] = systemPrompt },
+                    new JsonObject { ["text"] = systemPrompt.Text },
                 },
             };
         }

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -33,6 +33,12 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
     private string _response = string.Empty;
     private string? _apiError;
     private string? _stopReason;
+
+    // Token usage from the last completed call. Reported as a canvas remark because the
+    // cache-read figure is the ONLY way to confirm the system prompt's cacheable prefix is
+    // actually being reused: `input_tokens` counts the uncached remainder only, so a working
+    // cache would otherwise show up as nothing more than a mysterious drop in prompt size.
+    private LlmUsage? _usage;
     private IReadOnlyList<LlmToolCall>? _toolCalls;
     private CancellationTokenSource? _cts;
 
@@ -160,6 +166,7 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
         _apiError = null;
         _response = string.Empty;
         _stopReason = null;
+        _usage = null;
         _toolCalls = null;
 
         var modelGoo = new GH_ModelConfig();
@@ -236,9 +243,43 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
                 : RoutingResult.Aux(signal, warning, GH_RuntimeMessageLevel.Warning);
         }
 
-        return warning is null
-            ? RoutingResult.Ok(_response)
-            : RoutingResult.Ok(_response, message: warning, level: GH_RuntimeMessageLevel.Warning);
+        if (warning is not null)
+        {
+            return RoutingResult.Ok(_response, message: warning, level: GH_RuntimeMessageLevel.Warning);
+        }
+
+        return DescribeUsage() is { } usageNote
+            ? RoutingResult.Ok(_response, message: usageNote, level: GH_RuntimeMessageLevel.Remark)
+            : RoutingResult.Ok(_response);
+    }
+
+    /// <summary>
+    /// Renders the last call's token usage as a one-line remark, naming the cached share when the
+    /// provider reported one.
+    /// </summary>
+    /// <returns>The remark, or null when the provider reported no usage.</returns>
+    private string? DescribeUsage()
+    {
+        if (_usage is not { } usage)
+        {
+            return null;
+        }
+
+        // Cached tokens are NOT included in InputTokens, so the prompt total has to add them back —
+        // reporting InputTokens alone makes a cache hit look like the prompt shrank.
+        int prompt = usage.InputTokens + usage.CacheWriteTokens + usage.CacheReadTokens;
+        string note = $"{prompt:N0} prompt / {usage.OutputTokens:N0} output tokens";
+
+        if (usage.CacheReadTokens > 0)
+        {
+            note += $" — {usage.CacheReadTokens:N0} read from cache ({usage.CacheReadTokens * 100 / Math.Max(prompt, 1)}% of the prompt)";
+        }
+        else if (usage.CacheWriteTokens > 0)
+        {
+            note += $" — {usage.CacheWriteTokens:N0} written to cache (the next turn should read them back)";
+        }
+
+        return note;
     }
 
     private void StartInference(Instructions instructions, ModelConfig config, IReadOnlyList<LlmToolDefinition> tools)
@@ -305,6 +346,12 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
                         if (value.StopReason != null)
                         {
                             _stopReason = value.StopReason;
+                        }
+
+                        // Usage rides the final chunk; keep the last non-null set.
+                        if (value.Usage != null)
+                        {
+                            _usage = value.Usage;
                         }
                     }
                     else

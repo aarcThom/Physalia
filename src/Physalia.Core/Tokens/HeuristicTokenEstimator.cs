@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using Physalia.Core.ConvoInstruct;
@@ -22,10 +22,10 @@ public sealed class HeuristicTokenEstimator : ISyncTokenEstimator
 
         // System prompt is transmitted as a {"role": "system", ...} message —
         // apply the same per-message framing overhead as conversation turns.
-        if (!string.IsNullOrEmpty(instructions.SystemPrompt))
+        if (!instructions.SystemPrompt.IsEmpty)
         {
             count += TokenEstimationHelpers.OverheadPerMessage;
-            count += instructions.SystemPrompt.Length / CharsPerToken;
+            count += instructions.SystemPrompt.Text.Length / CharsPerToken;
         }
 
         foreach (var message in instructions.Conversation.Messages)

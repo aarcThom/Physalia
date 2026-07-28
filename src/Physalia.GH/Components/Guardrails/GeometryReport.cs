@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #nullable enable
@@ -66,6 +66,12 @@ public class GeometryReport : RoutingComponentBase<string>
     // Every component GUID ever received on a consumed signal, minus those since removed from
     // the document (pruned at scan time). Session-only; never serialized.
     private readonly HashSet<Guid> _watchedGuids = new();
+
+    // Last report's per-output measurement lines, keyed by instanceGuid#port. The whole
+    // point of the delta: a line identical to the one already sent is named as unchanged
+    // instead of re-rendered. Session-only, like every other lifecycle state here — a
+    // reopened document reports everything in full once, then deltas from there.
+    private Dictionary<string, string> _previousLines = new(StringComparer.Ordinal);
 
     // Applied-op confirmations from THIS turn's consumed signals (the Component Transmitter
     // appends them to its Success payload after the GUIDs). Folded into the next report and
@@ -180,8 +186,11 @@ public class GeometryReport : RoutingComponentBase<string>
         // that triggered this report changed the canvas — carry the fresh checksum so that patch
         // cannot mismatch. IsReadReady settled the graph, so the export is stable here.
         string? checksum = GhJsonBridge.CurrentBaseChecksum(doc);
-        string report = BuildReport(message ?? string.Empty, items, UnitsLabel(), checksum, _pendingAppliedOps);
+        var currentLines = new Dictionary<string, string>(StringComparer.Ordinal);
+        string report = BuildReport(
+            message ?? string.Empty, items, UnitsLabel(), checksum, _pendingAppliedOps, _previousLines, currentLines);
         _pendingAppliedOps.Clear();
+        _previousLines = currentLines;
 
         return RoutingResult.Ok(report, message: $"Measured {items.Count} geometry-producing component(s).", level: GH_RuntimeMessageLevel.Remark);
     }
@@ -192,6 +201,7 @@ public class GeometryReport : RoutingComponentBase<string>
         base.OnCleared();
         _watchedGuids.Clear();
         _pendingAppliedOps.Clear();
+        _previousLines.Clear();
     }
 
     // ---- Scope (mirrors Runtime Health Check; per-component code by convention) ----------------
@@ -610,7 +620,14 @@ public class GeometryReport : RoutingComponentBase<string>
 
     // ---- Formatting ----------------------------------------------------------------------------
 
-    private static string BuildReport(string message, IReadOnlyList<ComponentGeometry> items, string units, string? baseChecksum, IReadOnlyList<string> appliedOps)
+    private static string BuildReport(
+        string message,
+        IReadOnlyList<ComponentGeometry> items,
+        string units,
+        string? baseChecksum,
+        IReadOnlyList<string> appliedOps,
+        IReadOnlyDictionary<string, string> previousLines,
+        Dictionary<string, string> currentLines)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(
@@ -646,7 +663,7 @@ public class GeometryReport : RoutingComponentBase<string>
                 "Patch confirmation — your previous patch applied cleanly. These operations DID land "
                 + "(do not re-send them; if the geometry below still looks wrong, the fix itself was "
                 + "insufficient, not dropped):");
-            foreach (string op in appliedOps)
+            foreach (string op in CollapseAppliedOps(appliedOps))
             {
                 sb.AppendLine("  - " + op);
             }
@@ -679,7 +696,7 @@ public class GeometryReport : RoutingComponentBase<string>
         }
         else
         {
-            AppendGeometrySection(sb, items);
+            AppendGeometrySection(sb, items, previousLines, currentLines);
             AppendSpatialSection(sb, items);
         }
 
@@ -699,33 +716,144 @@ public class GeometryReport : RoutingComponentBase<string>
         return body;
     }
 
-    private static void AppendGeometrySection(System.Text.StringBuilder sb, IReadOnlyList<ComponentGeometry> items)
+    /// <summary>
+    /// Groups applied operations that say the same thing about different components onto one line.
+    ///
+    /// <para>A bulk edit reports per component, so hiding twenty components produced twenty lines
+    /// of "modified 'X' (guid): hidden (in place)" — identical but for the name, and all of it
+    /// competing with the measurements for the report's character budget. The verb and effect are
+    /// stated once and the components listed after it.</para>
+    /// </summary>
+    /// <param name="appliedOps">The per-operation lines from the transmitter.</param>
+    /// <returns>The collapsed lines, in first-seen order of effect.</returns>
+    private static IEnumerable<string> CollapseAppliedOps(IReadOnlyList<string> appliedOps)
+    {
+        // "modified 'Ridge Start' (guid): hidden (in place)" splits into the subject (up to the
+        // closing paren of the guid) and the effect (after the colon). Ops that do not match the
+        // shape pass through untouched rather than being mangled into a group.
+        var groups = new List<(string Effect, List<string> Subjects)>();
+        var index = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (string op in appliedOps)
+        {
+            int split = op.IndexOf("): ", StringComparison.Ordinal);
+            int quote = op.IndexOf('\'');
+            if (split < 0 || quote < 0 || quote > split)
+            {
+                groups.Add((op, new List<string>()));
+                continue;
+            }
+
+            string effect = op[(split + 3)..].Trim();
+            string verb = op[..quote].Trim();
+            string subject = op[quote..(split + 1)].Trim();
+            string key = verb + "|" + effect;
+
+            if (!index.TryGetValue(key, out int at))
+            {
+                index[key] = groups.Count;
+                groups.Add(($"{verb} — {effect}", new List<string> { subject }));
+            }
+            else
+            {
+                groups[at].Subjects.Add(subject);
+            }
+        }
+
+        foreach ((string effect, List<string> subjects) in groups)
+        {
+            yield return subjects.Count switch
+            {
+                0 => effect,
+                1 => $"{effect}: {subjects[0]}",
+                _ => $"{effect} ({subjects.Count}): {string.Join(", ", subjects)}",
+            };
+        }
+    }
+
+    /// <summary>
+    /// Writes the per-component measurements, rendering in full only what changed since the last
+    /// report and collapsing everything identical into one line.
+    ///
+    /// <para>Every round used to re-list every component's bounding box verbatim. Past the first
+    /// couple of stages almost all of it is byte-identical to the previous round, and it is not
+    /// merely wasted tokens: the section is capped at <see cref="MaxReportChars"/>, so the
+    /// unchanged bulk was pushing the spatial-relations section — the containments and gaps that
+    /// actually reveal a misplacement — past the cap and off the end of the report. Measured live:
+    /// 231,000 characters of replayed report across one session, with the relations section
+    /// truncated away on the rounds that most needed it.</para>
+    ///
+    /// <para>Unchanged entries are named, not silently dropped: a model that cannot see a component
+    /// listed will assume it stopped producing and set about "fixing" it.</para>
+    /// </summary>
+    /// <param name="sb">The report under construction.</param>
+    /// <param name="items">The harvested geometry.</param>
+    /// <param name="previous">Last round's lines by identity; empty on the first report.</param>
+    /// <param name="current">Receives this round's lines by identity, for the next comparison.</param>
+    private static void AppendGeometrySection(
+        System.Text.StringBuilder sb,
+        IReadOnlyList<ComponentGeometry> items,
+        IReadOnlyDictionary<string, string> previous,
+        Dictionary<string, string> current)
     {
         sb.AppendLine();
-        sb.AppendLine("Geometry by component:");
 
-        var lines = new List<string>();
+        var changed = new List<string>();
+        var unchanged = new List<string>();
+
         foreach (ComponentGeometry item in items)
         {
             foreach (OutputGeometry output in item.Outputs)
             {
-                lines.Add("  - " + FormatComponentLine(output, item.Owner, namePort: item.Outputs.Count > 1));
+                string line = FormatComponentLine(output, item.Owner, namePort: item.Outputs.Count > 1);
+                string key = item.Owner.InstanceGuid.ToString() + "#" + output.PortName;
+                current[key] = line;
+
+                if (previous.TryGetValue(key, out string? was) && string.Equals(was, line, StringComparison.Ordinal))
+                {
+                    unchanged.Add(Label(item.Owner));
+                }
+                else
+                {
+                    changed.Add("  - " + line);
+                }
             }
 
-            if (item.InputModifiers is not null)
+            // Tree modifiers belong to whichever state the component's own line is in — reporting
+            // them against a component collapsed as unchanged would be noise without its measurements.
+            if (item.InputModifiers is not null && changed.Count > 0)
             {
-                lines.Add($"      input tree modifiers: {item.InputModifiers}");
+                changed.Add($"      input tree modifiers: {item.InputModifiers}");
             }
         }
 
-        foreach (string line in lines.Take(MaxGeometryLines))
+        bool delta = previous.Count > 0;
+        sb.AppendLine(delta && unchanged.Count > 0
+            ? "Geometry by component — CHANGED since the last report:"
+            : "Geometry by component:");
+
+        if (changed.Count == 0)
+        {
+            sb.AppendLine("  (nothing changed — every measurement below is exactly as last reported)");
+        }
+
+        foreach (string line in changed.Take(MaxGeometryLines))
         {
             sb.AppendLine(line);
         }
 
-        if (lines.Count > MaxGeometryLines)
+        if (changed.Count > MaxGeometryLines)
         {
-            sb.AppendLine($"  … (+{lines.Count - MaxGeometryLines} more geometry outputs)");
+            sb.AppendLine($"  … (+{changed.Count - MaxGeometryLines} more geometry outputs)");
+        }
+
+        if (delta && unchanged.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine(
+                $"Unchanged since the last report ({unchanged.Count}) — still present, still producing "
+                + "exactly the measurements you were last given, not re-listed: "
+                + string.Join(", ", unchanged.Distinct(StringComparer.Ordinal)));
         }
 
         BoundingBox world = BoundingBox.Empty;

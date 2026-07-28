@@ -123,6 +123,13 @@ public class BuildPlanTracker : RoutingComponentBase<string>
                 _stage = parsed.Stages[0].Number;
             }
         }
+        else if (_plan is not null && BuildPlanParser.ParseCurrentStage(data) is > 0 and int pointer)
+        {
+            // The steady state once a plan is held: the digest asks for the pointer alone, so most
+            // rounds carry "now: N" and no block. Without this the stage would freeze at whatever
+            // the last full restatement said and the digest would ask for the same stage forever.
+            _stage = pointer;
+        }
 
         if (_plan is null)
         {

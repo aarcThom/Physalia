@@ -611,6 +611,16 @@ internal static partial class GhJsonBridge
         IReadOnlyList<ComponentPort> ports = output ? sig.Outputs : sig.Inputs;
         string side = output ? "output" : "input";
 
+        // A floating parameter (Param_Geometry, Param_Number, …) introspects with no ports of its
+        // own even though it accepts a wire on either side — it IS the port. With an empty list
+        // every endpoint on it reads as out of bounds, and the message renders "its inputs are: "
+        // with nothing after the colon, which is unactionable as well as wrong. Nothing can be
+        // checked against an empty signature, so there is nothing to say.
+        if (ports.Count == 0)
+        {
+            return;
+        }
+
         bool badIndex = endpoint.ParamIndex is int idx && (idx < 0 || idx >= ports.Count);
         bool badName = endpoint.ParamIndex is null
             && !string.IsNullOrWhiteSpace(endpoint.ParamName)
@@ -765,8 +775,19 @@ internal static partial class GhJsonBridge
         "Surface", "Brep", "Mesh", "Box", "Geometry", "Extrusion", "SubD", "Group",
     };
 
+    // Grasshopper reports an untyped output as "Generic Data", not "Generic" — the exemption used
+    // to test only the latter, so every Merge / Entwine / generic-param terminal was permanently
+    // flagged as an orphan. A generic output can be carrying breps for all this lint knows, so it
+    // cannot be called data-only; observed live, it cost three consecutive rounds as the model
+    // wired a terminal, was told to wire it somewhere, and tripped the same lint on whatever it
+    // added next.
+    private static readonly HashSet<string> GenericTypeHints = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Generic", "Generic Data", "Data", "Object",
+    };
+
     private static bool IsDataOnlyHint(string typeHint) =>
         !string.IsNullOrWhiteSpace(typeHint)
-        && !string.Equals(typeHint, "Generic", StringComparison.OrdinalIgnoreCase)
+        && !GenericTypeHints.Contains(typeHint)
         && !GeometryTypeHints.Contains(typeHint);
 }

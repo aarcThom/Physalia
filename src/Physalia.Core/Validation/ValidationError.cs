@@ -8,7 +8,36 @@ namespace Physalia.Core.Validation;
 /// </summary>
 /// <param name="Path">JSON Pointer path to the violating node (e.g. <c>/components/0/id</c>).</param>
 /// <param name="Message">Human-readable description of the violation.</param>
-public record SchemaViolation(string Path, string Message);
+/// <summary>
+/// What kind of defect a violation describes. Only the distinctions the pipeline acts on are
+/// modelled — everything else is <see cref="Other"/>.
+/// </summary>
+public enum SchemaViolationKind
+{
+    /// <summary>
+    /// A violation that has to go back to the model.
+    /// </summary>
+    Other,
+
+    /// <summary>
+    /// A property the schema does not allow at that location — an <c>additionalProperties: false</c>
+    /// hit. Purely additive: the document is otherwise conformant, and deleting the property makes
+    /// it valid without changing anything the model meant to express.
+    /// </summary>
+    DisallowedProperty,
+}
+
+/// <param name="Path">JSON Pointer to the offending location in the instance.</param>
+/// <param name="Message">Human-readable description of the defect.</param>
+public record SchemaViolation(string Path, string Message)
+{
+    /// <summary>
+    /// Gets what kind of defect this is, for callers that can resolve some kinds without a round
+    /// trip. Defaults to <see cref="SchemaViolationKind.Other"/> — the safe reading, which sends
+    /// the violation back to the model.
+    /// </summary>
+    public SchemaViolationKind Kind { get; init; } = SchemaViolationKind.Other;
+}
 
 /// <summary>
 /// Describes a failed schema validation, including all individual violations.

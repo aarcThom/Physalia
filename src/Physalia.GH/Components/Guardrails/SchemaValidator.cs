@@ -85,10 +85,57 @@ public class SchemaValidator : RoutingComponentBase<string>
                 "The JSON document's brackets do not balance — validation feedback replaced with a malformed-JSON notice.",
                 GH_RuntimeMessageLevel.Warning),
 
+            // A document whose ONLY fault is properties the schema does not allow is repairable
+            // here: deleting them yields the document the model meant to send. Bouncing it back
+            // instead costs a full resubmission — measured live at ~12,000 characters re-sent
+            // verbatim to delete one invented key — and teaches the model nothing it can act on.
+            Result<string, ValidationError>.Err err when TryRepair(err.Error, extracted, schema, out string repaired, out string note)
+                => RoutingResult.Ok(repaired, message: note, level: GH_RuntimeMessageLevel.Remark),
+
             Result<string, ValidationError>.Err err => RoutingResult.Fail(
                 BuildFeedback(err.Error), err.Error.Message, GH_RuntimeMessageLevel.Warning),
             _ => RoutingResult.Fail("Unknown validation result."),
         };
+    }
+
+    /// <summary>
+    /// Attempts to make a failing document valid by deleting disallowed properties, and accepts
+    /// the result only if it then validates cleanly.
+    /// </summary>
+    /// <param name="error">The reported validation error.</param>
+    /// <param name="extracted">The extracted JSON that failed.</param>
+    /// <param name="schema">The schema to re-validate against.</param>
+    /// <param name="repaired">Receives the pretty-printed repaired document on success.</param>
+    /// <param name="note">Receives the canvas remark naming what was dropped.</param>
+    /// <returns>True when the document was repaired and now validates.</returns>
+    private static bool TryRepair(
+        ValidationError error,
+        string extracted,
+        string schema,
+        out string repaired,
+        out string note)
+    {
+        repaired = string.Empty;
+        note = string.Empty;
+
+        if (SchemaRepair.DropDisallowedProperties(extracted, error.Violations) is not { } outcome)
+        {
+            return false;
+        }
+
+        // Re-validation is the whole safety argument: the repair is only trusted if the schema
+        // itself now accepts the document. Anything short of clean goes back to the model.
+        if (Physalia.Core.Validation.SchemaValidator.Validate(outcome.Json, schema)
+            is not Result<string, ValidationError>.Ok ok)
+        {
+            return false;
+        }
+
+        repaired = JsonExtractor.PrettyPrint(ok.Value);
+        note = "Dropped "
+            + string.Join(", ", outcome.RemovedPaths)
+            + " — properties the schema does not allow, removed here instead of costing a resubmission.";
+        return true;
     }
 
     private string BuildFeedback(ValidationError error)

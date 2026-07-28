@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -77,6 +77,6 @@ public class TokenWindow : CompactionComponentBase
         da.GetData(InMaxTokens, ref maxTokens);
 
         // The system prompt rides in on Instructions: always counted toward the budget, never compacted.
-        return ConversationCompactor.KeepWithinTokenBudget(instructions.Conversation, instructions.SystemPrompt, estimator, maxTokens);
+        return ConversationCompactor.KeepWithinTokenBudget(instructions.Conversation, instructions.SystemPrompt.Text, estimator, maxTokens);
     }
 }

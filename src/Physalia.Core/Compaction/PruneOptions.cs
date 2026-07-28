@@ -46,4 +46,26 @@ public sealed record PruneOptions
     /// more readily than truncating tool dumps.
     /// </summary>
     public int? MaxTextChars { get; init; }
+
+    /// <summary>
+    /// Gets how many trailing messages keep their submitted document verbatim; in assistant turns
+    /// older than that, a trailing GhJSON/ghpatch document is replaced by a one-line stub. Null
+    /// leaves every document intact.
+    ///
+    /// <para>This is the single largest reclaimable span in a build loop. The model's old documents
+    /// are redundant with the canvas-state grounding, which already shows what actually landed —
+    /// keeping both means paying twice for the same information, once in a stale and misleading
+    /// form.</para>
+    /// </summary>
+    public int? StaleDocumentKeepLast { get; init; }
+
+    /// <summary>
+    /// Gets how many trailing messages keep their plan block; in assistant turns older than that,
+    /// the <c>&lt;plan&gt;…&lt;/plan&gt;</c> block is removed. Null leaves every plan block intact.
+    ///
+    /// <para>The model restates its full plan in every response, so an N-turn window carries N
+    /// near-identical copies. Only the most recent one describes the current state, and the Build
+    /// Plan tracker reads that one back authoritatively in its progress digest.</para>
+    /// </summary>
+    public int? StalePlanBlockKeepLast { get; init; }
 }

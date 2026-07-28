@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
+using System.Windows.Forms;
 using Grasshopper.Kernel;
 using Physalia.Core.Compaction;
 using Physalia.Core.ConvoInstruct;
@@ -22,6 +23,18 @@ public class ContentPruner : CompactionComponentBase
     private const int InDropFeedback = 2;
     private const int InMaxToolResultChars = 3;
     private const int InMaxTextChars = 4;
+
+    // How many trailing messages keep their document and plan block verbatim. Two covers the live
+    // working set in a feedback loop — the model's current submission and the feedback answering
+    // it — so a correction round still sees exactly what it is correcting, while everything the
+    // canvas state has already absorbed is elided.
+    private const int WorkingSetMessages = 2;
+
+    // Menu toggles, not inputs. This is a shipped RoutingComponentBase subclass whose Signal input
+    // is appended last by the base, so a new input at index 5 would shift the Signal to index 6 and
+    // steal the signal wire in every saved document that already uses this component.
+    private bool _elideStaleDocuments;
+    private bool _stripStalePlanBlocks;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ContentPruner"/> class.
@@ -69,8 +82,61 @@ public class ContentPruner : CompactionComponentBase
             DropFeedbackTurns = dropFeedback,
             MaxToolResultChars = maxToolResultChars > 0 ? maxToolResultChars : null,
             MaxTextChars = maxTextChars > 0 ? maxTextChars : null,
+            StaleDocumentKeepLast = _elideStaleDocuments ? WorkingSetMessages : null,
+            StalePlanBlockKeepLast = _stripStalePlanBlocks ? WorkingSetMessages : null,
         };
 
         return ConversationCompactor.Prune(instructions.Conversation, options);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Both toggles target the same thing from opposite ends: in a generate-place-measure loop the
+    /// model's own past turns dominate the replayed window, and the canvas-state grounding already
+    /// tells it what actually landed. Menu items rather than inputs — see the field note.
+    /// </remarks>
+    public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
+    {
+        base.AppendAdditionalMenuItems(menu);
+
+        Menu_AppendItem(
+            menu,
+            "Elide Stale Documents",
+            (_, _) =>
+            {
+                _elideStaleDocuments = !_elideStaleDocuments;
+                ExpireSolution(true);
+            },
+            enabled: true,
+            @checked: _elideStaleDocuments);
+
+        Menu_AppendItem(
+            menu,
+            "Strip Stale Plan Blocks",
+            (_, _) =>
+            {
+                _stripStalePlanBlocks = !_stripStalePlanBlocks;
+                ExpireSolution(true);
+            },
+            enabled: true,
+            @checked: _stripStalePlanBlocks);
+    }
+
+    /// <inheritdoc/>
+    public override bool Write(GH_IO.Serialization.GH_IWriter writer)
+    {
+        writer.SetBoolean("ElideStaleDocuments", _elideStaleDocuments);
+        writer.SetBoolean("StripStalePlanBlocks", _stripStalePlanBlocks);
+        return base.Write(writer);
+    }
+
+    /// <inheritdoc/>
+    public override bool Read(GH_IO.Serialization.GH_IReader reader)
+    {
+        // Default OFF for a document saved before these existed: eliding history is a behaviour
+        // change, and a reopened rig must not silently start rewriting what the model sees.
+        _elideStaleDocuments = reader.ItemExists("ElideStaleDocuments") && reader.GetBoolean("ElideStaleDocuments");
+        _stripStalePlanBlocks = reader.ItemExists("StripStalePlanBlocks") && reader.GetBoolean("StripStalePlanBlocks");
+        return base.Read(reader);
     }
 }

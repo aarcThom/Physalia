@@ -12,9 +12,13 @@ namespace Physalia.Core.ConvoInstruct;
 /// for a single inference call. Providers are responsible for serializing each field into the wire
 /// format their API expects.
 /// </summary>
-/// <param name="SystemPrompt">The system prompt passed at call time. May be empty.</param>
+/// <param name="SystemPrompt">
+/// The system prompt passed at call time, held as ordered segments so providers can place a cache
+/// breakpoint between the stable prefix and the per-turn tail. A plain string converts implicitly
+/// and is treated as wholly stable.
+/// </param>
 /// <param name="Conversation">The accumulated message history.</param>
-public record Instructions(string SystemPrompt, Conversation Conversation)
+public record Instructions(SystemPrompt SystemPrompt, Conversation Conversation)
 {
     /// <summary>
     /// Gets the tool definitions advertised to the model for this call, or an empty list for plain

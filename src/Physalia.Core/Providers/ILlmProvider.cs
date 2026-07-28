@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System.Collections.Generic;
@@ -31,7 +31,7 @@ public interface ILlmProvider
     /// <returns>An async sequence of result chunks.</returns>
     IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
         Conversation conversation,
-        string systemPrompt,
+        SystemPrompt systemPrompt,
         ModelConfig config,
         IReadOnlyList<LlmToolDefinition>? tools,
         CancellationToken ct);

@@ -125,7 +125,10 @@ public static class SchemaValidator
             string parent = slash == 0 ? "the document root" : $"'{v.Path[..slash]}'";
             return new SchemaViolation(
                 v.Path,
-                $"property '{property}' is not allowed at {parent} — remove it, or move it to where the schema defines it");
+                $"property '{property}' is not allowed at {parent} — remove it, or move it to where the schema defines it")
+            {
+                Kind = SchemaViolationKind.DisallowedProperty,
+            };
         }
 
         bool hasPropertyLevel = violations.Any(v =>

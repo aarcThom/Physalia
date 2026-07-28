@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -51,7 +51,7 @@ public class InstructionsDecompositor : PhyBase
             return;
         }
 
-        DA.SetData(0, instructions.SystemPrompt);
+        DA.SetData(0, instructions.SystemPrompt.Text);
         DA.SetDataList(1, instructions.Conversation.Messages.Select(m => new GH_ConversationMessage(m)));
     }
 }

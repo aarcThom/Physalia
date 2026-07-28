@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -762,8 +762,10 @@ public class ConversationLog : StatefulComponentBase
 
     // Folds the wired groundings into the system prompt, applying the component selection to
     // component-catalog groundings and the cluster selection to cluster groundings (other kinds
-    // pass through untouched).
-    private string BuildGroundedSystemPrompt(string systemPrompt)
+    // pass through untouched). The result is segmented rather than flat so the provider can cache
+    // the stable prefix; the wire order of the groundings does not matter, because SystemPrompt
+    // sorts the volatile canvas state behind everything invariant on construction.
+    private Core.ConvoInstruct.SystemPrompt BuildGroundedSystemPrompt(string systemPrompt)
     {
         if (_liveGroundings.Count == 0)
         {

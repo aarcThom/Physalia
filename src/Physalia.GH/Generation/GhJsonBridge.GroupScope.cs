@@ -21,11 +21,14 @@ namespace Physalia.GH.Generation;
 /// export and from placement layout, so the model never sees it, can never target it with a group
 /// op, and its box never becomes a rigid layout body swallowing all functional areas.
 ///
-/// <para>The reference frame is self-describing: a group-scoped export's checksum carries the
-/// <see cref="GroupChecksumPrefix"/>, so the patch-apply path re-exports whichever frame the model
-/// actually saw and the drift check can never compare across frames. Guardrails that hand the
-/// model a fresh checksum use <see cref="CurrentBaseChecksum"/>, which follows the frame the
-/// Conversation Log last folded (<see cref="RecordActiveFrame"/>).</para>
+/// <para>Both frames share the plain <c>sha256-…</c> checksum form — a frame marker inside the
+/// string is not an option, because the GhJSON library's ghpatch schema regex-rejects anything
+/// else and its error flattening then buries the real cause under unrelated "false schema" noise
+/// (observed live 2026-07-28: every stage burned two rounds on it). The patch path instead
+/// resolves the frame by MATCHING: <see cref="ResolveBaseSnapshot"/> compares the carried checksum
+/// against each frame's export and applies against whichever one the model actually saw.
+/// Guardrails that hand the model a fresh checksum use <see cref="CurrentBaseChecksum"/>, which
+/// follows the frame the Conversation Log last folded (<see cref="RecordActiveFrame"/>).</para>
 /// </summary>
 internal static partial class GhJsonBridge
 {
@@ -97,6 +100,41 @@ internal static partial class GhJsonBridge
     /// <returns>The checksum, or null when no document is available.</returns>
     internal static string? CurrentBaseChecksum(GH_Document? doc)
         => doc is null ? null : TryExportCanvasState(doc, ActiveFrameIsGroupScoped(doc))?.Checksum;
+
+    /// <summary>
+    /// Resolves the reference frame a patch was authored against by MATCHING its carried base
+    /// checksum: the active frame's export is tried first, then the other frame's. When neither
+    /// matches (real drift) or no checksum was carried, the active frame's snapshot is returned —
+    /// that is the frame the model is reading, so the mismatch feedback and its fresh checksum stay
+    /// in it. When the master group holds the whole canvas the two frames export identical content
+    /// and the choice is immaterial.
+    /// </summary>
+    /// <param name="doc">The document to export; null falls back to the active canvas.</param>
+    /// <param name="carriedChecksum">The checksum the patch carried in <c>patch.base.checksum</c>.</param>
+    /// <returns>The snapshot of the matching frame, or null when no document is available.</returns>
+    internal static CanvasStateSnapshot? ResolveBaseSnapshot(GH_Document? doc, string? carriedChecksum)
+    {
+        doc ??= Grasshopper.Instances.ActiveCanvas?.Document;
+        if (doc is null)
+        {
+            return null;
+        }
+
+        bool activeFrame = ActiveFrameIsGroupScoped(doc);
+        CanvasStateSnapshot? primary = TryExportCanvasState(doc, activeFrame);
+        if (primary is null
+            || string.IsNullOrEmpty(carriedChecksum)
+            || string.Equals(carriedChecksum, primary.Checksum, StringComparison.OrdinalIgnoreCase))
+        {
+            return primary;
+        }
+
+        CanvasStateSnapshot? other = TryExportCanvasState(doc, !activeFrame);
+        return other is not null
+            && string.Equals(carriedChecksum, other.Checksum, StringComparison.OrdinalIgnoreCase)
+            ? other
+            : primary;
+    }
 
     /// <summary>
     /// Resolves the guids the group-scoped frame may export: the master group's members, expanded

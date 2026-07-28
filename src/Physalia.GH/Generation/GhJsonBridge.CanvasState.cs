@@ -37,12 +37,6 @@ namespace Physalia.GH.Generation;
 /// </summary>
 internal static partial class GhJsonBridge
 {
-    /// <summary>Checksum prefix of the full-canvas frame.</summary>
-    internal const string ChecksumPrefix = "sha256-";
-
-    /// <summary>Checksum prefix of the group-scoped frame. Test it BEFORE <see cref="ChecksumPrefix"/> — it shares the same start.</summary>
-    internal const string GroupChecksumPrefix = "sha256-group-";
-
     // componentState.extensions key marking an exported parameter as referencing live geometry in
     // the Rhino model. Injected into the canvas-state export (with the baked geometry stripped) so
     // the model treats the parameter as a data source: wire FROM it, never modify its value or
@@ -87,7 +81,10 @@ internal static partial class GhJsonBridge
     /// <param name="groupScope">
     /// True to export only the master group's contents (nested groups expanded) — the frame the
     /// group-scoped grounder shows the model. The master group itself is excluded from BOTH frames:
-    /// it is Physalia infrastructure, not part of the model's or the user's graph.
+    /// it is Physalia infrastructure, not part of the model's or the user's graph. Both frames use
+    /// the same plain <c>sha256-…</c> checksum form (the GhJSON library's patch schema regex-rejects
+    /// anything else); the patch path tells frames apart by matching the carried checksum against
+    /// each frame's export (<see cref="ResolveBaseSnapshot"/>), never by the string's shape.
     /// </param>
     /// <returns>The snapshot, or null when no document is available.</returns>
     internal static CanvasStateSnapshot? TryExportCanvasState(GH_Document? doc = null, bool groupScope = false)
@@ -127,7 +124,7 @@ internal static partial class GhJsonBridge
         return new CanvasStateSnapshot(
             export,
             json,
-            ComputeCanvasChecksum(export, groupScope),
+            ComputeCanvasChecksum(export),
             export.Components?.Count ?? 0,
             groupScope);
     }
@@ -144,13 +141,8 @@ internal static partial class GhJsonBridge
     /// fingerprint and force the model to regenerate against the fresh canvas state.
     /// </summary>
     /// <param name="export">The exported canvas-state document.</param>
-    /// <param name="groupScoped">
-    /// True when the export is the group-scoped frame. The prefix makes the checksum
-    /// self-describing: a patch carrying it back tells the apply path which frame the model saw,
-    /// so the drift check re-exports the same frame instead of comparing across frames.
-    /// </param>
     /// <returns>The fingerprint in <c>sha256-&lt;hex&gt;</c> form, or an empty string for an empty export.</returns>
-    internal static string ComputeCanvasChecksum(GhJsonDocument export, bool groupScoped = false)
+    internal static string ComputeCanvasChecksum(GhJsonDocument export)
     {
         if (export.Components is null || export.Components.Count == 0)
         {
@@ -192,8 +184,7 @@ internal static partial class GhJsonBridge
         }
 
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
-        return (groupScoped ? GroupChecksumPrefix : ChecksumPrefix)
-            + Convert.ToHexString(hash).ToLowerInvariant();
+        return "sha256-" + Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     // Appends one fingerprint line per parameter that carries a data-tree modifier, so grafting or

@@ -1,14 +1,18 @@
 ---
 name: group-scoped-grounding
-description: "2026-07-28 — master 'Physalia' group + group-scoped canvas grounding, builtins-only catalog default, and a prompt/feedback verbosity sweep (branch feat/group-based-context). NOT yet run in Rhino."
+description: "2026-07-28 — master 'Physalia' group + group-scoped canvas grounding, plug-ins unchecked by default, verbosity sweep (branch feat/group-based-context). Run live same day: worked end-to-end once the checksum frame prefix was replaced by frame MATCHING."
 metadata: 
   node_type: memory
   type: project
   originSessionId: d0d67dd2-c77a-46f3-9c36-7c583ec99c0a
-  modified: 2026-07-28T08:04:12.739Z
+  modified: 2026-07-28T08:22:52.637Z
 ---
 
-Built 2026-07-28 on `feat/group-based-context` because LLMs get confused by pre-existing canvas nodes. Builds clean, 338 Core tests green. **Live Rhino test PENDING** — master-group enrollment, scoped export, and the scoped patch loop all need a real canvas run.
+Built 2026-07-28 on `feat/group-based-context` because LLMs get confused by pre-existing canvas nodes. Builds clean, 339 Core tests green. **Run live in Rhino the same day** (White House staged build, chat + trace triaged): enrollment, scoped export/grounding, id preservation, and the full 5-stage loop all worked — the model finished in prose with correct massing. But the first cut's checksum frame prefix cost 2 wasted rounds per stage:
+
+**HARD LESSON — a frame marker cannot live inside the checksum string.** The first cut minted scoped checksums as `sha256-group-<hex>`. Physalia's own schema passed it, but the GhJSON LIBRARY's ghpatch schema (reference-only NuGet, validated by GH Definition Validator) regex-rejects any non-`sha256-<hex>` shape — and its error flattening then co-reported bogus "All values fail against the false schema" errors on perfectly valid internalizedData entries (branch-knockout noise, same family as the 2026-07-25 `not`-branch bug). The model coped by STRIPPING `group-`, which silently dropped every patch into the full frame; every one of the 5 stages burned the same 3-round dance (regex reject → strip prefix → mismatch → full-frame checksum → apply). **Fix: both frames use plain `sha256-…` and the frame is resolved by MATCHING** — `GhJsonBridge.ResolveBaseSnapshot(doc, carried)` tries the active frame's export first, then the other frame; used by `ApplyPatchToCanvas` AND `LintPatch`. Neither matches → real drift, mismatch feedback in the active frame. Identical content across frames → identical checksum → choice immaterial.
+
+**Other session notes:** stage-1 full placement logged `id claims verified: 20/24` on a FRESH canvas with the scoped grounder — new data point for [[component-id-robustness]] (ledger pre-pass restored the authored numbering, so no harm downstream). A user-doc Fidelity Check had its Definition input miswired (payload starting with '#'); the component's own remedy message handled it — no code change. `claude_code_incremental.ghjson` preset now wires **Physalia Group Components** instead of Canvas State.
 
 **Master "Physalia" group** (`Generation/GhJsonBridge.GroupScope.cs`):
 - Identity = a `GH_Group` with NickName `GhJsonBridge.MasterGroupName` ("Physalia"); the NAME is the contract (rename detaches, naming your own group adopts it). Faint teal, created at the first LLM placement (bounds are its members', so it materializes at the transmitter tip).
@@ -17,7 +21,7 @@ Built 2026-07-28 on `feat/group-based-context` because LLMs get confused by pre-
 
 **Group-scoped canvas frame:**
 - `TryExportCanvasState(doc, groupScope)` — scoped guid set = `MasterGroupScope` (BFS through nested groups, live objects only). `CanvasStateSnapshot` gained `GroupScoped`.
-- **Checksums are self-describing frames**: scoped = `sha256-group-…` (`GroupChecksumPrefix`), full = `sha256-…`. `ApplyPatchToCanvas` and `LintPatch` pick the base frame from the carried checksum's prefix (fallback: the active frame), so drift checks never compare across frames. Test group prefix FIRST — it shares the `sha256-` start.
+- **Frame resolution is by checksum MATCHING, never a prefix** (see the hard lesson above): `ResolveBaseSnapshot` compares the carried `patch.base.checksum` against each frame's export; `CanvasStateSnapshot.GroupScoped` says which frame won.
 - **Active frame registry**: ConvLog's `FreshCanvasStateGrounding` calls `RecordActiveFrame(doc, scoped)` (CWT, session-only); every guardrail hands back checksums via `GhJsonBridge.CurrentBaseChecksum(doc)` (SchemaValidator, RuntimeHealthCheck, GeometryReport, Fidelity) so the model never sees mixed-frame checksums.
 - New component `PhysaliaGroupGrounder` ("Physalia Group Components", GUID 7C3E9A15-…) subclasses `CanvasStateGrounder` via `protected virtual bool GroupScope` + a protected identity ctor — shares the whole debounce/rescan machinery. `CanvasStateGrounding.GroupScoped` (Core) renders the visibility contract (auto-enrollment, hidden canvas, user opts components IN by moving them into the group). ConvLog: any wired scoped grounding wins (`_groupScopedCanvasGrounding`).
 

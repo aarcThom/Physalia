@@ -100,22 +100,19 @@ internal static partial class GhJsonBridge
                 new[] { "The patch contained no operations; the canvas is unchanged." });
         }
 
-        // The checksum the model carries is self-describing: a group-scoped prefix means the model
-        // authored this patch against the master group's contents, so the base is re-exported in
-        // that same frame — ids resolve identically in both (one registry per document), but the
-        // drift check must never compare checksums across frames. Without a carried checksum, the
-        // frame the Conversation Log last folded decides.
+        // The base frame is resolved by matching the carried checksum against each frame's export
+        // (full canvas vs master-group scope) — ids resolve identically in both (one registry per
+        // document), but the drift check must never compare checksums across frames. Matching, not
+        // a checksum prefix: the GhJSON library's patch schema regex-rejects any non-standard
+        // checksum shape, so the string itself cannot carry the frame.
         string? carried = patch.Patch?.Base?.Checksum?.Trim();
-        bool groupFrame = string.IsNullOrEmpty(carried)
-            ? ActiveFrameIsGroupScoped(doc)
-            : carried.StartsWith(GroupChecksumPrefix, StringComparison.OrdinalIgnoreCase);
-
-        CanvasStateSnapshot? snapshot = TryExportCanvasState(doc, groupFrame);
+        CanvasStateSnapshot? snapshot = ResolveBaseSnapshot(doc, carried);
         if (snapshot is null)
         {
             return PatchFailure("The canvas state could not be exported.");
         }
 
+        bool groupFrame = snapshot.GroupScoped;
         GhJsonDocument baseExport = snapshot.Document;
 
         if (verifyBase && !string.IsNullOrEmpty(carried)

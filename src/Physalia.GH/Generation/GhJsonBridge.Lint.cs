@@ -110,15 +110,10 @@ internal static partial class GhJsonBridge
             StampComponentGuids(new GhJsonDocument("1.0", null, adds, null, null));
         }
 
-        // Project against the frame the model authored in (same rule as the apply): a group-scoped
-        // base checksum means it saw only the master group's contents, and linting the full canvas
-        // would name components it cannot see.
-        string? carried = patch.Patch?.Base?.Checksum?.Trim();
-        bool groupFrame = string.IsNullOrEmpty(carried)
-            ? ActiveFrameIsGroupScoped(Grasshopper.Instances.ActiveCanvas?.Document)
-            : carried.StartsWith(GroupChecksumPrefix, StringComparison.OrdinalIgnoreCase);
-
-        GhJsonDocument? canvas = TryExportCanvasState(null, groupFrame)?.Document;
+        // Project against the frame the model authored in (same matching rule as the apply): a
+        // checksum matching the group-scoped export means it saw only the master group's contents,
+        // and linting the full canvas would name components it cannot see.
+        GhJsonDocument? canvas = ResolveBaseSnapshot(null, patch.Patch?.Base?.Checksum?.Trim())?.Document;
         if (canvas?.Components is null || canvas.Components.Count == 0)
         {
             // Nothing to project onto (no document, or an empty canvas the model should not have

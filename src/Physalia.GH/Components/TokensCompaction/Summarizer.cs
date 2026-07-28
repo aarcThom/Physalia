@@ -25,7 +25,7 @@ namespace Physalia.GH.Components;
 ///
 /// <para>An inline forward-path compactor (like the deterministic windows, but asynchronous): it
 /// consumes a Conversation Log's Signal carrying the full Instructions, summarizes the older conversation, and
-/// re-emits a Signal carrying the compacted Instructions on its <b>Success Signal</b>, wired straight
+/// re-emits a Signal carrying the compacted Instructions on its single <b>Signal</b> output, wired straight
 /// to the LLM Call (<c>Conversation Log → Summarizer → LLM Call</c>). The call runs asynchronously
 /// (<see cref="AutoScheduleRead"/> is false; the read pass fires from the completion callback). The
 /// system prompt is preserved (never summarized); only the conversation is.</para>
@@ -47,13 +47,21 @@ public class Summarizer : RoutingComponentBase<Instructions>
         : base(
             "Summarizer",
             "Distill",
-            "Summarizes the older portion of a conversation into one turn and keeps recent turns verbatim. Uses an LLM call. Routes the compacted conversation on the Success Signal.",
+            "Summarizes the older portion of a conversation into one turn and keeps recent turns verbatim. Uses an LLM call. Routes the compacted conversation on its Signal output; if the call fails, forwards the conversation unsummarized rather than losing the turn.",
             "Tokens & Compaction")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("8241DBD1-BBE4-4A2D-B11B-8F1140859FBA");
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// A single Signal output, matching <see cref="CompactionComponentBase"/>: compaction fails open,
+    /// so nothing ever routes backwards and a Fail output would only duplicate the forward wire. See
+    /// that class for why a failure signal could not have been wired anywhere useful.
+    /// </remarks>
+    protected override bool HasFailOutput => false;
 
     /// <inheritdoc/>
     protected override bool AutoScheduleRead => false;
@@ -114,14 +122,18 @@ public class Summarizer : RoutingComponentBase<Instructions>
     /// <inheritdoc/>
     protected override RoutingResult ReadSolve(Instructions data, IGH_DataAccess da)
     {
+        // Fail open, exactly as the deterministic compactors do — and this is the one where it earns
+        // its keep, because a summarization failure is a real runtime event (a network blip, a rate
+        // limit) rather than a canvas mistake. Losing the turn to it would be absurd: the full
+        // conversation is right here on the signal, so forward it unsummarized and say so.
         if (_error != null)
         {
-            return RoutingResult.Fail(_error, _error, GH_RuntimeMessageLevel.Error);
+            return PassThrough(data, _error);
         }
 
         if (_result is null)
         {
-            return RoutingResult.Fail("Summarization produced no result.", "Summarization produced no result.", GH_RuntimeMessageLevel.Error);
+            return PassThrough(data, "the summarization call produced no result");
         }
 
         string trace = $"Compacted {_result.OriginalMessageCount} → {_result.RetainedMessageCount} messages";
@@ -132,6 +144,25 @@ public class Summarizer : RoutingComponentBase<Instructions>
             instructions: new Instructions(data.SystemPrompt, _result.Conversation) { Tools = data.Tools },
             message: $"{trace} ({_result.DroppedMessageCount} folded into the summary).",
             level: GH_RuntimeMessageLevel.Remark);
+    }
+
+    /// <summary>
+    /// The fail-open result: the ORIGINAL Instructions forwarded intact on the Signal output, so the
+    /// LLM Call still receives its inference context when summarization could not run. The reason
+    /// rides as a runtime message on the component rather than as signal payload — it is an operator
+    /// problem, and putting it on the wire would land it in front of the model as a turn.
+    /// </summary>
+    /// <param name="source">The instructions that arrived, forwarded unchanged.</param>
+    /// <param name="reason">Why summarization did not run.</param>
+    /// <returns>A success <see cref="RoutingResult"/> carrying the unsummarized Instructions.</returns>
+    private static RoutingResult PassThrough(Instructions source, string reason)
+    {
+        int count = source.Conversation.Count;
+        return RoutingResult.Ok(
+            $"Not summarized ({reason}); forwarded {count} message(s) unchanged",
+            instructions: source,
+            message: $"Summarization did not run — {reason}. The conversation was forwarded UNSUMMARIZED ({count} message(s)), so the prompt is longer than intended but the turn still runs.",
+            level: GH_RuntimeMessageLevel.Error);
     }
 
     private void StartSummarization(Conversation conversation, ModelConfig config, string? instruction, int keepRecent)

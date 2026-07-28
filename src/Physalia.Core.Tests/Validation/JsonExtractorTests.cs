@@ -185,4 +185,73 @@ public class JsonExtractorTests
     {
         Assert.False(JsonExtractor.LooksTruncated("   "));
     }
+
+    // ---- Malformed documents (one dropped closer), as opposed to truncated ones ----------------
+
+    // The shape that cost two identical retries in the 2026-07-27 session: a plan block, then a
+    // complete-looking document one closing brace short. The scan hits a mismatch rather than
+    // running off the end, so the truncation guard never saw it, and the extractor walked INTO the
+    // document and returned the "components" array — which the validator reported as "the root is
+    // an array", a defect the model had not made and could not act on.
+    private const string MissingCloser =
+        "<plan>\ngoal: a tower\n1. Mass\nnow: 1\n</plan>\n"
+        + "{\"schema\":\"1.0\",\"components\":["
+        + "{\"name\":\"Number Slider\",\"id\":1,\"pivot\":\"0,0\","
+        + "\"componentState\":{\"extensions\":{\"gh.numberslider\":{\"value\":\"5<0~10>\"}}}"  // one '}' short
+        + "],\"connections\":[]}";
+
+    [Fact]
+    public void LooksMalformed_DocumentMissingOneCloser_True()
+    {
+        Assert.True(JsonExtractor.LooksMalformed(MissingCloser));
+    }
+
+    [Fact]
+    public void LooksTruncated_DocumentMissingOneCloser_False()
+    {
+        // It reached its end; it is wrong, not cut off. The two need different feedback.
+        Assert.False(JsonExtractor.LooksTruncated(MissingCloser));
+    }
+
+    [Fact]
+    public void ExtractJson_DocumentMissingOneCloser_DoesNotReturnAnInnerArray()
+    {
+        string extracted = JsonExtractor.ExtractJson(MissingCloser);
+
+        Assert.False(
+            extracted.TrimStart().StartsWith("["),
+            "a nested array must never be recovered as the document — that is what produced "
+            + "\"Value is array but should be object\" for a document whose root is an object");
+        Assert.StartsWith("{", extracted.TrimStart());
+    }
+
+    [Fact]
+    public void LooksMalformed_CompleteDocument_False()
+    {
+        Assert.False(JsonExtractor.LooksMalformed("prose {\"a\":1,\"b\":[2,3]} more prose"));
+    }
+
+    [Fact]
+    public void LooksMalformed_TruncatedDocument_False()
+    {
+        Assert.False(JsonExtractor.LooksMalformed("{ \"components\": [ { \"name\": \"Pi"));
+    }
+
+    [Fact]
+    public void LooksMalformed_MismatchedBracketsInProse_False()
+    {
+        // Not document-shaped, so it is prose with a typo, not a broken document.
+        Assert.False(JsonExtractor.LooksMalformed("pick a value [between 1 and 10} inclusive"));
+    }
+
+    // A broken attempt that DOES close, followed by a good one: the revision must still win.
+    [Fact]
+    public void ExtractJson_BrokenAttemptThenValidDocument_TakesTheValidOne()
+    {
+        string raw = "{\"schema\":\"1.0\",\"components\":[{\"a\":1]}\n"
+            + "on reflection:\n"
+            + "{\"schema\":\"1.0\",\"components\":[{\"name\":\"Circle\",\"id\":1,\"pivot\":\"0,0\"}]}";
+
+        Assert.Contains("Circle", JsonExtractor.ExtractJson(raw));
+    }
 }

@@ -9,6 +9,7 @@ using System.Globalization;
 using System.Linq;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Types;
+using Physalia.Core.Planning;
 using Physalia.Core.Signals;
 using Physalia.GH.Generation;
 using Rhino;
@@ -37,6 +38,15 @@ namespace Physalia.GH.Components;
 /// loop); mismatch → corrective ghpatch (the report carries a fresh base checksum for exactly
 /// that turn). Wire it after the Runtime Health Check's Success Signal so it only measures
 /// healthy graphs.</para>
+///
+/// <para>That instruction is right for a definition generated in one shot and wrong for one built
+/// in stages, where a correct first slice measures exactly as clean as a finished definition and
+/// the offer of prose ends the build early. So when the Message input carries a Build Plan
+/// tracker's progress digest, the digest's staged instruction replaces it — continue while stages
+/// remain, prose only on the last one — and rides at the top of the report, ahead of the
+/// measurements it is asking the model to judge. Detection is by the digest's own marker, so no
+/// mode has to be set anywhere: wire the tracker in and the report adapts; leave it out and the
+/// single-shot wording stands.</para>
 /// </summary>
 public class GeometryReport : RoutingComponentBase<string>
 {
@@ -87,7 +97,7 @@ public class GeometryReport : RoutingComponentBase<string>
         pManager.AddTextParameter(
             "Message",
             "M",
-            "Optional operator note folded into the report (e.g. what the user asked for), so the model weighs the measured facts against that framing.",
+            "Optional operator note folded into the report (e.g. what the user asked for), so the model weighs the measured facts against that framing. A Build Plan tracker's Progress digest wired here also switches the report's closing instruction to its staged form.",
             GH_ParamAccess.item,
             string.Empty);
         pManager[MessageInputIndex].Optional = true;
@@ -538,6 +548,36 @@ public class GeometryReport : RoutingComponentBase<string>
         return union;
     }
 
+    /// <summary>
+    /// The components the spatial analysis treats as PARTS. Components whose every output is
+    /// points are construction scaffolding — the corners a polyline is built from, the centres a
+    /// column array is arrayed on — not things that can meet, float apart, or be buried.
+    ///
+    /// <para>Leaving them in wrecked the section they were meant to inform. A point has a
+    /// zero-size box, so it lies inside every solid in the model, and each construction point
+    /// emitted one containment line per solid: in a measured session 42 of 54 reports ended at the
+    /// containment cap with nothing but "'Base A' bbox lies entirely inside 'Tower Mass' bbox" and
+    /// seven more of the same. Buried geometry is one of the two things this report exists to
+    /// catch, and for most of that session it could not have reported one — the budget was spent
+    /// before a real finding could reach it.</para>
+    ///
+    /// <para>They stay in the per-component listing above, where their coordinates are genuinely
+    /// useful (a model verifying that its portico centre landed at 25000,0,0 reads it there). Only
+    /// the spatial section drops them, and only when there is other geometry to reason about —
+    /// a definition whose whole output IS points keeps them, since excluding everything would
+    /// leave nothing to relate.</para>
+    /// </summary>
+    /// <param name="items">Every measured component.</param>
+    /// <returns>The components to relate spatially.</returns>
+    private static IReadOnlyList<ComponentGeometry> SpatialParts(IReadOnlyList<ComponentGeometry> items)
+    {
+        var parts = items.Where(item => !IsPointsOnly(item)).ToList();
+        return parts.Count > 0 ? parts : items;
+    }
+
+    private static bool IsPointsOnly(ComponentGeometry item) =>
+        item.Outputs.All(output => output.Kinds.All(k => string.Equals(k.Kind, "point", StringComparison.Ordinal)));
+
     // Strict bbox-inside-bbox pairs between different components — a neutral fact (containment is
     // sometimes intentional; the preamble makes the model the judge). Catches buried geometry.
     private static IEnumerable<(int Inner, int Outer)> FindContainments(IReadOnlyList<ComponentGeometry> items, double tolerance)
@@ -582,12 +622,25 @@ public class GeometryReport : RoutingComponentBase<string>
             + "you can match the component by instanceGuid and reference its connection endpoints by "
             + $"the id, without cross-referencing the canvas state. Units: {units}; "
             + "coordinates are world XYZ; bbox is the axis-aligned bounding box.");
+
+        // A progress digest is an instruction as well as a note, and it contradicts the single-shot
+        // wording below — so it replaces it outright rather than sitting alongside it. It leads the
+        // report because everything after it is the evidence it asks the model to weigh.
+        bool incremental = message.Contains(BuildPlanParser.DigestMarker, StringComparison.Ordinal);
+
         sb.AppendLine();
-        sb.AppendLine(
-            "If the geometry matches your intent, reply in plain prose (no JSON) briefly confirming "
-            + "what was built. If anything is wrong — a part in the wrong place or at the wrong size, "
-            + "elements floating apart that should touch, or elements buried inside others that "
-            + "should not be — reply with a corrective ghpatch.");
+        if (incremental)
+        {
+            sb.AppendLine(message.Trim());
+        }
+        else
+        {
+            sb.AppendLine(
+                "If the geometry matches your intent, reply in plain prose (no JSON) briefly confirming "
+                + "what was built. If anything is wrong — a part in the wrong place or at the wrong size, "
+                + "elements floating apart that should touch, or elements buried inside others that "
+                + "should not be — reply with a corrective ghpatch.");
+        }
 
         if (appliedOps.Count > 0)
         {
@@ -602,7 +655,7 @@ public class GeometryReport : RoutingComponentBase<string>
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(message))
+        if (!incremental && !string.IsNullOrWhiteSpace(message))
         {
             sb.AppendLine();
             sb.AppendLine("Operator note: " + message.Trim());
@@ -688,8 +741,10 @@ public class GeometryReport : RoutingComponentBase<string>
         sb.AppendLine($"Whole model: bbox {FormatBox(world)}, size {FormatSize(world)}.");
     }
 
-    private static void AppendSpatialSection(System.Text.StringBuilder sb, IReadOnlyList<ComponentGeometry> items)
+    private static void AppendSpatialSection(System.Text.StringBuilder sb, IReadOnlyList<ComponentGeometry> allItems)
     {
+        IReadOnlyList<ComponentGeometry> items = SpatialParts(allItems);
+
         BoundingBox world = BoundingBox.Empty;
         foreach (ComponentGeometry item in items)
         {

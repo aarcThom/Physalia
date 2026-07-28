@@ -9,6 +9,7 @@ using System.Globalization;
 using System.Linq;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Types;
+using Physalia.Core.Planning;
 using Physalia.Core.Signals;
 using Physalia.GH.Generation;
 using Rhino;
@@ -37,6 +38,15 @@ namespace Physalia.GH.Components;
 /// loop); mismatch → corrective ghpatch (the report carries a fresh base checksum for exactly
 /// that turn). Wire it after the Runtime Health Check's Success Signal so it only measures
 /// healthy graphs.</para>
+///
+/// <para>That instruction is right for a definition generated in one shot and wrong for one built
+/// in stages, where a correct first slice measures exactly as clean as a finished definition and
+/// the offer of prose ends the build early. So when the Message input carries a Build Plan
+/// tracker's progress digest, the digest's staged instruction replaces it — continue while stages
+/// remain, prose only on the last one — and rides at the top of the report, ahead of the
+/// measurements it is asking the model to judge. Detection is by the digest's own marker, so no
+/// mode has to be set anywhere: wire the tracker in and the report adapts; leave it out and the
+/// single-shot wording stands.</para>
 /// </summary>
 public class GeometryReport : RoutingComponentBase<string>
 {
@@ -87,7 +97,7 @@ public class GeometryReport : RoutingComponentBase<string>
         pManager.AddTextParameter(
             "Message",
             "M",
-            "Optional operator note folded into the report (e.g. what the user asked for), so the model weighs the measured facts against that framing.",
+            "Optional operator note folded into the report (e.g. what the user asked for), so the model weighs the measured facts against that framing. A Build Plan tracker's Progress digest wired here also switches the report's closing instruction to its staged form.",
             GH_ParamAccess.item,
             string.Empty);
         pManager[MessageInputIndex].Optional = true;
@@ -582,12 +592,25 @@ public class GeometryReport : RoutingComponentBase<string>
             + "you can match the component by instanceGuid and reference its connection endpoints by "
             + $"the id, without cross-referencing the canvas state. Units: {units}; "
             + "coordinates are world XYZ; bbox is the axis-aligned bounding box.");
+
+        // A progress digest is an instruction as well as a note, and it contradicts the single-shot
+        // wording below — so it replaces it outright rather than sitting alongside it. It leads the
+        // report because everything after it is the evidence it asks the model to weigh.
+        bool incremental = message.Contains(BuildPlanParser.DigestMarker, StringComparison.Ordinal);
+
         sb.AppendLine();
-        sb.AppendLine(
-            "If the geometry matches your intent, reply in plain prose (no JSON) briefly confirming "
-            + "what was built. If anything is wrong — a part in the wrong place or at the wrong size, "
-            + "elements floating apart that should touch, or elements buried inside others that "
-            + "should not be — reply with a corrective ghpatch.");
+        if (incremental)
+        {
+            sb.AppendLine(message.Trim());
+        }
+        else
+        {
+            sb.AppendLine(
+                "If the geometry matches your intent, reply in plain prose (no JSON) briefly confirming "
+                + "what was built. If anything is wrong — a part in the wrong place or at the wrong size, "
+                + "elements floating apart that should touch, or elements buried inside others that "
+                + "should not be — reply with a corrective ghpatch.");
+        }
 
         if (appliedOps.Count > 0)
         {
@@ -602,7 +625,7 @@ public class GeometryReport : RoutingComponentBase<string>
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(message))
+        if (!incremental && !string.IsNullOrWhiteSpace(message))
         {
             sb.AppendLine();
             sb.AppendLine("Operator note: " + message.Trim());

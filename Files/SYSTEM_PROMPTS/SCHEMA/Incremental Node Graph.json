@@ -1,0 +1,637 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "One Build Stage — GhJSON or GhPatch",
+  "description": "ONE STAGE of a definition being built incrementally, never the whole definition. Which of the two structures to emit: a full GhJSON document for the FIRST stage, when nothing you authored is on the canvas yet (a canvas state showing only the user's own components still counts as nothing of yours — place alongside them); a ghpatch document for every stage after that, adding the new stage's components and touching earlier ones only where the new stage requires it. Decide the document kind BEFORE you start writing, then output exactly one of the two structures — never draft one kind and switch mid-response. The response carries the plan block first (plain text, outside this schema) and then the raw JSON object: no other prose, no markdown fences, no explanation.",
+  "oneOf": [
+    { "$ref": "#/$defs/ghpatchDocument" },
+    { "$ref": "#/$defs/fullDocument" }
+  ],
+
+  "rules": [
+    "ONE STAGE PER RESPONSE: this document builds the single stage named by 'now:' in your plan block — not the stage after it, and never the whole definition. A response that places two stages at once forfeits the measurement that was supposed to verify the first, which is the entire point of building this way.",
+    "MODE: emit a ghpatch (\"kind\": \"ghpatch\") when the canvas state contains components from your previous successful turns, or when the user asks you to change their own existing components — you edit by instanceGuid copied from the canvas state. Emit a full GhJSON document when nothing you authored is on the canvas yet (the first stage, or every prior submission was rejected) — even when the canvas state shows the user's own components; a full document places alongside them without touching them. If feedback says your submission was rejected before placement, the canvas is UNCHANGED: resubmit in the SAME document kind, fixing only what the feedback names. Never regenerate the whole graph when your components are already on the canvas.",
+    "BUILD ON WHAT IS THERE: a later stage wires FROM the components earlier stages placed, by the integer id the canvas state shows for them. Never duplicate a slider, plane, or computed value that already exists on the canvas — if this stage needs the wall height, wire the wall-height slider already placed rather than adding a second one, or the two drift apart and the geometry stops meeting.",
+    "A STAGE MUST PRODUCE GEOMETRY AND STAND ALONE: the feedback that verifies a stage is a measurement of the geometry it produces, so a stage whose outputs are only numbers, domains, planes or vectors comes back reported as producing nothing. Fold numeric setup into the stage whose geometry it drives. Every value source the stage adds must drive something within this same document, and every required input of every component it adds must be wired or internalized in this same document — a source added now for a stage still to come is rejected as a value nothing reads.",
+    "name must exactly match the component's name in the Grasshopper library (case-sensitive), e.g. 'Addition', 'Construct Point', 'Number Slider'.",
+    "The grounding's installed-component list, when present, is the sole source of truth for which components may be placed: use only names it contains — plug-in components are allowed when listed, and unlisted components are not allowed however common. Without such a list, keep to native Grasshopper components. Do NOT use any scripting components (Python 3 Script, C# Script, GhPython, VB Script, or any other code-bearing node).",
+    "Every component needs a unique integer id; connections reference this id. In a ghpatch, existing components keep the ids shown in the canvas state, and every ADDED component gets a fresh id HIGHER than the highest id in the canvas state.",
+    "Every component needs a pivot 'X,Y', and the pivots you author ARE the layout that gets placed — plan them. A pivot is the component's mid-LEFT point and the body grows right and down: a nicknamed Number Slider is over 200 units wide, an ordinary component 100-150, a documentation Panel about 150 wide and 130 tall. Work in your own coordinate frame from near 0,0 (the whole graph, or a ghpatch's whole set of additions, is translated onto the canvas as one block): about 250 units per stage in X, 100 in Y between parallel inputs to the same stage, a gutter of 250+ units between one functional area and the next IN WHICHEVER AXIS they are adjacent, and an area's annotation Panel about 150 units clear above its components. Never read existing pivots from the canvas state — absolute coordinates are not yours to control, and you cannot overlap what is already on the canvas. Two components must never share a pivot. Physalia measures the placed components and nudges out any remaining overlap, so prefer generous gaps over precision.",
+    "connections has one entry per wire. Reference each endpoint by { id, paramIndex }: paramIndex is the parameter's zero-based position in the component's OUTPUT list (for 'from') or INPUT list (for 'to'), counting in the order shown in componentCatalog (or the component's installed order). paramName is optional and for readability only; the wire is matched by paramIndex. An input may receive SEVERAL wires — their items collect into a list in wire order, which is the idiomatic way to gather a few points or curves into one input (prefer this over Entwine/Merge for small fixed lists). But NEVER wire several sources into an input that consumes ONE item — a Construct Point coordinate, a math operand: the wires still collect into a list and every downstream item multiplies. To combine two values (an origin plus an offset, say), compute the combination upstream (Addition) and wire the single result.",
+    "DATA TREES: for simple gathering, prefer wiring and list order (above) over tree edits. Reach for the parameterSettings modifiers (dataMapping graft/flatten, isSimplified, isReversed) on a specific port only to fix a branch-count mismatch — the classic case being pairing a list against another input one-to-one: graft the port whose items must each stand alone so a per-branch component sees one item per branch instead of matching one item against a whole list. Modifiers attach to a single input or output, not the whole component. In a FULL document, set them inside the component's inputSettings/outputSettings array entry for that parameter. In a ghpatch, MODIFY the component (do NOT remove and re-add it): inputSettings.byParameterName['<full parameter name>'].set = { \"dataMapping\": \"graft\" } (or isSimplified/isReversed/expression); clear one by setting it back ('dataMapping':'none', 'isSimplified':false).",
+    "Number Slider value uses the format 'default<min~max>', e.g. '5<0~10>', at componentState.extensions['gh.numberslider'].value. min must be strictly less than max. This is the most common mistake — do not use a plain number.",
+    "Math components do NOT default their second operand: Division's B, Modulus's B, and Power's E are required, and leaving one empty is the most frequently rejected mistake. Supply every FIXED constant (divide by 2, a unit vector, a base point) by internalizing it into the consuming input: inputSettings entry { \"parameterName\": \"B\", \"internalizedData\": { \"{0}\": { \"{0}(0)\": \"number:2\" } } }. A slider is only for values the user should tweak; never add a slider whose min equals its max.",
+    "Give every Number Slider (and other input source) a nickName naming what it controls — 'Radius', 'Height' — never the default label.",
+    "Colours use the prefixed string 'argb:A,R,G,B', each channel 0-255.",
+    "GHPATCH: match every existing component you modify or remove by its instanceGuid copied exactly from the canvas state; never match by name. Copy the canvas state's base checksum verbatim into patch.base.checksum. Connections cannot be modified — remove the old wire and add the new one. Change slider values and panel text by MODIFYING the component's extensions in place, not by remove-and-re-add. Removing a component removes its wires too. Never re-emit components that are not being changed.",
+    "Components marked with the physalia.rhinoRef extension in the canvas state reference live geometry in the Rhino model. Wire FROM them by their id as data sources; never modify their values, remove them, or recreate them.",
+    "GHPATCH FEEDBACK: if some operations are reported as not applied, everything else DID land — resubmit a patch containing ONLY the corrected operations, regenerated against the current canvas state.",
+    "Inputs marked * in the grounding's component signatures are REQUIRED: wire them or internalize a value. A required input left empty produces nulls or no output, which silently breaks every component downstream.",
+    "Every component's output must be read by something, WITHIN THE STAGE THAT ADDS IT. A component nothing consumes — most often a slider wired to no input — cannot affect the result and is rejected; wire it to the input it is meant to drive or leave it out until the stage that drives it. Documentation Panels are the one exception. In a ghpatch this is checked on the graph the patch PRODUCES, so a connections.remove that takes away a component's last consumer must also remove the component or rewire it.",
+    "Never wire one output into two inputs of the same operator. Addition, Subtraction, Division, Modulus, Minimum, Maximum, Line, and the comparisons combine a value with itself if you do (A-A is 0, A/A is 1), which solves cleanly and yields silently wrong geometry. When a patch rewires one operand, check the operand it does not touch — that wire is still in place.",
+    "FULL DOCUMENT: do not leave a non-source component's inputs all unwired; source components (Number Slider, Panel as input, Boolean Toggle, value params) legitimately have none. instanceGuid may be omitted (regenerated on placement). Omit document metadata.",
+    "GROUPS: one group per STAGE, every time, unprompted — named for what the stage builds and given its own colour, so the canvas organises itself as the build proceeds. EVERY component must be a member of exactly one group, in a full document and in a ghpatch alike: check your member lists against your component list before emitting, because a component in no group is a stray with nothing to say which area it serves. In a ghpatch, an added component joins a group either through a new group's members or through groups.modify's members.add. Groups never carry an instanceGuid (it is generated on placement) and always carry an id and members; group ids share the number space with component ids, so a group id must not collide with any component id or another group id. Groups are annotation only and never change what the graph computes.",
+    "EXPLANATORY PANELS: give every major group a Panel whose gh.panel.text explains that area in a sentence or two — what it builds, which sliders drive it, how it relates to the rest — and put that Panel in the SAME group as the components it describes. Group membership is what ties a Panel to its subject and positions it beside them; a documentation Panel is wired to nothing, so one left out of a group is stranded away from what it explains."
+  ],
+
+  "componentCatalog": {
+    "description": "Parameters for common Grasshopper components, listed in order. A parameter's paramIndex is its zero-based position in the inputs or outputs array below (first = 0). Components with no inputs are data sources. This is a convenience listing, not the set of allowed components — that set comes from the grounding's installed-component list.",
+    "components": [
+      { "name": "Number Slider",   "inputs": [],                               "outputs": ["Number"]    },
+      { "name": "Boolean Toggle",  "inputs": [],                               "outputs": ["Boolean"]   },
+      { "name": "Panel",           "inputs": ["Input"],                        "outputs": ["Output"]    },
+      { "name": "Value List",      "inputs": [],                               "outputs": ["Value"]     },
+
+      { "name": "Addition",        "inputs": ["A", "B"],                       "outputs": ["Result"]    },
+      { "name": "Subtraction",     "inputs": ["A", "B"],                       "outputs": ["Result"]    },
+      { "name": "Multiplication",  "inputs": ["A", "B"],                       "outputs": ["Result"]    },
+      { "name": "Division",        "inputs": ["A", "B"],                       "outputs": ["Result"]    },
+      { "name": "Negative",        "inputs": ["Value"],                        "outputs": ["Output"]    },
+      { "name": "Absolute Value",  "inputs": ["Value"],                        "outputs": ["Result"]    },
+      { "name": "Power",           "inputs": ["A", "B"],                       "outputs": ["Result"]    },
+      { "name": "Square Root",     "inputs": ["Value"],                        "outputs": ["Result"]    },
+      { "name": "Series",          "inputs": ["Start", "Step", "Count"],       "outputs": ["Series"]    },
+      { "name": "Range",           "inputs": ["Domain", "Steps"],              "outputs": ["Range"]     },
+
+      { "name": "Construct Point", "inputs": ["X", "Y", "Z"],                  "outputs": ["Pt"]        },
+      { "name": "Vector XYZ",      "inputs": ["X", "Y", "Z"],                  "outputs": ["Vector"]    },
+      { "name": "Amplitude",       "inputs": ["Vector", "Amplitude"],          "outputs": ["Vector"]    },
+
+      { "name": "Line",            "inputs": ["A", "B"],                       "outputs": ["Line"]      },
+      { "name": "Circle",          "inputs": ["Plane", "Radius"],              "outputs": ["Circle"]    },
+      { "name": "Arc 3Pt",         "inputs": ["A", "B", "C"],                  "outputs": ["Arc"]       },
+      { "name": "Polyline",        "inputs": ["Vertices", "Closed"],           "outputs": ["Polyline"]  },
+
+      { "name": "Sphere",          "inputs": ["Base", "Radius"],               "outputs": ["Sphere"]    },
+      { "name": "Pipe",            "inputs": ["Curve", "Radius"],              "outputs": ["Brep"]      },
+      { "name": "Loft",            "inputs": ["Curves"],                       "outputs": ["Loft"]      },
+      { "name": "Extrude",         "inputs": ["Base", "Direction"],            "outputs": ["Extrusion"] },
+
+      { "name": "Move",            "inputs": ["Geometry", "Motion"],           "outputs": ["Geometry"]  },
+      { "name": "Rotate",          "inputs": ["Geometry", "Angle", "Plane"],   "outputs": ["Geometry"]  },
+      { "name": "Scale",           "inputs": ["Geometry", "Factor", "Center"], "outputs": ["Geometry"]  }
+    ]
+  },
+
+  "componentNotes": [
+    "Center Box: X/Y/Z are HALF-extents and the box is CENTERED on the base plane — it extends below Z=0 and measures twice each value. For a volume sitting ON the ground from a corner or with explicit extents, use Domain Box (Base plane + X/Y/Z Domains, e.g. Z domain 0 to height) instead.",
+    "Domain Box: takes Domains, not numbers — build each with Construct Domain. The go-to component for building masses that sit on the XY plane.",
+    "Boundary Surfaces: requires CLOSED planar curves. A PolyLine cap needs its Closed input internalized to boolean:true.",
+    "Entwine: grafts each input onto its own tree branch — a per-branch consumer like PolyLine then sees ONE point per branch and fails. To gather a few items into one list, wire them all into the same input instead.",
+    "Extrude: extrudes a curve or surface along a Direction VECTOR (build with Unit Z + Amplitude, or Vector XYZ) — a plain number is not a direction.",
+    "Loft / Ruled Surface: section curves must run in consistent directions and be listed in order; prefer Ruled Surface for exactly two rails."
+  ],
+
+  "$defs": {
+    "fullDocument": {
+      "type": "object",
+      "description": "A complete Grasshopper definition, placed on the canvas from scratch.",
+      "required": ["schema", "components"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "type": "string",
+          "description": "GhJSON schema version. Always use '1.0'.",
+          "const": "1.0"
+        },
+        "components": {
+          "type": "array",
+          "description": "All Grasshopper components in the definition.",
+          "items": { "$ref": "#/$defs/component" }
+        },
+        "connections": {
+          "type": "array",
+          "description": "Wires between component parameters. One entry per wire.",
+          "items": { "$ref": "#/$defs/connection" }
+        },
+        "groups": {
+          "type": "array",
+          "description": "Coloured group boxes around the components of each logical part of the definition. Optional but recommended on any graph large enough to have distinct parts.",
+          "items": { "$ref": "#/$defs/group" }
+        }
+      }
+    },
+
+    "ghpatchDocument": {
+      "type": "object",
+      "description": "An incremental edit to the definition already on the canvas.",
+      "required": ["kind", "patch"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "type": "string",
+          "description": "GhJSON schema version. Always use '1.0'.",
+          "const": "1.0"
+        },
+        "kind": {
+          "type": "string",
+          "description": "Document discriminator. Always 'ghpatch'.",
+          "const": "ghpatch"
+        },
+        "patch": {
+          "type": "object",
+          "description": "The patch body: what to add, modify, and remove.",
+          "additionalProperties": false,
+          "properties": {
+            "base": {
+              "type": "object",
+              "description": "The canvas state this patch was written against.",
+              "additionalProperties": false,
+              "properties": {
+                "schema":   { "type": "string", "description": "Base schema version, '1.0'." },
+                "checksum": { "type": "string", "description": "The base checksum, copied VERBATIM from the canvas state in the prompt." }
+              }
+            },
+            "components": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "add": {
+                  "type": "array",
+                  "description": "Full component objects to place (fresh id above the canvas state's highest; omit instanceGuid).",
+                  "items": { "$ref": "#/$defs/component" }
+                },
+                "remove": {
+                  "type": "array",
+                  "description": "Components to delete, each matched by instanceGuid.",
+                  "items": { "$ref": "#/$defs/componentMatch" }
+                },
+                "modify": {
+                  "type": "array",
+                  "description": "In-place edits to existing components.",
+                  "items": { "$ref": "#/$defs/componentModify" }
+                }
+              }
+            },
+            "connections": {
+              "type": "object",
+              "description": "Wire operations. Wires are immutable: move one by removing the old entry and adding the new.",
+              "additionalProperties": false,
+              "properties": {
+                "add":    { "type": "array", "items": { "$ref": "#/$defs/connection" } },
+                "remove": { "type": "array", "items": { "$ref": "#/$defs/connection" } }
+              }
+            },
+            "groups": {
+              "type": "object",
+              "description": "Group operations. Optional — most edits need none.",
+              "additionalProperties": false,
+              "properties": {
+                "add": {
+                  "type": "array",
+                  "description": "New group boxes. Each needs a fresh id (above every component and group id in the canvas state) and its members; never an instanceGuid, which is generated on placement.",
+                  "items": { "$ref": "#/$defs/group" }
+                },
+                "remove": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "instanceGuid": { "type": "string" },
+                      "id":           { "type": "integer" }
+                    }
+                  }
+                },
+                "modify": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["match"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "match": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "instanceGuid": { "type": "string" },
+                          "id":           { "type": "integer" }
+                        }
+                      },
+                      "set": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "name":  { "type": "string" },
+                          "color": { "$ref": "#/$defs/argbString" }
+                        }
+                      },
+                      "members": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "add":    { "type": "array", "items": { "type": "integer" } },
+                          "remove": { "type": "array", "items": { "type": "integer" } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "componentMatch": {
+      "type": "object",
+      "description": "Identifies one existing component. Always use instanceGuid, copied exactly from the canvas state.",
+      "required": ["instanceGuid"],
+      "additionalProperties": false,
+      "properties": {
+        "instanceGuid": {
+          "type": "string",
+          "description": "The component's instanceGuid from the canvas state.",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        }
+      }
+    },
+
+    "componentModify": {
+      "type": "object",
+      "description": "An in-place edit: which component (match) and what changes. Include only the fields that change.",
+      "required": ["match"],
+      "additionalProperties": false,
+      "properties": {
+        "match": { "$ref": "#/$defs/componentMatch" },
+        "set": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "nickName": { "type": "string", "description": "New on-canvas label." },
+            "pivot":    { "type": "string", "description": "New canvas position 'X,Y'.", "pattern": "^-?\\d+(\\.\\d+)?,-?\\d+(\\.\\d+)?$" }
+          }
+        },
+        "componentState": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "set": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "locked": { "type": "boolean", "description": "Disable (true) or enable (false) the component." },
+                "hidden": { "type": "boolean", "description": "Hide (true) or show (false) its preview." }
+              }
+            },
+            "extensions": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "set": {
+                  "type": "object",
+                  "description": "Component-type-specific values to overwrite, keyed by extension name — e.g. { \"gh.numberslider\": { \"value\": \"5<0~50>\" } }. Same encodings as the extensions definitions below.",
+                  "additionalProperties": { "type": "object" }
+                }
+              }
+            }
+          }
+        },
+        "inputSettings": {
+          "type": "object",
+          "description": "Per-input setting changes keyed by the parameter's full name — mainly to change a data-tree modifier (dataMapping graft/flatten, isSimplified, isReversed, expression). e.g. { \"byParameterName\": { \"Curve\": { \"set\": { \"dataMapping\": \"graft\" } } } }.",
+          "additionalProperties": false,
+          "properties": {
+            "byParameterName": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "set": { "type": "object", "additionalProperties": true }
+                }
+              }
+            }
+          }
+        },
+        "outputSettings": {
+          "type": "object",
+          "description": "Per-output setting changes keyed by the parameter's full name — mainly to change a data-tree modifier (dataMapping graft/flatten, isSimplified, isReversed, expression).",
+          "additionalProperties": false,
+          "properties": {
+            "byParameterName": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "set": { "type": "object", "additionalProperties": true }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "group": {
+      "type": "object",
+      "description": "A coloured group box drawn around a set of components. Groups are pure annotation — they never change what the graph computes.",
+      "required": ["id", "members"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Unique integer identifier for this group, drawn from the same number space as component ids: it must not collide with any component id or any other group id. In a ghpatch add, HIGHER than every id in the canvas state.",
+          "minimum": 1
+        },
+        "name": {
+          "type": "string",
+          "description": "Group caption, naming the part it encloses, e.g. 'Colonnade'."
+        },
+        "color": {
+          "$ref": "#/$defs/argbString"
+        },
+        "members": {
+          "type": "array",
+          "description": "Component ids enclosed by the group. Include the explanatory Panel for this part, if there is one: a Panel is positioned next to the components it is grouped with.",
+          "items": { "type": "integer" },
+          "minItems": 1
+        }
+      }
+    },
+
+    "component": {
+      "type": "object",
+      "required": ["name", "id", "pivot"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Component display name, exactly as it appears in the Grasshopper library, e.g. 'Addition', 'Number Slider', 'Sphere'."
+        },
+        "id": {
+          "type": "integer",
+          "description": "Unique integer identifier, referenced by the connections array. In a ghpatch add, HIGHER than the highest id in the canvas state.",
+          "minimum": 1
+        },
+        "pivot": {
+          "$ref": "#/$defs/pivot"
+        },
+        "instanceGuid": {
+          "type": "string",
+          "description": "Optional UUID v4. Regenerated on placement, so it may be omitted; omit it on ghpatch adds.",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        },
+        "componentGuid": {
+          "type": "string",
+          "description": "Optional component-type GUID. Leave this out — it is filled in from the live library. Do not invent a value.",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        },
+        "nickName": {
+          "type": "string",
+          "description": "On-canvas label. Set it on every input source — most importantly a Number Slider — to name what it controls (e.g. 'Radius', 'Height')."
+        },
+        "componentState": {
+          "$ref": "#/$defs/componentState"
+        },
+        "inputSettings": {
+          "type": "array",
+          "description": "Optional per-input parameter settings. Only needed to change a parameter's behaviour; omit otherwise.",
+          "items": { "$ref": "#/$defs/parameterSettings" }
+        },
+        "outputSettings": {
+          "type": "array",
+          "description": "Optional per-output parameter settings. Omit unless changing an output's behaviour.",
+          "items": { "$ref": "#/$defs/parameterSettings" }
+        }
+      }
+    },
+
+    "pivot": {
+      "type": "string",
+      "description": "Canvas position as 'X,Y' (numbers may be negative or decimal), e.g. '100,200'.",
+      "pattern": "^-?\\d+(\\.\\d+)?,-?\\d+(\\.\\d+)?$",
+      "examples": ["100,100", "300,125", "-50.5,300.25"]
+    },
+
+    "componentState": {
+      "type": "object",
+      "description": "Optional UI state and component-type-specific values. Omit for standard components that need no special state.",
+      "additionalProperties": true,
+      "properties": {
+        "selected": { "type": "boolean", "description": "Whether the component is selected on the canvas." },
+        "locked":   { "type": "boolean", "description": "Whether the component is locked (disabled)." },
+        "hidden":   { "type": "boolean", "description": "Whether the component's preview is hidden." },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      }
+    },
+
+    "extensions": {
+      "type": "object",
+      "description": "Component-type-specific values, keyed by extension name. Use only the key that matches the component (e.g. a Number Slider uses 'gh.numberslider').",
+      "additionalProperties": false,
+      "properties": {
+        "gh.numberslider": { "$ref": "#/$defs/ext_numberslider" },
+        "gh.panel":        { "$ref": "#/$defs/ext_panel" },
+        "gh.valuelist":    { "$ref": "#/$defs/ext_valuelist" },
+        "gh.toggle":       { "$ref": "#/$defs/ext_toggle" },
+        "gh.button":       { "$ref": "#/$defs/ext_button" },
+        "gh.scribble":     { "$ref": "#/$defs/ext_scribble" }
+      }
+    },
+
+    "ext_numberslider": {
+      "type": "object",
+      "description": "Number Slider state. Used on a component whose name is 'Number Slider'.",
+      "required": ["value"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "type": "string",
+          "description": "Slider value as 'default<min~max>'. The default sits between min and max, and min must be strictly less than max (Grasshopper widens a zero-width range itself). To supply a fixed constant, prefer internalizing a value into the consuming input over pinning a slider. Decimal places set the slider's precision.",
+          "pattern": "^-?\\d+(\\.\\d+)?<-?\\d+(\\.\\d+)?~-?\\d+(\\.\\d+)?>$",
+          "examples": ["5<0~10>", "3.5<0~10>", "1<-5~5>", "2<0.1~5>"]
+        },
+        "rounding": {
+          "type": "string",
+          "description": "Optional rounding mode.",
+          "enum": ["Float", "Integer", "Even", "Odd"]
+        }
+      }
+    },
+
+    "ext_panel": {
+      "type": "object",
+      "description": "Panel state. A Panel with no input wire shows its own static 'text'; a Panel wired from upstream displays that data.",
+      "additionalProperties": false,
+      "properties": {
+        "text":      { "type": "string",  "description": "Static text content." },
+        "multiline": { "type": "boolean", "description": "Whether text wraps onto multiple lines." },
+        "wrap":      { "type": "boolean", "description": "Whether text wraps within the panel width." },
+        "alignment": { "type": "string",  "description": "Text alignment.", "enum": ["Left", "Center", "Right"] },
+        "color":     { "$ref": "#/$defs/argbString" }
+      }
+    },
+
+    "ext_valuelist": {
+      "type": "object",
+      "description": "Value List state.",
+      "additionalProperties": false,
+      "properties": {
+        "listMode": {
+          "type": "string",
+          "description": "Display mode for the list.",
+          "enum": ["DropDown", "Sequence", "CheckList", "Cycle"]
+        },
+        "items": {
+          "type": "array",
+          "description": "List entries.",
+          "items": {
+            "type": "object",
+            "required": ["name", "expression"],
+            "additionalProperties": false,
+            "properties": {
+              "name":       { "type": "string",  "description": "Display label for the entry." },
+              "expression": { "type": "string",  "description": "Value the entry outputs, e.g. '0', '1', '\"a\"'." },
+              "selected":   { "type": "boolean", "description": "Whether this entry is selected." }
+            }
+          }
+        }
+      }
+    },
+
+    "ext_toggle": {
+      "type": "object",
+      "description": "Boolean Toggle state.",
+      "additionalProperties": false,
+      "properties": {
+        "value": { "type": "boolean", "description": "The toggle's boolean value." }
+      }
+    },
+
+    "ext_button": {
+      "type": "object",
+      "description": "Button state.",
+      "additionalProperties": false,
+      "properties": {
+        "value": { "type": "boolean", "description": "The button's resting boolean value." }
+      }
+    },
+
+    "ext_scribble": {
+      "type": "object",
+      "description": "Scribble (canvas text note) state.",
+      "required": ["text", "corners"],
+      "additionalProperties": false,
+      "properties": {
+        "text":       { "type": "string",  "description": "The note text." },
+        "corners": {
+          "type": "array",
+          "description": "Exactly three corner offsets 'x,y' relative to the pivot: [A, B, D]. The fourth corner is derived as B + D - A.",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "type": "string", "pattern": "^-?\\d+(\\.\\d+)?,-?\\d+(\\.\\d+)?$" }
+        },
+        "fontFamily": { "type": "string",  "description": "Optional font family." },
+        "fontSize":   { "type": "number",  "description": "Optional font size in points." },
+        "bold":       { "type": "boolean", "description": "Optional bold flag." },
+        "italic":     { "type": "boolean", "description": "Optional italic flag." }
+      }
+    },
+
+    "parameterSettings": {
+      "type": "object",
+      "description": "Settings for a single input or output parameter. Only include the fields you need to change.",
+      "required": ["parameterName"],
+      "additionalProperties": false,
+      "properties": {
+        "parameterName":   { "type": "string",  "description": "The parameter's full Name." },
+        "nickName":        { "type": "string",  "description": "Optional custom nickname." },
+        "dataMapping":     { "type": "string",  "description": "Data-tree mapping applied to THIS port (input or output). 'graft' moves every item onto its own branch — use it to pair a list one-to-one against another input so components cross-reference item-by-item instead of matching a single item against a whole list. 'flatten' collapses all branches into one flat list — use it when a downstream component needs a single list, not a tree. 'none' (the default) leaves the data structure unchanged; omit the field unless you are changing it.", "enum": ["none", "flatten", "graft"] },
+        "expression":      { "type": "string",  "description": "A per-item expression that transforms the port's values before they flow on, using 'x' for the incoming value (e.g. 'x*2', 'x+1'). Prefer a real component (Multiplication, Addition) for anything a reader should see; reserve this for a small inline tweak." },
+        "isReversed":      { "type": "boolean", "description": "Reverse the item order within each branch of this port." },
+        "isSimplified":    { "type": "boolean", "description": "Simplify the port's data tree, trimming path nesting shared by every branch — use when upstream grafting left the tree deeper than a downstream component expects." },
+        "isReparameterized": { "type": "boolean", "description": "Reparameterize an incoming curve/surface domain to 0..1, so parameters along it read as fractions of its length rather than absolute values." },
+        "internalizedData": {
+          "type": "object",
+          "description": "Persistent data internalized into an INPUT parameter of a component you are adding — the way to supply a fixed constant without creating a slider. The enclosing parameterName MUST be the parameter's FULL name exactly as listed in the grounding's component signatures (e.g. 'Closed', 'Origin'), never a one-letter canvas label ('C', 'O') — a wrong name silently applies nothing. A single value is {\"{0}\": {\"{0}(0)\": \"number:2\"}}; the inner value is a type-prefixed string such as 'number:2', 'integer:5', 'boolean:true', 'text:hello', 'pointXYZ:0,0,0', 'vectorXYZ:0,0,1'. A wired input IGNORES internalized data entirely — when you add a wire, never clear or modify the old internalized value; just add the wire. Never copy internalizedData from components marked physalia.rhinoRef.",
+          "additionalProperties": { "type": "object", "additionalProperties": { "type": "string" } }
+        }
+      }
+    },
+
+    "connection": {
+      "type": "object",
+      "description": "A single wire from a source output to a target input.",
+      "required": ["from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "allOf": [{ "$ref": "#/$defs/connectionEndpoint" }],
+          "description": "Source endpoint (an output parameter)."
+        },
+        "to": {
+          "allOf": [{ "$ref": "#/$defs/connectionEndpoint" }],
+          "description": "Target endpoint (an input parameter)."
+        }
+      }
+    },
+
+    "connectionEndpoint": {
+      "type": "object",
+      "description": "One end of a wire. 'id' selects the component; 'paramIndex' selects the parameter.",
+      "required": ["id", "paramIndex"],
+      "additionalProperties": false,
+      "properties": {
+        "id":         { "type": "integer", "description": "The component's id.", "minimum": 1 },
+        "paramIndex": { "type": "integer", "description": "Zero-based position of the parameter within the component's OUTPUT list (for 'from') or INPUT list (for 'to'). This is how the wire is matched; always include it.", "minimum": 0 },
+        "paramName":  { "type": "string",  "description": "Optional human-readable parameter label. For readability only; matching uses paramIndex." }
+      }
+    },
+
+    "argbString": {
+      "type": "string",
+      "description": "Colour as 'argb:A,R,G,B', each channel 0-255.",
+      "pattern": "^argb:\\d{1,3},\\d{1,3},\\d{1,3},\\d{1,3}$",
+      "examples": ["argb:255,200,220,240"]
+    }
+  },
+
+  "examples": [
+    {
+      "schema": "1.0",
+      "components": [
+        { "name": "Number Slider", "id": 1, "pivot": "0,0",   "nickName": "Footprint", "componentState": { "extensions": { "gh.numberslider": { "value": "8000<3000~15000>" } } } },
+        { "name": "Number Slider", "id": 2, "pivot": "0,80",  "nickName": "Height", "componentState": { "extensions": { "gh.numberslider": { "value": "3000<2000~6000>" } } } },
+        { "name": "XY Plane",      "id": 3, "pivot": "150,-80", "inputSettings": [ { "parameterName": "Origin", "internalizedData": { "{0}": { "{0}(0)": "pointXYZ:0,0,0" } } } ] },
+        { "name": "Construct Domain", "id": 4, "pivot": "150,0",  "nickName": "Footprint Domain", "inputSettings": [ { "parameterName": "Domain start", "internalizedData": { "{0}": { "{0}(0)": "number:0" } } } ] },
+        { "name": "Construct Domain", "id": 5, "pivot": "150,80", "nickName": "Height Domain", "inputSettings": [ { "parameterName": "Domain start", "internalizedData": { "{0}": { "{0}(0)": "number:0" } } } ] },
+        { "name": "Domain Box",    "id": 6, "pivot": "320,0", "nickName": "Mass" }
+      ],
+      "connections": [
+        { "from": { "id": 1, "paramIndex": 0, "paramName": "Number" }, "to": { "id": 4, "paramIndex": 1, "paramName": "Domain end" } },
+        { "from": { "id": 2, "paramIndex": 0, "paramName": "Number" }, "to": { "id": 5, "paramIndex": 1, "paramName": "Domain end" } },
+        { "from": { "id": 3, "paramIndex": 0, "paramName": "Plane" },  "to": { "id": 6, "paramIndex": 0, "paramName": "Base" } },
+        { "from": { "id": 4, "paramIndex": 0, "paramName": "Domain" }, "to": { "id": 6, "paramIndex": 1, "paramName": "X" } },
+        { "from": { "id": 4, "paramIndex": 0, "paramName": "Domain" }, "to": { "id": 6, "paramIndex": 2, "paramName": "Y" } },
+        { "from": { "id": 5, "paramIndex": 0, "paramName": "Domain" }, "to": { "id": 6, "paramIndex": 3, "paramName": "Z" } }
+      ]
+    },
+    {
+      "schema": "1.0",
+      "kind": "ghpatch",
+      "patch": {
+        "base": { "schema": "1.0", "checksum": "sha256-abcd1234ef567890" },
+        "components": {
+          "modify": [
+            {
+              "match": { "instanceGuid": "11111111-1111-1111-1111-111111111111" },
+              "componentState": { "extensions": { "set": { "gh.numberslider": { "value": "12<0~50>" } } } }
+            }
+          ],
+          "add": [
+            { "name": "Pipe", "id": 7, "pivot": "600,120" },
+            { "name": "Number Slider", "id": 8, "pivot": "400,260", "nickName": "Pipe Radius", "componentState": { "extensions": { "gh.numberslider": { "value": "1<0.1~5>" } } } }
+          ]
+        },
+        "connections": {
+          "add": [
+            { "from": { "id": 4, "paramIndex": 0, "paramName": "Circle" }, "to": { "id": 7, "paramIndex": 0, "paramName": "Curve" } },
+            { "from": { "id": 8, "paramIndex": 0, "paramName": "Number" }, "to": { "id": 7, "paramIndex": 1, "paramName": "Radius" } }
+          ]
+        }
+      }
+    }
+  ]
+}

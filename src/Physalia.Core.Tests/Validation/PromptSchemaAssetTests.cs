@@ -49,6 +49,7 @@ public class PromptSchemaAssetTests
     // Every example embedded in a schema asset must validate against that asset.
     [Theory]
     [InlineData("Node Graph.json")]
+    [InlineData("Incremental Node Graph.json")]
     [InlineData("Python3 Script.json")]
     public void SchemaAsset_OwnExamples_Validate(string fileName)
     {

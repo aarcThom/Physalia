@@ -13,7 +13,7 @@ namespace Physalia.GH.Components;
 /// Base for the deterministic compaction components. Each is an inline forward-path
 /// <see cref="RoutingComponentBase{TData}"/>: it consumes a Conversation Log's Signal — which <b>carries the
 /// full Instructions</b> — compacts the conversation, and re-emits a Signal carrying the compacted
-/// Instructions on its <b>Success Signal</b>, wired straight to the LLM Call
+/// Instructions on its single <b>Signal</b> output, wired straight to the LLM Call
 /// (<c>Conversation Log → Compactor → LLM Call</c>). No loop-back: the Conversation Log stays the uncompacted source
 /// of truth; the compactor only transforms the copy on the signal.
 ///
@@ -22,11 +22,30 @@ namespace Physalia.GH.Components;
 /// conversation is — and the compacted Instructions re-attach the original system prompt.</para>
 ///
 /// <para>Subclasses implement the pure transform in <see cref="Compact"/>; the base owns reading the
-/// Instructions off the consumed signal, the trigger contract, error routing, and minting the carrying
-/// signal.</para>
+/// Instructions off the consumed signal, the trigger contract, the fail-open policy, and minting the
+/// carrying signal.</para>
+///
+/// <para><b>Compaction fails open</b>, on a single Signal output. It is an optimisation: the whole
+/// conversation is already on the signal, so a compactor that cannot run forwards it UNCOMPACTED with
+/// a warning, and the cost is a longer prompt rather than a lost turn. A Fail route could not have
+/// been wired anywhere useful — a failure signal carries a feedback string and no Instructions, so
+/// forward to the LLM Call it is dropped as "Signal carried no Instructions" (misleading, since one
+/// IS wired), back through Feedback it lands "Compaction could not run" in front of the model as a
+/// user turn it cannot act on, and unwired — the realistic case — the loop simply stalls with nothing
+/// but a component warning to explain it. Every reachable failure here is a canvas setup mistake (an
+/// unwired token estimator, an async estimator where a sync one is required) that the component
+/// already reports on itself, so there is no runtime condition for a signal to carry.</para>
 /// </summary>
 public abstract class CompactionComponentBase : RoutingComponentBase<Instructions>
 {
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Sealed: the fail-open contract is uniform across compactors, and it stays right even for a
+    /// future compactor that calls an LLM to summarise — a network failure there should still cost
+    /// a longer prompt, not the turn.
+    /// </remarks>
+    protected sealed override bool HasFailOutput => false;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="CompactionComponentBase"/> class in the
     /// Compaction sub-category.
@@ -59,11 +78,13 @@ public abstract class CompactionComponentBase : RoutingComponentBase<Instruction
     /// <summary>
     /// Performs the pure compaction on the conversation inside <paramref name="instructions"/>,
     /// leaving the system prompt untouched. Read the subclass's own inputs from <paramref name="da"/>.
-    /// Return null to fail the run with a warning (e.g. a missing input).
+    /// Return null when the compaction cannot run (a missing or unusable input); surface the reason
+    /// as a runtime message first, because the base then forwards the conversation UNCOMPACTED
+    /// rather than failing the turn.
     /// </summary>
     /// <param name="instructions">The source instructions (system prompt + conversation) from the consumed signal.</param>
     /// <param name="da">The data access for the current solve.</param>
-    /// <returns>The compaction result, or null to route a failure.</returns>
+    /// <returns>The compaction result, or null to forward the conversation uncompacted.</returns>
     protected abstract CompactionResult? Compact(Instructions instructions, IGH_DataAccess da);
 
     /// <inheritdoc/>
@@ -100,20 +121,37 @@ public abstract class CompactionComponentBase : RoutingComponentBase<Instruction
         }
         catch (Exception ex)
         {
-            return RoutingResult.Fail(ex.Message, ex.Message, GH_RuntimeMessageLevel.Error);
+            return PassThrough(data, ex.Message, GH_RuntimeMessageLevel.Error);
         }
 
-        if (result is null)
-        {
-            return RoutingResult.Fail("Compaction could not run; see the component warning.");
-        }
+        return result is null
+            ? PassThrough(data, "the component is not configured to run; see its warning above", GH_RuntimeMessageLevel.Warning)
+            : Succeed(data, result);
+    }
 
-        return Succeed(data, result);
+    /// <summary>
+    /// The fail-open result: the ORIGINAL Instructions, forwarded intact on the Signal output so the
+    /// LLM Call still gets its inference context. The reason rides as a runtime message on the
+    /// component, where a canvas setup mistake belongs — never as signal payload aimed at the model,
+    /// which cannot wire a token estimator.
+    /// </summary>
+    /// <param name="source">The instructions that arrived, forwarded unchanged.</param>
+    /// <param name="reason">Why compaction did not run.</param>
+    /// <param name="level">The level for the runtime message.</param>
+    /// <returns>A success <see cref="RoutingResult"/> carrying the uncompacted Instructions.</returns>
+    private static RoutingResult PassThrough(Instructions source, string reason, GH_RuntimeMessageLevel level)
+    {
+        int count = source.Conversation.Count;
+        return RoutingResult.Ok(
+            $"Not compacted ({reason}); forwarded {count} message(s) unchanged",
+            instructions: source,
+            message: $"Compaction did not run — {reason}. The conversation was forwarded UNCOMPACTED ({count} message(s)), so the prompt is longer than intended but the turn still runs.",
+            level: level);
     }
 
     /// <summary>
     /// Builds the success routing result that carries the compacted Instructions (original system
-    /// prompt + compacted conversation) on the minted Success Signal, forwarded to the LLM Call.
+    /// prompt + compacted conversation) on the minted Signal, forwarded to the LLM Call.
     /// </summary>
     /// <param name="source">The source instructions, for the preserved system prompt.</param>
     /// <param name="result">The compaction result.</param>

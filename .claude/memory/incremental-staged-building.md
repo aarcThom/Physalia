@@ -5,10 +5,15 @@ metadata:
   node_type: memory
   type: project
   originSessionId: d6c89f2d-4181-407e-9315-bc8096ca33b2
-  modified: 2026-07-28T03:33:26.816Z
+  modified: 2026-07-28T05:57:08.122Z
 ---
 
-2026-07-27, branch `feat/incremental_nodes`. **Built, builds clean, 325 Core tests pass — NOT yet run in Rhino.** Authoritative doc: `planning/incremental-building.md`.
+2026-07-27, branch `feat/incremental_nodes`. **Run live in Rhino same day — the loop works** (3 build episodes, each terminating in prose; `now:` held correctly on every correction round). Authoritative doc: `planning/incremental-building.md`, which records the three defects the first session exposed and their fixes.
+
+**Three lessons from that session, all now fixed — don't regress them:**
+1. The tracker was wired past the Component Transmitter, so it consumed GUID lists and produced NO digest all session, silently. It now Warns with the specific remedy and captions `no plan`. A component that degrades to "does nothing" must say so loudly.
+2. Construction points wrecked the Geometry Report's containment analysis — a zero-size box is inside everything, so 42 of 54 reports hit the containment cap on `'Base A' lies inside <every solid>` and a real buried-geometry finding could never have surfaced. `SpatialParts` excludes point-only components from the spatial section only.
+3. One dropped `}` gave the model "Value is array but should be object" — the scan hit a *mismatch* (not a run-off-end, so `LooksTruncated` missed it) and the extractor stepped INTO the broken document and returned the `components` array. Now `ScanOutcome{Balanced,RanOffEnd,Mismatched}` + `LooksMalformed` + skip document-shaped openers whole. Verified against the real 4,989-char payload.
 
 The model now places a definition in **stages** — one slice per response, measured before the next is authored — instead of writing the whole graph and repairing it. The mechanical blocker was that a clean geometry report on a correct stage 1 is indistinguishable from one on a finished definition, so the report's "matches your intent → reply in prose" handed the model an exit on round one.
 

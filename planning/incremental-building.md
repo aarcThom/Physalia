@@ -132,10 +132,61 @@ by the ids the canvas state publishes; without it the model cannot wire to what 
   facts. Making the tracker refuse to let the loop end would mean Physalia adjudicating design
   completeness, which it cannot do.
 
+## What the first live session showed (2026-07-27, Vancouver House + White House)
+
+The loop worked: three build episodes, each terminating in prose, and `now:` correctly held its
+stage across every correction round. 33 inference rounds, 10 of them corrective. Three defects
+surfaced, all now fixed.
+
+**The tracker was wired between the Runtime Health Check and the Geometry Report**, so its payload
+was that turn's placed GUIDs and it could never see a plan block. Not one digest was produced all
+session; every report carried the single-shot closing line. The model kept to its plan from the
+preamble anyway, which is exactly why nobody noticed — the safety net was inert and silent. The
+tracker now classifies the payload it got (GUID list → wired past the Component Transmitter; bare
+JSON → wired past the Schema Validator), says so as a **Warning** with the remedy, and captions
+itself `no plan` on the canvas.
+
+**Construction points destroyed the containment analysis.** A point has a zero-size box, so it
+lies inside every solid, and each Construct Point emitted one containment line per solid: 42 of
+54 reports hit `MaxContainmentLines` with nothing but `'Base A' bbox lies entirely inside 'Tower
+Mass' bbox` eight times over. Buried geometry is one of the two things the report exists to catch
+and it could not have reported one. `SpatialParts` now excludes point-only components from the
+cluster and containment analysis while keeping them in the per-component listing, where their
+coordinates are genuinely used.
+
+**One dropped closing brace produced feedback that sent the model the wrong way.** The scan hit a
+mismatched closer rather than running off the end, so `LooksTruncated` stayed silent; the
+extractor then stepped *into* the broken document and recovered the `components` array, which the
+validator reported as "Value is array but should be object" — for a document whose root is plainly
+an object. Two identical retries before the model recovered by luck. `ScanOutcome` now separates
+`RanOffEnd` from `Mismatched`, `LooksMalformed` reports the latter, `CollectBareJsonCandidates`
+skips a document-shaped opener **whole** instead of walking into it, and the Schema Validator says
+the brackets do not balance and where to look. Verified against the session's actual 4,989-char
+payload.
+
+### Not fixed, worth knowing
+
+- **Fidelity Check erroring on every placement** (20×): `The Definition input did not parse as
+  GhJSON (… character '#')` — its Definition input is wired to the wrong output on that canvas. It
+  is inert in a staged build regardless (full graphs only), which is why the preset omits it.
+- **Cap Holes failed identically in both balcony stages** — 42 single-face open breps in, 42 nulls
+  out. Cap Holes needs planar openings on a joined brep; a lone extrusion surface has no hole to
+  cap. Worth a `componentNotes` entry.
+- **`rounding` authored directly under `extensions`** instead of inside `gh.numberslider`: one
+  round lost.
+- **Context growth**: system prompt 85k → 127k chars over 41 turns, on top of ~20 documents and
+  ~20 reports in the history. In a staged build the model's own prior documents are redundant with
+  the canvas state grounding in a way they are not in ordinary chat — the canvas already says what
+  they built. That makes this rig an unusually safe candidate for the AnchoredWindow compactor.
+
 ## Open
 
-- Not yet run in Rhino. The parser and the shipped schema's examples are covered by
-  `Physalia.Core.Tests`; the component wiring and the preset are not verifiable outside GH.
+- The loop itself is proven in Rhino (see above). Still unverified there: the `SpatialParts`
+  containment filter and the tracker's new diagnostics — both live in `Physalia.GH`, which has no
+  test project. The extraction fixes are covered in `Physalia.Core.Tests` and were checked against
+  the real session payload.
+- The spatial analysis (clustering, containment) is pure geometry reasoning sitting in a GH
+  component, so it cannot be unit-tested. Worth lifting into Core if it grows again.
 - `Files/PRESETS/claude_code_node.ghjson` has **stale paramIndex values** — its Conversation Log
   wires target the pre-Human-Tools input order (Grounding→1, Prompt Signal→2) and its LLM Call
   Signal targets index 3 where the parameter now sits at 2. `paramName` is correct throughout, so

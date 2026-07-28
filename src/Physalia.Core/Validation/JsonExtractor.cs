@@ -78,32 +78,57 @@ public static class JsonExtractor
     /// </summary>
     /// <param name="raw">Raw LLM output string.</param>
     /// <returns>True when an opening brace or bracket never closes before the end of the text.</returns>
-    public static bool LooksTruncated(string raw)
+    public static bool LooksTruncated(string raw) => FirstDocumentFailure(raw) == ScanOutcome.RanOffEnd;
+
+    /// <summary>
+    /// Reports whether the raw output contains a document the model finished writing but got
+    /// structurally wrong — brackets that do not pair up, the signature of a single dropped
+    /// closing brace somewhere in the middle.
+    ///
+    /// <para>This case used to be invisible. <see cref="LooksTruncated"/> only fired when a
+    /// structure ran off the end of the text, but a brace missing mid-document does not run off
+    /// the end: the later closers simply pair with the wrong openers, the scan reports a mismatch,
+    /// and the truncation guard stayed silent. What the model got back instead was the schema
+    /// verdict on whatever fragment the extractor recovered — "Value is array but should be
+    /// object" for a document whose root is plainly an object — and it resubmitted the same shape
+    /// twice before recovering. Whatever else validation reports, this has to be said first.</para>
+    /// </summary>
+    /// <param name="raw">Raw LLM output string.</param>
+    /// <returns>True when a document-shaped structure fails to balance.</returns>
+    public static bool LooksMalformed(string raw) => FirstDocumentFailure(raw) == ScanOutcome.Mismatched;
+
+    /// <summary>
+    /// Scans for the first document-shaped structure that fails to balance and reports how it
+    /// failed, or <see cref="ScanOutcome.Balanced"/> when every structure in the text closes
+    /// cleanly. Openers that are not document-shaped (a stray brace in prose) are stepped past,
+    /// so "…set the {width and height to taste" is not read as a broken document.
+    /// </summary>
+    /// <param name="raw">Raw LLM output string.</param>
+    /// <returns>The failure mode of the first broken document, or Balanced when there is none.</returns>
+    private static ScanOutcome FirstDocumentFailure(string raw)
     {
-        if (string.IsNullOrWhiteSpace(raw)) return false;
+        if (string.IsNullOrWhiteSpace(raw)) return ScanOutcome.Balanced;
 
         int i = 0;
         while (i < raw.Length)
         {
             if (raw[i] == '{' || raw[i] == '[')
             {
-                if (TryScanBalanced(raw, i, out int end, out bool ranOffEnd))
+                ScanOutcome outcome = ScanBalanced(raw, i, out int end);
+                if (outcome == ScanOutcome.Balanced)
                 {
                     i = end + 1;
                     continue;
                 }
 
-                // The structure swallowed the rest of the text without closing. Require a quote
-                // inside it so a stray brace in trailing prose ("...the {width} value") does not
-                // read as truncation — a real JSON document always contains string literals.
-                if (ranOffEnd && raw.IndexOf('"', i) > i)
-                    return true;
+                if (IsDocumentOpener(raw, i))
+                    return outcome;
             }
 
             i++;
         }
 
-        return false;
+        return ScanOutcome.Balanced;
     }
 
     /// <summary>
@@ -152,18 +177,106 @@ public static class JsonExtractor
 
         while (i < raw.Length)
         {
-            if ((raw[i] == '{' || raw[i] == '[') && TryScanBalanced(raw, i, out int end, out _))
+            if (raw[i] != '{' && raw[i] != '[')
+            {
+                i++;
+                continue;
+            }
+
+            if (ScanBalanced(raw, i, out int end) == ScanOutcome.Balanced)
             {
                 candidates.Add(raw.Substring(i, end - i + 1));
                 i = end + 1;
+                continue;
             }
-            else
+
+            // The opener did not close cleanly. Stepping one character forward is right for a
+            // stray brace in prose, and catastrophic for a broken DOCUMENT: the scan walks into
+            // it and the first inner array that happens to balance — "components" — is collected
+            // as if it were the response. The validator then reports that the document root is an
+            // array, which is not what the model wrote and not a defect it can act on; observed
+            // costing two identical retries on one missing brace. A document-shaped opener is
+            // therefore skipped WHOLE, so a fragment of it can never masquerade as the document.
+            if (IsDocumentOpener(raw, i))
             {
-                i++;
+                i = ApparentExtent(raw, i);
+                continue;
             }
+
+            i++;
         }
 
         return candidates;
+    }
+
+    /// <summary>
+    /// Whether the opener at <paramref name="index"/> begins something document-shaped — the next
+    /// non-whitespace character starts a key, a nested structure, or an array element. Deliberately
+    /// tight: prose like <c>{width and height}</c> must not qualify, because the caller skips
+    /// whatever this accepts.
+    /// </summary>
+    /// <param name="raw">Raw LLM output string.</param>
+    /// <param name="index">Index of the opening brace or bracket.</param>
+    /// <returns>True when the opener looks like the start of a JSON document.</returns>
+    private static bool IsDocumentOpener(string raw, int index)
+    {
+        for (int i = index + 1; i < raw.Length; i++)
+        {
+            if (!char.IsWhiteSpace(raw[i]))
+            {
+                return raw[i] is '"' or '{' or '[';
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// How far a malformed structure appears to run: forward from the opener counting depth but
+    /// tolerating a mismatched closer, to the position just past where depth first returns to
+    /// zero. A structure that never gets there ran to the end of the text, so the whole remainder
+    /// is one broken document.
+    /// </summary>
+    /// <param name="raw">Raw LLM output string.</param>
+    /// <param name="start">Index of the opening brace or bracket.</param>
+    /// <returns>The index to resume scanning from.</returns>
+    private static int ApparentExtent(string raw, int start)
+    {
+        int depth = 0;
+        bool inString = false;
+
+        for (int i = start; i < raw.Length; i++)
+        {
+            char c = raw[i];
+
+            if (inString)
+            {
+                if (c == '\\')
+                    i++;
+                else if (c == '"')
+                    inString = false;
+                continue;
+            }
+
+            switch (c)
+            {
+                case '"':
+                    inString = true;
+                    break;
+                case '{':
+                case '[':
+                    depth++;
+                    break;
+                case '}':
+                case ']':
+                    depth--;
+                    if (depth <= 0)
+                        return i + 1;
+                    break;
+            }
+        }
+
+        return raw.Length;
     }
 
     /// <summary>
@@ -175,10 +288,9 @@ public static class JsonExtractor
     /// <param name="end">Receives the index of the matching closer.</param>
     /// <param name="ranOffEnd">Receives true when the input ended while the structure was still open — a truncated document rather than a mismatched one.</param>
     /// <returns>True when the opener closes with matching nesting; false on mismatch or end of input.</returns>
-    private static bool TryScanBalanced(string raw, int start, out int end, out bool ranOffEnd)
+    private static ScanOutcome ScanBalanced(string raw, int start, out int end)
     {
         end = -1;
-        ranOffEnd = false;
         var closers = new Stack<char>();
         bool inString = false;
 
@@ -209,19 +321,37 @@ public static class JsonExtractor
                 case '}':
                 case ']':
                     if (closers.Count == 0 || closers.Pop() != c)
-                        return false;
+                        return ScanOutcome.Mismatched;
                     if (closers.Count == 0)
                     {
                         end = i;
-                        return true;
+                        return ScanOutcome.Balanced;
                     }
 
                     break;
             }
         }
 
-        ranOffEnd = closers.Count > 0;
-        return false;
+        return closers.Count > 0 ? ScanOutcome.RanOffEnd : ScanOutcome.Mismatched;
+    }
+
+    /// <summary>
+    /// How a bracket scan ended. The two failure modes are worth telling apart because they mean
+    /// different things to the model: <see cref="RanOffEnd"/> is a response cut off at the token
+    /// limit, while <see cref="Mismatched"/> is a document the model finished writing but got
+    /// wrong — a closer that pairs with the wrong opener, which is what a single missing brace
+    /// looks like from the outside.
+    /// </summary>
+    private enum ScanOutcome
+    {
+        /// <summary>The opener closed with matching nesting.</summary>
+        Balanced,
+
+        /// <summary>The text ended while the structure was still open.</summary>
+        RanOffEnd,
+
+        /// <summary>A closer arrived that does not pair with the innermost opener.</summary>
+        Mismatched,
     }
 
     /// <summary>

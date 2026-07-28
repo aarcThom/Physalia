@@ -76,6 +76,15 @@ public class SchemaValidator : RoutingComponentBase<string>
                 "The response was cut off mid-JSON (unclosed structure) — validation feedback replaced with a truncation notice.",
                 GH_RuntimeMessageLevel.Warning),
 
+            // A document the model finished but whose brackets do not pair up — one dropped
+            // closing brace. The extractor cannot recover it, so whatever schema violations follow
+            // describe a fragment rather than the document, and relaying them sends the model
+            // hunting for a defect that is not there. Name the real one.
+            Result<string, ValidationError>.Err when JsonExtractor.LooksMalformed(data) => RoutingResult.Fail(
+                BuildMalformedFeedback(),
+                "The JSON document's brackets do not balance — validation feedback replaced with a malformed-JSON notice.",
+                GH_RuntimeMessageLevel.Warning),
+
             Result<string, ValidationError>.Err err => RoutingResult.Fail(
                 BuildFeedback(err.Error), err.Error.Message, GH_RuntimeMessageLevel.Warning),
             _ => RoutingResult.Fail("Unknown validation result."),
@@ -115,6 +124,27 @@ public class SchemaValidator : RoutingComponentBase<string>
             + "not a content problem: do not restructure the document. Re-send your ENTIRE "
             + "response as one complete JSON document, keeping any reasoning brief so the full "
             + "document fits within the response limit.");
+
+        AppendFreshChecksum(sb);
+        return sb.ToString().TrimEnd();
+    }
+
+    private string BuildMalformedFeedback()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(
+            "Your previous response is not parseable JSON and was rejected before any transmitter "
+            + "acted on it — nothing was placed or changed. The document's brackets do not pair up: "
+            + "somewhere a closing brace or bracket is missing (a closer arrives that matches the "
+            + "wrong opener), so the document ends up one level short. The response was NOT cut off "
+            + "— it reached its end — and the CONTENT is not in question: no schema violation is "
+            + "being reported, because the document could not be read far enough to check one.");
+        sb.AppendLine();
+        sb.AppendLine(
+            "Re-send the SAME document with balanced brackets. Walk it once from the top counting "
+            + "depth, and pay particular attention to the deepest nesting — the internalizedData "
+            + "objects and the componentState.extensions blocks are three and four levels deep, and "
+            + "that is where a closer goes missing. Do not restructure anything else.");
 
         AppendFreshChecksum(sb);
         return sb.ToString().TrimEnd();

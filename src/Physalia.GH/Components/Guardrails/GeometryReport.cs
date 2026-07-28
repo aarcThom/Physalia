@@ -548,6 +548,36 @@ public class GeometryReport : RoutingComponentBase<string>
         return union;
     }
 
+    /// <summary>
+    /// The components the spatial analysis treats as PARTS. Components whose every output is
+    /// points are construction scaffolding — the corners a polyline is built from, the centres a
+    /// column array is arrayed on — not things that can meet, float apart, or be buried.
+    ///
+    /// <para>Leaving them in wrecked the section they were meant to inform. A point has a
+    /// zero-size box, so it lies inside every solid in the model, and each construction point
+    /// emitted one containment line per solid: in a measured session 42 of 54 reports ended at the
+    /// containment cap with nothing but "'Base A' bbox lies entirely inside 'Tower Mass' bbox" and
+    /// seven more of the same. Buried geometry is one of the two things this report exists to
+    /// catch, and for most of that session it could not have reported one — the budget was spent
+    /// before a real finding could reach it.</para>
+    ///
+    /// <para>They stay in the per-component listing above, where their coordinates are genuinely
+    /// useful (a model verifying that its portico centre landed at 25000,0,0 reads it there). Only
+    /// the spatial section drops them, and only when there is other geometry to reason about —
+    /// a definition whose whole output IS points keeps them, since excluding everything would
+    /// leave nothing to relate.</para>
+    /// </summary>
+    /// <param name="items">Every measured component.</param>
+    /// <returns>The components to relate spatially.</returns>
+    private static IReadOnlyList<ComponentGeometry> SpatialParts(IReadOnlyList<ComponentGeometry> items)
+    {
+        var parts = items.Where(item => !IsPointsOnly(item)).ToList();
+        return parts.Count > 0 ? parts : items;
+    }
+
+    private static bool IsPointsOnly(ComponentGeometry item) =>
+        item.Outputs.All(output => output.Kinds.All(k => string.Equals(k.Kind, "point", StringComparison.Ordinal)));
+
     // Strict bbox-inside-bbox pairs between different components — a neutral fact (containment is
     // sometimes intentional; the preamble makes the model the judge). Catches buried geometry.
     private static IEnumerable<(int Inner, int Outer)> FindContainments(IReadOnlyList<ComponentGeometry> items, double tolerance)
@@ -711,8 +741,10 @@ public class GeometryReport : RoutingComponentBase<string>
         sb.AppendLine($"Whole model: bbox {FormatBox(world)}, size {FormatSize(world)}.");
     }
 
-    private static void AppendSpatialSection(System.Text.StringBuilder sb, IReadOnlyList<ComponentGeometry> items)
+    private static void AppendSpatialSection(System.Text.StringBuilder sb, IReadOnlyList<ComponentGeometry> allItems)
     {
+        IReadOnlyList<ComponentGeometry> items = SpatialParts(allItems);
+
         BoundingBox world = BoundingBox.Empty;
         foreach (ComponentGeometry item in items)
         {

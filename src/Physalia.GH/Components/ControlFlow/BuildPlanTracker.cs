@@ -8,6 +8,7 @@ using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Planning;
 using Physalia.Core.Signals;
+using Physalia.GH.Generation;
 
 namespace Physalia.GH.Components;
 
@@ -50,7 +51,7 @@ public class BuildPlanTracker : RoutingComponentBase<string>
         : base(
             "Build Plan",
             "Plan",
-            "Reads the model's staged build plan out of each response and renders a progress digest (stages built, stage just placed, stages outstanding) for the Geometry Report's Message input. The response passes through unchanged.",
+            "Reads the model's staged build plan out of each response and renders a progress digest (stages built, stage just placed, stages outstanding) for the Geometry Report's Message input. Must see the RAW response: wire it on the Detect JSON → Schema Validator hop, or as a parallel tap off the LLM Call's Success Signal. The response passes through unchanged.",
             "Control Flow")
     {
     }
@@ -126,10 +127,7 @@ public class BuildPlanTracker : RoutingComponentBase<string>
         if (_plan is null)
         {
             _progress = string.Empty;
-            return RoutingResult.Ok(
-                data,
-                message: "No <plan> block in this response, so no progress digest was produced — the build runs unstaged.",
-                level: GH_RuntimeMessageLevel.Remark);
+            return RoutingResult.Ok(data, message: NoPlanDiagnostic(data), level: GH_RuntimeMessageLevel.Warning);
         }
 
         _progress = BuildPlanParser.RenderProgress(_plan, _stage);
@@ -140,11 +138,84 @@ public class BuildPlanTracker : RoutingComponentBase<string>
     }
 
     /// <inheritdoc/>
-    /// <remarks>The canvas caption carries the stage, so a glance at the node says how far along the build is.</remarks>
-    protected override string MessageForState(SolveState state) =>
-        state == SolveState.SolveSuccess && _plan is not null
-            ? $"stage {_stage} / {LastStageNumber}"
-            : base.MessageForState(state);
+    /// <remarks>
+    /// The canvas caption carries the stage, so a glance at the node says how far along the build
+    /// is — and says "no plan" when the tracker is running blind, which is the state that used to
+    /// be invisible.
+    /// </remarks>
+    protected override string MessageForState(SolveState state) => state switch
+    {
+        SolveState.SolveSuccess when _plan is not null => $"stage {_stage} / {LastStageNumber}",
+        SolveState.SolveSuccess => "no plan",
+        _ => base.MessageForState(state),
+    };
+
+    /// <summary>
+    /// Explains a payload that carried no plan. The default assumption is that the model omitted
+    /// the block — but the failure that actually happens is a WIRING one, and it is silent: put
+    /// this component anywhere downstream of the Schema Validator and it receives the extracted
+    /// document, or downstream of the Component Transmitter and it receives that turn's placed
+    /// GUIDs. Either way the plan block was stripped upstream, no digest is ever produced, the
+    /// Geometry Report keeps its single-shot closing line, and nothing says so. (Observed: a full
+    /// session ran with the tracker between the Runtime Health Check and the Geometry Report,
+    /// consuming GUID lists, and not one digest reached the model.) So name the payload we got.
+    /// </summary>
+    /// <param name="data">The payload that carried no plan.</param>
+    /// <returns>The runtime message.</returns>
+    private static string NoPlanDiagnostic(string data)
+    {
+        const string Remedy =
+            "The Build Plan must consume the RAW model response, which exists only between the LLM "
+            + "Call and the Schema Validator — wire it on the Detect JSON → Schema Validator hop, or "
+            + "as a parallel tap straight off the LLM Call's Success Signal.";
+
+        if (LooksLikePlacedGuids(data))
+        {
+            return "This payload is a list of placed component GUIDs, not a model response, so no "
+                + "plan could be read and NO progress digest will reach the Geometry Report. The "
+                + "Build Plan is wired downstream of the Component Transmitter. " + Remedy;
+        }
+
+        if (data.TrimStart().StartsWith("{", StringComparison.Ordinal))
+        {
+            return "This payload is a bare JSON document with no surrounding response text, so the "
+                + "plan block has already been stripped and NO progress digest will reach the "
+                + "Geometry Report. The Build Plan is wired downstream of the Schema Validator. " + Remedy;
+        }
+
+        return "No <plan> block in this response, so no progress digest was produced and the "
+            + "Geometry Report will fall back to its single-shot wording. The model is expected to "
+            + "open every response with one; check that the Incremental Node Graph preamble is the "
+            + "one wired into the System Prompt.";
+    }
+
+    /// <summary>
+    /// Whether the payload is a Component Transmitter's success payload: newline-separated GUIDs,
+    /// optionally followed by applied-op confirmation lines.
+    /// </summary>
+    /// <param name="data">The payload to classify.</param>
+    /// <returns>True when every non-blank line is a GUID or an applied-op line.</returns>
+    private static bool LooksLikePlacedGuids(string data)
+    {
+        bool sawGuid = false;
+        foreach (string raw in data.Split('\n'))
+        {
+            string line = raw.Trim();
+            if (line.Length == 0 || line.StartsWith(GhJsonBridge.AppliedOpLinePrefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!Guid.TryParse(line, out _))
+            {
+                return false;
+            }
+
+            sawGuid = true;
+        }
+
+        return sawGuid;
+    }
 
     /// <inheritdoc/>
     protected override void OnCleared()

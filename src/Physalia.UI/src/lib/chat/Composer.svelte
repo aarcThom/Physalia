@@ -40,6 +40,9 @@
 		 *  Message" unchecked) — it grants its own image lane (addSnapshot), independent of the Add
 		 *  Image tool, which still gates paste/drop/picker. */
 		snapshotAttachWired?: boolean;
+		/** True when a View Snapshot human tool is wired in attach mode — its own image lane
+		 *  (addViewSnapshot), independent of both the Add Image tool and the geometry snapshot's lane. */
+		viewSnapshotAttachWired?: boolean;
 		/** Names of clusters the model may use, for the "/cl/" reference autocomplete. */
 		clusterNames?: string[];
 		/** Names of tools currently in use, for the "/t/" reference autocomplete. */
@@ -59,6 +62,7 @@
 		apiKeyProvider = null,
 		imageToolWired = false,
 		snapshotAttachWired = false,
+		viewSnapshotAttachWired = false,
 		clusterNames = [],
 		toolNames = [],
 		componentTabs = [],
@@ -73,8 +77,9 @@
 		filename: string;
 		/** Which human tool let this image in — the tool that granted it is the tool that can revoke
 		 *  it (see the stale-attachment effect). 'user' = paste/drop/picker (Add Image);
-		 *  'snapshot' = the geometry button in attach mode (Geometry Snapshot). */
-		source: 'user' | 'snapshot';
+		 *  'snapshot' = the geometry button in attach mode (Geometry Snapshot); 'viewsnapshot' = the view
+		 *  button in attach mode (View Snapshot). */
+		source: 'user' | 'snapshot' | 'viewsnapshot';
 	}
 
 	// Block while the pipeline is busy, during setup (no provider yet), or while no Conversation Log is wired —
@@ -137,12 +142,18 @@
 
 	// If the tool that admitted an image is unwired mid-composition (component deleted/unwired on the
 	// canvas), discard that image and its [image#N] token — nothing image-shaped may outlive the tool
-	// that granted it. Each lane is revoked by its own tool: Add Image for pasted/dropped/picked
-	// images, Geometry Snapshot (in attach mode) for captured snapshots.
+	// that granted it. Each lane is revoked by its own tool: Add Image for pasted/dropped/picked images,
+	// Geometry Snapshot (in attach mode) for geometry captures, View Snapshot (in attach mode) for view
+	// captures — so flipping one tool back to send-its-own-message never strands the other's attachment.
 	$effect(() => {
+		let granted = {
+			user: imageToolWired,
+			snapshot: snapshotAttachWired,
+			viewsnapshot: viewSnapshotAttachWired
+		};
 		let stale = new Set<number>();
 		pending.forEach((image, i) => {
-			if (image.source === 'snapshot' ? !snapshotAttachWired : !imageToolWired) {
+			if (!granted[image.source]) {
 				stale.add(i);
 			}
 		});
@@ -656,15 +667,33 @@
 	// it belongs to. Invoked from outside via bind:this, so it re-checks its own gate: the Geometry
 	// Snapshot tool grants this lane, and the Add Image tool is irrelevant to it.
 	export async function addSnapshot(base64: string, mediaType: string) {
-		if (!snapshotAttachWired || !base64) {
+		await attachCapture(base64, mediaType, 'geometry-snapshot.png', 'snapshot', snapshotAttachWired);
+	}
+
+	// The same for the host's view button (attach mode) — its own lane, granted by the View Snapshot
+	// tool alone, so it stays attachable when the geometry snapshot is set to send its own message.
+	export async function addViewSnapshot(base64: string, mediaType: string) {
+		await attachCapture(base64, mediaType, 'view-snapshot.png', 'viewsnapshot', viewSnapshotAttachWired);
+	}
+
+	// Shared body of the two host-capture lanes: re-checks the granting tool (the host captured this
+	// off-thread, so the wire may have changed) and pushes the image with its [image#N] token.
+	async function attachCapture(
+		base64: string,
+		mediaType: string,
+		filename: string,
+		source: PendingImage['source'],
+		granted: boolean
+	) {
+		if (!granted || !base64) {
 			return;
 		}
 		pending.push({
 			id: nextId++,
 			base64,
 			mediaType: mediaType || 'image/png',
-			filename: 'geometry-snapshot.png',
-			source: 'snapshot'
+			filename,
+			source
 		});
 		await insertToken(`[image#${pending.length}]`);
 	}

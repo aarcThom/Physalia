@@ -24,6 +24,7 @@
 	import BoxIcon from '@lucide/svelte/icons/box';
 	import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
 	import Axis3dIcon from '@lucide/svelte/icons/axis-3d';
+	import CameraIcon from '@lucide/svelte/icons/camera';
 	import RulerIcon from '@lucide/svelte/icons/ruler';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
 	import ShapesIcon from '@lucide/svelte/icons/shapes';
@@ -78,6 +79,15 @@
 		snapshotDefaultMessage: string;
 		/** Current snapshot-message override, or null = use the tool's default (default). */
 		snapshotMessage: string | null;
+		/** True when a View Snapshot human tool is wired (shows its pill in the Human Tools section). */
+		viewSnapshotWired: boolean;
+		/** True when the view tool sends its capture as its own message carrying the text below; false
+		 *  when it attaches the capture to the prompt box instead, which makes that text dead. */
+		viewSnapshotSendsMessage: boolean;
+		/** The view tool's default message sent alongside the capture. */
+		viewSnapshotDefaultMessage: string;
+		/** Current view-snapshot message override, or null = use the tool's default (default). */
+		viewSnapshotMessage: string | null;
 		/** True when an Add Image human tool is wired (shows its row in the Human Tools section). */
 		imageToolWired: boolean;
 		/** Applies a new component selection (host action). all=true returns to include-everything. */
@@ -95,6 +105,11 @@
 		/** Switches the snapshot between send-as-its-own-message and attach-to-the-prompt (host action).
 		 *  The flag lives on the Geometry Snapshot component, so the new value returns via props. */
 		onapplysnapshotsends: (on: boolean) => void;
+		/** Applies a view-snapshot message override (host action). reset=true returns to the tool's default. */
+		onapplyviewsnapshot: (payload: SnapshotMessagePayload) => void;
+		/** Switches the view snapshot between send-as-its-own-message and attach-to-the-prompt (host
+		 *  action). The flag lives on the View Snapshot component, so the new value returns via props. */
+		onapplyviewsnapshotsends: (on: boolean) => void;
 		/** Returns to the chat view. */
 		onclose: () => void;
 	}
@@ -117,6 +132,10 @@
 		snapshotSendsMessage,
 		snapshotDefaultMessage,
 		snapshotMessage,
+		viewSnapshotWired,
+		viewSnapshotSendsMessage,
+		viewSnapshotDefaultMessage,
+		viewSnapshotMessage,
 		imageToolWired,
 		onapply,
 		onapplysignatures,
@@ -125,12 +144,22 @@
 		onapplyunits,
 		onapplysnapshot,
 		onapplysnapshotsends,
+		onapplyviewsnapshot,
+		onapplyviewsnapshotsends,
 		onclose
 	}: Props = $props();
 
 	// Two-level page: the kind pills, then a chosen kind's detail.
 	let view = $state<
-		'kinds' | 'components' | 'clusters' | 'tools' | 'canvas' | 'python' | 'units' | 'snapshot'
+		| 'kinds'
+		| 'components'
+		| 'clusters'
+		| 'tools'
+		| 'canvas'
+		| 'python'
+		| 'units'
+		| 'snapshot'
+		| 'viewsnapshot'
 	>('kinds');
 
 	// Unit Separator (U+001F) packs a (category, subCategory) pair into one Set key. It is guaranteed
@@ -350,6 +379,35 @@
 		onapplysnapshot({ reset: true, message: '' });
 	}
 
+	// View-snapshot message: the same contract as above under its own tool's text, kept as its own local
+	// state because the two tools are independent affordances with independent messages.
+	let viewSnapshotText = $state(viewSnapshotMessage ?? viewSnapshotDefaultMessage);
+	let viewSnapshotOverridden = $state(viewSnapshotMessage !== null);
+
+	function applyViewSnapshotText() {
+		const trimmed = viewSnapshotText.trim();
+		if (trimmed.length === 0 || trimmed === viewSnapshotDefaultMessage.trim()) {
+			viewSnapshotText = viewSnapshotDefaultMessage;
+			viewSnapshotOverridden = false;
+			onapplyviewsnapshot({ reset: true, message: '' });
+		} else {
+			viewSnapshotOverridden = true;
+			onapplyviewsnapshot({ reset: false, message: viewSnapshotText });
+		}
+	}
+
+	function resetViewSnapshotMessage() {
+		viewSnapshotText = viewSnapshotDefaultMessage;
+		viewSnapshotOverridden = false;
+		onapplyviewsnapshot({ reset: true, message: '' });
+	}
+
+	// Flips the View Snapshot tool between sending its capture as its own message and attaching it to the
+	// prompt box — same fire-and-forget discipline as the geometry twin below.
+	function toggleViewSnapshotSends() {
+		onapplyviewsnapshotsends(!viewSnapshotSendsMessage);
+	}
+
 	// Flips the tool between sending the snapshot as its own message and attaching it to the prompt box.
 	// Fire-and-forget: the flag lives on the Geometry Snapshot component (the canvas context menu shows
 	// the same state), so the new value arrives back through snapshotSendsMessage on the next push
@@ -374,7 +432,7 @@
 			below to refine what's included.
 		</p>
 
-		{#if tree.length > 0 || clusters.length > 0 || tools.length > 0 || referencedGeometry.length > 0 || pythonFunctions.length > 0 || unitsWired || snapshotWired || imageToolWired}
+		{#if tree.length > 0 || clusters.length > 0 || tools.length > 0 || referencedGeometry.length > 0 || pythonFunctions.length > 0 || unitsWired || snapshotWired || viewSnapshotWired || imageToolWired}
 			<div class="mt-4 flex flex-col gap-2">
 				{#if tree.length > 0}
 					<Button
@@ -453,10 +511,10 @@
 			</div>
 
 			<!-- Human tools sit apart from the grounding kinds: they are affordances for the human in
-			     this window (a geometry button, image attachments), never folded into the prompt or
+			     this window (snapshot buttons, image attachments), never folded into the prompt or
 			     advertised to the model. Each appears only while its component is wired into the
 			     Conversation Log's Human Tools input. -->
-			{#if snapshotWired || imageToolWired}
+			{#if snapshotWired || viewSnapshotWired || imageToolWired}
 				<div class="border-muted-foreground/20 mt-5 border-t pt-4">
 					<h3 class="text-sm font-semibold">Human Tools</h3>
 					<p class="text-muted-foreground mt-1 text-xs">
@@ -475,6 +533,23 @@
 									{!snapshotSendsMessage
 										? 'Attaches to prompt'
 										: snapshotOverridden
+											? 'Custom message'
+											: 'Default message'}
+								</span>
+							</Button>
+						{/if}
+						{#if viewSnapshotWired}
+							<Button
+								variant="outline"
+								class="h-auto w-full justify-start gap-2 py-2.5 text-left"
+								onclick={() => (view = 'viewsnapshot')}
+							>
+								<CameraIcon class="size-4 shrink-0" />
+								<span class="flex-1">View Snapshot</span>
+								<span class="text-muted-foreground text-xs">
+									{!viewSnapshotSendsMessage
+										? 'Attaches to prompt'
+										: viewSnapshotOverridden
 											? 'Custom message'
 											: 'Default message'}
 								</span>
@@ -774,6 +849,72 @@
 			{#if snapshotOverridden && snapshotSendsMessage}
 				<p class="text-muted-foreground text-xs">
 					Overriding the default snapshot message. Clear the box (or reset) to return to the
+					default.
+				</p>
+			{/if}
+		</div>
+	{:else if view === 'viewsnapshot'}
+		<div class="mb-4 flex items-center justify-between">
+			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+				<ArrowLeftIcon class="size-4" />
+				Grounding
+			</Button>
+			<Button
+				variant="ghost"
+				size="sm"
+				onclick={resetViewSnapshotMessage}
+				disabled={!viewSnapshotOverridden || !viewSnapshotSendsMessage}
+			>
+				Reset to default
+			</Button>
+		</div>
+
+		<h2 class="text-lg font-semibold">View Snapshot</h2>
+		<p class="text-muted-foreground mt-1 text-sm">
+			The prompt box shows a view button. Pressing it captures the Rhino viewport exactly as you are
+			looking at it — nothing is searched for on the canvas and the camera is never moved, so this
+			works on referenced geometry, on views you framed yourself, and on an empty document.
+		</p>
+
+		<!-- The same toggle as the component's "Send With Default Message" context-menu item; the flag
+		     lives there, so flipping it here also moves the checkmark on the canvas. -->
+		<button
+			type="button"
+			class="neu-raised-sm hover:bg-muted-foreground/10 mt-3 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm"
+			title="On: the capture is sent immediately as its own message, carrying the text below. Off: the capture is attached to the prompt box like a pasted image, for you to write your own message."
+			onclick={toggleViewSnapshotSends}
+		>
+			{#if viewSnapshotSendsMessage}
+				<SquareCheckIcon class="text-foreground/80 size-4 shrink-0" />
+			{:else}
+				<SquareIcon class="text-muted-foreground size-4 shrink-0" />
+			{/if}
+			<span class="flex-1">Send with default message</span>
+		</button>
+
+		<div class="mt-4 flex flex-col gap-2">
+			<p class="text-muted-foreground text-sm">
+				{#if viewSnapshotSendsMessage}
+					Edit the text that accompanies the capture below — it is sent as its own message, so
+					nothing is ever attached to a prompt you typed.
+				{:else}
+					The capture is attached to your prompt instead, so you write the message yourself. The text
+					below is unused until you switch sending back on.
+				{/if}
+			</p>
+
+			<textarea
+				bind:value={viewSnapshotText}
+				onchange={applyViewSnapshotText}
+				rows="5"
+				disabled={!viewSnapshotSendsMessage}
+				placeholder={viewSnapshotDefaultMessage}
+				class="neu-well text-foreground w-full resize-y rounded-lg p-3 text-sm focus:outline-none disabled:opacity-50"
+			></textarea>
+
+			{#if viewSnapshotOverridden && viewSnapshotSendsMessage}
+				<p class="text-muted-foreground text-xs">
+					Overriding the default view-snapshot message. Clear the box (or reset) to return to the
 					default.
 				</p>
 			{/if}

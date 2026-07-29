@@ -129,6 +129,85 @@ public static class BuildPlanParser
     private static string Clean(string value) => value.Trim().Trim('*', '`').Trim();
 
     /// <summary>
+    /// Reads a bare <c>now: N</c> stage pointer from a response that declares no plan block.
+    ///
+    /// <para>This is the counterpart to the digest no longer asking for a restatement. Once
+    /// Physalia holds the plan and prints it back every round, a restatement is pure repetition —
+    /// so the model is asked for the pointer alone, and the pointer has to be readable without the
+    /// block around it. A caller that already holds a plan uses this to advance its stage.</para>
+    ///
+    /// <para>Only the prose ahead of the document is scanned. A <c>now:</c> appearing inside the
+    /// JSON — in a panel's text, say — is data the model authored for the canvas, not a pointer at
+    /// Physalia.</para>
+    /// </summary>
+    /// <param name="response">The raw response text.</param>
+    /// <returns>The declared stage number, or 0 when the response declares none.</returns>
+    public static int ParseCurrentStage(string? response)
+    {
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            return 0;
+        }
+
+        foreach (string raw in response!.Split('\n'))
+        {
+            string line = raw.Trim().Trim('*', '#', '>', '`').Trim();
+            if (line.Length == 0)
+            {
+                continue;
+            }
+
+            // The document starts here; anything past it is canvas content, not a pointer.
+            if (line[0] == '{' || line[0] == '[')
+            {
+                break;
+            }
+
+            if (NowLine.Match(line) is { Success: true } match
+                && int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int stage))
+            {
+                return stage;
+            }
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Removes a <c>&lt;plan&gt;…&lt;/plan&gt;</c> block from a response, leaving everything else
+    /// byte-identical. Used by compaction to strip the plan out of OLD assistant turns: the model
+    /// restates its whole plan in every response, so an N-turn window replays N copies of it, and
+    /// the only copy that carries information is the current one — which the Build Plan tracker
+    /// reads back authoritatively in the progress digest anyway.
+    ///
+    /// <para>Only a properly closed block is removed. An unterminated block runs into the JSON
+    /// document, and guessing where it ends risks eating the document with it.</para>
+    /// </summary>
+    /// <param name="response">The response text.</param>
+    /// <returns>The response without its plan block, or unchanged when it has no closed block.</returns>
+    public static string StripPlanBlock(string? response)
+    {
+        if (string.IsNullOrEmpty(response))
+        {
+            return response ?? string.Empty;
+        }
+
+        int open = response!.IndexOf(OpenTag, StringComparison.OrdinalIgnoreCase);
+        if (open < 0)
+        {
+            return response;
+        }
+
+        int close = response.IndexOf(CloseTag, open, StringComparison.OrdinalIgnoreCase);
+        if (close < 0)
+        {
+            return response;
+        }
+
+        return (response[..open] + response[(close + CloseTag.Length)..]).Trim();
+    }
+
+    /// <summary>
     /// Renders the plan as the progress digest that rides into the geometry report: the stages
     /// with their state, the count still outstanding, and the one instruction that decides
     /// whether the loop continues. The digest, not the report, owns that instruction — the
@@ -186,18 +265,26 @@ public static class BuildPlanParser
                 : " — the last stage in your plan."));
 
         sb.AppendLine();
+
+        // The plan itself is NOT requested back. It is printed in full above, from Physalia's own
+        // parse of the model's original declaration, so a restatement would be the same text a
+        // third time in one exchange — and every restatement is then replayed by the window on
+        // every later turn. All that is actually needed from the model is the stage pointer.
         sb.Append(remaining > 0
             ? "WHAT TO DO NEXT: if the measurements match what stage " + stage + " was meant to "
               + "build, reply with the ghpatch that adds stage " + next!.Number + " (" + next.Description
               + ") and nothing else. If they do not match, fix stage " + stage + " with a corrective "
               + "ghpatch first and verify it before moving on. Do NOT reply in prose — the build is "
-              + "unfinished, and a prose reply ends the loop with it half-built. Restate your plan "
-              + "block, with the new 'now:', ahead of the patch."
+              + "unfinished, and a prose reply ends the loop with it half-built. Do NOT restate the "
+              + "plan: I hold it and read it back to you above. Write a single line — 'now: "
+              + next.Number + "' when advancing, 'now: " + stage + "' when correcting — ahead of the "
+              + "patch, and nothing else. Amend a stage's wording only if the plan itself changed, "
+              + "by writing a full plan block that turn."
             : "WHAT TO DO NEXT: this was the FINAL stage, so check the measurements against the "
               + "WHOLE goal and not just this stage. If everything the goal asks for is present and "
               + "correct, reply in plain prose confirming what was built — that ends the build. If "
-              + "anything is missing or wrong, reply with a corrective ghpatch instead (restating "
-              + "your plan block ahead of it).");
+              + "anything is missing or wrong, reply with a corrective ghpatch instead, led by the "
+              + "single line 'now: " + stage + "' (do NOT restate the plan — I hold it).");
 
         return sb.ToString();
     }

@@ -63,11 +63,13 @@ internal static partial class GhJsonBridge
     /// <param name="Json">The document serialized compactly, exactly as handed to the model.</param>
     /// <param name="Checksum">Structural fingerprint of <paramref name="Document"/> (<c>sha256-…</c>).</param>
     /// <param name="ComponentCount">Number of exported components; zero for an empty canvas.</param>
+    /// <param name="GroupScoped">True when the export covers only the master group's contents.</param>
     internal sealed record CanvasStateSnapshot(
         GhJsonDocument Document,
         string Json,
         string Checksum,
-        int ComponentCount);
+        int ComponentCount,
+        bool GroupScoped = false);
 
     /// <summary>
     /// Exports the current state of the user's canvas — every object whose type does not come from
@@ -76,8 +78,16 @@ internal static partial class GhJsonBridge
     /// Returns null when there is no document to export.
     /// </summary>
     /// <param name="doc">The Grasshopper document to export; null falls back to the active canvas.</param>
+    /// <param name="groupScope">
+    /// True to export only the master group's contents (nested groups expanded) — the frame the
+    /// group-scoped grounder shows the model. The master group itself is excluded from BOTH frames:
+    /// it is Physalia infrastructure, not part of the model's or the user's graph. Both frames use
+    /// the same plain <c>sha256-…</c> checksum form (the GhJSON library's patch schema regex-rejects
+    /// anything else); the patch path tells frames apart by matching the carried checksum against
+    /// each frame's export (<see cref="ResolveBaseSnapshot"/>), never by the string's shape.
+    /// </param>
     /// <returns>The snapshot, or null when no document is available.</returns>
-    internal static CanvasStateSnapshot? TryExportCanvasState(GH_Document? doc = null)
+    internal static CanvasStateSnapshot? TryExportCanvasState(GH_Document? doc = null, bool groupScope = false)
     {
         doc ??= Grasshopper.Instances.ActiveCanvas?.Document;
         if (doc is null)
@@ -85,14 +95,18 @@ internal static partial class GhJsonBridge
             return null;
         }
 
+        HashSet<Guid>? scope = groupScope ? MasterGroupScope(doc) : null;
         var guids = doc.Objects
-            .Where(o => o is not null && o.GetType().Assembly != typeof(PhyBase).Assembly)
+            .Where(o => o is not null
+                && o.GetType().Assembly != typeof(PhyBase).Assembly
+                && !IsMasterGroup(o)
+                && (scope is null || scope.Contains(o.InstanceGuid)))
             .Select(o => o.InstanceGuid)
             .ToList();
 
         if (guids.Count == 0)
         {
-            return new CanvasStateSnapshot(new GhJsonDocument(), string.Empty, string.Empty, 0);
+            return new CanvasStateSnapshot(new GhJsonDocument(), string.Empty, string.Empty, 0, groupScope);
         }
 
         GhJsonDocument export = GhJsonGrasshopper.GetByGuids(guids);
@@ -111,7 +125,8 @@ internal static partial class GhJsonBridge
             export,
             json,
             ComputeCanvasChecksum(export),
-            export.Components?.Count ?? 0);
+            export.Components?.Count ?? 0,
+            groupScope);
     }
 
     /// <summary>

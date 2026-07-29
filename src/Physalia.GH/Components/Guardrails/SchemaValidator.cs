@@ -85,20 +85,66 @@ public class SchemaValidator : RoutingComponentBase<string>
                 "The JSON document's brackets do not balance — validation feedback replaced with a malformed-JSON notice.",
                 GH_RuntimeMessageLevel.Warning),
 
+            // A document whose ONLY fault is properties the schema does not allow is repairable
+            // here: deleting them yields the document the model meant to send. Bouncing it back
+            // instead costs a full resubmission — measured live at ~12,000 characters re-sent
+            // verbatim to delete one invented key — and teaches the model nothing it can act on.
+            Result<string, ValidationError>.Err err when TryRepair(err.Error, extracted, schema, out string repaired, out string note)
+                => RoutingResult.Ok(repaired, message: note, level: GH_RuntimeMessageLevel.Remark),
+
             Result<string, ValidationError>.Err err => RoutingResult.Fail(
                 BuildFeedback(err.Error), err.Error.Message, GH_RuntimeMessageLevel.Warning),
             _ => RoutingResult.Fail("Unknown validation result."),
         };
     }
 
+    /// <summary>
+    /// Attempts to make a failing document valid by deleting disallowed properties, and accepts
+    /// the result only if it then validates cleanly.
+    /// </summary>
+    /// <param name="error">The reported validation error.</param>
+    /// <param name="extracted">The extracted JSON that failed.</param>
+    /// <param name="schema">The schema to re-validate against.</param>
+    /// <param name="repaired">Receives the pretty-printed repaired document on success.</param>
+    /// <param name="note">Receives the canvas remark naming what was dropped.</param>
+    /// <returns>True when the document was repaired and now validates.</returns>
+    private static bool TryRepair(
+        ValidationError error,
+        string extracted,
+        string schema,
+        out string repaired,
+        out string note)
+    {
+        repaired = string.Empty;
+        note = string.Empty;
+
+        if (SchemaRepair.DropDisallowedProperties(extracted, error.Violations) is not { } outcome)
+        {
+            return false;
+        }
+
+        // Re-validation is the whole safety argument: the repair is only trusted if the schema
+        // itself now accepts the document. Anything short of clean goes back to the model.
+        if (Physalia.Core.Validation.SchemaValidator.Validate(outcome.Json, schema)
+            is not Result<string, ValidationError>.Ok ok)
+        {
+            return false;
+        }
+
+        repaired = JsonExtractor.PrettyPrint(ok.Value);
+        note = "Dropped "
+            + string.Join(", ", outcome.RemovedPaths)
+            + " — properties the schema does not allow, removed here instead of costing a resubmission.";
+        return true;
+    }
+
     private string BuildFeedback(ValidationError error)
     {
         var sb = new StringBuilder();
         sb.AppendLine(
-            "Your previous response failed validation and was rejected before any transmitter acted "
-            + "on it — nothing was placed or changed. Resubmit your ENTIRE corrected response in the "
-            + "SAME document kind as before: fix ONLY the violations listed below and keep everything "
-            + "else identical.");
+            "Your response failed schema validation — nothing was placed or changed. Fix ONLY the "
+            + "violations below and resubmit your ENTIRE response in the SAME document kind, keeping "
+            + "everything else identical.");
         sb.AppendLine();
         sb.AppendLine($"Error: {error.Message}");
 
@@ -118,12 +164,10 @@ public class SchemaValidator : RoutingComponentBase<string>
     {
         var sb = new StringBuilder();
         sb.AppendLine(
-            "Your previous response was CUT OFF at the token limit in the middle of the JSON "
-            + "document (an opening brace is never closed), so it was rejected before any "
-            + "transmitter acted on it — nothing was placed or changed. This is a length problem, "
-            + "not a content problem: do not restructure the document. Re-send your ENTIRE "
-            + "response as one complete JSON document, keeping any reasoning brief so the full "
-            + "document fits within the response limit.");
+            "Your response was CUT OFF at the token limit mid-JSON — nothing was placed or changed. "
+            + "This is a length problem, not a content problem: do not restructure the document. "
+            + "Re-send your ENTIRE response as one complete JSON document, keeping any reasoning "
+            + "brief so it fits.");
 
         AppendFreshChecksum(sb);
         return sb.ToString().TrimEnd();
@@ -133,18 +177,11 @@ public class SchemaValidator : RoutingComponentBase<string>
     {
         var sb = new StringBuilder();
         sb.AppendLine(
-            "Your previous response is not parseable JSON and was rejected before any transmitter "
-            + "acted on it — nothing was placed or changed. The document's brackets do not pair up: "
-            + "somewhere a closing brace or bracket is missing (a closer arrives that matches the "
-            + "wrong opener), so the document ends up one level short. The response was NOT cut off "
-            + "— it reached its end — and the CONTENT is not in question: no schema violation is "
-            + "being reported, because the document could not be read far enough to check one.");
-        sb.AppendLine();
-        sb.AppendLine(
-            "Re-send the SAME document with balanced brackets. Walk it once from the top counting "
-            + "depth, and pay particular attention to the deepest nesting — the internalizedData "
-            + "objects and the componentState.extensions blocks are three and four levels deep, and "
-            + "that is where a closer goes missing. Do not restructure anything else.");
+            "Your response is not parseable JSON — a closing brace or bracket is missing somewhere — "
+            + "so nothing was placed or changed. It was NOT cut off, and no schema violation is being "
+            + "reported: the document simply could not be read. Re-send the SAME document with "
+            + "balanced brackets — the deepest nesting (internalizedData, componentState.extensions) "
+            + "is where a closer usually goes missing. Do not restructure anything else.");
 
         AppendFreshChecksum(sb);
         return sb.ToString().TrimEnd();
@@ -155,7 +192,7 @@ public class SchemaValidator : RoutingComponentBase<string>
     private void AppendFreshChecksum(StringBuilder sb)
     {
         if (OnPingDocument() is { } doc
-            && Generation.GhJsonBridge.TryExportCanvasState(doc)?.Checksum is { Length: > 0 } checksum)
+            && Generation.GhJsonBridge.CurrentBaseChecksum(doc) is { Length: > 0 } checksum)
         {
             sb.AppendLine();
             sb.AppendLine("Current base checksum — copy this verbatim into patch.base.checksum: " + checksum);

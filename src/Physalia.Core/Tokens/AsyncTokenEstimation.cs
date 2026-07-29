@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -45,9 +45,9 @@ public static class AsyncTokenEstimation
             ["messages"] = BuildAnthropicMessages(instructions.Conversation),
         };
 
-        if (!string.IsNullOrEmpty(instructions.SystemPrompt))
+        if (!instructions.SystemPrompt.IsEmpty)
         {
-            body["system"] = instructions.SystemPrompt;
+            body["system"] = instructions.SystemPrompt.Text;
         }
 
         using var request = new HttpRequestMessage(
@@ -132,13 +132,13 @@ public static class AsyncTokenEstimation
             ["contents"] = BuildGeminiContents(instructions.Conversation),
         };
 
-        if (!string.IsNullOrEmpty(instructions.SystemPrompt))
+        if (!instructions.SystemPrompt.IsEmpty)
         {
             body["systemInstruction"] = new JsonObject
             {
                 ["parts"] = new JsonArray
                 {
-                    new JsonObject { ["text"] = instructions.SystemPrompt },
+                    new JsonObject { ["text"] = instructions.SystemPrompt.Text },
                 },
             };
         }
@@ -225,9 +225,9 @@ public static class AsyncTokenEstimation
     {
         var sb = new StringBuilder();
 
-        if (!string.IsNullOrEmpty(instructions.SystemPrompt))
+        if (!instructions.SystemPrompt.IsEmpty)
         {
-            sb.AppendLine($"System: {instructions.SystemPrompt}");
+            sb.AppendLine($"System: {instructions.SystemPrompt.Text}");
         }
 
         foreach (var message in instructions.Conversation.Messages)

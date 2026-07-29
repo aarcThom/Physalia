@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -78,6 +78,11 @@ public class ConversationLog : StatefulComponentBase
     // image instead. Configuration, not conversation state — survives Clear and is serialized.
     private string? _snapshotMessageOverride;
 
+    // View-snapshot message override — the same contract as _snapshotMessageOverride, kept separate
+    // because the two tools are independent affordances with their own text. Null = use the default
+    // message carried by the wired ViewSnapshotTool. Survives Clear and is serialized.
+    private string? _viewSnapshotMessageOverride;
+
     // Expose-signatures flag. False = hybrid component grounding (default): the curated common set
     // (CommonComponents.Names) carries typed input/output signatures, the long tail stays
     // names-only. True widens signatures to EVERY included component — for models without tool
@@ -103,12 +108,14 @@ public class ConversationLog : StatefulComponentBase
     // UI's grounding pages: whether a canvas-state grounding is wired, the Rhino-referenced geometry
     // params detected on the canvas, and the available python functions.
     private bool _hasCanvasStateGrounding;
+    private bool _groupScopedCanvasGrounding;
     private IReadOnlyList<ReferencedGeometryInput> _liveReferencedGeometry = Array.Empty<ReferencedGeometryInput>();
     private IReadOnlyList<PythonFunctionGrounding> _livePythonFunctions = Array.Empty<PythonFunctionGrounding>();
 
     // Caches of the human tools wired this solve — the chat-window affordances the user enabled by
     // wiring components into the Human Tools input. Session-only, refreshed every solve.
     private GeometrySnapshotTool? _liveSnapshotTool;
+    private ViewSnapshotTool? _liveViewSnapshotTool;
     private bool _hasAddImageTool;
 
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
@@ -156,12 +163,21 @@ public class ConversationLog : StatefulComponentBase
     /// when no component-catalog grounding is wired.
     /// </summary>
     public IReadOnlyList<CatalogEntry> IncludedComponentEntries =>
-        _liveCatalog?.Filtered(_selection).Entries ?? Array.Empty<CatalogEntry>();
+        _liveCatalog?.Filtered(EffectiveGroundingSelection).Entries ?? Array.Empty<CatalogEntry>();
 
     /// <summary>
-    /// Gets the current grounding selection, or <see langword="null"/> for the default (include all).
+    /// Gets the current grounding selection, or <see langword="null"/> for the default — only the
+    /// leaves holding native components; plug-in tabs stay listed but unchecked until opted in.
     /// </summary>
     public GroundingSelection? GroundingSelectionOrNull => _selection;
+
+    /// <summary>
+    /// Gets the selection actually applied to the component catalog: the user's explicit selection
+    /// when one is set, otherwise the native-only default computed from the live catalog. Null only
+    /// when no catalog grounding is wired. The chat UI renders THIS (never null-as-all), so plug-in
+    /// tabs show unchecked by default instead of silently checked.
+    /// </summary>
+    public GroundingSelection? EffectiveGroundingSelection => _selection ?? _liveCatalog?.NativeSelection();
 
     /// <summary>
     /// Gets the clusters wired into the Grounding input, merged across every wired cluster grounding.
@@ -265,6 +281,13 @@ public class ConversationLog : StatefulComponentBase
     public bool HasAddImageTool => _hasAddImageTool;
 
     /// <summary>
+    /// Gets a value indicating whether the wired Geometry Snapshot tool sends its snapshot
+    /// immediately as its own message (carrying <see cref="GeometrySnapshotMessage"/>) rather than
+    /// attaching it to the prompt box for the human to caption. False when no tool is wired.
+    /// </summary>
+    public bool GeometrySnapshotSendsMessage => _liveSnapshotTool?.SendWithMessage == true;
+
+    /// <summary>
     /// Gets the default snapshot message carried by the wired tool — what accompanies the
     /// snapshot image unless overridden. Empty when no Geometry Snapshot tool is wired.
     /// </summary>
@@ -281,6 +304,49 @@ public class ConversationLog : StatefulComponentBase
     /// tool's default. Empty when no Geometry Snapshot tool is wired.
     /// </summary>
     public string GeometrySnapshotMessage => _snapshotMessageOverride ?? GeometrySnapshotDefaultMessage;
+
+    /// <summary>
+    /// Gets a value indicating whether a View Snapshot human tool is currently wired (so the chat UI
+    /// can show its panel page and its view button). Unlike the geometry snapshot there is no second
+    /// condition: a view capture needs nothing on the canvas, so wired is armed.
+    /// </summary>
+    public bool HasViewSnapshotTool => _liveViewSnapshotTool is not null;
+
+    /// <summary>
+    /// Gets a value indicating whether the wired View Snapshot tool sends its capture immediately as
+    /// its own message (carrying <see cref="ViewSnapshotMessage"/>) rather than attaching it to the
+    /// prompt box for the human to caption. False when no tool is wired.
+    /// </summary>
+    public bool ViewSnapshotSendsMessage => _liveViewSnapshotTool?.SendWithMessage == true;
+
+    /// <summary>
+    /// Gets the default message carried by the wired View Snapshot tool — what accompanies the view
+    /// capture unless overridden. Empty when no View Snapshot tool is wired.
+    /// </summary>
+    public string ViewSnapshotDefaultMessage => _liveViewSnapshotTool?.Message ?? string.Empty;
+
+    /// <summary>
+    /// Gets the current view-snapshot message override, or <see langword="null"/> when the wired
+    /// tool's default message is used.
+    /// </summary>
+    public string? ViewSnapshotMessageOverrideOrNull => _viewSnapshotMessageOverride;
+
+    /// <summary>
+    /// Gets the text sent alongside the view capture: the override when set, else the wired tool's
+    /// default. Empty when no View Snapshot tool is wired.
+    /// </summary>
+    public string ViewSnapshotMessage => _viewSnapshotMessageOverride ?? ViewSnapshotDefaultMessage;
+
+    /// <summary>
+    /// Gets a value indicating whether images may ride a submitted prompt. The Add Image tool is the
+    /// general grant, but a snapshot tool in attach mode grants its own narrow lane: its capture lands
+    /// in the prompt box and leaves on the human's own turn, so it must not be dropped at submit time
+    /// just because Add Image happens to be unwired.
+    /// </summary>
+    public bool AcceptsPromptImages =>
+        _hasAddImageTool
+        || (HasGeometrySnapshotTool && !GeometrySnapshotSendsMessage)
+        || (HasViewSnapshotTool && !ViewSnapshotSendsMessage);
 
     /// <inheritdoc/>
     protected override string ClearMenuText => "Clear Conversation";
@@ -345,6 +411,52 @@ public class ConversationLog : StatefulComponentBase
     }
 
     /// <summary>
+    /// Switches the wired Geometry Snapshot tool(s) between sending the snapshot as its own message
+    /// and attaching it to the prompt box. The flag lives on the Geometry Snapshot component (whose
+    /// context menu shows the same checkmark), not here: the chat window's switch and the canvas menu
+    /// are two views of one setting, so nothing has to be reconciled. Every wired tool is set, since
+    /// the last one collected is the one that wins. Called from the chat window on the UI thread.
+    /// </summary>
+    /// <param name="on">True to send the snapshot as its own message with its default text; false to attach it to the prompt box.</param>
+    public void SetGeometrySnapshotSendsMessage(bool on) => SetSnapshotSendsMessage<GeometrySnapshot>(on);
+
+    /// <summary>
+    /// Sets the view-snapshot message override (null = use the wired tool's default message) and
+    /// re-solves. The message accompanies the viewport capture sent by the chat window's view button.
+    /// Called from the chat window on the UI thread.
+    /// </summary>
+    /// <param name="message">The override text, or null to use the tool's default message.</param>
+    public void SetViewSnapshotMessageOverride(string? message)
+    {
+        _viewSnapshotMessageOverride = string.IsNullOrWhiteSpace(message) ? null : message;
+        ExpireSolution(true);
+    }
+
+    /// <summary>
+    /// Switches the wired View Snapshot tool(s) between sending the capture as its own message and
+    /// attaching it to the prompt box — the view-snapshot counterpart of
+    /// <see cref="SetGeometrySnapshotSendsMessage"/>. Called from the chat window on the UI thread.
+    /// </summary>
+    /// <param name="on">True to send the capture as its own message with its default text; false to attach it to the prompt box.</param>
+    public void SetViewSnapshotSendsMessage(bool on) => SetSnapshotSendsMessage<ViewSnapshot>(on);
+
+    // Flips the send-with-default-message flag on every wired snapshot component of the given kind.
+    // The flag lives on the component, not here — the chat window's switch and the canvas context menu
+    // are two views of one field, so nothing has to be reconciled and the new value simply comes back
+    // on the next state push. All wired tools are set, since the last one collected is the one that wins.
+    private void SetSnapshotSendsMessage<T>(bool on)
+        where T : SnapshotToolComponentBase
+    {
+        foreach (IGH_Param source in Params.Input[InHumanTools].Sources)
+        {
+            if (source.Attributes?.GetTopLevel?.DocObject is T snapshot)
+            {
+                snapshot.SetSendWithMessage(on);
+            }
+        }
+    }
+
+    /// <summary>
     /// Sets the expose-signatures flag and re-solves so the change takes effect on the next minted
     /// Instructions. Called from the chat window on the UI thread.
     /// </summary>
@@ -361,7 +473,7 @@ public class ConversationLog : StatefulComponentBase
         pManager.AddTextParameter("System Prompt", "S", "System prompt from the System Prompt component.", GH_ParamAccess.item, string.Empty);
         pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn; the signal payload is the prompt text. Use Construct Signal to combine a text payload with a manual trigger.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Optional grounding context (e.g. the Component Catalog); each grounding's section is folded into the system prompt. Narrow what is included via the chat window's grounding panel.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_HumanTool(), "Human Tools", "HT", "Optional human tools — affordances enabled in the chat window (Geometry Snapshot, Add Image). Never sent to the model.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_HumanTool(), "Human Tools", "HT", "Optional human tools — affordances enabled in the chat window (Geometry Snapshot, View Snapshot, Add Image). Never sent to the model.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the LLM Call's Success Signal.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Records feedback as a user turn. Wire one or more Feedback Collectors directly — no OR gate needed.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "LLM Tool Signal", "TS", "Records tool turns from a Router (via Feedback Collector): a signal whose content blocks carry tool_use is logged as an assistant turn; one whose blocks carry tool_result is logged as a user turn.", GH_ParamAccess.list);
@@ -547,6 +659,13 @@ public class ConversationLog : StatefulComponentBase
             writer.SetString("SnapshotMessage", _snapshotMessageOverride);
         }
 
+        // View-snapshot message override, same discipline under its own keys.
+        writer.SetBoolean("ViewSnapshotMessageSet", _viewSnapshotMessageOverride is not null);
+        if (_viewSnapshotMessageOverride is not null)
+        {
+            writer.SetString("ViewSnapshotMessage", _viewSnapshotMessageOverride);
+        }
+
         writer.SetBoolean("ExposeComponentSignatures", _exposeSignatures);
 
         return base.Write(writer);
@@ -623,6 +742,15 @@ public class ConversationLog : StatefulComponentBase
             _snapshotMessageOverride = null;
         }
 
+        if (reader.ItemExists("ViewSnapshotMessageSet") && reader.GetBoolean("ViewSnapshotMessageSet"))
+        {
+            _viewSnapshotMessageOverride = reader.ItemExists("ViewSnapshotMessage") ? reader.GetString("ViewSnapshotMessage") : null;
+        }
+        else
+        {
+            _viewSnapshotMessageOverride = null;
+        }
+
         // Missing key = false, so files written before the flag existed keep the names-only default.
         _exposeSignatures = reader.ItemExists("ExposeComponentSignatures") && reader.GetBoolean("ExposeComponentSignatures");
 
@@ -686,6 +814,11 @@ public class ConversationLog : StatefulComponentBase
         // the document (the params themselves are the registry), gated on a canvas-state grounding
         // being wired — without it the model cannot see those params anyway.
         _hasCanvasStateGrounding = _liveGroundings.OfType<CanvasStateGrounding>().Any();
+
+        // A group-scoped grounder narrows the model's whole canvas view; if one is wired at all it
+        // wins over a plain Canvas State (the restrictive intent is the deliberate one), and the
+        // fresh re-export at mint time follows the same frame.
+        _groupScopedCanvasGrounding = _liveGroundings.OfType<CanvasStateGrounding>().Any(g => g.GroupScoped);
         _liveReferencedGeometry = _hasCanvasStateGrounding
             ? Generation.CanvasRhinoReferences.Collect(OnPingDocument())
                 .Select(r => new ReferencedGeometryInput(r.Name, r.TypeName))
@@ -710,6 +843,7 @@ public class ConversationLog : StatefulComponentBase
         // A Geometry Snapshot tool carries a single default message; last one wins if several are
         // wired (same discipline as document units).
         _liveSnapshotTool = tools.OfType<GeometrySnapshotTool>().LastOrDefault();
+        _liveViewSnapshotTool = tools.OfType<ViewSnapshotTool>().LastOrDefault();
         _hasAddImageTool = tools.OfType<AddImageTool>().Any();
     }
 
@@ -721,8 +855,10 @@ public class ConversationLog : StatefulComponentBase
 
     // Folds the wired groundings into the system prompt, applying the component selection to
     // component-catalog groundings and the cluster selection to cluster groundings (other kinds
-    // pass through untouched).
-    private string BuildGroundedSystemPrompt(string systemPrompt)
+    // pass through untouched). The result is segmented rather than flat so the provider can cache
+    // the stable prefix; the wire order of the groundings does not matter, because SystemPrompt
+    // sorts the volatile canvas state behind everything invariant on construction.
+    private Core.ConvoInstruct.SystemPrompt BuildGroundedSystemPrompt(string systemPrompt)
     {
         if (_liveGroundings.Count == 0)
         {
@@ -742,7 +878,9 @@ public class ConversationLog : StatefulComponentBase
                     // carries signatures (the model's worst failure mode is guessing a common
                     // component's parameter order) while the long tail stays names-only; the user's
                     // expose-signatures toggle widens enrichment to the whole filtered catalog.
-                    ComponentCatalog filteredCatalog = cc.Catalog.Filtered(_selection);
+                    // No explicit selection = the native-only default: plug-in components stay out
+                    // of the prompt until the user checks their tabs in the grounding selector.
+                    ComponentCatalog filteredCatalog = cc.Catalog.Filtered(_selection ?? cc.Catalog.NativeSelection());
                     mapped.Add(new ComponentCatalogGrounding(
                         _exposeSignatures
                             ? ComponentSignatureProvider.EnrichWithSignatures(filteredCatalog)
@@ -789,7 +927,12 @@ public class ConversationLog : StatefulComponentBase
     private Grounding FreshCanvasStateGrounding()
     {
         GH_Document? doc = OnPingDocument();
-        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(doc);
+
+        // Record which frame the model is being shown, so every guardrail that hands it a fresh
+        // base checksum (GhJsonBridge.CurrentBaseChecksum) reports the same frame.
+        GhJsonBridge.RecordActiveFrame(doc, _groupScopedCanvasGrounding);
+
+        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(doc, _groupScopedCanvasGrounding);
         if (snapshot is null)
         {
             return new CanvasStateGrounding(string.Empty, string.Empty, 0);
@@ -799,15 +942,15 @@ public class ConversationLog : StatefulComponentBase
         // so the model reads this canvas state's numbering as authoritative instead of patching
         // against ids only it remembers.
         string? numberingNote = GhJsonBridge.ConsumePlacementNumberingLoss(doc)
-            ? "IMPORTANT: your last placement could NOT keep the component ids you authored — the placed "
-              + "components have been renumbered. The ids shown in THIS canvas state are the authoritative "
-              + "numbering; use only these ids (never the ids from your own earlier submission) for "
-              + "connection endpoints and group members."
+            ? "IMPORTANT: your last placement could NOT keep the component ids you authored — they were "
+              + "renumbered. The ids in THIS canvas state are authoritative; never use ids from your "
+              + "own earlier submission."
             : null;
 
         return new CanvasStateGrounding(snapshot.Json, snapshot.Checksum, snapshot.ComponentCount, GhJsonBridge.CountModelPlaced(doc))
         {
             NumberingNote = numberingNote,
+            GroupScoped = _groupScopedCanvasGrounding,
         };
     }
 

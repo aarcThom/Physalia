@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -68,7 +68,7 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
     /// </remarks>
     protected virtual JsonObject BuildRequestBody(
         Conversation conversation,
-        string systemPrompt,
+        SystemPrompt systemPrompt,
         AnthropicProtocolConfig config,
         IReadOnlyList<LlmToolDefinition>? tools)
     {
@@ -203,9 +203,9 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
             }
         }
 
-        if (!string.IsNullOrEmpty(systemPrompt))
+        if (!systemPrompt.IsEmpty)
         {
-            body["system"] = systemPrompt;
+            body["system"] = BuildSystemField(systemPrompt);
         }
 
         if (tools is { Count: > 0 })
@@ -214,6 +214,48 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
         }
 
         return body;
+    }
+
+    /// <summary>
+    /// Renders the system prompt as Anthropic's <c>system</c> field, marking a cache breakpoint at
+    /// the end of the stable prefix whenever there is one worth taking.
+    ///
+    /// <para>Physalia rebuilds the system prompt every turn — the canvas state is re-exported at
+    /// each mint — but only its tail actually changes; the preamble, schema and component catalog
+    /// ahead of it are byte-identical all session. Sending one flat string made the whole thing
+    /// uncacheable and, on a measured session, accounted for about 82% of all input tokens. The
+    /// array form lets the invariant prefix be read from cache instead.</para>
+    /// </summary>
+    /// <param name="systemPrompt">The segmented system prompt.</param>
+    /// <returns>
+    /// A plain string when there is nothing worth caching, otherwise the block array with
+    /// <c>cache_control</c> on the stable prefix.
+    /// </returns>
+    private static JsonNode BuildSystemField(SystemPrompt systemPrompt)
+    {
+        if (!systemPrompt.HasCacheBreakpoint)
+        {
+            return JsonValue.Create(systemPrompt.Text)!;
+        }
+
+        var blocks = new JsonArray
+        {
+            new JsonObject
+            {
+                ["type"] = "text",
+                ["text"] = systemPrompt.StablePrefix,
+                ["cache_control"] = new JsonObject { ["type"] = "ephemeral" },
+            },
+        };
+
+        // A wholly stable prompt has no tail; an empty text block is rejected outright.
+        string tail = systemPrompt.VolatileSuffix;
+        if (!string.IsNullOrEmpty(tail))
+        {
+            blocks.Add(new JsonObject { ["type"] = "text", ["text"] = tail });
+        }
+
+        return blocks;
     }
 
     /// <summary>
@@ -270,7 +312,7 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
     /// <inheritdoc/>
     protected override async Task<Result<HttpResponseMessage, LlmError>> SendHttpRequestAsync(
         Conversation conversation,
-        string systemPrompt,
+        SystemPrompt systemPrompt,
         AnthropicProtocolConfig config,
         IReadOnlyList<LlmToolDefinition>? tools,
         CancellationToken ct)
@@ -301,6 +343,8 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
         string currentEventType = string.Empty;
         string currentData = string.Empty;
         int inputTokens = 0;
+        int cacheWriteTokens = 0;
+        int cacheReadTokens = 0;
         bool done = false;
 
         // Tool call accumulation across content_block_* events.
@@ -359,10 +403,25 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
                         using var doc = JsonDocument.Parse(data);
                         var root = doc.RootElement;
                         if (root.TryGetProperty("message", out var msg) &&
-                            msg.TryGetProperty("usage", out var usage) &&
-                            usage.TryGetProperty("input_tokens", out var it))
+                            msg.TryGetProperty("usage", out var usage))
                         {
-                            inputTokens = it.GetInt32();
+                            if (usage.TryGetProperty("input_tokens", out var it))
+                            {
+                                inputTokens = it.GetInt32();
+                            }
+
+                            // The only honest confirmation that the cache breakpoint is landing.
+                            // input_tokens counts the uncached remainder ONLY, so without these two
+                            // a working cache looks like a mysterious drop in prompt size.
+                            if (usage.TryGetProperty("cache_creation_input_tokens", out var cw))
+                            {
+                                cacheWriteTokens = cw.GetInt32();
+                            }
+
+                            if (usage.TryGetProperty("cache_read_input_tokens", out var cr))
+                            {
+                                cacheReadTokens = cr.GetInt32();
+                            }
                         }
 
                         break;
@@ -494,7 +553,16 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
                         thinkingTagOpen = false;
 
                         chunk = new Result<LlmResponseChunk, LlmError>.Ok(
-                            new LlmResponseChunk(finalDelta, true, new LlmUsage(inputTokens, outputTokens), toolCalls, stopReason));
+                            new LlmResponseChunk(
+                                finalDelta,
+                                true,
+                                new LlmUsage(inputTokens, outputTokens)
+                                {
+                                    CacheWriteTokens = cacheWriteTokens,
+                                    CacheReadTokens = cacheReadTokens,
+                                },
+                                toolCalls,
+                                stopReason));
                         done = true;
                         break;
                     }

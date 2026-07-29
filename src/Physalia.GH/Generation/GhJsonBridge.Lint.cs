@@ -110,7 +110,10 @@ internal static partial class GhJsonBridge
             StampComponentGuids(new GhJsonDocument("1.0", null, adds, null, null));
         }
 
-        GhJsonDocument? canvas = TryExportCanvasState()?.Document;
+        // Project against the frame the model authored in (same matching rule as the apply): a
+        // checksum matching the group-scoped export means it saw only the master group's contents,
+        // and linting the full canvas would name components it cannot see.
+        GhJsonDocument? canvas = ResolveBaseSnapshot(null, patch.Patch?.Base?.Checksum?.Trim())?.Document;
         if (canvas?.Components is null || canvas.Components.Count == 0)
         {
             // Nothing to project onto (no document, or an empty canvas the model should not have
@@ -427,7 +430,7 @@ internal static partial class GhJsonBridge
                         LintFindingKind.MultiWireItem,
                         id,
                         i,
-                        $"'{component.Name}' (id {id}) input '{port.Name}' (paramIndex {i}) receives {wireCount} wires but consumes ONE item — the wires collect into a {wireCount}-item list and every downstream item multiplies. Wire a single source, or combine the values upstream first (e.g. an Addition component)."));
+                        $"'{component.Name}' (id {id}) input '{port.Name}' (paramIndex {i}): {wireCount} wires into an item-access input collect into a {wireCount}-item list and everything downstream multiplies. Wire ONE source, or combine the values upstream (e.g. Addition)."));
                 }
 
                 if (!port.Required)
@@ -444,7 +447,7 @@ internal static partial class GhJsonBridge
                         LintFindingKind.RequiredInput,
                         id,
                         i,
-                        $"'{component.Name}' (id {id}) input '{port.Name}' (paramIndex {i}) is required but has no wire and no internalized value — wire it or internalize a value."));
+                        $"'{component.Name}' (id {id}) input '{port.Name}' (paramIndex {i}): required, but has no wire and no internalized value — wire it or internalize one."));
                 }
             }
 
@@ -495,8 +498,8 @@ internal static partial class GhJsonBridge
             id,
             null,
             inputCount == 0
-                ? $"{Describe(component, id)} is a value source nothing reads — no wire leaves its {kinds} output, so its value cannot affect the graph at all. Wire it to the input it is meant to drive, or remove it."
-                : $"{Describe(component, id)} produces only data ({kinds}) and nothing consumes its outputs — wire its result somewhere or remove the component; a dangling data component is almost always abandoned intent."));
+                ? $"{Describe(component, id)} is a value source nothing reads — wire its {kinds} output to the input it should drive, or remove it."
+                : $"{Describe(component, id)} produces only data ({kinds}) and nothing consumes it — wire its result somewhere or remove it."));
     }
 
     /// <summary>
@@ -563,7 +566,7 @@ internal static partial class GhJsonBridge
                 LintFindingKind.SelfCombination,
                 id,
                 firstPort,
-                $"{Describe(component, id)} takes {ports} from the SAME source — {source}. An operator fed one value twice is degenerate (A−A is 0, A÷A is 1, min(A,A) is A) and the solve cannot report it. Wire the operand that should differ to the source it was meant to come from, or internalize a value on it."));
+                $"{Describe(component, id)} takes {ports} from the SAME source — {source}. That is degenerate (A−A=0, A÷A=1, min(A,A)=A); wire the operand that should differ to its intended source, or internalize a value on it."));
         }
     }
 
@@ -607,6 +610,16 @@ internal static partial class GhJsonBridge
 
         IReadOnlyList<ComponentPort> ports = output ? sig.Outputs : sig.Inputs;
         string side = output ? "output" : "input";
+
+        // A floating parameter (Param_Geometry, Param_Number, …) introspects with no ports of its
+        // own even though it accepts a wire on either side — it IS the port. With an empty list
+        // every endpoint on it reads as out of bounds, and the message renders "its inputs are: "
+        // with nothing after the colon, which is unactionable as well as wrong. Nothing can be
+        // checked against an empty signature, so there is nothing to say.
+        if (ports.Count == 0)
+        {
+            return;
+        }
 
         bool badIndex = endpoint.ParamIndex is int idx && (idx < 0 || idx >= ports.Count);
         bool badName = endpoint.ParamIndex is null
@@ -762,8 +775,19 @@ internal static partial class GhJsonBridge
         "Surface", "Brep", "Mesh", "Box", "Geometry", "Extrusion", "SubD", "Group",
     };
 
+    // Grasshopper reports an untyped output as "Generic Data", not "Generic" — the exemption used
+    // to test only the latter, so every Merge / Entwine / generic-param terminal was permanently
+    // flagged as an orphan. A generic output can be carrying breps for all this lint knows, so it
+    // cannot be called data-only; observed live, it cost three consecutive rounds as the model
+    // wired a terminal, was told to wire it somewhere, and tripped the same lint on whatever it
+    // added next.
+    private static readonly HashSet<string> GenericTypeHints = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Generic", "Generic Data", "Data", "Object",
+    };
+
     private static bool IsDataOnlyHint(string typeHint) =>
         !string.IsNullOrWhiteSpace(typeHint)
-        && !string.Equals(typeHint, "Generic", StringComparison.OrdinalIgnoreCase)
+        && !GenericTypeHints.Contains(typeHint)
         && !GeometryTypeHints.Contains(typeHint);
 }

@@ -171,6 +171,13 @@ internal static partial class GhJsonBridge
         var grouped = new HashSet<Guid>();
         foreach (GHGroupObject group in doc.Objects.OfType<GHGroupObject>())
         {
+            // The master "Physalia" group encloses every functional area; treating it as an area
+            // itself would fuse the whole placement into one rigid body and disable area separation.
+            if (IsMasterGroup(group))
+            {
+                continue;
+            }
+
             var members = new List<Guid>();
             foreach (Guid guid in group.ObjectIDs ?? Enumerable.Empty<Guid>())
             {

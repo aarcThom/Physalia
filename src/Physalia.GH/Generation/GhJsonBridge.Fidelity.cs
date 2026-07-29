@@ -448,5 +448,5 @@ internal static partial class GhJsonBridge
     }
 
     private static FidelityReport Report(GH_Document doc, IReadOnlyList<string> violations) =>
-        new FidelityReport(violations, TryExportCanvasState(doc)?.Checksum);
+        new FidelityReport(violations, CurrentBaseChecksum(doc));
 }

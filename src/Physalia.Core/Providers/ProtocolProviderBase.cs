@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -45,7 +45,7 @@ public abstract class ProtocolProviderBase<TConfig> : ILlmProvider
     /// <returns>An async sequence of result chunks.</returns>
     public async IAsyncEnumerable<Result<LlmResponseChunk, LlmError>> StreamAsync(
         Conversation conversation,
-        string systemPrompt,
+        SystemPrompt systemPrompt,
         ModelConfig config,
         IReadOnlyList<LlmToolDefinition>? tools,
         [EnumeratorCancellation] CancellationToken ct)
@@ -106,7 +106,7 @@ public abstract class ProtocolProviderBase<TConfig> : ILlmProvider
     /// <returns>The open response on success, or an error.</returns>
     protected abstract Task<Result<HttpResponseMessage, LlmError>> SendHttpRequestAsync(
         Conversation conversation,
-        string systemPrompt,
+        SystemPrompt systemPrompt,
         TConfig config,
         IReadOnlyList<LlmToolDefinition>? tools,
         CancellationToken ct);

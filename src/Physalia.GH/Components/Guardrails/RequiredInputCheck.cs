@@ -84,22 +84,14 @@ public class RequiredInputCheck : RoutingComponentBase<string>
     {
         var sb = new StringBuilder();
         sb.AppendLine(isPatch
-            ? "The patch was NOT applied: it was rejected before it reached the canvas because of the "
-              + "wiring defects listed below in the graph it would have produced (a required input "
-              + "with no value, multiple wires collecting into a one-item input, a component left "
-              + "feeding nothing, or an operator taking both operands from one source). Each defect "
-              + "is on a component this patch adds or rewires — not on pre-existing canvas work. The "
-              + "canvas is unchanged and the base checksum you used is still valid. Resubmit the "
-              + "corrected ghpatch: fix ONLY the defects listed below and keep every other operation "
-              + "identical."
-            : "Nothing was placed: your submission was rejected before it reached the canvas because "
-              + "of the wiring defects listed below (a required input with no value, multiple wires "
-              + "collecting into a one-item input, a component feeding nothing, or an operator taking "
-              + "both operands from one source), so the canvas is unchanged from the state you were "
-              + "shown. Resubmit your ENTIRE corrected full GhJSON document — do NOT switch "
-              + "to a ghpatch; none of your components exist on the canvas yet. Fix ONLY the defects "
-              + "listed below and keep every other component and connection identical to your "
-              + "previous submission.");
+            ? "The patch was NOT applied: the graph it would produce has the wiring defects below, "
+              + "each on a component this patch adds or rewires (never pre-existing canvas work). "
+              + "The canvas is unchanged and your base checksum is still valid. Fix ONLY these "
+              + "defects and resubmit the corrected ghpatch, keeping every other operation identical."
+            : "Nothing was placed: your submission has the wiring defects below, so the canvas is "
+              + "unchanged. Fix ONLY these defects and resubmit your ENTIRE corrected full document "
+              + "(do NOT switch to a ghpatch; none of your components exist yet), keeping everything "
+              + "else identical.");
 
         foreach (string violation in violations)
         {

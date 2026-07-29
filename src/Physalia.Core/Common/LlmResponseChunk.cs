@@ -7,9 +7,30 @@ namespace Physalia.Core.Common;
 /// Token usage for a completed inference call.
 /// Arrives on the final chunk (<see cref="LlmResponseChunk.IsLast"/> is true) when available.
 /// </summary>
-/// <param name="InputTokens">Number of tokens in the prompt.</param>
+/// <param name="InputTokens">
+/// Number of prompt tokens billed at the full rate — the uncached remainder only. The whole prompt
+/// is <c>InputTokens + CacheWriteTokens + CacheReadTokens</c>.
+/// </param>
 /// <param name="OutputTokens">Number of tokens generated.</param>
-public record LlmUsage(int InputTokens, int OutputTokens);
+public record LlmUsage(int InputTokens, int OutputTokens)
+{
+    /// <summary>
+    /// Gets the prompt tokens written to the provider's cache on this call, billed at a premium
+    /// over the base rate. Zero on providers that do not report it.
+    /// </summary>
+    public int CacheWriteTokens { get; init; }
+
+    /// <summary>
+    /// Gets the prompt tokens served from the provider's cache on this call, billed at roughly a
+    /// tenth of the base rate. Zero on providers that do not report it.
+    ///
+    /// <para>This is the one honest signal that prompt caching is working. Physalia rebuilds the
+    /// system prompt every turn and relies on the stable/volatile split to keep the prefix
+    /// byte-identical; if this stays zero across consecutive turns, something upstream is
+    /// perturbing that prefix and the cache is being rewritten instead of read.</para>
+    /// </summary>
+    public int CacheReadTokens { get; init; }
+}
 
 /// <summary>
 /// A single streamed chunk from an LLM inference call.

@@ -100,40 +100,43 @@ internal static partial class GhJsonBridge
                 new[] { "The patch contained no operations; the canvas is unchanged." });
         }
 
-        CanvasStateSnapshot? snapshot = TryExportCanvasState(doc);
+        // The base frame is resolved by matching the carried checksum against each frame's export
+        // (full canvas vs master-group scope) — ids resolve identically in both (one registry per
+        // document), but the drift check must never compare checksums across frames. Matching, not
+        // a checksum prefix: the GhJSON library's patch schema regex-rejects any non-standard
+        // checksum shape, so the string itself cannot carry the frame.
+        string? carried = patch.Patch?.Base?.Checksum?.Trim();
+        CanvasStateSnapshot? snapshot = ResolveBaseSnapshot(doc, carried);
         if (snapshot is null)
         {
             return PatchFailure("The canvas state could not be exported.");
         }
 
+        bool groupFrame = snapshot.GroupScoped;
         GhJsonDocument baseExport = snapshot.Document;
 
-        string? carried = patch.Patch?.Base?.Checksum?.Trim();
         if (verifyBase && !string.IsNullOrEmpty(carried)
             && !string.Equals(carried, snapshot.Checksum, StringComparison.OrdinalIgnoreCase))
         {
-            // Carry the FRESH canvas state and checksum in the feedback itself, not just a pointer to
-            // the system-prompt grounding (which rides a separate, eventually-fresh channel). This
-            // makes the retry deterministic: the model regenerates against the exact state the next
-            // patch will apply against, so a concurrent user edit converges in one round-trip instead
-            // of dead-ending. Kept as Payload text — carrier discipline holds (no new signal field).
+            // The feedback carries the fresh checksum but NOT the canvas state: the Conversation Log
+            // re-exports the canvas into the system prompt at the moment this feedback is folded, so
+            // the state is already in the same request — embedding a second copy here doubled the
+            // canvas cost of every mismatch round for nothing. Kept as Payload text — carrier
+            // discipline holds (no new signal field).
             var mismatch = new StringBuilder();
             mismatch.AppendLine(
                 "base_checksum_mismatch: the canvas changed since you last saw it, so this patch was NOT "
-                + "applied. Regenerate the patch against the CURRENT canvas state below.");
+                + "applied. Regenerate the patch against the CURRENT canvas state in your instructions.");
             mismatch.AppendLine();
-            mismatch.AppendLine("Base checksum — copy this verbatim into patch.base.checksum: " + snapshot.Checksum);
+            mismatch.Append("Base checksum — copy this verbatim into patch.base.checksum: " + snapshot.Checksum);
 
-            if (snapshot.ComponentCount > 0)
+            if (snapshot.ComponentCount == 0)
             {
                 mismatch.AppendLine();
-                mismatch.AppendLine("Current canvas state (GhJSON):");
-                mismatch.Append(snapshot.Json);
-            }
-            else
-            {
                 mismatch.AppendLine();
-                mismatch.Append("The canvas is now empty — emit a full GhJSON document instead of a patch.");
+                mismatch.Append(groupFrame
+                    ? "The Physalia group is now empty — emit a full GhJSON document instead of a patch."
+                    : "The canvas is now empty — emit a full GhJSON document instead of a patch.");
             }
 
             return PatchFailure(mismatch.ToString());
@@ -213,9 +216,13 @@ internal static partial class GhJsonBridge
             // the canvas grounding's provenance line (and future patch-mode fidelity) reads them.
             RecordAuthoredPlacement(doc, addedById.Select(p => new KeyValuePair<int, Guid>(p.Key, p.Value.InstanceGuid)));
 
-            ApplyGroupOps(patch, doc, baseExport, baseIndex, addedById, conflicts);
+            List<Guid> createdGroups = ApplyGroupOps(patch, doc, baseExport, baseIndex, addedById, conflicts);
             ApplyConnectionRemoves(patch, doc, addIds, baseIndex, removedGuids, modifiedGuids, conflicts, warnings);
             ApplyConnectionAdds(patch, doc, addIds, addedById, baseIndex, modifiedGuids, conflicts);
+
+            // Everything this patch added — components and the groups it organized them into —
+            // lands in the master "Physalia" group, keeping the shared workspace complete.
+            EnrollPlaced(doc, addedGuids, createdGroups);
 
             // Group membership is final here, so every area the patch touched can be rebuilt around
             // its new members — inserting them into the data flow and pushing the existing downstream
@@ -241,7 +248,7 @@ internal static partial class GhJsonBridge
         // A partial apply means the model must resubmit — and the operations that DID land changed
         // the canvas, so its old base checksum is guaranteed stale. Hand the fresh one back in the
         // outcome so the feedback can carry it and the retry cannot mismatch.
-        string? postApplyChecksum = conflicts.Count > 0 ? TryExportCanvasState(doc)?.Checksum : null;
+        string? postApplyChecksum = conflicts.Count > 0 ? TryExportCanvasState(doc, groupFrame)?.Checksum : null;
 
         return new CanvasPatchOutcome(
             conflicts.Count == 0,
@@ -1829,7 +1836,8 @@ internal static partial class GhJsonBridge
 
     // ---- Groups ------------------------------------------------------------------------------
 
-    private static void ApplyGroupOps(
+    // Returns the instanceGuids of the groups this patch created, for master-group enrollment.
+    private static List<Guid> ApplyGroupOps(
         GhPatchDocument patch,
         GH_Document doc,
         GhJsonDocument baseExport,
@@ -1837,10 +1845,11 @@ internal static partial class GhJsonBridge
         Dictionary<int, IGH_DocumentObject> addedById,
         List<string> conflicts)
     {
+        var created = new List<Guid>();
         GhPatchGroupsOp? groups = patch.Patch?.Groups;
         if (groups is null)
         {
-            return;
+            return created;
         }
 
         Guid? MemberGuid(int id)
@@ -1932,6 +1941,7 @@ internal static partial class GhJsonBridge
             }
 
             doc.AddObject(group, false);
+            created.Add(group.InstanceGuid);
             foreach (int id in add.Members ?? Enumerable.Empty<int>())
             {
                 if (MemberGuid(id) is Guid guid)
@@ -1956,6 +1966,7 @@ internal static partial class GhJsonBridge
         }
 
         RegisterStableIds(doc, groupIds);
+        return created;
     }
 
     // Parses the GhJSON colour form "argb:255,200,220,255" (a bare "255,200,220,255" is tolerated).

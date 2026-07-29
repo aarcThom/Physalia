@@ -211,34 +211,100 @@ public class Chat : StatefulComponentBase
         Rhino.RhinoApp.InvokeOnUiThread(new Action(() =>
         {
             ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(this, 0);
-            if (conversationLog is null || !conversationLog.HasGeometrySnapshotTool)
+            if (conversationLog is null || !TryCaptureGeneratedGeometryPng(out byte[]? imageBytes) || imageBytes is null)
             {
                 return;
             }
 
-            Rhino.Geometry.BoundingBox bounds = Generation.GeneratedGeometryScan.ComputeBounds(OnPingDocument());
-            if (!bounds.IsValid)
-            {
-                return;
-            }
-
-            if (!Generation.ViewportSnapshot.TryCapture(bounds, out byte[]? imageBytes, out _) || imageBytes is null)
-            {
-                return;
-            }
-
-            string message = conversationLog.GeometrySnapshotMessage;
-            var blocks = new List<MessageContent>();
-            if (!string.IsNullOrWhiteSpace(message))
-            {
-                blocks.Add(new TextContent(message));
-            }
-
-            blocks.Add(new ImageContent(new InlineImage(imageBytes, "image/png")));
-
-            LatchSuccess(message, contentBlocks: blocks);
-            ExpireSolution(true);
+            LatchSnapshotTurn(conversationLog.GeometrySnapshotMessage, imageBytes);
         }));
+    }
+
+    /// <summary>
+    /// Sends a capture of the active Rhino viewport as its own user message — fired by the chat
+    /// window's view button, never automatically. The geometry-free counterpart of
+    /// <see cref="SendGeometrySnapshotFromWindow"/>: no generated-geometry scan and no camera move, so
+    /// what the model receives is exactly what the human is looking at. Quietly does nothing when the
+    /// View Snapshot tool is unwired or the capture fails. Marshalled onto the UI thread (the bridge
+    /// invokes it off the GH solve thread), where a viewport capture is safe between solves.
+    /// </summary>
+    public void SendViewSnapshotFromWindow()
+    {
+        Rhino.RhinoApp.InvokeOnUiThread(new Action(() =>
+        {
+            ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(this, 0);
+            if (conversationLog is null || !TryCaptureViewPng(out byte[]? imageBytes) || imageBytes is null)
+            {
+                return;
+            }
+
+            LatchSnapshotTurn(conversationLog.ViewSnapshotMessage, imageBytes);
+        }));
+    }
+
+    /// <summary>
+    /// Captures a viewport snapshot of the transmitter-generated geometry and hands back the PNG
+    /// bytes without minting anything — the attach half of the geometry button, used when the wired
+    /// Geometry Snapshot tool has "Send With Default Message" unchecked. The image is pushed into the
+    /// chat window's prompt box like a pasted attachment and leaves on the human's own turn, so no
+    /// signal is latched and no solve is expired here.
+    /// </summary>
+    /// <param name="png">The captured PNG bytes, or null when there is nothing to capture.</param>
+    /// <returns>True when a snapshot was captured.</returns>
+    public bool TryCaptureGeneratedGeometryPng(out byte[]? png)
+    {
+        png = null;
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(this, 0);
+        if (conversationLog is null || !conversationLog.HasGeometrySnapshotTool)
+        {
+            return false;
+        }
+
+        Rhino.Geometry.BoundingBox bounds = Generation.GeneratedGeometryScan.ComputeBounds(OnPingDocument());
+        if (!bounds.IsValid)
+        {
+            return false;
+        }
+
+        return Generation.ViewportSnapshot.TryCapture(bounds, out png, out _) && png is not null;
+    }
+
+    /// <summary>
+    /// Captures the active Rhino viewport as-is and hands back the PNG bytes without minting anything —
+    /// the attach half of the view button, used when the wired View Snapshot tool has "Send With Default
+    /// Message" unchecked. Nothing on the canvas is inspected and the camera is never moved: an unset
+    /// bounding box tells the shared capture to skip its zoom, so the human gets the frame they composed.
+    /// </summary>
+    /// <param name="png">The captured PNG bytes, or null when there is nothing to capture.</param>
+    /// <returns>True when a capture was taken.</returns>
+    public bool TryCaptureViewPng(out byte[]? png)
+    {
+        png = null;
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(this, 0);
+        if (conversationLog is null || !conversationLog.HasViewSnapshotTool)
+        {
+            return false;
+        }
+
+        return Generation.ViewportSnapshot.TryCapture(Rhino.Geometry.BoundingBox.Unset, out png, out _) && png is not null;
+    }
+
+    // Mints one Prompt Signal whose turn is the snapshot's message plus the captured image, exactly
+    // like a typed message with an attached image, and expires so the signal reaches the wire. Shared
+    // by both snapshot tools — all that differs between them is what was captured and which message
+    // rides along. An empty message sends the image alone.
+    private void LatchSnapshotTurn(string message, byte[] png)
+    {
+        var blocks = new List<MessageContent>();
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            blocks.Add(new TextContent(message));
+        }
+
+        blocks.Add(new ImageContent(new InlineImage(png, "image/png")));
+
+        LatchSuccess(message, contentBlocks: blocks);
+        ExpireSolution(true);
     }
 
     /// <summary>

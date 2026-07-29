@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using Physalia.Core.ConvoInstruct;
+using Physalia.Core.Planning;
 using Physalia.Core.Tokens;
 
 namespace Physalia.Core.Compaction;
@@ -138,13 +139,28 @@ public static class ConversationCompactor
         ArgumentNullException.ThrowIfNull(options);
 
         var result = new List<ConversationMessage>(conversation.Count);
+        int index = -1;
 
         foreach (ConversationMessage message in conversation.Messages)
         {
+            index++;
+
             if (options.DropFeedbackTurns && message.IsFeedback)
             {
                 continue;
             }
+
+            // Age is measured from the end: the working set is the recent tail, and only turns
+            // behind it are edited. An assistant turn's own submission is load-bearing while the
+            // model is still correcting it, so the caller's keep-last count decides when it stops
+            // being so — never this method.
+            int fromEnd = conversation.Count - index;
+            bool staleDocument = message.Role == Role.Assistant
+                && options.StaleDocumentKeepLast is int docKeep
+                && fromEnd > docKeep;
+            bool stalePlan = message.Role == Role.Assistant
+                && options.StalePlanBlockKeepLast is int planKeep
+                && fromEnd > planKeep;
 
             var kept = new List<MessageContent>(message.Content.Count);
 
@@ -164,6 +180,24 @@ public static class ConversationCompactor
                     case ToolResultContent toolResult when options.MaxToolResultChars is int max && toolResult.Content.Length > max:
                         kept.Add(new ToolResultContent(toolResult.ToolCallId, Truncate(toolResult.Content, max), toolResult.IsError));
                         break;
+
+                    case TextContent text when staleDocument || stalePlan:
+                        {
+                            string edited = stalePlan ? BuildPlanParser.StripPlanBlock(text.Text) : text.Text;
+                            edited = staleDocument ? StaleTurnEditor.StubTrailingDocument(edited) : edited;
+
+                            // A turn edited down to nothing is dropped rather than kept as an
+                            // empty block, which providers reject.
+                            if (!string.IsNullOrWhiteSpace(edited))
+                            {
+                                kept.Add(new TextContent(
+                                    options.MaxTextChars is int cap && edited.Length > cap
+                                        ? Truncate(edited, cap)
+                                        : edited));
+                            }
+
+                            break;
+                        }
 
                     case TextContent text when options.MaxTextChars is int maxText && text.Text.Length > maxText:
                         kept.Add(new TextContent(Truncate(text.Text, maxText)));

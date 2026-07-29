@@ -72,4 +72,28 @@ public class CanvasStateGroundingTests
         Assert.Contains("Provenance: 3 of these components were placed from your previous responses", section);
         Assert.Contains("edit it via ghpatch", section);
     }
+
+    [Fact]
+    public void ToSystemPromptSection_GroupScoped_StatesVisibilityContract()
+    {
+        // The scoped frame must say outright that this is the model's WHOLE view (auto-enrollment,
+        // hidden canvas, user opts components in) so it neither reasons about hidden components nor
+        // wonders where its placed graph went.
+        string section = new CanvasStateGrounding(Json, Checksum, 1) { GroupScoped = true }.ToSystemPromptSection();
+
+        Assert.Contains("'Physalia' group", section);
+        Assert.Contains("added to this group automatically", section);
+        Assert.Contains("hidden", section);
+        Assert.DoesNotContain("CURRENT state of the Grasshopper canvas", section);
+        Assert.Contains(Json, section);
+        Assert.Contains("patch.base.checksum: " + Checksum, section);
+    }
+
+    [Fact]
+    public void ToSystemPromptSection_GroupScopedProvenance_NamesTheGroup()
+    {
+        string section = new CanvasStateGrounding(Json, Checksum, 1) { GroupScoped = true }.ToSystemPromptSection();
+
+        Assert.Contains("the group holds only the user's own work", section);
+    }
 }

@@ -45,9 +45,7 @@ public class ComponentGroundingSignatureTests
 
         // IncludeSignatures defaults to false: the flat comma list, even when entries carry ports.
         Assert.Equal(
-            "These Grasshopper components are installed and available — native and plug-in alike. "
-            + "This list is the authoritative catalogue of what may be placed: use these exact names, "
-            + "and only components from this list:\n"
+            "These are the ONLY Grasshopper components you may place — use these exact names:\n"
             + "Catenary, Loft",
             section);
     }
@@ -63,14 +61,11 @@ public class ComponentGroundingSignatureTests
         string section = new ComponentCatalogGrounding(catalog, IncludeSignatures: true).ToSystemPromptSection();
 
         Assert.Equal(
-            "These Grasshopper components are installed and available — native and plug-in alike. "
-            + "This list is the authoritative catalogue of what may be placed: use these exact names, "
-            + "and only components from this list. Each signature entry shows its input and output "
-            + "parameters as Name:Type, listed in paramIndex order — the first parameter is "
-            + "paramIndex 0; use these exact Names in inputSettings.parameterName. "
-            + "An input marked * is REQUIRED: it has no built-in default, so wire it or "
-            + "internalize a value — left empty it produces nulls or nothing downstream. "
-            + "Supply data matching these types:\n"
+            "These are the ONLY Grasshopper components you may place — use these exact names. "
+            + "Signatures list parameters as Name:Type in paramIndex order (first = 0); "
+            + "use these exact Names in inputSettings.parameterName. "
+            + "An input marked * is REQUIRED — wire it or internalize a value, "
+            + "or it produces nothing downstream:\n"
             + "- Catenary(in: A:Point, B:Point, L:Number, G:Vector) -> (out: C:Curve)",
             section);
     }

@@ -75,15 +75,13 @@ public class GhDefinitionValidator : RoutingComponentBase<string>
     {
         var sb = new StringBuilder();
         sb.AppendLine(isPatch
-            ? "Your response declared itself a ghpatch but is not a valid ghpatch document, so it was "
-              + "NOT applied: the canvas is unchanged and the base checksum you used is still valid. "
-              + "Resubmit the corrected ghpatch: fix ONLY the problems listed below and keep every "
-              + "other operation identical."
-            : "Your response is not a valid GhJSON document, so nothing was placed: the canvas is "
-              + "unchanged from the state you were shown. Resubmit your ENTIRE corrected full GhJSON "
-              + "document — do NOT switch to a ghpatch; none of your components exist on the canvas "
-              + "yet. Fix ONLY the problems listed below and keep everything else identical to your "
-              + "previous submission.");
+            ? "Your response is not a valid ghpatch, so it was NOT applied — the canvas is unchanged "
+              + "and your base checksum is still valid. Fix ONLY the problems below and resubmit the "
+              + "corrected ghpatch, keeping every other operation identical."
+            : "Your response is not a valid GhJSON document, so nothing was placed — the canvas is "
+              + "unchanged. Fix ONLY the problems below and resubmit your ENTIRE corrected full "
+              + "document (do NOT switch to a ghpatch; none of your components exist yet), keeping "
+              + "everything else identical.");
 
         if (!string.IsNullOrWhiteSpace(message))
         {

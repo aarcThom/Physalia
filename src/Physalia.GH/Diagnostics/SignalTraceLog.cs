@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #nullable enable
@@ -184,7 +184,7 @@ internal static class SignalTraceLog
         }
 
         InstructionsSummary? instructions = signal.Instructions is { } instr
-            ? new InstructionsSummary(instr.SystemPrompt?.Length ?? 0, instr.Conversation.Count, instr.Tools.Count)
+            ? new InstructionsSummary(instr.SystemPrompt.Text.Length, instr.Conversation.Count, instr.Tools.Count)
             : null;
 
         return new SignalTraceEntry(

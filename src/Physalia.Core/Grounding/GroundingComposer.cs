@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using Physalia.Core.ConvoInstruct;
 
 namespace Physalia.Core.Grounding;
 
@@ -15,37 +16,40 @@ namespace Physalia.Core.Grounding;
 public static class GroundingComposer
 {
     /// <summary>
-    /// Appends each grounding's system-prompt section to the prompt, separated by blank lines.
-    /// Empty or whitespace-only sections are dropped.
+    /// Appends each grounding's system-prompt section to the prompt as its own segment, tagged
+    /// with the grounding's own volatility. Empty or whitespace-only sections are dropped.
+    ///
+    /// <para>Segments are returned rather than one joined string so a provider can cache the part
+    /// that never changes. The caller's wire order does not have to be cache-aware:
+    /// <see cref="SystemPrompt"/> sorts every stable segment ahead of every volatile one on
+    /// construction, so a canvas-state grounding wired first still lands in the tail.</para>
     /// </summary>
-    /// <param name="systemPrompt">The already-assembled system prompt.</param>
+    /// <param name="systemPrompt">The already-assembled base prompt, treated as stable.</param>
     /// <param name="groundings">The groundings to fold in.</param>
     /// <returns>
-    /// The system prompt with each non-empty grounding section appended. Returns the prompt
-    /// unchanged when there are no groundings (or none contribute text).
+    /// The segmented system prompt. Returns just the base prompt when there are no groundings
+    /// (or none contribute text).
     /// </returns>
-    public static string Append(string systemPrompt, IReadOnlyList<Grounding> groundings)
+    public static SystemPrompt Append(string systemPrompt, IReadOnlyList<Grounding> groundings)
     {
-        if (groundings is null || groundings.Count == 0)
+        var segments = new List<SystemPromptSegment>();
+
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
         {
-            return systemPrompt ?? string.Empty;
+            segments.Add(new SystemPromptSegment(systemPrompt, SystemPromptStability.Stable));
         }
 
-        var parts = new List<string>();
-        if (!string.IsNullOrEmpty(systemPrompt))
-        {
-            parts.Add(systemPrompt);
-        }
-
-        foreach (Grounding grounding in groundings)
+        foreach (Grounding grounding in groundings ?? Array.Empty<Grounding>())
         {
             string section = grounding?.ToSystemPromptSection() ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(section))
             {
-                parts.Add(section.Trim());
+                segments.Add(new SystemPromptSegment(
+                    section,
+                    grounding!.IsVolatile ? SystemPromptStability.Volatile : SystemPromptStability.Stable));
             }
         }
 
-        return string.Join("\n\n", parts);
+        return new SystemPrompt(segments);
     }
 }

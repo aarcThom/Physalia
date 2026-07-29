@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -39,7 +39,7 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
     /// <returns>A <see cref="JsonObject"/> ready for serialisation.</returns>
     protected virtual JsonObject BuildRequestBody(
         Conversation conversation,
-        string systemPrompt,
+        SystemPrompt systemPrompt,
         OpenAIProtocolConfig config,
         IReadOnlyList<LlmToolDefinition>? tools)
     {
@@ -132,7 +132,7 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
     /// <inheritdoc/>
     protected override async Task<Result<HttpResponseMessage, LlmError>> SendHttpRequestAsync(
         Conversation conversation,
-        string systemPrompt,
+        SystemPrompt systemPrompt,
         OpenAIProtocolConfig config,
         IReadOnlyList<LlmToolDefinition>? tools,
         CancellationToken ct)
@@ -345,13 +345,15 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
         }
     }
 
-    private static JsonArray BuildMessagesArray(Conversation conversation, string systemPrompt)
+    private static JsonArray BuildMessagesArray(Conversation conversation, SystemPrompt systemPrompt)
     {
         var messages = new JsonArray();
 
-        if (!string.IsNullOrEmpty(systemPrompt))
+        // Segments arrive stable-first, which is all OpenAI's automatic prefix caching needs:
+        // an unchanged leading span of the request hits cache without any explicit marker.
+        if (!systemPrompt.IsEmpty)
         {
-            messages.Add(new JsonObject { ["role"] = "system", ["content"] = systemPrompt });
+            messages.Add(new JsonObject { ["role"] = "system", ["content"] = systemPrompt.Text });
         }
 
         foreach (var inbound in conversation.Messages)

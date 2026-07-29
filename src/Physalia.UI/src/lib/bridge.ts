@@ -99,12 +99,29 @@ export interface UiState {
 	/** True when a Geometry Snapshot human tool is wired into the Conversation Log (shows the Geometry Snapshot page). */
 	snapshotWired: boolean;
 	/** True when a transmitter has generated geometry on the canvas right now — with the tool wired,
-	 *  the composer shows its geometry button (press to send a snapshot as its own message). */
+	 *  the composer shows its geometry button. */
 	snapshotGeometryPresent: boolean;
+	/** True when pressing the geometry button sends the snapshot straight off as its own message
+	 *  carrying snapshotDefaultMessage (the tool's "Send With Default Message" toggle, on by
+	 *  default); false attaches the snapshot to the prompt box instead, for the user to caption —
+	 *  the message is unused then, so its editor is hidden. */
+	snapshotSendsMessage: boolean;
 	/** The tool's default message sent alongside the snapshot image (the Geometry Observation wording). */
 	snapshotDefaultMessage: string;
 	/** The current snapshot-message override, or null = use the tool's default message (default). */
 	snapshotMessage: string | null;
+	/** True when a View Snapshot human tool is wired into the Conversation Log (shows the View Snapshot
+	 *  page and its view button). There is no armed companion flag: a view capture needs nothing on the
+	 *  canvas, so wired is armed. */
+	viewSnapshotWired: boolean;
+	/** True when pressing the view button sends the capture straight off as its own message carrying
+	 *  viewSnapshotDefaultMessage (the tool's "Send With Default Message" toggle, on by default); false
+	 *  attaches the capture to the prompt box instead, for the user to caption. */
+	viewSnapshotSendsMessage: boolean;
+	/** The tool's default message sent alongside the view capture. */
+	viewSnapshotDefaultMessage: string;
+	/** The current view-snapshot message override, or null = use the tool's default message (default). */
+	viewSnapshotMessage: string | null;
 	/** True when an Add Image human tool is wired into the Conversation Log — without it, image
 	 *  intake (paste, drag-drop, file picker) is fully disabled in the composer. */
 	imageToolWired: boolean;
@@ -170,7 +187,8 @@ export interface UnitsOverridePayload {
 	units: string;
 }
 
-/** Geometry-snapshot message override sent back to the host. reset=true clears to the tool's default. */
+/** Snapshot message override sent back to the host (both snapshot tools use this shape, each under its
+ *  own verb). reset=true clears to the tool's default. */
 export interface SnapshotMessagePayload {
 	reset: boolean;
 	/** The override message text sent alongside the snapshot image. Ignored when reset is true. */
@@ -220,6 +238,14 @@ export interface PhysaliaHost {
 	setPresets(presets: UiPreset[]): void;
 	/** Every Chat on the canvas, for the bottom switcher row. */
 	setChats(chats: UiChat[]): void;
+	/** A viewport snapshot captured by the geometry button in attach mode (the Geometry Snapshot
+	 *  tool's default message switched off): lands in the composer's attachment strip like a pasted
+	 *  image and leaves on the user's own turn. */
+	attachSnapshot(image: UiImage): void;
+	/** A viewport capture from the view button in attach mode (the View Snapshot tool's default message
+	 *  switched off). Its own lane, granted by its own tool: it lands in the composer's attachment strip
+	 *  like a pasted image and leaves on the user's own turn. */
+	attachViewSnapshot(image: UiImage): void;
 }
 
 /** Strips a `data:<mime>;base64,` prefix, returning the raw base64 payload. The

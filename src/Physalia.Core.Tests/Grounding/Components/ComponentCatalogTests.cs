@@ -12,8 +12,8 @@ namespace Physalia.Core.Tests.Grounding.Components;
 
 public class ComponentCatalogTests
 {
-    private static CatalogEntry Entry(string name, string category, string subCategory) =>
-        new CatalogEntry(name, Guid.NewGuid(), category, subCategory, string.Empty, true);
+    private static CatalogEntry Entry(string name, string category, string subCategory, bool native = true) =>
+        new CatalogEntry(name, Guid.NewGuid(), category, subCategory, string.Empty, native);
 
     private static ComponentCatalog Catalog(params CatalogEntry[] entries) =>
         new ComponentCatalog(entries);
@@ -43,6 +43,23 @@ public class ComponentCatalogTests
             Entry("Y", "Real", "Panel"));
 
         Assert.Equal(new[] { "Real" }, catalog.CategoryTree.Select(c => c.Category));
+    }
+
+    [Fact]
+    public void NativeSelection_ChecksOnlyLeavesWithNativeEntries()
+    {
+        // The default grounding selection: plug-in tabs (Kangaroo2) start unchecked, and a panel
+        // holding at least one native entry is included whole, plug-in squatters and all.
+        ComponentCatalog catalog = Catalog(
+            Entry("Move", "Transform", "Euclidean"),
+            Entry("Grab", "Kangaroo2", "Goals", native: false),
+            Entry("Plugin Move", "Transform", "Euclidean", native: false));
+
+        GroundingSelection selection = catalog.NativeSelection();
+
+        Assert.True(selection.Includes("Transform", "Euclidean"));
+        Assert.False(selection.Includes("Kangaroo2", "Goals"));
+        Assert.Equal(new[] { "Move", "Plugin Move" }, catalog.Filtered(selection).Entries.Select(e => e.Name).OrderBy(n => n));
     }
 
     [Fact]

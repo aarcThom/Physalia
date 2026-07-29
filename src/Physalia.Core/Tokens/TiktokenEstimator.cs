@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using SharpToken;
@@ -57,10 +57,10 @@ public sealed class TiktokenEstimator : ISyncTokenEstimator
 
         // System prompt is transmitted as a {"role": "system", ...} message —
         // apply the same per-message framing overhead as conversation turns.
-        if (!string.IsNullOrEmpty(instructions.SystemPrompt))
+        if (!instructions.SystemPrompt.IsEmpty)
         {
             count += TokenEstimationHelpers.OverheadPerMessage;
-            count += _encoding.Encode(instructions.SystemPrompt).Count;
+            count += _encoding.Encode(instructions.SystemPrompt.Text).Count;
         }
 
         foreach (var message in instructions.Conversation.Messages)

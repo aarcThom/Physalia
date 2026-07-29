@@ -19,12 +19,19 @@ public abstract record HumanTool;
 /// guardrail, sent on demand by the human instead of routed as a feedback signal. When this
 /// tool is wired (and transmitter-generated geometry exists on the canvas) the prompt box shows
 /// a geometry button; pressing it captures the Rhino viewport (framed on the generated
-/// geometry) and sends the snapshot, with <see cref="Message"/>, as its own user message — a
-/// snapshot is never attached to a typed prompt automatically. The message defaults to
-/// <see cref="DefaultMessage"/> and is editable from the chat window's grounding panel.
+/// geometry).
+/// <para>
+/// What happens next depends on <see cref="SendWithMessage"/>: when true (the default) the
+/// snapshot is sent immediately as its own user message carrying <see cref="Message"/> — a
+/// snapshot is never attached to a typed prompt automatically. When false the snapshot is
+/// instead attached to the prompt box like a pasted image and waits for the human to type
+/// their own message; <see cref="Message"/> is then unused (and the chat window hides its
+/// editor).
+/// </para>
 /// </summary>
-/// <param name="Message">The text sent alongside the snapshot image.</param>
-public sealed record GeometrySnapshotTool(string Message) : HumanTool
+/// <param name="Message">The text sent alongside the snapshot image. Unused when SendWithMessage is false.</param>
+/// <param name="SendWithMessage">True to send the snapshot immediately as its own message carrying Message; false to attach it to the prompt box for the human to caption.</param>
+public sealed record GeometrySnapshotTool(string Message, bool SendWithMessage = true) : HumanTool
 {
     /// <summary>
     /// The message sent with the snapshot unless the user edits it in the chat window's
@@ -33,6 +40,34 @@ public sealed record GeometrySnapshotTool(string Message) : HumanTool
     public const string DefaultMessage =
         "Attached is a snapshot of the Rhino viewport showing the geometry currently generated "
         + "on the canvas. Ground your response in what has actually been built.";
+}
+
+/// <summary>
+/// Enables the chat window's view button — the geometry-free sibling of
+/// <see cref="GeometrySnapshotTool"/>. Where the geometry snapshot hunts down transmitter-generated
+/// geometry and frames the camera on it, this captures the active Rhino viewport exactly as the human
+/// is looking at it: no geometry scan, no zoom, no arming condition. Wired is armed — the button works
+/// on an empty document, on referenced geometry Physalia never placed, and on a view the human has
+/// composed by hand.
+/// <para>
+/// <see cref="SendWithMessage"/> works exactly as it does on the geometry snapshot: true (the
+/// default) sends the capture immediately as its own user message carrying <see cref="Message"/>;
+/// false attaches it to the prompt box like a pasted image and waits for the human's own caption
+/// (<see cref="Message"/> is then unused and the chat window hides its editor).
+/// </para>
+/// </summary>
+/// <param name="Message">The text sent alongside the view capture. Unused when SendWithMessage is false.</param>
+/// <param name="SendWithMessage">True to send the capture immediately as its own message carrying Message; false to attach it to the prompt box for the human to caption.</param>
+public sealed record ViewSnapshotTool(string Message, bool SendWithMessage = true) : HumanTool
+{
+    /// <summary>
+    /// The message sent with the view capture unless the user edits it in the chat window's
+    /// grounding panel. Deliberately says nothing about "generated" geometry — this snapshot makes
+    /// no claim about where what you can see came from.
+    /// </summary>
+    public const string DefaultMessage =
+        "Attached is a snapshot of the Rhino viewport exactly as I am looking at it right now. "
+        + "Ground your response in what you can see.";
 }
 
 /// <summary>

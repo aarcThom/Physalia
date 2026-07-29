@@ -360,15 +360,107 @@ public class ChatWindow : Form
             case "setsnapshotmessage":
                 HandleSetSnapshotMessage(uri);
                 break;
+            case "setsnapshotsends":
+                HandleSetSnapshotSends(uri);
+                break;
             case "sendsnapshot":
                 // The geometry button: capture a viewport snapshot of the generated geometry and
                 // send it (with its predefined message) as its own user message, right now.
                 _component.SendGeometrySnapshotFromWindow();
                 break;
+            case "attachsnapshot":
+                // The same geometry button with "Send With Default Message" unchecked: capture the
+                // snapshot and hand it to the prompt box as an attachment instead of sending it.
+                HandleAttachSnapshot();
+                break;
+            case "setviewsnapshotmessage":
+                HandleSetViewSnapshotMessage(uri);
+                break;
+            case "setviewsnapshotsends":
+                HandleSetViewSnapshotSends(uri);
+                break;
+            case "sendviewsnapshot":
+                // The view button: capture the active viewport as-is and send it (with its predefined
+                // message) as its own user message, right now. No geometry needed, no camera move.
+                _component.SendViewSnapshotFromWindow();
+                break;
+            case "attachviewsnapshot":
+                // The same view button with "Send With Default Message" unchecked: capture the view and
+                // hand it to the prompt box as an attachment instead of sending it.
+                HandleAttachViewSnapshot();
+                break;
             case "cancel":
                 HandleCancel();
                 break;
         }
+    }
+
+    // Applies the send-with-default-message switch from the window's Geometry Snapshot page. ?on=1
+    // sends the snapshot as its own message; anything else attaches it to the prompt box. The flag is
+    // set on the wired Geometry Snapshot component itself (same field its context menu toggles), so the
+    // window and the canvas can never drift apart — the new value comes back on the next state push.
+    private void HandleSetSnapshotSends(Uri uri)
+    {
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
+        {
+            return;
+        }
+
+        conversationLog.SetGeometrySnapshotSendsMessage(GetQueryValue(uri.Query, "on") == "1");
+    }
+
+    // Captures a viewport snapshot of the generated geometry and pushes it into the composer's
+    // pending-attachment strip, where it behaves exactly like a pasted image: the human types their
+    // own message and the snapshot rides that turn. Nothing is minted here — this is the attach half
+    // of the geometry button, taken when the wired Geometry Snapshot tool has its default message
+    // switched off. Silently does nothing when there is nothing to capture (the button is already
+    // gated on armed geometry). Runs on the UI thread, where the viewport zoom + capture are safe.
+    private void HandleAttachSnapshot()
+    {
+        if (!_component.TryCaptureGeneratedGeometryPng(out byte[]? png) || png is null)
+        {
+            return;
+        }
+
+        PushAttachment("attachSnapshot", png);
+    }
+
+    // Applies the send-with-default-message switch from the window's View Snapshot page — the
+    // view-snapshot twin of HandleSetSnapshotSends, setting the flag on the wired View Snapshot
+    // component so the canvas menu and the window stay one setting.
+    private void HandleSetViewSnapshotSends(Uri uri)
+    {
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
+        {
+            return;
+        }
+
+        conversationLog.SetViewSnapshotSendsMessage(GetQueryValue(uri.Query, "on") == "1");
+    }
+
+    // Captures the active viewport as-is and pushes it into the composer's pending-attachment strip,
+    // where it behaves exactly like a pasted image — the attach half of the view button, taken when the
+    // wired View Snapshot tool has its default message switched off. Nothing is minted here; the capture
+    // rides the human's own turn. Runs on the UI thread, where a viewport capture is safe.
+    private void HandleAttachViewSnapshot()
+    {
+        if (!_component.TryCaptureViewPng(out byte[]? png) || png is null)
+        {
+            return;
+        }
+
+        PushAttachment("attachViewSnapshot", png);
+    }
+
+    // Hands a captured PNG to the page through the named host hook, which drops it into the composer's
+    // pending attachments on the lane belonging to the tool that captured it.
+    private void PushAttachment(string hook, byte[] png)
+    {
+        string json = JsonSerializer.Serialize(
+            new UiImage(Convert.ToBase64String(png), "image/png"), WriteOpts);
+        Exec($"window.physalia&&window.physalia.{hook}&&window.physalia.{hook}({json});");
     }
 
     // Cancels the active inference on the wired pipeline's LLM Call(s). Fired by the chat window's
@@ -408,6 +500,13 @@ public class ChatWindow : Form
                         .Where(l => l is { Count: >= 2 })
                         .Select(l => (l[0] ?? string.Empty, l[1] ?? string.Empty));
                     selection = GroundingSelection.FromLeaves(leaves);
+                }
+                else if (payload is not null)
+                {
+                    // "Reset to all" means literally everything, plug-ins included — an EXPLICIT
+                    // selection of every leaf. A null selection is no longer that: it is the
+                    // native-only default, which the window re-checking every leaf would contradict.
+                    selection = GroundingSelection.All(conversationLog.AvailableGroundingTree);
                 }
             }
             catch (JsonException)
@@ -539,25 +638,54 @@ public class ChatWindow : Form
             return;
         }
 
-        string raw = GetQueryValue(uri.Query, "sel");
-        string? message = null;
-        if (!string.IsNullOrEmpty(raw))
+        if (TryReadSnapshotMessage(uri, out string? message))
         {
-            try
-            {
-                SnapshotMessagePayload? payload = JsonSerializer.Deserialize<SnapshotMessagePayload>(raw, ReadOpts);
-                if (payload is not null && !payload.Reset)
-                {
-                    message = payload.Message;
-                }
-            }
-            catch (JsonException)
-            {
-                return;
-            }
+            conversationLog.SetSnapshotMessageOverride(message);
+        }
+    }
+
+    // Applies a view-snapshot message override from the window to the wired ConversationLog — the
+    // view-snapshot twin of HandleSetSnapshotMessage, same payload shape under its own verb.
+    private void HandleSetViewSnapshotMessage(Uri uri)
+    {
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog is null)
+        {
+            return;
         }
 
-        conversationLog.SetSnapshotMessageOverride(message);
+        if (TryReadSnapshotMessage(uri, out string? message))
+        {
+            conversationLog.SetViewSnapshotMessageOverride(message);
+        }
+    }
+
+    // Reads a {reset:bool, message:string} payload out of the ?sel= query. A null message means "use
+    // the tool's default" — the payload asked for a reset, or there was no payload at all. False means
+    // the JSON was malformed, so the caller leaves the current override alone instead of clearing it.
+    private static bool TryReadSnapshotMessage(Uri uri, out string? message)
+    {
+        message = null;
+        string raw = GetQueryValue(uri.Query, "sel");
+        if (string.IsNullOrEmpty(raw))
+        {
+            return true;
+        }
+
+        try
+        {
+            SnapshotMessagePayload? payload = JsonSerializer.Deserialize<SnapshotMessagePayload>(raw, ReadOpts);
+            if (payload is not null && !payload.Reset)
+            {
+                message = payload.Message;
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     // The names of the components currently exposed to the model (the grounded catalog with the
@@ -816,10 +944,11 @@ public class ChatWindow : Form
         string msgText = NormalizeRefs(message.Text ?? string.Empty);
         IReadOnlyList<SubmitImage> images = message.Images ?? (IReadOnlyList<SubmitImage>)Array.Empty<SubmitImage>();
 
-        // Image intake is gated on the Add Image human tool: the UI disables paste/drop/picker when
-        // it is unwired, but the wire state can flip between compose and submit — drop stale images
-        // here (keeping the text) so no image ever bypasses the tool contract.
-        if (images.Count > 0 && PromptPipelineView.FindConversationLog(_component, 0)?.HasAddImageTool != true)
+        // Image intake is gated on the human tools that grant it: Add Image (paste/drop/picker) and
+        // either snapshot tool in attach mode, whose capture rides the prompt box. The UI disables the
+        // affordances it has no grant for, but the wire state can flip between compose and submit — drop
+        // stale images here (keeping the text) so no image ever bypasses the tool contract.
+        if (images.Count > 0 && PromptPipelineView.FindConversationLog(_component, 0)?.AcceptsPromptImages != true)
         {
             images = Array.Empty<SubmitImage>();
         }
@@ -1105,15 +1234,16 @@ public class ChatWindow : Form
         int harnessCount = _component.Group.Count;
 
         // Grounding state for the window's grounding panel: whether a component catalog is wired
-        // (greys the icon when not), the available tab → panels tree, and the current selection
-        // (null = include everything). The selection's flat leaves are regrouped to the tree's shape.
+        // (greys the icon when not), the available tab → panels tree, and the EFFECTIVE selection —
+        // never null-as-all, so the native-only default renders with plug-in tabs unchecked. The
+        // selection's flat leaves are regrouped to the tree's shape.
         bool groundingWired = conversationLog?.HasComponentGrounding == true;
         bool exposeSignatures = conversationLog?.ExposeComponentSignatures == true;
         var groundingTree = (conversationLog?.AvailableGroundingTree ?? Array.Empty<CatalogCategory>())
             .Select(c => new { category = c.Category, subCategories = c.SubCategories })
             .ToList();
         object? groundingSelection = null;
-        if (conversationLog?.GroundingSelectionOrNull is { } sel)
+        if (conversationLog?.EffectiveGroundingSelection is { } sel)
         {
             groundingSelection = sel.Leaves
                 .GroupBy(l => l.Category, StringComparer.OrdinalIgnoreCase)
@@ -1206,23 +1336,33 @@ public class ChatWindow : Form
 
         // Human-tool state: whether a Geometry Snapshot tool is wired, whether a transmitter has
         // generated geometry right now (the composer shows its geometry button only while both
-        // hold — pressing it sends a snapshot as its own message), the tool's default message, and
+        // hold), whether that press sends the snapshot as its own message or attaches it to the
+        // prompt box for the human to caption (the tool's "Send With Default Message" toggle — off
+        // also hides the message editor, which is dead text then), the tool's default message, and
         // the current override (null = use the default). The geometry scan is gated on the tool
         // being wired so idle documents pay nothing on the 0.15 s tick. An Add Image tool gates
         // image intake in the composer — without it, paste/drop/picker are fully disabled.
         bool snapshotWired = conversationLog?.HasGeometrySnapshotTool == true;
         bool snapshotGeometryPresent = snapshotWired
             && Generation.GeneratedGeometryScan.HasGeneratedGeometry(conversationLog?.OnPingDocument());
+        bool snapshotSendsMessage = conversationLog?.GeometrySnapshotSendsMessage == true;
         string snapshotDefaultMessage = conversationLog?.GeometrySnapshotDefaultMessage ?? string.Empty;
         string? snapshotMessage = conversationLog?.SnapshotMessageOverrideOrNull;
         bool imageToolWired = conversationLog?.HasAddImageTool == true;
+
+        // View-snapshot state: the same four fields, minus the armed condition. A view capture needs
+        // nothing on the canvas and moves no camera, so wired is armed and there is no scan to gate.
+        bool viewSnapshotWired = conversationLog?.HasViewSnapshotTool == true;
+        bool viewSnapshotSendsMessage = conversationLog?.ViewSnapshotSendsMessage == true;
+        string viewSnapshotDefaultMessage = conversationLog?.ViewSnapshotDefaultMessage ?? string.Empty;
+        string? viewSnapshotMessage = conversationLog?.ViewSnapshotMessageOverrideOrNull;
 
         // Cheap proxy for availableComponents in the signature (serializing the full list every tick
         // would churn); the tree/selection already trigger a push, this just catches a catalog resize.
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotDefaultMessage, snapshotMessage, imageToolWired }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired }, WriteOpts);
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -1239,7 +1379,7 @@ public class ChatWindow : Form
             _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotDefaultMessage, snapshotMessage, imageToolWired }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 

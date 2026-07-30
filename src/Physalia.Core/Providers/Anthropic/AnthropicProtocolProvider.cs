@@ -566,6 +566,40 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
                         done = true;
                         break;
                     }
+
+                    case "error":
+                    {
+                        // Anthropic can fail mid-stream — overloaded_error, a rate limit reached
+                        // while streaming, a request invalidated late. With no case here the event
+                        // fell through the switch, the loop ended at end-of-stream, and the caller
+                        // treated the partial text as a COMPLETE successful response: a truncated
+                        // answer presented as a whole one.
+                        using var doc = JsonDocument.Parse(data);
+                        var root = doc.RootElement;
+
+                        string errorType = string.Empty;
+                        string message = "The provider reported an error mid-stream.";
+
+                        if (root.TryGetProperty("error", out var err))
+                        {
+                            if (err.TryGetProperty("type", out var te) && te.ValueKind == JsonValueKind.String)
+                            {
+                                errorType = te.GetString() ?? string.Empty;
+                            }
+
+                            if (err.TryGetProperty("message", out var me) && me.ValueKind == JsonValueKind.String)
+                            {
+                                message = me.GetString() ?? message;
+                            }
+                        }
+
+                        chunk = new Result<LlmResponseChunk, LlmError>.Err(
+                            new LlmError(
+                                HttpErrorMapper.MapErrorType(errorType),
+                                errorType.Length == 0 ? message : $"{errorType} — {message}"));
+                        done = true;
+                        break;
+                    }
                 }
             }
             catch (Exception ex)
@@ -675,7 +709,7 @@ public abstract class AnthropicProtocolProvider : ProtocolProviderBase<Anthropic
                 ["type"] = "tool_use",
                 ["id"] = call.Id,
                 ["name"] = call.Name,
-                ["input"] = JsonNode.Parse(call.InputJson) ?? new JsonObject(),
+                ["input"] = ParseToolInputOrEmpty(call.InputJson),
             },
 
             ToolResultContent result => new JsonObject

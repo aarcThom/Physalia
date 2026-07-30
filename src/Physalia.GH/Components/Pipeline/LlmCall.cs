@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
+using Physalia.Core.Compaction;
 using Physalia.Core.Config;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Models;
@@ -27,12 +28,24 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
 {
+    /// <summary>
+    /// How many tool-pairing defects the repair warning names before it summarises the rest. One
+    /// broken cut usually produces several, and a canvas balloon has to stay readable.
+    /// </summary>
+    private const int MaxReportedPairingProblems = 3;
+
     private int _cancelIndex = -1;
     private bool _lastCancel;
     private bool _isRunning;
     private string _response = string.Empty;
     private string? _apiError;
+    private LlmErrorKind? _apiErrorKind;
     private string? _stopReason;
+
+    // Set when the incoming conversation had to be repaired before it could be sent (see
+    // PushSolve). Surfaced as a canvas warning on the read pass — never silently, because a
+    // repair means something upstream produced a conversation no provider would accept.
+    private string? _repairWarning;
 
     // Token usage from the last completed call. Reported as a canvas remark because the
     // cache-read figure is the ONLY way to confirm the system prompt's cacheable prefix is
@@ -164,6 +177,8 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
     protected override void PushSolve(Instructions data, IGH_DataAccess da)
     {
         _apiError = null;
+        _apiErrorKind = null;
+        _repairWarning = null;
         _response = string.Empty;
         _stopReason = null;
         _usage = null;
@@ -176,6 +191,13 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
             RequestReadPass();
             return;
         }
+
+        // Last line of defence before the wire. A conversation whose tool exchanges are not
+        // paired is rejected outright by every provider, which halts the whole loop over
+        // something the model did nothing to cause — a compactor that cut a tool exchange, a
+        // Router round that never completed, a turn the log had to drop. Repair the copy we are
+        // about to send (the Conversation Log keeps the uncompacted original) and say so out loud.
+        data = RepairToolPairing(data);
 
         // Stamp this component's identity so stateful providers (Claude Code's warm-process
         // pool) can keep one long-lived session per LLM Call across forward passes.
@@ -191,14 +213,25 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
     {
         if (_apiError != null)
         {
-            return RoutingResult.Fail(_apiError, _apiError, GH_RuntimeMessageLevel.Error);
+            // An InvalidRequest is a fault in the request Physalia built, not in anything the
+            // model said — say so, because the reflex on seeing a red LLM Call is to blame the
+            // model or the prompt and neither is at fault here.
+            string described = _apiErrorKind == LlmErrorKind.InvalidRequest
+                ? "The request Physalia sent was rejected as malformed — this is a Physalia-side "
+                    + $"fault, not something the model can fix. {_apiError}"
+                : _apiError;
+
+            return RoutingResult.Fail(described, described, GH_RuntimeMessageLevel.Error);
         }
 
+        // A repair warning describes the request that went out, not the response that came back,
+        // so it seeds the message instead of competing with the response-side warnings below.
+        string? warning = _repairWarning;
+
         // Truncation names the actionable fix, so it wins over the thinking-only warning.
-        string? warning = null;
         if (StopReasons.IsTruncation(_stopReason))
         {
-            warning = "Response was truncated at the max token limit — raise Max Tokens (or lower the Thinking Budget) on the model component.";
+            warning = AppendWarning(warning, "Response was truncated at the max token limit — raise Max Tokens (or lower the Thinking Budget) on the model component.");
 
             // Truncated AND nothing usable after stripping thinking: routing this forward as
             // Success would hand downstream an empty payload that dead-ends quietly (the exact
@@ -217,9 +250,13 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
                     GH_RuntimeMessageLevel.Warning);
             }
         }
-        else if (StringHelpers.IsNonBlank(_response) && !StringHelpers.IsNonBlank(ThinkingTags.Strip(_response)))
+        else if (_toolCalls is not { Count: > 0 }
+            && StringHelpers.IsNonBlank(_response)
+            && !StringHelpers.IsNonBlank(ThinkingTags.Strip(_response)))
         {
-            warning = "The model spent its entire response thinking and produced no answer text.";
+            // Only a warning when there is nothing else to show for the round. A response that is
+            // pure thinking plus tool calls is exactly how a tool-using turn is supposed to look.
+            warning = AppendWarning(warning, "The model spent its entire response thinking and produced no answer text.");
         }
 
         if (_toolCalls is { Count: > 0 } calls)
@@ -252,6 +289,49 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
             ? RoutingResult.Ok(_response, message: usageNote, level: GH_RuntimeMessageLevel.Remark)
             : RoutingResult.Ok(_response);
     }
+
+    /// <summary>
+    /// Validates the outgoing conversation's tool pairing and repairs it when it is broken, so a
+    /// defect upstream costs a warning and a slightly shorter prompt instead of a rejected request
+    /// and a halted loop. Sets <see cref="_repairWarning"/> when it had to change anything.
+    /// </summary>
+    /// <param name="data">The Instructions carried by the consumed signal.</param>
+    /// <returns>The original Instructions when valid; a repaired copy otherwise.</returns>
+    private Instructions RepairToolPairing(Instructions data)
+    {
+        IReadOnlyList<string> problems = ToolPairing.FindProblems(data.Conversation);
+        if (problems.Count == 0)
+        {
+            return data;
+        }
+
+        Conversation repaired = CompactionInvariants.Reassemble(data.Conversation.Messages);
+        int droppedTurns = data.Conversation.Count - repaired.Count;
+
+        string listed = string.Join("; ", problems.Take(MaxReportedPairingProblems));
+        if (problems.Count > MaxReportedPairingProblems)
+        {
+            listed += $"; and {problems.Count - MaxReportedPairingProblems} more";
+        }
+
+        _repairWarning =
+            "The conversation handed to this component had broken tool pairing, which every provider "
+            + $"rejects outright: {listed}. It was repaired before sending"
+            + (droppedTurns > 0 ? $" ({droppedTurns} turn(s) removed)" : string.Empty)
+            + ", so this round still ran. Fix the cause upstream — a compaction window that cuts a "
+            + "tool exchange in half is the usual one.";
+
+        return new Instructions(data.SystemPrompt, repaired) { Tools = data.Tools };
+    }
+
+    /// <summary>
+    /// Combines two canvas warnings into one message, keeping the earlier one first.
+    /// </summary>
+    /// <param name="existing">The warning accumulated so far, or null.</param>
+    /// <param name="addition">The warning to add.</param>
+    /// <returns>The combined message.</returns>
+    private static string AppendWarning(string? existing, string addition) =>
+        existing is null ? addition : existing + " " + addition;
 
     /// <summary>
     /// Renders the last call's token usage as a one-line remark, naming the cached share when the
@@ -314,6 +394,7 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
                 }
 
                 string? error = null;
+                LlmErrorKind? errorKind = null;
                 bool success = true;
                 IReadOnlyList<LlmToolCall>? toolCalls = null;
 
@@ -359,6 +440,7 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
                         if (chunkError.Kind != LlmErrorKind.Cancelled)
                         {
                             error = chunkError.Message;
+                            errorKind = chunkError.Kind;
                         }
 
                         success = false;
@@ -379,10 +461,12 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
                     _response = sb.ToString();
                     _toolCalls = toolCalls;
                     _apiError = null;
+                    _apiErrorKind = null;
                 }
                 else
                 {
                     _apiError = error ?? "The LLM API returned an error.";
+                    _apiErrorKind = errorKind;
                 }
 
                 RequestReadPass();

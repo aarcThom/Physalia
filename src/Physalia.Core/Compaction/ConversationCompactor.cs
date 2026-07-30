@@ -92,9 +92,14 @@ public static class ConversationCompactor
     /// <paramref name="tailCount"/> messages (the live working set), dropping the middle. When
     /// the kept head and tail abut at the same role they merge into one turn — the elided span
     /// simply vanishes from the thread.
+    ///
+    /// <para><paramref name="headCount"/> is a MAXIMUM, not an exact count: a tool exchange is
+    /// never split. When the head would end on an assistant turn whose tool results sit in the
+    /// dropped middle, the head shrinks until it no longer does, so the exchange is either kept
+    /// whole or dropped whole. Keeping half of one is a hard provider error.</para>
     /// </summary>
     /// <param name="conversation">The conversation to compact.</param>
-    /// <param name="headCount">How many leading messages to keep (clamped to ≥ 0).</param>
+    /// <param name="headCount">How many leading messages to keep at most (clamped to ≥ 0).</param>
     /// <param name="tailCount">How many trailing messages to keep (clamped to ≥ 0).</param>
     /// <returns>The compacted conversation and its statistics.</returns>
     public static CompactionResult KeepHeadAndTail(Conversation conversation, int headCount, int tailCount)
@@ -114,6 +119,14 @@ public static class ConversationCompactor
         if (conversation.Count <= headCount + tailCount)
         {
             return CompactionResult.Unchanged(conversation);
+        }
+
+        // Shrink the head off any assistant turn that asks for tools. Its results live at the
+        // very next index, and that index is in the dropped middle — the early return above
+        // already handled every case where the head and tail meet.
+        while (headCount > 0 && HasToolCalls(conversation.Messages[headCount - 1]))
+        {
+            headCount--;
         }
 
         var kept = new List<ConversationMessage>(headCount + tailCount);
@@ -218,6 +231,15 @@ public static class ConversationCompactor
         Conversation compacted = CompactionInvariants.Reassemble(result);
         return CompactionResult.From(conversation, compacted);
     }
+
+    /// <summary>
+    /// Tests whether a turn asks for one or more tools, and so cannot be kept without the turn
+    /// that answers it.
+    /// </summary>
+    /// <param name="message">The turn to inspect.</param>
+    /// <returns>True when the turn carries at least one tool call.</returns>
+    private static bool HasToolCalls(ConversationMessage message) =>
+        message.Content.Any(b => b is ToolCallContent);
 
     private static string Truncate(string value, int max)
     {

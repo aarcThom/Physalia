@@ -296,7 +296,7 @@ public static class AsyncTokenEstimation
                         ["type"] = "tool_use",
                         ["id"] = call.Id,
                         ["name"] = call.Name,
-                        ["input"] = JsonNode.Parse(call.InputJson) ?? new JsonObject(),
+                        ["input"] = ParseToolInputOrEmpty(call.InputJson),
                     },
                     ToolResultContent result => new JsonObject
                     {
@@ -312,5 +312,34 @@ public static class AsyncTokenEstimation
         }
 
         return messages;
+    }
+
+    /// <summary>
+    /// Parses a tool call's input arguments, falling back to an empty object when they are blank or
+    /// unparseable (a zero-argument call, or a stream cut mid-call). Mirrors
+    /// <c>ProtocolProviderBase.ParseToolInputOrEmpty</c> — counting tokens must never throw where
+    /// sending them would not.
+    /// </summary>
+    /// <param name="inputJson">The tool call's input arguments, as a JSON string.</param>
+    /// <returns>A JSON node ready to embed as the call's arguments.</returns>
+    private static JsonNode ParseToolInputOrEmpty(string? inputJson)
+    {
+        if (!string.IsNullOrWhiteSpace(inputJson))
+        {
+            try
+            {
+                JsonNode? parsed = JsonNode.Parse(inputJson);
+                if (parsed is not null)
+                {
+                    return parsed;
+                }
+            }
+            catch (JsonException)
+            {
+                // Fall through to the empty argument object below.
+            }
+        }
+
+        return new JsonObject();
     }
 }

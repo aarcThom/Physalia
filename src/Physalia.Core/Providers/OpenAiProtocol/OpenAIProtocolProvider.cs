@@ -181,11 +181,35 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
 
             Result<LlmResponseChunk, LlmError>? parsed = null;
             Exception? parseError = null;
+            LlmError? streamError = null;
 
             try
             {
                 using var doc = JsonDocument.Parse(data);
                 var root = doc.RootElement;
+
+                // A mid-stream failure arrives as a data payload carrying `error` instead of
+                // `choices` (OpenAI, OpenRouter, Ollama and vLLM all do this). With no check here
+                // the payload matched nothing, the stream ended, and the caller treated the
+                // partial text as a COMPLETE successful response.
+                if (root.TryGetProperty("error", out var errorEl) && errorEl.ValueKind == JsonValueKind.Object)
+                {
+                    string errorType = errorEl.TryGetProperty("type", out var te) && te.ValueKind == JsonValueKind.String
+                        ? te.GetString() ?? string.Empty
+                        : string.Empty;
+                    string message = errorEl.TryGetProperty("message", out var me) && me.ValueKind == JsonValueKind.String
+                        ? me.GetString() ?? string.Empty
+                        : string.Empty;
+
+                    if (message.Length == 0)
+                    {
+                        message = "The provider reported an error mid-stream.";
+                    }
+
+                    streamError = new LlmError(
+                        HttpErrorMapper.MapErrorType(errorType),
+                        errorType.Length == 0 ? message : $"{errorType} — {message}");
+                }
 
                 string? contentDelta = null;
                 bool isLast = false;
@@ -329,6 +353,12 @@ public abstract class OpenAIProtocolProvider : ProtocolProviderBase<OpenAIProtoc
             {
                 yield return new Result<LlmResponseChunk, LlmError>.Err(
                     new LlmError(LlmErrorKind.InvalidRequest, $"Failed to parse chunk: {parseError.Message}"));
+                yield break;
+            }
+
+            if (streamError != null)
+            {
+                yield return new Result<LlmResponseChunk, LlmError>.Err(streamError);
                 yield break;
             }
 

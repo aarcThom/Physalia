@@ -14,6 +14,11 @@ namespace Physalia.GH.Components;
 /// Motivated by the "lost in the middle" effect — models attend most reliably to the start and
 /// end of a context — so this preserves exactly the privileged positions. Deterministic; no LLM
 /// call. When the kept head and tail meet at the same role they merge into one turn.
+///
+/// <para>K is a maximum, not an exact count: a tool exchange is never split, so the head shrinks
+/// off any turn whose tool results sit in the dropped middle. Keeping half an exchange is a hard
+/// provider error, and with tools in play the second message is very often the model's first
+/// tool call.</para>
 /// </summary>
 public class AnchoredWindow : CompactionComponentBase
 {
@@ -40,7 +45,7 @@ public class AnchoredWindow : CompactionComponentBase
         pManager.AddIntegerParameter(
             "Keep First",
             "K",
-            "How many leading messages to keep (the initial task / context).",
+            "How many leading messages to keep at most (the initial task / context). Kept exactly unless the cut would split a tool exchange, in which case the head shrinks so the exchange is dropped whole.",
             GH_ParamAccess.item,
             2);
         pManager.AddIntegerParameter(

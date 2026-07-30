@@ -199,7 +199,9 @@ public abstract class ProtocolProviderBase<TConfig> : ILlmProvider
                 var errorBody = await response.Content.ReadAsStringAsync(ct);
                 response.Dispose();
                 return new Result<HttpResponseMessage, LlmError>.Err(
-                    new LlmError(HttpErrorMapper.MapStatusCode(statusCode), errorBody));
+                    new LlmError(
+                        HttpErrorMapper.MapStatusCode(statusCode),
+                        HttpErrorMapper.Describe(statusCode, errorBody)));
             }
 
             return new Result<HttpResponseMessage, LlmError>.Ok(response);
@@ -235,7 +237,9 @@ public abstract class ProtocolProviderBase<TConfig> : ILlmProvider
             if (!response.IsSuccessStatusCode)
             {
                 return new Result<string, LlmError>.Err(
-                    new LlmError(HttpErrorMapper.MapStatusCode(response.StatusCode), body));
+                    new LlmError(
+                        HttpErrorMapper.MapStatusCode(response.StatusCode),
+                        HttpErrorMapper.Describe(response.StatusCode, body)));
             }
 
             return new Result<string, LlmError>.Ok(body);
@@ -302,5 +306,34 @@ public abstract class ProtocolProviderBase<TConfig> : ILlmProvider
         }
 
         return new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() };
+    }
+
+    /// <summary>
+    /// Parses a tool call's accumulated input arguments for replay in a request body. A zero-argument
+    /// call streams no argument deltas at all, and a stream cut mid-call leaves a partial fragment —
+    /// both produce a string that will not parse. Falls back to an empty object, because throwing
+    /// out of a request builder loses the whole conversation over one absent argument list.
+    /// </summary>
+    /// <param name="inputJson">The tool call's input arguments, as a JSON string.</param>
+    /// <returns>A JSON node ready to embed as the call's arguments.</returns>
+    protected static JsonNode ParseToolInputOrEmpty(string? inputJson)
+    {
+        if (!string.IsNullOrWhiteSpace(inputJson))
+        {
+            try
+            {
+                JsonNode? parsed = JsonNode.Parse(inputJson);
+                if (parsed is not null)
+                {
+                    return parsed;
+                }
+            }
+            catch (JsonException)
+            {
+                // Fall through to the empty argument object below.
+            }
+        }
+
+        return new JsonObject();
     }
 }

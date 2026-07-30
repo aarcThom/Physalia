@@ -225,11 +225,34 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase<GeminiProtoc
 
             Result<LlmResponseChunk, LlmError>? parsed = null;
             Exception? parseError = null;
+            LlmError? streamError = null;
 
             try
             {
                 using var doc = JsonDocument.Parse(data);
                 var root = doc.RootElement;
+
+                // A mid-stream failure arrives as a data payload carrying `error` instead of
+                // `candidates`. With no check here the payload matched nothing, the stream ended,
+                // and the caller treated the partial text as a COMPLETE successful response.
+                if (root.TryGetProperty("error", out var errorEl) && errorEl.ValueKind == JsonValueKind.Object)
+                {
+                    string status = errorEl.TryGetProperty("status", out var se) && se.ValueKind == JsonValueKind.String
+                        ? se.GetString() ?? string.Empty
+                        : string.Empty;
+                    string message = errorEl.TryGetProperty("message", out var me) && me.ValueKind == JsonValueKind.String
+                        ? me.GetString() ?? string.Empty
+                        : string.Empty;
+
+                    if (message.Length == 0)
+                    {
+                        message = "The provider reported an error mid-stream.";
+                    }
+
+                    streamError = new LlmError(
+                        HttpErrorMapper.MapErrorType(status),
+                        status.Length == 0 ? message : $"{status} — {message}");
+                }
 
                 string? contentDelta = null;
                 bool isLast = false;
@@ -322,6 +345,12 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase<GeminiProtoc
                 yield break;
             }
 
+            if (streamError != null)
+            {
+                yield return new Result<LlmResponseChunk, LlmError>.Err(streamError);
+                yield break;
+            }
+
             if (parsed is not null)
             {
                 yield return parsed;
@@ -339,6 +368,11 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase<GeminiProtoc
     {
         var contents = new JsonArray();
 
+        // Gemini pairs a functionResponse to its call by FUNCTION NAME, not by call id — it has no
+        // id field at all. ToolResultContent carries only the id, so the name has to be recovered
+        // from the call that asked, which always precedes the result in the same conversation.
+        var toolNamesById = new Dictionary<string, string>();
+
         foreach (var inbound in conversation.Messages)
         {
             // Thinking is display-only — assistant history is resent without <think> blocks.
@@ -352,7 +386,12 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase<GeminiProtoc
             var parts = new JsonArray();
             foreach (var block in message.Content)
             {
-                parts.Add(BuildPart(block));
+                if (block is ToolCallContent call)
+                {
+                    toolNamesById[call.Id] = call.Name;
+                }
+
+                parts.Add(BuildPart(block, toolNamesById));
             }
 
             contents.Add(new JsonObject { ["role"] = role, ["parts"] = parts });
@@ -361,7 +400,7 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase<GeminiProtoc
         return contents;
     }
 
-    private static JsonNode BuildPart(MessageContent block)
+    private static JsonNode BuildPart(MessageContent block, IReadOnlyDictionary<string, string> toolNamesById)
     {
         return block switch
         {
@@ -394,15 +433,19 @@ public abstract class GeminiProtocolProvider : ProtocolProviderBase<GeminiProtoc
                 ["functionCall"] = new JsonObject
                 {
                     ["name"] = call.Name,
-                    ["args"] = JsonNode.Parse(call.InputJson) ?? new JsonObject(),
+                    ["args"] = ParseToolInputOrEmpty(call.InputJson),
                 },
             },
 
+            // Falls back to the id only when the asking call is not in the conversation — a
+            // pairing Gemini will reject, but Reassemble strips that orphan before it gets here.
             ToolResultContent result => new JsonObject
             {
                 ["functionResponse"] = new JsonObject
                 {
-                    ["name"] = result.ToolCallId,
+                    ["name"] = toolNamesById.TryGetValue(result.ToolCallId, out string? toolName)
+                        ? toolName
+                        : result.ToolCallId,
                     ["response"] = new JsonObject { ["content"] = result.Content },
                 },
             },

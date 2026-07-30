@@ -18,10 +18,11 @@ using Physalia.GH.Components;
 namespace Physalia.GH.Widgets;
 
 /// <summary>
-/// Registers the Physalia canvas widgets (<see cref="ChatWidget"/>, <see cref="SignalTraceWidget"/>)
-/// with every Grasshopper canvas. Canvas widgets are not auto-discovered from the assembly the
-/// way components are — a plugin must subscribe to <see cref="GH_Canvas.WidgetListCreated"/> at
-/// load time and add its widgets to each canvas's freshly built list.
+/// Registers the Physalia canvas widget (<see cref="ChatWidget"/>) with every Grasshopper canvas.
+/// Canvas widgets are not auto-discovered from the assembly the way components are — a plugin must
+/// subscribe to <see cref="GH_Canvas.WidgetListCreated"/> at load time and add its widgets to each
+/// canvas's freshly built list. The signal trace has no widget: it is opened from the chat window's
+/// header, by wiring a Signal Trace human tool into the Conversation Log.
 /// </summary>
 public sealed class ChatWidgetPriority : GH_AssemblyPriority
 {
@@ -44,7 +45,6 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
     private static void AddWidgets(object sender, GH_CanvasWidgetListEventArgs e)
     {
         e.AddWidget(new ChatWidget());
-        e.AddWidget(new SignalTraceWidget());
     }
 }
 

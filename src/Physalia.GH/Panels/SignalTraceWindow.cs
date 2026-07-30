@@ -24,7 +24,8 @@ namespace Physalia.GH.Panels;
 /// (<see cref="RuntimeMessageTrace"/>) intersperse the timeline as tinted rows, each carrying
 /// how long it was actually displayed — so a transient flash during a solve burst is
 /// recognizably ignorable. Export Transcript writes the merged, unfiltered log to a text file.
-/// Singleton per Rhino session, opened from the Signal Trace canvas widget.
+/// Singleton per Rhino session, opened from the chat window's signal-trace button (wire a Signal
+/// Trace human tool into the Conversation Log to get one).
 ///
 /// <para>Refresh is polled: a <see cref="UITimer"/> compares the logs' version counters each
 /// tick and rebinds only on change, so no events cross from Grasshopper solve threads to the

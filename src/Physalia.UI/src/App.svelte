@@ -27,6 +27,8 @@
 	import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
 	import Axis3dIcon from '@lucide/svelte/icons/axis-3d';
 	import CameraIcon from '@lucide/svelte/icons/camera';
+	import DownloadIcon from '@lucide/svelte/icons/download';
+	import ActivityIcon from '@lucide/svelte/icons/activity';
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
 	import OctagonIcon from '@lucide/svelte/icons/octagon';
 	import { getProvider } from '$lib/chat/providers';
@@ -119,6 +121,11 @@
 	let viewSnapshotDefaultMessage = $state('');
 	let viewSnapshotMessage = $state<string | null>(null);
 
+	// Marker human tools — nothing to configure, each just adds its header button: an export that
+	// writes this conversation to a .txt transcript, and a door onto the session's signal trace.
+	let exportToolWired = $state(false);
+	let signalTraceToolWired = $state(false);
+
 	// The grounding button opens the panel whenever any grounding kind — or human tool — is wired.
 	let groundingAvailable = $derived(
 		groundingWired ||
@@ -129,7 +136,9 @@
 			unitsWired ||
 			snapshotWired ||
 			viewSnapshotWired ||
-			imageToolWired
+			imageToolWired ||
+			exportToolWired ||
+			signalTraceToolWired
 	);
 
 	// The cluster names currently exposed to the model (selection applied), for the "/c/" autocomplete.
@@ -221,6 +230,8 @@
 				viewSnapshotDefaultMessage = next.viewSnapshotDefaultMessage ?? '';
 				viewSnapshotMessage = next.viewSnapshotMessage ?? null;
 				imageToolWired = next.imageToolWired ?? false;
+				exportToolWired = next.exportToolWired ?? false;
+				signalTraceToolWired = next.signalTraceToolWired ?? false;
 			},
 			setSetupResult: (result) => {
 				setupResult = result;
@@ -401,6 +412,19 @@
 		window.location.href = viewSnapshotSendsMessage
 			? `${BRIDGE_SCHEME}://sendviewsnapshot`
 			: `${BRIDGE_SCHEME}://attachviewsnapshot`;
+	}
+
+	// Ask the host to write the viewed conversation to a plain-text transcript (it owns the save
+	// dialog). Fired by the header's export button, shown only while an Export Conversation tool
+	// is wired.
+	function exportConversation() {
+		window.location.href = `${BRIDGE_SCHEME}://exportconversation`;
+	}
+
+	// Ask the host to open the signal-trace window. Fired by the header's trace button, shown only
+	// while a Signal Trace tool is wired.
+	function openSignalTrace() {
+		window.location.href = `${BRIDGE_SCHEME}://opensignaltrace`;
 	}
 
 	// Hand a pasted API key to the host, which writes it to API_KEY_CONFIG.YAML and reports back
@@ -600,6 +624,24 @@
 				<CameraIcon class="size-4" />
 			</Button>
 		{/if}
+
+		{#if exportToolWired}
+			<!-- Export button: appears while an Export Conversation human tool is wired. Pressing it
+			     asks the host to save this conversation as a plain-text transcript (it owns the save
+			     dialog). Unlike the send-a-message tools this reads what has already happened, so it
+			     stays live while the pipeline is busy or a provider is still being set up. -->
+			<Button variant="outline" size="icon-lg" onclick={exportConversation} title="Export conversation (.txt)">
+				<DownloadIcon class="size-4" />
+			</Button>
+		{/if}
+
+		{#if signalTraceToolWired}
+			<!-- Signal-trace button: appears while a Signal Trace human tool is wired, and opens the
+			     session's trace window. Also live while busy — watching signals mid-run is the point. -->
+			<Button variant="outline" size="icon-lg" onclick={openSignalTrace} title="Open the signal trace">
+				<ActivityIcon class="size-4" />
+			</Button>
+		{/if}
 	</header>
 
 	<!-- flex-1 + min-h-0 lets this region size to the space left by the composer and
@@ -650,6 +692,8 @@
 					{viewSnapshotDefaultMessage}
 					{viewSnapshotMessage}
 					{imageToolWired}
+					{exportToolWired}
+					{signalTraceToolWired}
 					onapply={setGrounding}
 					onapplysignatures={setSignatures}
 					onapplyclusters={setClusters}

@@ -117,6 +117,8 @@ public class ConversationLog : StatefulComponentBase
     private GeometrySnapshotTool? _liveSnapshotTool;
     private ViewSnapshotTool? _liveViewSnapshotTool;
     private bool _hasAddImageTool;
+    private bool _hasExportTool;
+    private bool _hasSignalTraceTool;
 
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
@@ -279,6 +281,18 @@ public class ConversationLog : StatefulComponentBase
     /// can enable image attachments in the prompt box; without it image intake is fully disabled).
     /// </summary>
     public bool HasAddImageTool => _hasAddImageTool;
+
+    /// <summary>
+    /// Gets a value indicating whether an Export Conversation human tool is currently wired (so the
+    /// chat UI can show its export button, which writes the viewed conversation to a transcript).
+    /// </summary>
+    public bool HasExportTool => _hasExportTool;
+
+    /// <summary>
+    /// Gets a value indicating whether a Signal Trace human tool is currently wired (so the chat UI
+    /// can show the button that opens the signal-trace window).
+    /// </summary>
+    public bool HasSignalTraceTool => _hasSignalTraceTool;
 
     /// <summary>
     /// Gets a value indicating whether the wired Geometry Snapshot tool sends its snapshot
@@ -473,7 +487,7 @@ public class ConversationLog : StatefulComponentBase
         pManager.AddTextParameter("System Prompt", "S", "System prompt from the System Prompt component.", GH_ParamAccess.item, string.Empty);
         pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn; the signal payload is the prompt text. Use Construct Signal to combine a text payload with a manual trigger.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Optional grounding context (e.g. the Component Catalog); each grounding's section is folded into the system prompt. Narrow what is included via the chat window's grounding panel.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_HumanTool(), "Human Tools", "HT", "Optional human tools — affordances enabled in the chat window (Geometry Snapshot, View Snapshot, Add Image). Never sent to the model.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_HumanTool(), "Human Tools", "HT", "Optional human tools — affordances enabled in the chat window (Geometry Snapshot, View Snapshot, Add Image, Export Conversation, Signal Trace). Never sent to the model.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the LLM Call's Success Signal.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Records feedback as a user turn. Wire one or more Feedback Collectors directly — no OR gate needed.", GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "LLM Tool Signal", "TS", "Records tool turns from a Router (via Feedback Collector): a signal whose content blocks carry tool_use is logged as an assistant turn; one whose blocks carry tool_result is logged as a user turn.", GH_ParamAccess.list);
@@ -845,6 +859,11 @@ public class ConversationLog : StatefulComponentBase
         _liveSnapshotTool = tools.OfType<GeometrySnapshotTool>().LastOrDefault();
         _liveViewSnapshotTool = tools.OfType<ViewSnapshotTool>().LastOrDefault();
         _hasAddImageTool = tools.OfType<AddImageTool>().Any();
+
+        // Marker tools: presence is the whole contract — each just lights a button in the chat
+        // window's header (a transcript export, a door onto the session's signal trace).
+        _hasExportTool = tools.OfType<ExportConversationTool>().Any();
+        _hasSignalTraceTool = tools.OfType<SignalTraceTool>().Any();
     }
 
     // The tools advertised to the model: the live tools narrowed by the tools selection (null = all).

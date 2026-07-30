@@ -51,7 +51,7 @@ public class ChatWindow : Form
     private static readonly JsonSerializerOptions ReadOpts =
         new() { PropertyNameCaseInsensitive = true };
 
-    // Indented JSON for the "/export" transcript, so tool inputs stay readable in a .txt.
+    // Indented JSON for the exported transcript, so tool inputs stay readable in a .txt.
     private static readonly JsonSerializerOptions TranscriptOpts =
         new() { WriteIndented = true };
 
@@ -388,6 +388,16 @@ public class ChatWindow : Form
                 // The same view button with "Send With Default Message" unchecked: capture the view and
                 // hand it to the prompt box as an attachment instead of sending it.
                 HandleAttachViewSnapshot();
+                break;
+            case "exportconversation":
+                // The export button (an Export Conversation human tool is wired): write the viewed
+                // conversation to a plain-text transcript.
+                HandleExportConversation();
+                break;
+            case "opensignaltrace":
+                // The signal-trace button (a Signal Trace human tool is wired): open the session's
+                // trace window. The log is process-wide, so this is a door, not a per-chat view.
+                SignalTraceWindow.ShowOrFocus();
                 break;
             case "cancel":
                 HandleCancel();
@@ -852,13 +862,6 @@ public class ChatWindow : Form
                 return;
             }
 
-            // "/export" typed alone is a built-in window command, not a message for the model.
-            if (IsExportCommand(text))
-            {
-                HandleExportConversation();
-                return;
-            }
-
             _component.SubmitFromWindow(NormalizeRefs(text));
             return;
         }
@@ -987,14 +990,10 @@ public class ChatWindow : Form
         _component.SubmitFromWindow(msgText, blocks);
     }
 
-    // True when the prompt text is the built-in "/export" command (nothing else around it).
-    // "/export" anywhere inside a longer message is ordinary text and goes to the model.
-    private static bool IsExportCommand(string text)
-        => string.Equals(text.Trim(), "/export", StringComparison.OrdinalIgnoreCase);
-
     // Saves the viewed conversation as a plain-text transcript — the raw material for a bug
     // report: every turn verbatim (assistant <think> reasoning and raw JSON/Python replies
-    // included), each tool call with its input and result. Runs on the UI thread.
+    // included), each tool call with its input and result. Fired by the window's export button,
+    // which the UI shows only while an Export Conversation human tool is wired. Runs on the UI thread.
     private void HandleExportConversation()
     {
         ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
@@ -1357,12 +1356,17 @@ public class ChatWindow : Form
         string viewSnapshotDefaultMessage = conversationLog?.ViewSnapshotDefaultMessage ?? string.Empty;
         string? viewSnapshotMessage = conversationLog?.ViewSnapshotMessageOverrideOrNull;
 
+        // Marker human tools — nothing to configure, each just lights a header button: an export
+        // that writes this conversation to a transcript, and a door onto the session's signal trace.
+        bool exportToolWired = conversationLog?.HasExportTool == true;
+        bool signalTraceToolWired = conversationLog?.HasSignalTraceTool == true;
+
         // Cheap proxy for availableComponents in the signature (serializing the full list every tick
         // would churn); the tree/selection already trigger a push, this just catches a catalog resize.
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired }, WriteOpts);
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -1379,7 +1383,7 @@ public class ChatWindow : Form
             _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 

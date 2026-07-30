@@ -34,7 +34,7 @@ public class ToolsInUse : PhyBase
     /// Initializes a new instance of the <see cref="ToolsInUse"/> class.
     /// </summary>
     public ToolsInUse()
-        : base("Tools Present", "ToolsUsed", "Grounds the model with every tool node wired into a Router. Wire into a Conversation Log's Grounding input.", "LLM Tools")
+        : base("Tools Present", "ToolsUsed", "Grounds the model with every tool node wired into a Router. Wire into a Conversation Log's Grounding input.", "Grounding")
     {
     }
 

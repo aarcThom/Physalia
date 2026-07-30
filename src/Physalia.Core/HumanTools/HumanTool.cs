@@ -77,3 +77,19 @@ public sealed record ViewSnapshotTool(string Message, bool SendWithMessage = tru
 /// blocks, so there is nothing to configure here.
 /// </summary>
 public sealed record AddImageTool : HumanTool;
+
+/// <summary>
+/// Enables the chat window's export button — writes the viewed conversation to a plain-text
+/// transcript (every turn verbatim, each tool call with its input and result), the raw material
+/// for a bug report. A marker record: the transcript is built by the chat window from the
+/// conversation it is already displaying, so there is nothing to configure here.
+/// </summary>
+public sealed record ExportConversationTool : HumanTool;
+
+/// <summary>
+/// Enables the chat window's signal-trace button, which opens the Physalia signal-trace window:
+/// every signal that reached a wire this session, with its payload, carried content, and
+/// consumption timeline. A marker record — the trace is a process-wide session log, so there is
+/// nothing to configure here.
+/// </summary>
+public sealed record SignalTraceTool : HumanTool;

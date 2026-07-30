@@ -125,6 +125,12 @@ export interface UiState {
 	/** True when an Add Image human tool is wired into the Conversation Log — without it, image
 	 *  intake (paste, drag-drop, file picker) is fully disabled in the composer. */
 	imageToolWired: boolean;
+	/** True when an Export Conversation human tool is wired into the Conversation Log — shows the
+	 *  header's export button, which asks the host to write this conversation to a .txt transcript. */
+	exportToolWired: boolean;
+	/** True when a Signal Trace human tool is wired into the Conversation Log — shows the header's
+	 *  trace button, which opens the session's signal-trace window. */
+	signalTraceToolWired: boolean;
 }
 
 /** One tab (category) and its panels (sub-categories) in the grounding selector. */

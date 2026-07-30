@@ -29,6 +29,8 @@
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
 	import ShapesIcon from '@lucide/svelte/icons/shapes';
 	import CodeIcon from '@lucide/svelte/icons/code';
+	import DownloadIcon from '@lucide/svelte/icons/download';
+	import ActivityIcon from '@lucide/svelte/icons/activity';
 	import HappyFace from '$lib/chat/HappyFace.svelte';
 	import type {
 		ClusterInfo,
@@ -90,6 +92,10 @@
 		viewSnapshotMessage: string | null;
 		/** True when an Add Image human tool is wired (shows its row in the Human Tools section). */
 		imageToolWired: boolean;
+		/** True when an Export Conversation human tool is wired (shows its row in the Human Tools section). */
+		exportToolWired: boolean;
+		/** True when a Signal Trace human tool is wired (shows its row in the Human Tools section). */
+		signalTraceToolWired: boolean;
 		/** Applies a new component selection (host action). all=true returns to include-everything. */
 		onapply: (payload: GroundingSelectionPayload) => void;
 		/** Toggles typed component signatures in the grounded system prompt (host action). */
@@ -137,6 +143,8 @@
 		viewSnapshotDefaultMessage,
 		viewSnapshotMessage,
 		imageToolWired,
+		exportToolWired,
+		signalTraceToolWired,
 		onapply,
 		onapplysignatures,
 		onapplyclusters,
@@ -514,7 +522,7 @@
 			     this window (snapshot buttons, image attachments), never folded into the prompt or
 			     advertised to the model. Each appears only while its component is wired into the
 			     Conversation Log's Human Tools input. -->
-			{#if snapshotWired || viewSnapshotWired || imageToolWired}
+			{#if snapshotWired || viewSnapshotWired || imageToolWired || exportToolWired || signalTraceToolWired}
 				<div class="border-muted-foreground/20 mt-5 border-t pt-4">
 					<h3 class="text-sm font-semibold">Human Tools</h3>
 					<p class="text-muted-foreground mt-1 text-xs">
@@ -565,6 +573,30 @@
 								<ImagePlusIcon class="text-muted-foreground size-4 shrink-0" />
 								<span class="flex-1">Image attachments</span>
 								<span class="text-muted-foreground text-xs">Enabled</span>
+							</div>
+						{/if}
+						{#if exportToolWired}
+							<!-- Read-only, like Add Image: nothing to configure — the export button in the
+							     header does the work. The row just confirms the affordance is enabled. -->
+							<div
+								class="neu-raised-sm flex items-center gap-2 rounded-md px-3 py-2.5 text-sm"
+								title="Save this conversation as a plain-text transcript from the button in the header"
+							>
+								<DownloadIcon class="text-muted-foreground size-4 shrink-0" />
+								<span class="flex-1">Export conversation</span>
+								<span class="text-muted-foreground text-xs">Enabled</span>
+							</div>
+						{/if}
+						{#if signalTraceToolWired}
+							<!-- Read-only: the trace window itself holds every control. Worth stating that the
+							     trace spans the whole Rhino session, not just this conversation. -->
+							<div
+								class="neu-raised-sm flex items-center gap-2 rounded-md px-3 py-2.5 text-sm"
+								title="Open the signal-trace window from the button in the header — it covers every Physalia signal in this Rhino session"
+							>
+								<ActivityIcon class="text-muted-foreground size-4 shrink-0" />
+								<span class="flex-1">Signal trace</span>
+								<span class="text-muted-foreground text-xs">Whole session</span>
 							</div>
 						{/if}
 					</div>

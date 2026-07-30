@@ -55,6 +55,11 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
     private const int MaxItemChars = 48;
     private const int MaxPortSampleChars = 240;
     private const int MaxDistinctScan = 64;
+
+    // Nesting depth followed into a collection held inside one goo. Also stops a self-referencing
+    // collection from spinning here forever.
+    private const int MaxCollectionDepth = 4;
+
     private const int MaxDataFlowComponents = 12;
 
     // Every component GUID ever received on a consumed signal, minus those since removed from
@@ -392,25 +397,65 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
 
     // One item, rendered for the model: geometry gets the facts a downstream failure hinges on
     // (closed/open, planar, counts); everything else falls back to the goo's own ToString.
-    private static string FormatGooSample(IGH_Goo? goo)
+    private static string FormatGooSample(IGH_Goo? goo) =>
+        goo is null ? "null" : FormatValueSample(goo.ScriptVariable(), goo, 0);
+
+    /// <summary>
+    /// Renders one raw value, looking inside a wrapped collection rather than printing the wrapper.
+    /// A GH Python Script output can arrive as a single opaque goo holding a whole list, and
+    /// "Rhino.Geometry.Brep[]" tells the model nothing about what is in it.
+    /// </summary>
+    /// <param name="value">The value behind a goo, or an element of a collection.</param>
+    /// <param name="owner">The goo the value came from, for its ToString fallback; null for elements.</param>
+    /// <param name="depth">Current nesting depth, capped by <see cref="MaxCollectionDepth"/>.</param>
+    /// <returns>The rendered sample.</returns>
+    private static string FormatValueSample(object? value, IGH_Goo? owner, int depth) => value switch
     {
-        if (goo is null)
+        null => "null",
+        Point3d point => FormatPoint(point),
+        Line line => $"line {FormatPoint(line.From)} -> {FormatPoint(line.To)}",
+        Curve curve => DescribeCurve(curve),
+        Brep brep => $"{(brep.IsSolid ? "closed" : "open")} brep, {brep.Faces.Count} face(s)",
+        Mesh mesh => $"{(mesh.IsClosed ? "closed" : "open")} mesh, {mesh.Vertices.Count} vertices, {mesh.Faces.Count} faces",
+        double number => number.ToString("0.###", CultureInfo.InvariantCulture),
+        int integer => integer.ToString(CultureInfo.InvariantCulture),
+        bool flag => flag ? "true" : "false",
+
+        // A string is an enumerable of chars and is a value in its own right — never recursed into.
+        IEnumerable collection and not string when depth < MaxCollectionDepth =>
+            DescribeCollection(collection, depth),
+
+        _ => Truncate(owner?.ToString() ?? value.ToString() ?? owner?.TypeName ?? value.GetType().Name, MaxItemChars),
+    };
+
+    /// <summary>
+    /// Renders a collection held inside a single goo, naming the count first — the count IS the
+    /// finding, because a list that should have arrived as N items on the wire arrived as one.
+    /// </summary>
+    /// <param name="collection">The wrapped collection.</param>
+    /// <param name="depth">Current nesting depth.</param>
+    /// <returns>The rendered sample.</returns>
+    private static string DescribeCollection(IEnumerable collection, int depth)
+    {
+        var rendered = new List<string>();
+        int count = 0;
+
+        foreach (object? element in collection)
         {
-            return "null";
+            count++;
+            if (rendered.Count < MaxSampleItems)
+            {
+                object? inner = element is IGH_Goo elementGoo ? elementGoo.ScriptVariable() : element;
+                rendered.Add(FormatValueSample(inner, element as IGH_Goo, depth + 1));
+            }
         }
 
-        return goo.ScriptVariable() switch
+        if (count > rendered.Count)
         {
-            Point3d point => FormatPoint(point),
-            Line line => $"line {FormatPoint(line.From)} -> {FormatPoint(line.To)}",
-            Curve curve => DescribeCurve(curve),
-            Brep brep => $"{(brep.IsSolid ? "closed" : "open")} brep, {brep.Faces.Count} face(s)",
-            Mesh mesh => $"{(mesh.IsClosed ? "closed" : "open")} mesh, {mesh.Vertices.Count} vertices, {mesh.Faces.Count} faces",
-            double number => number.ToString("0.###", CultureInfo.InvariantCulture),
-            int integer => integer.ToString(CultureInfo.InvariantCulture),
-            bool flag => flag ? "true" : "false",
-            _ => Truncate(goo.ToString() ?? goo.TypeName, MaxItemChars),
-        };
+            rendered.Add($"… (+{count - rendered.Count} more)");
+        }
+
+        return $"one item wrapping {count}: [{string.Join(", ", rendered)}]";
     }
 
     private static string DescribeCurve(Curve curve)

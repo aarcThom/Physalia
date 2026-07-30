@@ -89,7 +89,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Physalia repo gotchas](physalia-repo-gotchas.md) — slnx in `src/`; the `Files` → bin pipeline + its two MSBuild gotchas (stray `src/Physalia.GH/Files`, VS one-build UI lag needing `DisableFastUpToDateCheck` on BOTH projects).
 - [Mac todo](mac-todo.md) — Windows-only / unverified-on-Mac surfaces: PrompterAttrib WinForms, the Serializer `#if WINDOWS` split, GhPythonBridge DLL HintPaths.
 - [GH code editor abandoned](gh-code-editor-abandoned.md) — native GH script editor unreachable (Eto 2.7-vs-2.11 CS1705 + a lifecycle requirement); custom Eto dialog instead.
-- [Python output list access](python-output-list-access.md) — **STILL BROKEN.** RhinoCode forces `AutoDeclare=!HasInstance`→Item on first push. Next: force true "No Type Hint" converter + read-back.
+- [Python output list access](python-output-list-access.md) — **RESOLVED 2026-06-29** (this index line said "STILL BROKEN" until 2026-07-30; the topic file was right). Real fix = `MarshOutputs` on, plus No Type Hint + List access.
 - Two projects only: Physalia.Core (net7.0), Physalia.GH (net7.0-windows on Windows / net7.0 on Mac). CA1416 System.Drawing warnings are false positives — Rhino ships a compatibility layer; suppress.
 
 ## Meta

@@ -383,14 +383,17 @@ public class GeometryReport : RoutingComponentBase<string>
                 continue;
             }
 
-            if (ClassifyGoo(goo) is not { } classified)
+            // One goo can yield several items: a Python Script output often arrives as a single
+            // opaque wrapper around a whole collection. Counting the contents means ItemCount can
+            // exceed the tree's item total, and that mismatch is a finding rather than a defect in
+            // the report — "12x closed brep, tree 1 branch × 1 item" is precisely how a collection
+            // crammed into one goo looks. Do not "fix" it by counting wrappers instead.
+            foreach ((string kind, BoundingBox box) in ClassifyGoo(goo))
             {
-                continue;
+                geometryItems++;
+                kinds[kind] = kinds.TryGetValue(kind, out int n) ? n + 1 : 1;
+                union.Union(box);
             }
-
-            geometryItems++;
-            kinds[classified.Kind] = kinds.TryGetValue(classified.Kind, out int n) ? n + 1 : 1;
-            union.Union(classified.Box);
         }
 
         if (geometryItems == 0)
@@ -475,35 +478,85 @@ public class GeometryReport : RoutingComponentBase<string>
             : $"{branchCounts.Count} branches ({min}–{max} items)";
     }
 
-    // Classifies one goo as placed geometry (kind label + accurate bbox), or null for construction
-    // data — vectors, planes, intervals, numbers — which spatial reasoning must not treat as parts.
-    private static (string Kind, BoundingBox Box)? ClassifyGoo(IGH_Goo goo)
+    /// <summary>
+    /// Maximum nesting depth followed into wrapped collections. A Python list of lists is normal;
+    /// anything deeper is not worth measuring, and the cap also stops a self-referencing collection
+    /// from spinning here forever.
+    /// </summary>
+    private const int MaxCollectionDepth = 4;
+
+    /// <summary>
+    /// Classifies one goo as placed geometry — kind label plus accurate bbox, one entry per
+    /// geometric item found. Yields nothing for construction data (vectors, planes, intervals,
+    /// numbers), which spatial reasoning must not treat as parts.
+    ///
+    /// <para>A goo can hold a whole collection rather than one item. A GH Python Script output is
+    /// the case that matters: when the engine wraps a Python list as a single opaque
+    /// <c>GH_ObjectWrapper</c> — which it still does whenever the access clobber wins — the value
+    /// behind the goo is the list itself, not geometry. Classifying only the wrapper made every
+    /// such output invisible, so a Py Transmitter graph that drew a dozen breps reported "NO
+    /// GEOMETRY WAS PRODUCED" and invited the model to "fix" working code.</para>
+    /// </summary>
+    /// <param name="goo">The item to classify.</param>
+    /// <returns>One entry per geometric item the goo holds; empty when it holds none.</returns>
+    private static IEnumerable<(string Kind, BoundingBox Box)> ClassifyGoo(IGH_Goo goo) =>
+        ClassifyValue(goo.ScriptVariable(), 0);
+
+    /// <summary>
+    /// Classifies one raw value, recursing into collections.
+    /// </summary>
+    /// <param name="value">The value behind a goo, or an element of a collection.</param>
+    /// <param name="depth">Current nesting depth, capped by <see cref="MaxCollectionDepth"/>.</param>
+    /// <returns>One entry per geometric item found.</returns>
+    private static IEnumerable<(string Kind, BoundingBox Box)> ClassifyValue(object? value, int depth)
     {
-        switch (goo.ScriptVariable())
+        switch (value)
         {
+            case null:
+                break;
             case Point3d point:
-                return ("point", new BoundingBox(point, point));
+                yield return ("point", new BoundingBox(point, point));
+                break;
             case Line line:
-                var lineBox = new BoundingBox(line.From, line.To);
-                return ("line", lineBox);
+                yield return ("line", new BoundingBox(line.From, line.To));
+                break;
             case Curve curve:
                 string closure = curve.IsClosed ? "closed" : "open";
                 string planarity = curve.IsPlanar() ? "planar" : "non-planar";
-                return ($"{closure} {planarity} curve", curve.GetBoundingBox(true));
+                yield return ($"{closure} {planarity} curve", curve.GetBoundingBox(true));
+                break;
             case Extrusion extrusion:
-                return (extrusion.IsSolid ? "closed extrusion" : "open extrusion", extrusion.GetBoundingBox(true));
+                yield return (extrusion.IsSolid ? "closed extrusion" : "open extrusion", extrusion.GetBoundingBox(true));
+                break;
             case Surface surface:
-                return ("surface", surface.GetBoundingBox(true));
+                yield return ("surface", surface.GetBoundingBox(true));
+                break;
             case Brep brep:
-                return (brep.IsSolid ? "closed brep" : "open brep", brep.GetBoundingBox(true));
+                yield return (brep.IsSolid ? "closed brep" : "open brep", brep.GetBoundingBox(true));
+                break;
             case Mesh mesh:
-                return (mesh.IsClosed ? "closed mesh" : "open mesh", mesh.GetBoundingBox(true));
+                yield return (mesh.IsClosed ? "closed mesh" : "open mesh", mesh.GetBoundingBox(true));
+                break;
             case Box box:
-                return ("box", box.BoundingBox);
+                yield return ("box", box.BoundingBox);
+                break;
             case GeometryBase geometry:
-                return (goo.TypeName.ToLowerInvariant(), geometry.GetBoundingBox(true));
-            default:
-                return null;
+                yield return (geometry.GetType().Name.ToLowerInvariant(), geometry.GetBoundingBox(true));
+                break;
+
+            // A string is an enumerable of chars and never geometry — keep it out of the recursion.
+            case System.Collections.IEnumerable collection and not string when depth < MaxCollectionDepth:
+                foreach (object? element in collection)
+                {
+                    // Elements can themselves be goo (a wrapped list of GH_Brep), so unwrap again.
+                    object? inner = element is IGH_Goo elementGoo ? elementGoo.ScriptVariable() : element;
+                    foreach ((string Kind, BoundingBox Box) classified in ClassifyValue(inner, depth + 1))
+                    {
+                        yield return classified;
+                    }
+                }
+
+                break;
         }
     }
 

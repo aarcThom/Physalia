@@ -330,6 +330,81 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
 }
 
 /// <summary>
+/// One parameter on a locked Python script component interface: the variable name, the Physalia
+/// type-hint name (empty for untyped inputs, and always empty for outputs — they never carry a
+/// hint), and the access mode as its PythonComponent JSON string (<c>item</c>, <c>list</c>, or
+/// <c>tree</c>).
+/// </summary>
+/// <param name="Name">Variable name used inside the script.</param>
+/// <param name="TypeHint">Physalia type-hint name (e.g. <c>Number</c>), or empty when untyped.</param>
+/// <param name="Access">Access mode string: <c>item</c>, <c>list</c>, or <c>tree</c>.</param>
+public sealed record ScriptInterfacePort(string Name, string TypeHint, string Access);
+
+/// <summary>
+/// Grounds the model with the fixed input/output interface of the Python script component a
+/// Py Transmitter drives, and declares that interface locked: existing wires on the canvas depend
+/// on these parameters, so every PythonComponent JSON the model emits for the component must
+/// declare exactly these inputs and outputs — same names, types, and access. Emitted by the
+/// Interface Lock grounder, whose link also makes the transmitter enforce the contract (it pushes
+/// code only, and rejects a submission that declares unknown parameters). Each parameter renders
+/// as the exact JSON entry the model should copy into its <c>inputs</c>/<c>outputs</c> arrays.
+/// </summary>
+/// <param name="ComponentName">The target script component's display (nick) name.</param>
+/// <param name="Inputs">The locked input parameters, in interface order.</param>
+/// <param name="Outputs">The locked output parameters, in interface order.</param>
+public sealed record ScriptInterfaceGrounding(
+    string ComponentName,
+    IReadOnlyList<ScriptInterfacePort> Inputs,
+    IReadOnlyList<ScriptInterfacePort> Outputs) : Grounding
+{
+    /// <inheritdoc/>
+    public override string ToSystemPromptSection()
+    {
+        if (string.IsNullOrWhiteSpace(ComponentName))
+        {
+            return string.Empty;
+        }
+
+        var section = new System.Text.StringBuilder();
+        section.Append("The Python script component \"").Append(ComponentName.Trim())
+            .Append("\" has a LOCKED interface: existing wires depend on its inputs and outputs, ")
+            .Append("so they must be preserved exactly. In every PythonComponent JSON you emit for ")
+            .Append("this component, declare EXACTLY the parameters below — copy these entries ")
+            .Append("verbatim into your inputs/outputs arrays. Never add, remove, or rename a ")
+            .Append("parameter, and never change a type or access. Write the code against exactly ")
+            .Append("these variable names. A submission declaring any other parameter set is ")
+            .Append("rejected without being applied.\n");
+        section.Append("\"inputs\": ").Append(FormatPorts(Inputs)).Append('\n');
+        section.Append("\"outputs\": ").Append(FormatPorts(Outputs));
+        return section.ToString();
+    }
+
+    /// <summary>
+    /// Renders the locked parameters of one side as the exact JSON array the model should emit,
+    /// omitting the <c>type</c> field for untyped ports (and for outputs, which never carry one).
+    /// </summary>
+    /// <param name="ports">The locked ports, or an empty list.</param>
+    /// <returns>A JSON array literal, one entry per line.</returns>
+    public static string FormatPorts(IReadOnlyList<ScriptInterfacePort>? ports)
+    {
+        if (ports is null || ports.Count == 0)
+        {
+            return "[]";
+        }
+
+        var entries = ports.Select(p =>
+        {
+            string type = string.IsNullOrWhiteSpace(p.TypeHint)
+                ? string.Empty
+                : $" \"type\": \"{p.TypeHint.Trim()}\",";
+            return $"  {{ \"name\": \"{p.Name.Trim()}\",{type} \"access\": \"{p.Access.Trim()}\" }}";
+        });
+
+        return "[\n" + string.Join(",\n", entries) + "\n]";
+    }
+}
+
+/// <summary>
 /// Grounds the model with the tools currently in use in the document — the tool nodes wired into a
 /// dispatch loop (a Router), collected by the Tools Present grounder. It carries the live tool
 /// definitions from the grounder to the Conversation Log, which lifts them onto the

@@ -89,6 +89,32 @@ public static class GhPythonBridge
         => ReadParamSet(Cast(obj).Outputs);
 
     /// <summary>
+    /// Returns the input parameters currently defined on the component as push-shaped specs:
+    /// variable name, the Physalia type-hint name read back from the parameter's converter
+    /// (empty when untyped or when the hint has no Physalia name), and access. This is the
+    /// read-back counterpart of <see cref="SetInputs(IGH_DocumentObject, IEnumerable{GhParamSpec})"/>,
+    /// used to capture a locked interface exactly as the model must re-declare it.
+    /// </summary>
+    /// <param name="obj">The GH Python Script component.</param>
+    /// <returns>Read-only list of input parameter specs.</returns>
+    public static IReadOnlyList<GhParamSpec> GetInputSpecs(IGH_DocumentObject obj)
+        => Cast(obj).Inputs
+            .Select(p => new GhParamSpec(p.VariableName, ReadTypeHintName(p), MapAccess(p.Access)))
+            .ToList();
+
+    /// <summary>
+    /// Returns the output parameters currently defined on the component as push-shaped specs.
+    /// Outputs never carry a type hint (see <see cref="SetOutputs(IGH_DocumentObject, IEnumerable{GhParamSpec})"/>),
+    /// so the hint is always empty; only name and access are meaningful.
+    /// </summary>
+    /// <param name="obj">The GH Python Script component.</param>
+    /// <returns>Read-only list of output parameter specs.</returns>
+    public static IReadOnlyList<GhParamSpec> GetOutputSpecs(IGH_DocumentObject obj)
+        => Cast(obj).Outputs
+            .Select(p => new GhParamSpec(p.VariableName, string.Empty, MapAccess(p.Access)))
+            .ToList();
+
+    /// <summary>
     /// Returns all runtime error messages produced by the last solve.
     /// </summary>
     /// <param name="obj">The GH Python Script component.</param>
@@ -542,6 +568,36 @@ public static class GhPythonBridge
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Reads the Physalia type-hint name back off a script parameter's converter: the converter's
+    /// target CLR type is reverse-mapped through <see cref="TypeHintMap"/>. A null converter (No
+    /// Type Hint), an unmappable target type, or any converter access failure yields empty — the
+    /// untyped representation, matching what <c>MapParamType</c> would build from an empty hint.
+    /// </summary>
+    /// <param name="param">The script parameter to read.</param>
+    /// <returns>The Physalia type-hint name (e.g. <c>Number</c>), or empty when untyped.</returns>
+    private static string ReadTypeHintName(IScriptParameter param)
+    {
+        try
+        {
+            Type? clrType = param.Converter?.TargetType?.Type;
+            if (clrType is null)
+                return string.Empty;
+
+            foreach (KeyValuePair<string, Type> pair in TypeHintMap)
+            {
+                if (pair.Value == clrType)
+                    return pair.Key;
+            }
+
+            return string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private static GhScriptParamAccess MapAccess(ScriptParamAccess access) => access switch

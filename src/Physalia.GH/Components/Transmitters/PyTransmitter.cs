@@ -11,6 +11,7 @@ using System.Text.RegularExpressions;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
+using Physalia.Core.Grounding;
 using Physalia.Core.Python;
 using Physalia.Core.Signals;
 using Physalia.GH.Attributes;
@@ -27,11 +28,16 @@ namespace Physalia.GH.Components;
 /// (so a downstream Runtime Health Check or Geometry Observation can scope to it); on genuine errors it
 /// routes the messages back on the Fail Signal. Errors caused purely by unconnected
 /// inputs are ignored. Link to the target via the bottom-centre bezier grip.
+/// When an enabled <see cref="InterfaceLock"/> is linked to this transmitter, the target's
+/// interface is frozen: pushes carry code only (parameters are never restructured, so existing
+/// wires survive), and a submission declaring parameters outside the locked set is rejected with
+/// corrective feedback on the Fail Signal.
 /// </summary>
 public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
 {
     private Guid _linkedGuid = Guid.Empty;
     private string? _pushError;
+    private string? _lockFeedback;
 
     // Parsed params from the current push, retained so they can be re-applied once the target
     // has solved (see ReapplyAccessIfNeeded) to defeat the first-push access clobber.
@@ -139,6 +145,7 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
     protected override void PushSolve(string data, IGH_DataAccess da)
     {
         _pushError = null;
+        _lockFeedback = null;
         _accessReapplied = false;
         _inputs = new List<GhParamSpec>();
         _outputs = new List<GhParamSpec>();
@@ -153,6 +160,27 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
         if (target is null)
         {
             _pushError = linkError;
+            return;
+        }
+
+        // An enabled Interface Lock linked to this transmitter freezes the target's interface:
+        // push the code only — never restructure parameters, re-hint outputs, or touch the
+        // marshalling flag, so the target keeps exactly the params (and wires) it already has.
+        // A submission declaring names outside the locked set is rejected before anything is
+        // pushed, and the contract is routed back as corrective feedback. _inputs/_outputs stay
+        // empty so the access re-apply pass in IsReadReady never runs.
+        if (FindInterfaceLock() is not null)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, "Interface locked — pushing code only; the target's inputs/outputs are preserved.");
+
+            if (!ValidateAgainstLockedInterface(target, inputs, outputs, out string lockFeedback))
+            {
+                _lockFeedback = lockFeedback;
+                return;
+            }
+
+            GhPythonBridge.SetScript(target, code);
+            GhPythonBridge.Expire(target);
             return;
         }
 
@@ -189,7 +217,7 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
     /// </remarks>
     protected override bool IsReadReady(string data)
     {
-        if (_pushError != null)
+        if (_pushError != null || _lockFeedback != null)
             return true;
 
         IGH_DocumentObject? target = ResolveTarget(out _);
@@ -254,6 +282,9 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
         if (_pushError != null)
             return RoutingResult.Fail(_pushError, _pushError, GH_RuntimeMessageLevel.Error);
 
+        if (_lockFeedback != null)
+            return RoutingResult.Fail(_lockFeedback, "Locked interface violated — code not applied.", GH_RuntimeMessageLevel.Warning);
+
         IGH_DocumentObject? target = ResolveTarget(out string? linkError);
         if (target is null)
             return RoutingResult.Fail(linkError ?? "Linked Python component unavailable.", linkError, GH_RuntimeMessageLevel.Error);
@@ -306,6 +337,87 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
         }
 
         return linked;
+    }
+
+    /// <summary>
+    /// Finds the Interface Lock actively constraining this transmitter: an enabled
+    /// <see cref="InterfaceLock"/> anywhere in the document whose grip link points at this
+    /// component. Null when the interface is free to restructure.
+    /// </summary>
+    /// <returns>The constraining lock, or null.</returns>
+    private InterfaceLock? FindInterfaceLock()
+        => OnPingDocument()?.Objects.OfType<InterfaceLock>().FirstOrDefault(l => l.Constrains(InstanceGuid));
+
+    /// <summary>
+    /// Validates a submission against the target's live (locked) interface: every declared input
+    /// and output name must already exist on the target. Declaring fewer parameters than exist is
+    /// fine — the params are never rebuilt, so nothing is removed — but an unknown name means the
+    /// model tried to add or rename a parameter, which would break existing wires.
+    /// </summary>
+    /// <param name="target">The linked Python Script component.</param>
+    /// <param name="inputs">The submission's declared input specs.</param>
+    /// <param name="outputs">The submission's declared output specs.</param>
+    /// <param name="feedback">Corrective feedback for the model when validation fails.</param>
+    /// <returns>true when the submission respects the locked interface.</returns>
+    private static bool ValidateAgainstLockedInterface(
+        IGH_DocumentObject target,
+        IReadOnlyList<GhParamSpec> inputs,
+        IReadOnlyList<GhParamSpec> outputs,
+        out string feedback)
+    {
+        feedback = string.Empty;
+
+        IReadOnlyList<GhParamSpec> lockedInputs = GhPythonBridge.GetInputSpecs(target);
+        IReadOnlyList<GhParamSpec> lockedOutputs = GhPythonBridge.GetOutputSpecs(target);
+
+        var inputNames = new HashSet<string>(lockedInputs.Select(p => p.Name), StringComparer.Ordinal);
+        var outputNames = new HashSet<string>(lockedOutputs.Select(p => p.Name), StringComparer.Ordinal);
+
+        List<string> unknownInputs = inputs.Select(i => i.Name).Where(n => !inputNames.Contains(n)).ToList();
+        List<string> unknownOutputs = outputs.Select(o => o.Name).Where(n => !outputNames.Contains(n)).ToList();
+
+        if (unknownInputs.Count == 0 && unknownOutputs.Count == 0)
+            return true;
+
+        feedback = BuildLockFeedback(target.NickName, lockedInputs, lockedOutputs, unknownInputs, unknownOutputs);
+        return false;
+    }
+
+    /// <summary>
+    /// Builds the corrective feedback for a locked-interface violation: what was rejected and why,
+    /// then the locked contract rendered exactly as the grounding renders it, so the model sees the
+    /// same JSON entries it must copy on the resubmission.
+    /// </summary>
+    /// <param name="componentName">The target script component's display name.</param>
+    /// <param name="lockedInputs">The target's live input specs.</param>
+    /// <param name="lockedOutputs">The target's live output specs.</param>
+    /// <param name="unknownInputs">Declared input names not on the target.</param>
+    /// <param name="unknownOutputs">Declared output names not on the target.</param>
+    /// <returns>The feedback text.</returns>
+    private static string BuildLockFeedback(
+        string componentName,
+        IReadOnlyList<GhParamSpec> lockedInputs,
+        IReadOnlyList<GhParamSpec> lockedOutputs,
+        IReadOnlyList<string> unknownInputs,
+        IReadOnlyList<string> unknownOutputs)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Your submission was REJECTED and nothing was applied: it declares parameters that do not exist on the locked component.");
+        if (unknownInputs.Count > 0)
+            sb.AppendLine($"Unknown inputs: {string.Join(", ", unknownInputs)}");
+        if (unknownOutputs.Count > 0)
+            sb.AppendLine($"Unknown outputs: {string.Join(", ", unknownOutputs)}");
+        sb.AppendLine();
+
+        var contract = new ScriptInterfaceGrounding(
+            componentName,
+            InterfaceLock.ToPorts(lockedInputs),
+            InterfaceLock.ToPorts(lockedOutputs));
+        sb.AppendLine(contract.ToSystemPromptSection());
+        sb.AppendLine();
+        sb.Append("Resubmit the full PythonComponent JSON declaring exactly these parameters, with the code written against these variable names.");
+
+        return sb.ToString();
     }
 
     /// <summary>

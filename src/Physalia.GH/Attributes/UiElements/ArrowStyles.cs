@@ -18,6 +18,9 @@ public static class ArrowStyles
     /// <summary>PyTransmitter → GH Python Script link: aquamarine to deep pink.</summary>
     public static readonly WireGradient PyTransmitter = new(Color.Aquamarine, Color.DeepPink);
 
+    /// <summary>Interface Lock → PyTransmitter link: lime green to teal.</summary>
+    public static readonly WireGradient InterfaceLock = new(Color.LimeGreen, Color.Teal);
+
     /// <summary>Component Transmitter free-point drop arrow: orange to medium orchid.</summary>
     public static readonly WireGradient CompTx = new(Color.Orange, Color.MediumOrchid);
 

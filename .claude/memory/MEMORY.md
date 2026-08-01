@@ -9,6 +9,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Commit/PR messages output-only](commit-and-pr-messages-output-only.md) — print them in chat; never run `git commit`/`push`/`gh`.
 
 ## Latest
+- [Interface Lock grounder](interface-lock-grounder.md) — 2026-07-31: new Grounding component grip-links to a PyTransmitter, emits `ScriptInterfaceGrounding` (target's exact I/O as copyable JSON) and makes the transmitter push code-only + reject unknown param names; first-ever type-hint READ-back via `Converter.TargetType.Type`. Live Rhino test pending.
 - [Compaction tool-pairing fix](compaction-tool-pairing-fix.md) — 2026-07-29: the Anchored Window's `Keep First = 2` cut a tool exchange in half, Anthropic 400'd, and a staged build died at 3/5. `Reassemble` now pairs BOTH directions, `KeepHeadAndTail` never splits an exchange, `LlmCall` repairs before sending. Gemini tool calls still unparsed. Live Rhino test pending.
 - [Human-tool taxonomy moves](human-tools-taxonomy-moves-2026-07.md) — 2026-07-29: Tools Present → Grounding ribbon; `/export` slash command and the signal-trace canvas widget both deleted and reborn as Human Tools (header buttons). Composer now has NO built-in slash commands. Not yet run live in Rhino.
 - [View Snapshot human tool](view-snapshot-human-tool.md) — 2026-07-28: geometry-free sibling of Geometry Snapshot (active viewport as-is, wired = armed); shared `SnapshotToolComponentBase`; fixed the attach-lane image drop via `AcceptsPromptImages`. Live Rhino test pending.

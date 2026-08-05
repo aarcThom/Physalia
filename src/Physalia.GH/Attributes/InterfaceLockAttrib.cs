@@ -52,7 +52,10 @@ public class InterfaceLockAttrib : GripLinkAttrib
     protected override void OnDisconnect(Guid targetGuid) => _interfaceLock.Unlink();
 
     /// <inheritdoc/>
-    /// <remarks>Wires land just above the top-centre of the target transmitter, clear of its own bottom grip.</remarks>
+    /// <remarks>
+    /// Wires land on the target transmitter's bottom edge, a quarter of the way along its width —
+    /// left of the transmitter's own bottom-centre grip, so the two never collide.
+    /// </remarks>
     protected override PointF GetTargetAnchor(RectangleF targetBounds)
-        => new PointF(targetBounds.Left + (targetBounds.Width / 2f), targetBounds.Top - 6f);
+        => new PointF(targetBounds.Left + (targetBounds.Width * 0.25f), targetBounds.Bottom);
 }

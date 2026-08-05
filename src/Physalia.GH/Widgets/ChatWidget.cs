@@ -60,8 +60,9 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
 /// auto-discovers the widget and lists it (with a visibility checkbox) in the canvas
 /// Widgets right-click menu; the visibility choice persists in the GH settings.
 ///
-/// The drawn graphic is the Physalia logo (the same jellyfish shown in the chat window),
-/// rasterized from Images/logo.svg into the embedded Resources/logo.png.
+/// The drawn graphic is the Physalia critter — the project's only logo mark — rasterized from
+/// Images/phy_critter.svg into the embedded Resources/critter.png. The chat window draws the same
+/// mark, inlined as SVG in Physalia.UI's HappyFace.svelte; keep the two in step.
 /// </summary>
 public sealed class ChatWidget : GH_Widget
 {
@@ -70,8 +71,9 @@ public sealed class ChatWidget : GH_Widget
     private const string RightOffsetKey = "Physalia.ChatWidget.RightOffset";
     private const string BottomOffsetKey = "Physalia.ChatWidget.BottomOffset";
 
-    // Embedded PNG rasterized from Images/logo.svg (portrait jellyfish, 215x256).
-    private const string LogoResource = "Physalia.GH.Resources.logo.png";
+    // Embedded PNG rasterized from Images/phy_critter.svg (portrait critter, 365x512). The source
+    // viewBox is tight to the artwork, so the bitmap needs no padding trim before FitCentred.
+    private const string LogoResource = "Physalia.GH.Resources.critter.png";
 
     // Widget geometry, in device (screen) pixels. The default docks it bottom-right, above the
     // compass; the offsets are the gap from the canvas right/bottom edge to the widget's edge, and

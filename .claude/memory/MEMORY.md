@@ -9,6 +9,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Commit/PR messages output-only](commit-and-pr-messages-output-only.md) — print them in chat; never run `git commit`/`push`/`gh`.
 
 ## Latest
+- **2026-08-04: the phy_critter mark is the project's ONLY logo.** Canvas widget → `Resources/critter.png`; chat UI → inlined in `HappyFace.svelte`. The old jellyfish (`Images/logo.svg`, `Resources/logo.png`) is DELETED. `Images/physalia.svg` (README wordmark) is a separate asset, untouched. See [[chat-widget]], [[svg-rasterization-headless-chrome]].
 - [Interface Lock grounder](interface-lock-grounder.md) — 2026-07-31: new Grounding component grip-links to a PyTransmitter, emits `ScriptInterfaceGrounding` (target's exact I/O as copyable JSON) and makes the transmitter push code-only + reject unknown param names; first-ever type-hint READ-back via `Converter.TargetType.Type`. Live Rhino test pending.
 - [Compaction tool-pairing fix](compaction-tool-pairing-fix.md) — 2026-07-29: the Anchored Window's `Keep First = 2` cut a tool exchange in half, Anthropic 400'd, and a staged build died at 3/5. `Reassemble` now pairs BOTH directions, `KeepHeadAndTail` never splits an exchange, `LlmCall` repairs before sending. Gemini tool calls still unparsed. Live Rhino test pending.
 - [Human-tool taxonomy moves](human-tools-taxonomy-moves-2026-07.md) — 2026-07-29: Tools Present → Grounding ribbon; `/export` slash command and the signal-trace canvas widget both deleted and reborn as Human Tools (header buttons). Composer now has NO built-in slash commands. Not yet run live in Rhino.
@@ -87,6 +88,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [ClaudeCode provider perf](claudecode-provider-perf.md) — the freeze was extended thinking (`MAX_THINKING_TOKENS=0`); `--safe-mode` keeps OAuth, `--bare` breaks it; pipes pinned no-BOM UTF-8.
 
 ## Platform / Build
+- [SVG → transparent PNG](svg-rasterization-headless-chrome.md) — no magick/inkscape/rsvg on this box; rasterize icons with headless Chrome + `--default-background-color=00000000`.
 - [Physalia repo gotchas](physalia-repo-gotchas.md) — slnx in `src/`; the `Files` → bin pipeline + its two MSBuild gotchas (stray `src/Physalia.GH/Files`, VS one-build UI lag needing `DisableFastUpToDateCheck` on BOTH projects).
 - [Mac todo](mac-todo.md) — Windows-only / unverified-on-Mac surfaces: PrompterAttrib WinForms, the Serializer `#if WINDOWS` split, GhPythonBridge DLL HintPaths.
 - [GH code editor abandoned](gh-code-editor-abandoned.md) — native GH script editor unreachable (Eto 2.7-vs-2.11 CS1705 + a lifecycle requirement); custom Eto dialog instead.

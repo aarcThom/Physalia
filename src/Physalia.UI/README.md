@@ -64,7 +64,7 @@ src/
    │  ├─ Setup.svelte             first-run / add-a-provider screen
    │  ├─ ConnectOptions.svelte    "connect a recorder" screen
    │  ├─ Pill.svelte              the shared Physalia "pill" style
-   │  ├─ HappyFace.svelte         the placeholder logo
+   │  ├─ HappyFace.svelte         the Physalia critter logo (inlined from Images/phy_critter.svg)
    │  └─ providers.ts             the LLM providers + their setup guides (data)
    ├─ hooks/          a small reusable Svelte hook (clipboard copy state)
    └─ components/     ← VENDORED UI libraries — not authored here

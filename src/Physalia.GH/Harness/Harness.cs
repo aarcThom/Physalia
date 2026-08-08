@@ -18,7 +18,9 @@ namespace Physalia.GH.Harness;
 /// in place: Physalia (<see cref="PhyBase"/>) members are flagged and their own attributes
 /// shrink them to the proxy; non-Physalia members have their attributes swapped for a
 /// <see cref="CollapsedProxyAttributes"/> stand-in and restored on expand. Members are never
-/// moved or removed, so they stay wired and keep solving while hidden.
+/// removed, so they stay wired and keep solving while hidden; while collapsed they travel with
+/// the proxy — every drag of the Chat translates each member's real placement by the same delta,
+/// so the group expands around the Chat's new position with its arrangement intact.
 ///
 /// <para>All the group/collapse logic lives here so the Chat stays a thin proxy that merely
 /// delegates. The member set and collapsed flag persist with the Chat; the swapped-attribute
@@ -231,7 +233,15 @@ public sealed class Harness
         }
 
         PointF point = Point;
+        PointF previous = _lastPoint;
         _lastPoint = _collapsed ? point : new PointF(float.NaN, float.NaN);
+
+        // The proxy may have moved since the last push (e.g. a member added mid-drag) — carry the
+        // hidden members along before re-asserting the state.
+        if (_collapsed && TryGetDelta(previous, point, out SizeF delta))
+        {
+            TranslateMembers(doc, delta);
+        }
 
         foreach (Guid g in _members.ToList())
         {
@@ -307,8 +317,16 @@ public sealed class Harness
         }
 
         PointF point = Point;
-        bool moved = point != _lastPoint;
+        PointF previous = _lastPoint;
+        bool moved = point != previous;
         _lastPoint = point;
+
+        // The proxy was dragged: move the members for real, not just their collapse point, so the
+        // whole hidden group follows the Chat and expands around its new position.
+        if (TryGetDelta(previous, point, out SizeF delta))
+        {
+            TranslateMembers(doc, delta);
+        }
 
         foreach (Guid g in _members)
         {
@@ -375,6 +393,62 @@ public sealed class Harness
                 _members.Add(reader.GetGuid("HarnessMember", i));
             }
         }
+    }
+
+    // The movement of the proxy between two pushes of the collapse point, or none when there was no
+    // previous point (NaN — the group has just collapsed or loaded) or the proxy has not moved.
+    private static bool TryGetDelta(PointF previous, PointF point, out SizeF delta)
+    {
+        delta = SizeF.Empty;
+        if (float.IsNaN(previous.X) || float.IsNaN(previous.Y) || previous == point)
+        {
+            return false;
+        }
+
+        delta = new SizeF(point.X - previous.X, point.Y - previous.Y);
+        return true;
+    }
+
+    // Drags every member's true placement along with the proxy. Hidden members draw at the collapse
+    // point either way, so this is invisible until the group expands — but it is the real position:
+    // it is what the file records when saved while collapsed, and what expand lays out from.
+    private void TranslateMembers(GH_Document doc, SizeF delta)
+    {
+        foreach (Guid g in _members)
+        {
+            IGH_DocumentObject? obj = doc.FindObject(g, false);
+            if (obj is null)
+            {
+                continue;
+            }
+
+            if (obj.Attributes is CollapsedProxyAttributes proxy)
+            {
+                // A hidden native member: GH only ever drags the throwaway stand-in (whose pivot the
+                // next layout resets anyway), so the real placement is always ours to move.
+                Translate(proxy.Original, delta);
+            }
+            else if (obj.Attributes is { Selected: false })
+            {
+                // A hidden Physalia member keeps its own attributes. Skip it while selected: it is
+                // part of the same drag as the proxy, so GH has already moved it.
+                Translate(obj.Attributes, delta);
+            }
+        }
+    }
+
+    // Moves one object's placement. Bounds are assigned from the captured rectangle so the result is
+    // the same whether or not the Pivot setter carries the bounds with it: a component rebuilds its
+    // bounds from the pivot on the next layout, while GH's resizable attributes (panels, sliders)
+    // keep the bounds they are given.
+    private static void Translate(IGH_Attributes attr, SizeF delta)
+    {
+        RectangleF bounds = attr.Bounds;
+        bounds.Offset(delta.Width, delta.Height);
+
+        attr.Pivot = new PointF(attr.Pivot.X + delta.Width, attr.Pivot.Y + delta.Height);
+        attr.Bounds = bounds;
+        attr.ExpireLayout();
     }
 
     private void HideMember(IGH_DocumentObject obj, PointF point)

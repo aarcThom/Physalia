@@ -18,9 +18,10 @@ namespace Physalia.GH.Harness;
 /// rectangle at the shared collapse point (so internal wires become zero-length) and skips
 /// drawing entirely.
 ///
-/// <para>The component's <see cref="IGH_Attributes.Pivot"/> is deliberately never touched, so
-/// clearing the collapse flag and re-laying out restores the node at its original location with
-/// no per-member position bookkeeping.</para>
+/// <para>The component's <see cref="IGH_Attributes.Pivot"/> is deliberately never touched here, so
+/// clearing the collapse flag and re-laying out restores the node at its recorded location with no
+/// per-member position bookkeeping. The pivot is the member's real placement — the
+/// <see cref="Harness"/> alone moves it, translating every member when the proxy is dragged.</para>
 /// </summary>
 internal static class CollapseGuard
 {

@@ -42,7 +42,9 @@ public class CollapsedProxyAttributes : GH_Attributes<IGH_DocumentObject>
     }
 
     /// <summary>
-    /// Gets the original attributes this proxy replaced, restored by the harness on expand.
+    /// Gets the original attributes this proxy replaced, restored by the harness on expand. They
+    /// carry the member's real placement while it is hidden, so the harness translates them (not
+    /// this stand-in, whose pivot every layout resets) when the proxy Chat is dragged.
     /// </summary>
     public IGH_Attributes Original { get; }
 

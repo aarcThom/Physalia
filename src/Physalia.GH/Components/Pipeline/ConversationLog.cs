@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Physalia Contributors
+// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -17,6 +17,7 @@ using Physalia.Core.HumanTools;
 using Physalia.Core.Recording;
 using Physalia.GH.Generation;
 using Physalia.GH.Goo;
+using Physalia.GH.Harness;
 using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
@@ -834,7 +835,7 @@ public class ConversationLog : StatefulComponentBase
         // fresh re-export at mint time follows the same frame.
         _groupScopedCanvasGrounding = _liveGroundings.OfType<CanvasStateGrounding>().Any(g => g.GroupScoped);
         _liveReferencedGeometry = _hasCanvasStateGrounding
-            ? Generation.CanvasRhinoReferences.Collect(OnPingDocument())
+            ? Generation.CanvasRhinoReferences.Collect(PhyDocuments.Host(this))
                 .Select(r => new ReferencedGeometryInput(r.Name, r.TypeName))
                 .ToList()
             : Array.Empty<ReferencedGeometryInput>();
@@ -945,7 +946,7 @@ public class ConversationLog : StatefulComponentBase
     // same as an empty canvas, which drops the model back to full-document generation.
     private Grounding FreshCanvasStateGrounding()
     {
-        GH_Document? doc = OnPingDocument();
+        GH_Document? doc = PhyDocuments.Host(this);
 
         // Record which frame the model is being shown, so every guardrail that hands it a fresh
         // base checksum (GhJsonBridge.CurrentBaseChecksum) reports the same frame.

@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
@@ -33,7 +34,7 @@ namespace Physalia.GH.Components;
 /// wires survive), and a submission declaring parameters outside the locked set is rejected with
 /// corrective feedback on the Fail Signal.
 /// </summary>
-public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
+public class PyTransmitter : RoutingComponentBase<string>
 {
     private Guid _linkedGuid = Guid.Empty;
     private string? _pushError;
@@ -90,39 +91,61 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
         _linkedGuid = Guid.Empty;
     }
 
-    // IHarnessArrow — lets a collapsed Chat proxy delegate its bottom arrow to this transmitter.
-    // The wire lands on the linked target; a drop links the script under the point (or unlinks on Ctrl).
-
     /// <inheritdoc/>
-    IEnumerable<PointF> IHarnessArrow.GetArrowEndpoints(GH_Document doc)
+    /// <remarks>
+    /// Offers the grip link as a menu instead of a drag. A transmitter normally lives inside a
+    /// harness while its script component sits on the user's canvas, and a drag cannot cross two
+    /// canvases — so the link has to be pickable from a list of the host document's script
+    /// components. The bottom-grip drag still works when both happen to share a document.
+    /// </remarks>
+    public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
     {
-        if (_linkedGuid != Guid.Empty && doc.FindObject(_linkedGuid, false) is { } target)
+        base.AppendAdditionalMenuItems(menu);
+        Menu_AppendSeparator(menu);
+
+        ToolStripMenuItem picker = Menu_AppendItem(menu, "Link to Script Component");
+
+        List<IGH_DocumentObject> candidates = PhyDocuments.Host(this) is { } host
+            ? host.Objects.Where(GhPythonBridge.IsScriptComponent).ToList()
+            : new List<IGH_DocumentObject>();
+
+        if (candidates.Count == 0)
         {
-            RectangleF b = target.Attributes.Bounds;
-            yield return new PointF(b.Left + (b.Width / 2f), b.Bottom + 6f);
+            Menu_AppendItem(picker.DropDown, "No script components on the canvas", (_, _) => { }, false);
         }
-    }
-
-    /// <inheritdoc/>
-    void IHarnessArrow.HandleDrop(GH_Document doc, PointF dropPoint, bool ctrl)
-    {
-        foreach (IGH_DocumentObject obj in doc.Objects)
+        else
         {
-            if (obj.Attributes.Bounds.Contains(dropPoint) && GhPythonBridge.IsScriptComponent(obj))
+            foreach (IGH_DocumentObject candidate in candidates)
             {
-                if (ctrl)
-                {
-                    Unlink();
-                }
-                else
-                {
-                    LinkTo(obj.InstanceGuid);
-                }
-
-                ExpireSolution(true);
-                return;
+                Guid guid = candidate.InstanceGuid;
+                Menu_AppendItem(
+                    picker.DropDown,
+                    $"{candidate.NickName}  ({guid.ToString()[..8]})",
+                    (_, _) => SetLink(guid),
+                    enabled: true,
+                    @checked: guid == _linkedGuid);
             }
         }
+
+        Menu_AppendItem(menu, "Unlink Script Component", (_, _) => SetLink(Guid.Empty), _linkedGuid != Guid.Empty);
+    }
+
+    // Applies a link change from the menu: records undo so the pick can be reversed, then re-solves
+    // so the target and any Interface Lock watching it pick the change up.
+    private void SetLink(Guid guid)
+    {
+        RecordUndoEvent(guid == Guid.Empty ? "Unlink Script Component" : "Link Script Component");
+
+        if (guid == Guid.Empty)
+        {
+            Unlink();
+        }
+        else
+        {
+            LinkTo(guid);
+        }
+
+        ExpireSolution(true);
     }
 
     /// <inheritdoc/>
@@ -325,11 +348,13 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
 
         if (_linkedGuid == Guid.Empty)
         {
-            error = "No Python Script component linked. Drag from the bottom grip to connect.";
+            error = "No Python Script component linked. Drag from the bottom grip to connect, or use "
+                + "\"Link to Script Component\" on this node's right-click menu.";
             return null;
         }
 
-        IGH_DocumentObject? linked = OnPingDocument()?.FindObject(_linkedGuid, false);
+        // The script component lives on the user's canvas, not in the harness this transmitter runs in.
+        IGH_DocumentObject? linked = Harness.PhyDocuments.Host(this)?.FindObject(_linkedGuid, false);
         if (linked is null || !GhPythonBridge.IsScriptComponent(linked))
         {
             error = "Linked component not found or is not a Python Script component.";

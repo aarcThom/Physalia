@@ -61,11 +61,6 @@
 	let needsSetup = $state(false);
 	let status = $state('');
 	let configuredProviders = $state<string[]>([]);
-	// Harness collapse state for the viewed Chat: whether its component group is hidden,
-	// and how many components it holds (0 hides the show/hide-harness control).
-	let collapsed = $state(false);
-	let harnessCount = $state(0);
-
 	// Grounding state for the grounding panel: whether a component catalog is wired (enables the
 	// Composer's grounding button), the available tab → panels tree, and the current selection
 	// (null = include everything).
@@ -199,8 +194,6 @@
 				needsSetup = next.needsSetup ?? false;
 				status = next.status ?? '';
 				configuredProviders = next.configuredProviders ?? [];
-				collapsed = next.collapsed ?? false;
-				harnessCount = next.harnessCount ?? 0;
 				groundingWired = next.groundingWired ?? false;
 				groundingTree = next.groundingTree ?? [];
 				groundingSelection = next.groundingSelection ?? null;
@@ -324,12 +317,6 @@
 	// the open document.
 	function clearAllComponents() {
 		window.location.href = `${BRIDGE_SCHEME}://clearall`;
-	}
-
-	// Ask the host to collapse/expand the viewed Chat's harness group on the canvas. The next
-	// state tick reports the new `collapsed` flag, which updates the menu label.
-	function toggleHarness() {
-		window.location.href = `${BRIDGE_SCHEME}://togglecollapse`;
 	}
 
 	// Switch the window to view another Chat component (its conversation log history, or the default
@@ -557,12 +544,6 @@
 				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('manualdef')}>
 					Add new manual definition
 				</DropdownMenuItem>
-				{#if harnessCount > 0}
-					<DropdownMenuSeparator />
-					<DropdownMenuItem class="whitespace-nowrap" onSelect={toggleHarness}>
-						{collapsed ? `Show harness (${harnessCount})` : `Hide harness (${harnessCount})`}
-					</DropdownMenuItem>
-				{/if}
 			</DropdownMenuContent>
 		</DropdownMenu>
 

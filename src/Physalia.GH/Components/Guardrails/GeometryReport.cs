@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Physalia Contributors
+// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #nullable enable
@@ -14,6 +14,7 @@ using Physalia.Core.Signals;
 using Physalia.GH.Generation;
 using Rhino;
 using Rhino.Geometry;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Components;
 
@@ -145,7 +146,7 @@ public class GeometryReport : RoutingComponentBase<string>
     /// </remarks>
     protected override bool IsReadReady(string data)
     {
-        GH_Document? doc = OnPingDocument();
+        GH_Document? doc = PhyDocuments.Host(this);
         if (doc is null)
         {
             return true;
@@ -167,7 +168,7 @@ public class GeometryReport : RoutingComponentBase<string>
     /// <inheritdoc/>
     protected override RoutingResult ReadSolve(string data, IGH_DataAccess da)
     {
-        GH_Document? doc = OnPingDocument();
+        GH_Document? doc = PhyDocuments.Host(this);
         if (doc is null)
         {
             return RoutingResult.Fail(

@@ -17,6 +17,7 @@ using Physalia.Core.Signals;
 using Physalia.GH.Generation;
 using Rhino;
 using Rhino.Geometry;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Components;
 
@@ -144,7 +145,7 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
     /// </remarks>
     protected override bool IsReadReady(string data)
     {
-        GH_Document? doc = OnPingDocument();
+        GH_Document? doc = PhyDocuments.Host(this);
         if (doc is null)
         {
             return true;
@@ -176,7 +177,7 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
         var signatureNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool scopedScan = false;
 
-        GH_Document? doc = OnPingDocument();
+        GH_Document? doc = PhyDocuments.Host(this);
         if (doc is not null)
         {
             (IReadOnlyList<IGH_DocumentObject> scope, scopedScan) = ScanScope(doc);

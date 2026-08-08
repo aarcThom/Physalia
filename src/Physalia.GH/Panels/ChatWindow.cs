@@ -118,8 +118,6 @@ public class ChatWindow : Form
     private string? _lastConfigured;
     private string? _lastPresetSignature;
     private string? _lastChats;
-    private bool? _lastCollapsed;
-    private int? _lastHarnessCount;
     private string? _lastGroundingSignature;
     private int? _lastTokenCount;
 
@@ -338,9 +336,6 @@ public class ChatWindow : Form
                 break;
             case "selectchat":
                 HandleSelectChat(uri);
-                break;
-            case "togglecollapse":
-                _component.ToggleCollapse();
                 break;
             case "setgrounding":
                 HandleSetGrounding(uri);
@@ -1227,11 +1222,6 @@ public class ChatWindow : Form
         // Serialised form of the id list, used both as the change signature and the wire payload.
         string configuredJson = JsonSerializer.Serialize(configuredProviders, WriteOpts);
 
-        // Harness collapse state: whether the viewed Chat's group is collapsed and how many
-        // components it hides — drives the show/hide-harness button in the window.
-        bool collapsed = _component.Group.Collapsed;
-        int harnessCount = _component.Group.Count;
-
         // Grounding state for the window's grounding panel: whether a component catalog is wired
         // (greys the icon when not), the available tab → panels tree, and the EFFECTIVE selection —
         // never null-as-all, so the native-only default renders with plug-in tabs unchecked. The
@@ -1370,7 +1360,6 @@ public class ChatWindow : Form
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
-            || collapsed != _lastCollapsed || harnessCount != _lastHarnessCount
             || groundingSignature != _lastGroundingSignature)
         {
             _lastConnected = connected;
@@ -1379,11 +1368,9 @@ public class ChatWindow : Form
             _lastNeedsSetup = needsSetup;
             _lastStatus = status;
             _lastConfigured = configuredJson;
-            _lastCollapsed = collapsed;
-            _lastHarnessCount = harnessCount;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, collapsed, harnessCount, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 
@@ -1464,10 +1451,14 @@ public class ChatWindow : Form
     private List<Chat> EnumerateChats()
     {
         var result = new List<Chat>();
-        GH_Document? doc = _component.OnPingDocument() ?? Instances.ActiveCanvas?.Document;
-        if (doc is not null)
+
+        // The switcher row lists every Chat in the file, so it looks inside harnesses too — a Chat
+        // that has moved into one is still a chat the user can switch to, and after the move it is
+        // the ONLY place a Chat lives.
+        GH_Document? host = Harness.PhyDocuments.Host(_component) ?? Harness.PhyDocuments.ActiveHost();
+        if (host is not null)
         {
-            foreach (IGH_DocumentObject obj in doc.Objects)
+            foreach (IGH_DocumentObject obj in Harness.PhyDocuments.ObjectsIncludingHarnesses(host))
             {
                 if (obj is Chat cb)
                 {
@@ -1796,25 +1787,34 @@ public class ChatWindow : Form
     // editing the document and forcing a solve is safe (same as HandleConnectConversationLog).
     private void HandleClearAll()
     {
-        GH_Document? doc = _component.OnPingDocument() ?? Instances.ActiveCanvas?.Document;
-        if (doc is null)
+        // "All" spans the whole file, so the sweep descends into every harness — that is where the
+        // pipelines actually live — and each document that had something cleared is re-solved.
+        GH_Document? host = Harness.PhyDocuments.Host(_component) ?? Harness.PhyDocuments.ActiveHost();
+        if (host is null)
         {
             return;
         }
 
-        int cleared = 0;
-        foreach (IGH_DocumentObject obj in doc.Objects)
+        var touched = new HashSet<GH_Document>();
+        foreach (IGH_DocumentObject obj in Harness.PhyDocuments.ObjectsIncludingHarnesses(host))
         {
             if (obj is StatefulComponentBase stateful)
             {
                 stateful.ClearLifecycle();
-                cleared++;
+                if (stateful.OnPingDocument() is { } owner)
+                {
+                    touched.Add(owner);
+                }
             }
         }
 
-        if (cleared > 0)
+        if (touched.Count > 0)
         {
-            doc.NewSolution(true); // expire all + recompute so cleared wires/state propagate
+            foreach (GH_Document document in touched)
+            {
+                document.NewSolution(true); // expire all + recompute so cleared wires/state propagate
+            }
+
             Instances.ActiveCanvas?.Refresh();
         }
     }
@@ -1863,27 +1863,47 @@ public class ChatWindow : Form
                 return;
             }
 
-            // The preset's components become the Chat's harness group, so the whole workflow
-            // can be collapsed behind the single proxy node it was anchored to. A second Chat in
-            // the preset is a peer entry point, never a member, so it is excluded.
-            List<Guid> seed = result.PlacedGuids
-                .Where(g => doc.FindObject(g, false) is not Chat)
-                .ToList();
-            _component.Group.Add(seed);
-
             doc.NewSolution(false); // register the re-wired sources, then redraw
-            Instances.ActiveCanvas?.Refresh();
 
-            // A predefined workflow lands collapsed behind the Chat proxy (deferred to idle so
-            // the placement solution has settled and the members are laid out first).
-            if (_component.Group.Count > 0)
+            // A predefined workflow lands in its own harness, so it never clutters the user's
+            // canvas: the placed components plus the Chat they were anchored to move into a
+            // harness document, leaving a single proxy node behind. A second Chat in the preset is
+            // a peer entry point and travels with the rest.
+            var moving = result.PlacedGuids
+                .Select(g => doc.FindObject(g, false))
+                .Where(o => o is not null)
+                .Select(o => o!)
+                .ToList();
+
+            if (!moving.Contains(_component))
             {
-                _component.CollapseHarnessDeferred();
+                moving.Add(_component);
             }
+
+            MoveIntoHarness(moving);
+
+            Instances.ActiveCanvas?.Refresh();
         }
         catch (Exception ex)
         {
             Rhino.RhinoApp.WriteLine($"[Physalia] Preset placement failed: {ex.Message}");
+        }
+    }
+
+    // Moves a set of objects into a new harness and re-points this window at the Chat that ends up
+    // inside it. The move is an archive round-trip, so everything comes back as a NEW instance —
+    // including the Chat this window was bound to, whose original is deleted by the move.
+    private void MoveIntoHarness(IReadOnlyList<IGH_DocumentObject> moving)
+    {
+        if (_component.OnPingDocument() is not { } doc)
+        {
+            return;
+        }
+
+        Harness.HarnessComponent? harness = Harness.HarnessComponent.CreateFromSelection(doc, moving);
+        if (harness?.InnerDocument?.Objects.OfType<Chat>().FirstOrDefault() is { } relocated)
+        {
+            SetActiveComponent(relocated);
         }
     }
 

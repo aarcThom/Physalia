@@ -10,6 +10,7 @@ using System.Runtime.CompilerServices;
 using GhJSON.Core;
 using GhJSON.Core.SchemaModels;
 using Grasshopper.Kernel;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Generation;
 
@@ -195,7 +196,7 @@ internal static partial class GhJsonBridge
         IReadOnlyCollection<Guid> placedGuids,
         GH_Document? doc = null)
     {
-        doc ??= Grasshopper.Instances.ActiveCanvas?.Document;
+        doc = PhyDocuments.Host(doc) ?? PhyDocuments.ActiveHost();
         if (doc is null)
         {
             return new FidelityReport(

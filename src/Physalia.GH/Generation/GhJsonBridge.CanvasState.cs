@@ -13,6 +13,7 @@ using GhJSON.Core.Serialization;
 using GhJSON.Grasshopper;
 using Grasshopper.Kernel;
 using Physalia.GH.Components;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Generation;
 
@@ -89,7 +90,9 @@ internal static partial class GhJsonBridge
     /// <returns>The snapshot, or null when no document is available.</returns>
     internal static CanvasStateSnapshot? TryExportCanvasState(GH_Document? doc = null, bool groupScope = false)
     {
-        doc ??= Grasshopper.Instances.ActiveCanvas?.Document;
+        // Host-resolve whatever was handed in: a pipeline component inside a harness pings its own
+        // sub-document, and grounding the model on the pipeline itself would be nonsense.
+        doc = PhyDocuments.Host(doc) ?? PhyDocuments.ActiveHost();
         if (doc is null)
         {
             return null;

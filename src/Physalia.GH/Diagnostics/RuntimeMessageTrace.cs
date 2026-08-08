@@ -10,6 +10,7 @@ using Grasshopper;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Physalia.GH.Components;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Diagnostics;
 
@@ -38,10 +39,15 @@ internal static class RuntimeMessageTrace
     private static readonly List<MessageTraceEntry> Records = new();
     private static readonly Dictionary<string, long> OpenIds = new();
 
+    // Every document currently watched for solution end: the host document plus the inner document
+    // of each harness on it. A Physalia pipeline usually lives inside a harness, which solves on its
+    // own schedule and raises its own SolutionEnd, so watching the canvas document alone would miss
+    // the very components this trace exists to record.
+    private static readonly List<GH_Document> HookedDocuments = new();
+
     private static bool _enabled;
     private static long _nextId;
     private static int _version;
-    private static GH_Document? _hookedDocument;
     private static bool _canvasHooked;
 
     /// <summary>
@@ -80,11 +86,12 @@ internal static class RuntimeMessageTrace
             if (value)
             {
                 HookCanvas();
-                HookDocument(Instances.ActiveCanvas?.Document);
+                SyncHooks(Instances.ActiveCanvas?.Document);
+                ScanAll();
             }
             else
             {
-                HookDocument(null);
+                SyncHooks(null);
                 CloseAll(DateTime.UtcNow);
             }
         }
@@ -149,51 +156,89 @@ internal static class RuntimeMessageTrace
 
         canvas.DocumentChanged += OnDocumentChanged;
         _canvasHooked = true;
-        HookDocument(canvas.Document);
+        SyncHooks(canvas.Document);
+        ScanAll();
     }
 
     private static void OnDocumentChanged(GH_Canvas sender, GH_CanvasDocumentChangedEventArgs e)
     {
         if (_enabled)
         {
-            // The old document's messages are no longer on screen — close them honestly.
+            // The old document's messages are no longer on screen — close them honestly. Entering a
+            // harness does not change the watch set (the harness is already watched through its
+            // host), so the records simply re-open on the next scan.
             CloseAll(DateTime.UtcNow);
-            HookDocument(e.NewDocument);
+            SyncHooks(e.NewDocument);
+            ScanAll();
         }
     }
 
-    // Moves the SolutionEnd subscription to the given document (null = unhook only).
-    private static void HookDocument(GH_Document? document)
+    // Re-points the SolutionEnd subscriptions at the host document behind the given one and every
+    // harness document on it (null = unhook everything). Cheap and idempotent, so it can be re-run
+    // after each solution to pick up harnesses that were added, opened or deleted meanwhile.
+    private static void SyncHooks(GH_Document? canvasDocument)
     {
-        if (ReferenceEquals(_hookedDocument, document))
+        List<GH_Document> wanted = WatchSet(canvasDocument);
+
+        if (wanted.Count == HookedDocuments.Count && wanted.All(HookedDocuments.Contains))
         {
             return;
         }
 
-        if (_hookedDocument is not null)
+        foreach (GH_Document stale in HookedDocuments)
         {
-            _hookedDocument.SolutionEnd -= OnSolutionEnd;
+            stale.SolutionEnd -= OnSolutionEnd;
         }
 
-        _hookedDocument = document;
+        HookedDocuments.Clear();
 
-        if (document is not null)
+        foreach (GH_Document document in wanted)
         {
             document.SolutionEnd += OnSolutionEnd;
-            Scan(document);
+            HookedDocuments.Add(document);
         }
     }
 
-    private static void OnSolutionEnd(object sender, GH_SolutionEventArgs e) => Scan(e.Document);
+    // The host document behind whatever the canvas shows, plus the inner document of every harness
+    // sitting on it.
+    private static List<GH_Document> WatchSet(GH_Document? canvasDocument)
+    {
+        var watched = new List<GH_Document>();
+
+        if (PhyDocuments.Host(canvasDocument) is not { } host)
+        {
+            return watched;
+        }
+
+        watched.Add(host);
+        watched.AddRange(host.Objects
+            .OfType<HarnessComponent>()
+            .Select(h => h.InnerDocument)
+            .Where(d => d is not null)
+            .Select(d => d!));
+
+        return watched;
+    }
+
+    private static void OnSolutionEnd(object sender, GH_SolutionEventArgs e)
+    {
+        // A harness may have appeared or gone since the last solve; re-sync before diffing so its
+        // components are in (or out of) the scan.
+        SyncHooks(Instances.ActiveCanvas?.Document);
+        ScanAll();
+    }
 
     // Diffs the currently displayed errors/warnings on signal-lifecycle components against the
     // open records: new messages open a record, vanished messages close theirs.
-    private static void Scan(GH_Document document)
+    // Scans every watched document at once rather than only the one that just solved: the diff
+    // closes any record whose message is absent, so a partial view would spuriously close records
+    // belonging to the documents it left out.
+    private static void ScanAll()
     {
         DateTime now = DateTime.UtcNow;
         var present = new Dictionary<string, (StatefulComponentBase Component, GH_RuntimeMessageLevel Level, string Text)>();
 
-        foreach (IGH_DocumentObject obj in document.Objects)
+        foreach (IGH_DocumentObject obj in HookedDocuments.SelectMany(d => d.Objects))
         {
             if (obj is not StatefulComponentBase component)
             {

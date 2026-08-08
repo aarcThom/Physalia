@@ -12,8 +12,8 @@ using Grasshopper.Kernel;
 using Physalia.Core.ConvoInstruct;
 using Physalia.GH.Attributes;
 using Physalia.GH.Panels;
+using Physalia.GH.Harness;
 using Physalia.GH.Parameters;
-using HarnessGroup = Physalia.GH.Harness.Harness;
 
 namespace Physalia.GH.Components;
 
@@ -40,14 +40,6 @@ public class Chat : StatefulComponentBase
     // spawning another. Session-only — nothing here serializes.
     private static ChatWindow? _activeWindow;
 
-    // The collapsible group of pipeline components this Chat proxies. All group/collapse
-    // logic lives in HarnessGroup; the Chat just delegates.
-    private readonly HarnessGroup _group;
-
-    // Set after a Read so the collapsed state is re-applied to members once the whole
-    // document has finished loading (deferred to the next solve / idle pass).
-    private bool _pendingApply;
-
     // This Chat's assigned ocean emoji (its identity). Always non-empty — seeded randomly
     // in the constructor, deduped against canvas siblings on first placement, and persisted.
     private string _emoji;
@@ -62,7 +54,6 @@ public class Chat : StatefulComponentBase
     public Chat()
         : base("Chat", "Chat", "Standalone chat window driving the pipeline. Double-click to open the window; send a message to mint a Prompt Signal.", "Pipeline")
     {
-        _group = new HarnessGroup(this);
         _emoji = OceanEmoji[Random.Shared.Next(OceanEmoji.Length)];
     }
 
@@ -75,13 +66,6 @@ public class Chat : StatefulComponentBase
     /// </summary>
     public string Emoji => _emoji;
 
-    /// <summary>
-    /// Gets the collapsible harness group this Chat represents. The proxy renders a
-    /// distinct collapsed capsule while the group is collapsed; the chat window and canvas
-    /// menu drive it through here.
-    /// </summary>
-    public HarnessGroup Group => _group;
-
     /// <inheritdoc/>
     protected override string ClearMenuText => "Clear Signal";
 
@@ -89,14 +73,6 @@ public class Chat : StatefulComponentBase
     public override void CreateAttributes()
     {
         m_attributes = new ChatAttrib(this);
-
-        // Give the output its harness-aware param attributes so the proxy drops its grips while
-        // collapsed (no wires can be pulled), staying draggable. GH only auto-creates linked
-        // param attributes when none are set, so pre-assigning these wins.
-        foreach (IGH_Param output in Params.Output)
-        {
-            output.Attributes = new HarnessParamAttributes(output, m_attributes, _group);
-        }
     }
 
     /// <summary>
@@ -260,7 +236,7 @@ public class Chat : StatefulComponentBase
             return false;
         }
 
-        Rhino.Geometry.BoundingBox bounds = Generation.GeneratedGeometryScan.ComputeBounds(OnPingDocument());
+        Rhino.Geometry.BoundingBox bounds = Generation.GeneratedGeometryScan.ComputeBounds(PhyDocuments.Host(this));
         if (!bounds.IsValid)
         {
             return false;
@@ -316,14 +292,9 @@ public class Chat : StatefulComponentBase
     /// <param name="document">The document the component was removed from.</param>
     public override void RemovedFromDocument(GH_Document document)
     {
-        document.SolutionEnd -= OnDocumentSolutionEnd;
         _activeWindow?.OnComponentRemoved(this);
         base.RemovedFromDocument(document);
     }
-
-    // Re-asserts the collapse after every solution: a hidden wire-relay member recreates its own
-    // attributes on solve and so loses the hide swap — re-hiding here keeps it inert behind the proxy.
-    private void OnDocumentSolutionEnd(object sender, GH_SolutionEventArgs e) => _group.RefreshCollapsePoint();
 
     /// <summary>
     /// Reassigns this Chat's emoji to one not already used by another Chat on the canvas,
@@ -337,11 +308,6 @@ public class Chat : StatefulComponentBase
     public override void AddedToDocument(GH_Document document)
     {
         base.AddedToDocument(document);
-
-        // Re-assert the harness collapse after each solution so a hidden wire relay (which recreates
-        // its attributes on solve) does not leak back as a clickable object through the proxy.
-        document.SolutionEnd -= OnDocumentSolutionEnd;
-        document.SolutionEnd += OnDocumentSolutionEnd;
 
         // Now that this instance has a document, flip its icon from the ribbon brain to the
         // blank canvas slot (the emoji is painted over it live).
@@ -375,74 +341,55 @@ public class Chat : StatefulComponentBase
         base.AppendAdditionalMenuItems(menu);
         Menu_AppendSeparator(menu);
 
-        // A Chat is a harness only once it owns members. While it has none, only the entry
-        // items show; the collapse/expand and remove items appear once it is a harness.
-        bool hasMembers = _group.Count > 0;
+        // Moving into a harness only makes sense from the user's canvas: a harness cannot contain
+        // another, and there is nothing to move a pipeline out of when it is already inside one.
+        bool insideHarness = PhyDocuments.IsHarnessDocument(OnPingDocument());
 
-        // A Chat that is itself a member of another harness must not start or extend its own,
-        // so harnesses can never nest — the entry items are greyed out in that case.
-        bool isMember = IsMemberOfAnotherHarness();
+        Menu_AppendItem(
+            menu,
+            "Move Selected into a Harness",
+            (_, _) => MoveSelectionIntoHarness(),
+            enabled: !insideHarness);
+    }
 
-        if (hasMembers)
+    /// <summary>
+    /// Moves this Chat and the document's other selected objects into a new harness, leaving a
+    /// harness proxy in their place. This is the pipeline's route off the user's canvas and into
+    /// its own document.
+    /// </summary>
+    public void MoveSelectionIntoHarness()
+    {
+        GH_Document? doc = OnPingDocument();
+        if (doc is null || PhyDocuments.IsHarnessDocument(doc))
         {
-            Menu_AppendItem(menu, _group.Collapsed ? "Expand Harness" : "Collapse Harness", (_, _) => ToggleCollapse());
+            return;
         }
 
-        Menu_AppendItem(menu, "Collapse Selected into Harness", (_, _) => CollapseSelectedIntoHarness(), !isMember);
-        Menu_AppendItem(menu, "Add Selected to Harness", (_, _) => AddSelectedToHarness(), !isMember);
+        // The Chat anchors the pipeline, so it always travels even when the user selected only the
+        // components around it.
+        var moving = doc.SelectedObjects()
+            .Where(o => o is not HarnessComponent)
+            .ToList();
 
-        if (hasMembers)
+        if (!moving.Any(o => ReferenceEquals(o, this)))
         {
-            Menu_AppendItem(menu, "Remove Selected from Harness", (_, _) => RemoveSelectedFromHarness());
+            moving.Add(this);
+        }
+
+        HarnessComponent? harness = HarnessComponent.CreateFromSelection(doc, moving);
+
+        // The move is an archive round-trip, so this instance is deleted and a copy of it lands
+        // inside the harness. Any open window was bound to the original — re-point it at the copy,
+        // or it would be driving a Chat that is no longer on any document.
+        if (harness?.InnerDocument?.Objects.OfType<Chat>().FirstOrDefault() is { } relocated)
+        {
+            _activeWindow?.SetActiveComponent(relocated);
         }
     }
-
-    /// <summary>
-    /// Toggles the collapsed state of the harness group, hiding or restoring its members.
-    /// Driven by the canvas chevron/menu and the chat-window button.
-    /// </summary>
-    public void ToggleCollapse() => _group.Toggle();
-
-    /// <summary>
-    /// Collapses the harness on the next idle pass. Used right after a predefined workflow is
-    /// placed, so the workflow lands collapsed — deferred so the placement's solution has settled
-    /// and every member has been laid out (so native-member attribute swaps and the proxy pivot
-    /// are valid) before the group is hidden.
-    /// </summary>
-    public void CollapseHarnessDeferred()
-    {
-        Rhino.RhinoApp.Idle -= CollapseOnIdle; // never stack handlers
-        Rhino.RhinoApp.Idle += CollapseOnIdle;
-    }
-
-    /// <summary>
-    /// Adds the document's currently selected objects (other than this Chat) to the harness
-    /// group and collapses it — "collapse these into my Chat". The membership change is
-    /// recorded for undo/redo.
-    /// </summary>
-    public void CollapseSelectedIntoHarness()
-    {
-        IReadOnlyList<Guid> added = _group.Add(SelectedGuids());
-        RecordMembershipUndo(added, added: true);
-        _group.SetCollapsed(true);
-    }
-
-    /// <summary>
-    /// Adds the currently selected objects to the harness group without changing its collapsed
-    /// state — "add to harness". Recorded for undo/redo.
-    /// </summary>
-    public void AddSelectedToHarness() => RecordMembershipUndo(_group.Add(SelectedGuids()), added: true);
-
-    /// <summary>
-    /// Removes the currently selected objects from the harness group, restoring any that were
-    /// hidden. Recorded for undo/redo.
-    /// </summary>
-    public void RemoveSelectedFromHarness() => RecordMembershipUndo(_group.Remove(SelectedGuids()), added: false);
 
     /// <inheritdoc/>
     public override bool Write(GH_IWriter writer)
     {
-        _group.Write(writer);
         writer.SetString("ChatboxEmoji", _emoji);
         return base.Write(writer);
     }
@@ -450,9 +397,6 @@ public class Chat : StatefulComponentBase
     /// <inheritdoc/>
     public override bool Read(GH_IReader reader)
     {
-        _group.Read(reader);
-        _pendingApply = true;
-
         string stored = string.Empty;
         if (reader.TryGetString("ChatboxEmoji", ref stored) && !string.IsNullOrEmpty(stored))
         {
@@ -465,44 +409,6 @@ public class Chat : StatefulComponentBase
 
     /// <inheritdoc/>
     protected override string MessageForState(SolveState state) => string.Empty;
-
-    // Pushes a harness membership change onto Grasshopper's undo stack so it can be undone and
-    // redone. The action reverses the exact delta through Group.Add/Remove. No-op for an empty
-    // delta (e.g. nothing selected, or all already members).
-    private void RecordMembershipUndo(IReadOnlyList<Guid> changed, bool added)
-    {
-        if (changed.Count == 0)
-        {
-            return;
-        }
-
-        GH_Document? doc = OnPingDocument();
-        string name = added ? "Add to Harness" : "Remove from Harness";
-        doc?.UndoServer.PushUndoRecord(name, new Physalia.GH.Harness.HarnessMembershipUndoAction(InstanceGuid, changed, added));
-    }
-
-    // Whether this Chat is itself a member of another Chat's harness — in which case it may
-    // not start or extend its own (no nested harnesses).
-    private bool IsMemberOfAnotherHarness()
-    {
-        GH_Document? doc = OnPingDocument();
-        return doc is not null && HarnessGroup.IsMemberOfAnyHarness(doc, InstanceGuid, InstanceGuid);
-    }
-
-    // The selected document objects other than this Chat itself.
-    private IReadOnlyList<Guid> SelectedGuids()
-    {
-        GH_Document? doc = OnPingDocument();
-        if (doc is null)
-        {
-            return Array.Empty<Guid>();
-        }
-
-        return doc.SelectedObjects()
-            .Where(o => o.InstanceGuid != InstanceGuid)
-            .Select(o => o.InstanceGuid)
-            .ToList();
-    }
 
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
@@ -519,32 +425,6 @@ public class Chat : StatefulComponentBase
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        GH_Document? doc = OnPingDocument();
-        if (doc is not null)
-        {
-            _group.Prune(doc);
-
-            if (_pendingApply)
-            {
-                // Re-apply a loaded collapsed state once, deferred to idle so every member
-                // has been added to the document and laid out first.
-                _pendingApply = false;
-                Rhino.RhinoApp.Idle += ApplyGroupOnIdle;
-            }
-        }
-
         EmitSignal(DA, 0, SuccessSignal);
-    }
-
-    private void ApplyGroupOnIdle(object? sender, EventArgs e)
-    {
-        Rhino.RhinoApp.Idle -= ApplyGroupOnIdle;
-        _group.ApplyState();
-    }
-
-    private void CollapseOnIdle(object? sender, EventArgs e)
-    {
-        Rhino.RhinoApp.Idle -= CollapseOnIdle;
-        _group.SetCollapsed(true);
     }
 }

@@ -39,16 +39,7 @@ public class PickerAttrib : PhyComponentAttributes
     /// <inheritdoc/>
     protected override void Layout()
     {
-        // PhyComponentAttributes handles the collapse guard and the normal GH layout.
         base.Layout();
-
-        if (IsHarnessCollapsed)
-        {
-            _buttonBounds = RectangleF.Empty;
-            _backgroundBrush?.Dispose();
-            _backgroundBrush = null;
-            return;
-        }
 
         // Enforce a minimum width for the dropdown button.
         if (Bounds.Width < MinWidth)

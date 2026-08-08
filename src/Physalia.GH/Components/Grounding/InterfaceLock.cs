@@ -185,9 +185,11 @@ public class InterfaceLock : PhyBase
             return false;
         }
 
+        // The transmitter is a Physalia node and shares this document; its target script component
+        // is an ordinary component on the user's canvas, so it is resolved against the host.
         IGH_DocumentObject? script = transmitter.LinkedGuid == Guid.Empty
             ? null
-            : OnPingDocument()?.FindObject(transmitter.LinkedGuid, false);
+            : Harness.PhyDocuments.Host(this)?.FindObject(transmitter.LinkedGuid, false);
         if (script is null || !GhPythonBridge.IsScriptComponent(script))
         {
             problem = "The linked Py Transmitter has no target Python component — link the transmitter to a script component first.";

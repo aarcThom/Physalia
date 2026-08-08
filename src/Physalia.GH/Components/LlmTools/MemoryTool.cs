@@ -6,6 +6,7 @@ using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Memory;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Components;
 
@@ -68,13 +69,13 @@ public class MemoryTool : LlmToolComponentBase
     /// <remarks>Resolve the memory roots once per solve so each dispatched call reuses them.</remarks>
     protected override void OnSolveTick(IGH_DataAccess da)
     {
-        _roots = MemoryLocations.ResolveRoots(OnPingDocument());
+        _roots = MemoryLocations.ResolveRoots(PhyDocuments.Host(this));
     }
 
     /// <inheritdoc/>
     protected override ToolCallResult ExecuteCall(ToolCallContent call)
     {
-        MemoryRoots roots = _roots ?? MemoryLocations.ResolveRoots(OnPingDocument());
+        MemoryRoots roots = _roots ?? MemoryLocations.ResolveRoots(PhyDocuments.Host(this));
         MemoryOutcome outcome = MemoryStore.Execute(call.InputJson, roots);
         return outcome.IsError ? ToolCallResult.Error(outcome.Content) : ToolCallResult.Ok(outcome.Content);
     }

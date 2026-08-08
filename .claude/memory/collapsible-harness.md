@@ -1,38 +1,90 @@
 ---
 name: collapsible-harness
-description: "Collapse/expand a Chat's pipeline behind the single Chat proxy node (in-place visual collapse); new Harness class + folder"
-metadata: 
+description: "The harness is a REAL owned GH sub-document opened on a secondary canvas (rewritten 2026-08-08); the old in-place visual collapse is deleted"
+metadata:
   node_type: memory
   type: project
   originSessionId: 3d4edd5b-d992-413c-af74-15bf81d67005
-  modified: 2026-08-08T06:18:53.827Z
+  modified: 2026-08-08T07:20:14.036Z
 ---
 
-Collapsible harness feature (landed 2026-06-24, builds clean, **live-Rhino test pending**). A Chat can hide/show the pipeline components it owns, collapsing them behind the single Chat node (the Chat IS the proxy — distinct collapsed look: accent double-outline + member-count badge + a chevron toggle at top-right). Related: [[chat-widget]], [[chat-window]], [[preset-placement]], [[chatbox-switcher-row]].
+**Rewritten 2026-08-08.** A harness is now a real `GH_Document` owned by a proxy node; double-clicking
+the proxy takes the canvas into it, cluster-style. Builds clean; **live-Rhino test pending** (the spike
+below is the gate). Related: [[chat-widget]], [[chat-window]], [[preset-placement]], [[chatbox-switcher-row]].
 
-**Mechanism = in-place visual collapse** (NOT a sub-document cluster, NOT off-canvas teleport — both rejected; cluster route would force every side-effect component to climb `OnPingDocument().Owner` + re-validate the whole signal lifecycle in a sub-doc). Members stay in the main document and keep solving; only rendering changes. GH has no native per-component hide flag (`IGH_PreviewObject.Hidden` = geometry preview only), so it's simulated.
+**This inverts the earlier decision.** Until 2026-08-07 the harness was an *illusion*: members stayed in
+the main document and `CollapseGuard` / `CollapsedProxyAttributes` / `HarnessParamAttributes` shrank them
+to the proxy pivot and skipped `Render`. That leaked endlessly (relays regenerating attributes, live grips
+at the collapse point, stale saved pivots, members left behind on drag). All of it is **deleted**:
+`Harness.cs`, `CollapseGuard.cs`, `HarnessMembershipUndoAction.cs`, `IHarnessArrow.cs`,
+`CollapsedProxyAttributes.cs`, `HarnessParamAttributes.cs`, `PhyBase.HarnessCollapsed/HarnessCollapsePoint`,
+the per-attrib guards, the Chat's `Group` + harness menu, and the chat UI's `togglecollapse` verb +
+`collapsed`/`harnessCount` state. [[gh-collapsed-harness-grips]] is superseded.
 
-New folder `src/Physalia.GH/Harness/`:
-- `Harness.cs` (class `Harness`, namespace `Physalia.GH.Harness`) — owns member `HashSet<Guid>`, collapsed flag, swapped-attrs map; `Add/Remove/SetCollapsed/Toggle/ApplyState/Prune/RefreshCollapsePoint/Write/Read`. Persisted with the Chat. NOTE namespace==class name clash, so Chat aliases `using HarnessGroup = Physalia.GH.Harness.Harness;` and exposes it as `Chat.Group`.
-- `CollapseGuard.cs` — static; Physalia (`PhyBase`) members hide via a `HarnessCollapsed`+`HarnessCollapsePoint` flag on PhyBase; their attributes shrink the component + all param grips to a zero-size rect at the shared collapse point (the Chat pivot) and skip Render. All members share ONE point so internal wires become zero-length (vanish); only boundary wires to external nodes leave a short stub. Pivot is never mutated → expand restores for free.
-- `CollapsedProxyAttributes.cs` — `GH_Attributes<IGH_DocumentObject>` zero-render wrapper for **non-Physalia** members (native sliders/panels we can't flag): `Harness` stashes the original `Attributes`, swaps in the proxy, restores on expand. Same hide effect, node never moved/removed.
+**Why it works here and needs no cluster hooks.** `Chat` has zero inputs and one output, and a Physalia
+pipeline never exchanges *dataflow* with the user's canvas — it only *scans* it (grounders, guardrails) and
+*writes to it by side effect* (placement). So the whole pipeline, Chat included, moves inside and nothing
+crosses as a wire. A normal cluster would need `GH_ClusterInputHook`/`OutputHook`; this does not.
 
-`PhyBase.CreateAttributes()` now returns `PhyComponentAttributes` (new, in Attributes/) = collapse-aware `GH_ComponentAttributes` covering all stock-attr components. Bespoke attribs each got a `CollapseGuard.TryCollapseLayout`/`IsCollapsed` guard: `GripLinkAttrib` (covers Feedback + PyTransmitter + ZoomGuid subclasses), `FeedbackCollectorAttrib`, `PickerAttrib`. **PrompterAttrib deliberately NOT guarded** (Prompter is the mutually-exclusive alt to Chat, has a canvas TextBox overlay — won't be a Chat harness member).
+New files in `src/Physalia.GH/`:
+- `Harness/HarnessComponent.cs` — `HarnessComponent : PhyBase, IGH_DocumentOwner`, no params. Class name is
+  `HarnessComponent` (not `Harness`) because the namespace is `Physalia.GH.Harness`; GH display name is "Harness".
+  `OpenInCanvas` / `ReturnToHost` / `CreateFromSelection` / `EnsureInnerDocument` / `InnerDocument` / `Count`.
+- `Harness/PhyDocuments.cs` — the document resolver. `Host(doc)` / `Host(obj)` / `ActiveHost()` climb
+  `doc.Owner.OwnerDocument()`; `ObjectsIncludingHarnesses(doc)` walks a doc *plus* the harnesses in it;
+  `IsHarnessDocument(doc)`.
+- `Attributes/HarnessAttrib.cs` — proxy capsule (the old harness tint + pink glow moved here);
+  `RespondToMouseDoubleClick` → `OpenInCanvas`.
+- `Widgets/HarnessReturnWidget.cs` — the back pill, registered in `ChatWidget.cs`'s `AddWidgets`.
 
-Membership = managed group, three ways: auto-seeded from preset placement (`ChatWindow.HandlePlacePreset` → `Group.Add(PlaceResult.PlacedGuids)`), `CollapseSelectedIntoHarness`, `AddSelectedToHarness`/`RemoveSelectedFromHarness` (read `doc.SelectedObjects()`). Toggle in BOTH places: canvas chevron + Chat right-click menu (`AppendAdditionalMenuItems`), and chat-window menu item (`phbridge://togglecollapse` → `setState` now carries `collapsed`+`harnessCount`; App.svelte shows "Hide/Show harness (N)").
+**The local-vs-host split is the whole refactor.** `OnPingDocument()` inside a harness returns the
+*sub*-document. Local (unchanged): `ScheduleSolution`/`NewSolution`, `AddedToDocument`/`RemovedFromDocument`,
+Feedback→FeedbackCollector guid resolution, ToolsInUse's peer scan, `PromptPipelineView` wire walks — every
+endpoint of those moves inside together. Host (`PhyDocuments.Host(this)`): CanvasStateGrounder,
+ComponentTransmitter, GeometryReport, RuntimeHealthCheck, FidelityCheck, GeometryObservation,
+RhinoGeometryTool, MemoryTool, ConversationLog's canvas export, Chat's generated-geometry bounds. The 13
+`Instances.ActiveCanvas?.Document` sites in `GhJsonBridge*` became `PhyDocuments.ActiveHost()` — **those were
+the dangerous ones**: while you are editing *inside* a harness the active canvas document IS the pipeline, so
+placement and grounding would have targeted the pipeline itself. `GhJsonBridge`'s `??=` fallbacks now
+host-resolve whatever they are handed, so a missed caller still behaves.
 
-Undo/redo for add/remove: `Harness.Add`/`Remove` return the actual membership delta; Chat `RecordMembershipUndo` pushes a `HarnessMembershipUndoAction : GH_UndoAction` via `doc.UndoServer.PushUndoRecord(name, action)`. The action reverses the exact delta through `Group.Add`/`Remove` (which already handle hide/show), so undoing an add removes only what that add introduced. Collapse/expand toggle is NOT undoable (view state); `CollapseSelectedIntoHarness` records only its membership-add delta (partial undo of that combo is a known nuance).
+Decompiled-GH facts that shaped it (from `Grasshopper.dll` 8.x + `Grasshopper.xml`):
+- `GH_Canvas.Document` is a **settable** property and the ONLY in-memory way to show a document.
+  `GH_DocumentEditor` has no `SetDocument`/`LoadDocument`.
+- Its setter sets the **outgoing** doc `Enabled = false` — so `ReturnToHost` re-enables the inner doc, and
+  `SolveInstance` re-asserts it every solve. The pipeline must keep solving while off-canvas.
+- `GH_DocumentServer.RemoveDocument` **disposes** the document → never call it on the live inner doc. It is
+  registered once per session and left registered.
+- GH's `GH_Cluster.EditClusterAsSeparateDocument` edits a **duplicate** and merges back via
+  `DocumentModified`. Physalia can't: signals/conversation/solve state are session-only and non-persisted, so
+  a `Write`/`Read` round-trip would wipe the live chat. **We edit the live document.**
+- `GH_Document.Owner`'s setter does `m_renderQueue.Enabled = (value == null)` — an owned doc does not push
+  Rhino previews. Acceptable because generated geometry lives on the *host* canvas.
+- **There is no breadcrumb or back button in GH — not for clusters either.** Only a relabelled File entry
+  ("Save and Return"), and that path is destructive (RemoveDocument → Dispose). Hence the return widget.
+- Persistence: `writer.CreateChunk("HarnessDocument")` + `GH_Document.Write/Read`. This is the plug-in's only
+  nested-archive persistence; everything else writes flat keys + guid refs.
 
-Preset = collapsed (2026-06-24): predefined workflows land **collapsed**. `ChatWindow.HandlePlacePreset` calls `_component.CollapseHarnessDeferred()` after seeding (only when `Group.Count > 0`); that schedules a one-shot `RhinoApp.Idle` → `_group.SetCollapsed(true)`, deferred so the placement solution has settled and members are laid out (valid proxy pivot + native attribute swaps) before hiding.
+Entry points: Chat menu "Move Selected into a Harness" → `HarnessComponent.CreateFromSelection` (archive
+round-trip: `host.Write(chunk, moving)` → `inner.Read(chunk)` → remove originals → drop proxy at the
+selection centroid, one `GH_UndoRecord`). **The move replaces every instance**, so the Chat the window was
+bound to is deleted and a copy lands inside — both `Chat.MoveSelectionIntoHarness` and
+`ChatWindow.MoveIntoHarness` re-`SetActiveComponent` to the relocated Chat. Presets now land in a harness the
+same way. `ChatWidget.FindChat`, `ChatWindow.EnumerateChats` and `HandleClearAll` walk
+`ObjectsIncludingHarnesses`. `RuntimeMessageTrace` now hooks `SolutionEnd` on the host **and every harness
+inner doc** (it scans *for* pipeline components, so it follows them in) and re-syncs its watch set each solve.
 
-Bugfix (2026-06-24): a plain Chat added as a *member* of another harness stayed visible on collapse — `ChatAttrib` was the one bespoke attrib without the collapse guard (the Chat is normally the proxy, not a member). Added `CollapseGuard.TryCollapseLayout`/`IsCollapsed` at the top of `ChatAttrib.Layout`/`Render` (member-hide runs before the proxy-chrome logic, so the owner vs member roles stay independent).
+`PyTransmitter` gained a **"Link to Script Component" menu picker** listing the host canvas's script
+components: a grip drag cannot cross two canvases (`GripLinkAttrib.OnDrop` hit-tests the drawn document's
+objects). Its `ResolveTarget` and `InterfaceLock`'s script lookup now resolve against the host; the
+transmitter↔InterfaceLock link stays local (both are Physalia nodes inside the harness).
 
-Refinement (2026-06-24): a Chat is a harness **only when it owns members** (`Group.Count > 0`) — no new flag. An empty Chat renders as a plain node (`ChatAttrib` gates chevron + collapsed decoration on Count>0) and its menu shows only the two "…into/to Harness" entry items; collapse/expand + remove appear once it has members. No-nesting rules: `Harness.Add` → `CanContain` bars (a) a Chat that already owns a harness (Count>0) and (b) anything already a member of another Chat's harness (single-membership), via static `Harness.IsMemberOfAnyHarness(doc, guid, exceptOwner)` + `Harness.Contains`. Reverse guard: Chat `IsMemberOfAnotherHarness()` greys out the entry menu items when this Chat is itself a member of another harness (a plain-member can't become an owner). Presets never absorb a peer Chat — `ChatWindow.HandlePlacePreset` filters Chats out of `PlacedGuids` before `Group.Add`. Removing the last member auto-expands + clears collapsed (`ResetIfEmpty`). User chose "bar only harness-OWNING Chats" (plain Chat may be a member).
+**UNVERIFIED — the spike that gates everything:** does an owned, registered, `Enabled = true` document run its
+own `ScheduleSolution` timer while it is NOT the canvas document? The entire signal lifecycle is scheduler-
+driven. If it does not, the fallback is the cluster model and it is small: route
+`StatefulComponentBase.ScheduleAt` (the single funnel) to schedule on `PhyDocuments.Host(this)` and have
+`HarnessComponent.SolveInstance` forward with `_inner.NewSolution(false)`. Also unverified: Ctrl+S inside a
+harness hits GH's "Save and Return" → `RemoveDocument` → dispose; `DocumentClosed` captures the contents to a
+`GH_LooseChunk` and rehydrates, but **session state (conversation, latched signals) is lost on that path**.
 
-Members travel with the proxy (2026-08-07): collapsing then dragging the Chat used to leave the members behind — the collapse point moved, their real pivots never did, so expanding dropped the group back at its old canvas spot (and a save-while-collapsed recorded the stale position). `Harness` now translates each member's REAL placement by the proxy's movement delta, computed in `RefreshCollapsePoint`/`ApplyState` from the previous vs current collapse point (`TryGetDelta` → `TranslateMembers` → `Translate`). Three details that matter: (1) for a hidden **native** member the real placement is the *stashed* `CollapsedProxyAttributes.Original`, never the stand-in (whose pivot the next layout resets); (2) a hidden **PhyBase** member is skipped while `Selected` — it's in the same drag as the proxy, so GH already moved it (double-move guard); (3) `Translate` sets Pivot AND assigns bounds captured-plus-delta, so it lands the same whether or not GH's pivot setter carries the bounds (components rebuild from pivot, resizable attrs — panels/sliders — keep theirs). Delta-driven means undo needs no bookkeeping: undoing the drag moves the Chat back and the next layout carries the members back with it. Builds clean; **live-Rhino test pending**.
-
-GOTCHA fixed during build: `ChatAttrib.Layout` calls `Group.RefreshCollapsePoint()` to glue members under a dragged Chat — must be change-gated (only re-push when the pivot moved) and must NOT call `canvas.Refresh()`, or it loops the paint. `ApplyState` (user-triggered, not in a paint pass) does refresh the canvas. Collapsed state re-applied on load via `_pendingApply` flag in `Read` → deferred `RhinoApp.Idle` from `SolveInstance`.
-
-`GH_FontServer` was NOT resolvable in `Grasshopper.GUI` here (PrompterAttrib finds it via its other usings) — used a plain `Font` for the badge instead (renders in the zoomed Objects channel, scales fine).
-
-Plan file: `C:\Users\tgaudin\.claude-personal\plans\do-some-research-i-foamy-russell.md`.
+Plan file: `C:\Users\rober\.claude\plans\let-s-try-something-different-glimmering-sunbeam.md`.

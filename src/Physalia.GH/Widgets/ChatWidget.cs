@@ -45,6 +45,11 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
     private static void AddWidgets(object sender, GH_CanvasWidgetListEventArgs e)
     {
         e.AddWidget(new ChatWidget());
+
+        // The harness back button. It draws only while the canvas is inside a harness document, so
+        // it costs nothing on an ordinary canvas — but it must be registered up front like any
+        // other widget, since the list is built once per canvas.
+        e.AddWidget(new HarnessReturnWidget());
     }
 }
 
@@ -313,9 +318,13 @@ public sealed class ChatWidget : GH_Widget
         chat.OpenWindow();
     }
 
+    // Finds a Chat anywhere in the file, harnesses included — once a pipeline has moved into one,
+    // that is the only place a Chat exists, and the widget must still find it rather than dropping
+    // a second, unwired Chat onto the canvas.
     private static Chat? FindChat(GH_Document doc)
     {
-        foreach (IGH_DocumentObject obj in doc.Objects)
+        GH_Document? host = Physalia.GH.Harness.PhyDocuments.Host(doc);
+        foreach (IGH_DocumentObject obj in Physalia.GH.Harness.PhyDocuments.ObjectsIncludingHarnesses(host))
         {
             if (obj is Chat chat)
             {

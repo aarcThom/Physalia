@@ -6,6 +6,7 @@ using Grasshopper.Kernel;
 using Physalia.Core.Grounding;
 using Physalia.GH.Generation;
 using Physalia.GH.Goo;
+using Physalia.GH.Harness;
 using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
@@ -101,7 +102,7 @@ public class CanvasStateGrounder : PhyBase
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(OnPingDocument(), GroupScope);
+        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(PhyDocuments.Host(this), GroupScope);
         _lastChecksum = snapshot?.Checksum ?? string.Empty;
         _lastScanUtc = DateTime.UtcNow;
 
@@ -109,7 +110,7 @@ public class CanvasStateGrounder : PhyBase
             snapshot?.Json ?? string.Empty,
             snapshot?.Checksum ?? string.Empty,
             snapshot?.ComponentCount ?? 0,
-            GhJsonBridge.CountModelPlaced(OnPingDocument()))
+            GhJsonBridge.CountModelPlaced(PhyDocuments.Host(this)))
         {
             GroupScoped = GroupScope,
         };
@@ -154,7 +155,7 @@ public class CanvasStateGrounder : PhyBase
     {
         _lastScanUtc = DateTime.UtcNow;
 
-        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(OnPingDocument(), GroupScope);
+        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(PhyDocuments.Host(this), GroupScope);
         if ((snapshot?.Checksum ?? string.Empty) != _lastChecksum)
         {
             OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(false));

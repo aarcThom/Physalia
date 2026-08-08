@@ -48,16 +48,7 @@ public abstract class BottomGripAttributes : PhyComponentAttributes
     /// <inheritdoc/>
     protected override void Layout()
     {
-        // PhyComponentAttributes handles the collapse guard and the normal GH layout.
         base.Layout();
-
-        if (IsHarnessCollapsed)
-        {
-            // Collapsed: no grip area, so the drag handle is unreachable too.
-            _visualBounds = Bounds;
-            _gripBounds = Bounds;
-            return;
-        }
 
         _visualBounds = Bounds;
         _gripBounds = new RectangleF(Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height + GripExpansion);
@@ -67,11 +58,6 @@ public abstract class BottomGripAttributes : PhyComponentAttributes
     /// <inheritdoc/>
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
     {
-        if (IsHarnessCollapsed)
-        {
-            return;
-        }
-
         // The component and grip draw against the un-expanded bounds; restore the pick region after.
         RectangleF outer = Bounds;
         Bounds = _visualBounds;

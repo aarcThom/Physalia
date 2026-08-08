@@ -7,6 +7,7 @@ using System.Drawing;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using Grasshopper.Kernel;
+using Physalia.GH.Harness;
 using GHGroupObject = Grasshopper.Kernel.Special.GH_Group;
 
 namespace Physalia.GH.Generation;
@@ -114,7 +115,7 @@ internal static partial class GhJsonBridge
     /// <returns>The snapshot of the matching frame, or null when no document is available.</returns>
     internal static CanvasStateSnapshot? ResolveBaseSnapshot(GH_Document? doc, string? carriedChecksum)
     {
-        doc ??= Grasshopper.Instances.ActiveCanvas?.Document;
+        doc = PhyDocuments.Host(doc) ?? PhyDocuments.ActiveHost();
         if (doc is null)
         {
             return null;

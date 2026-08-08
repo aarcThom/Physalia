@@ -54,10 +54,6 @@ export interface UiState {
 	status: string;
 	/** Setup-screen ids of every provider already configured (matches providers.ts ids). */
 	configuredProviders: string[];
-	/** True when the viewed Chat's harness group is collapsed (its components hidden). */
-	collapsed: boolean;
-	/** How many components are in the viewed Chat's harness group (0 = nothing to collapse). */
-	harnessCount: number;
 	/** True when a component-catalog grounding is wired into the Conversation Log (greys the grounding icon when false). */
 	groundingWired: boolean;
 	/** The available component tabs and their panels, for the grounding selector. */

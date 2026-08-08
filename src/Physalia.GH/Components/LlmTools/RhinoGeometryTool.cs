@@ -13,6 +13,7 @@ using Grasshopper.Kernel.Types;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Common;
 using Physalia.GH.Generation;
+using Physalia.GH.Harness;
 using Rhino;
 using Rhino.DocObjects;
 using Rhino.Geometry;
@@ -163,7 +164,7 @@ public class RhinoGeometryTool : LlmToolComponentBase
         }
 
         RhinoDoc? rhinoDoc = RhinoDoc.ActiveDoc;
-        GH_Document? ghDoc = OnPingDocument();
+        GH_Document? ghDoc = PhyDocuments.Host(this);
         if (rhinoDoc is null || ghDoc is null)
         {
             return;
@@ -232,7 +233,7 @@ public class RhinoGeometryTool : LlmToolComponentBase
         string baseName = string.IsNullOrWhiteSpace(requested) ? kind : requested.Trim();
 
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (ReferencedRhinoGeometry input in CanvasRhinoReferences.Collect(OnPingDocument()))
+        foreach (ReferencedRhinoGeometry input in CanvasRhinoReferences.Collect(PhyDocuments.Host(this)))
         {
             taken.Add(input.Name);
         }

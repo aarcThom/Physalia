@@ -5,7 +5,13 @@ metadata:
   node_type: memory
   type: reference
   originSessionId: 810a75de-1e1b-41a1-87ef-d15080b000b0
+  modified: 2026-08-08T07:20:31.757Z
 ---
+
+**SUPERSEDED 2026-08-08** — the in-place collapse this describes is deleted; a harness is now a real
+owned sub-document, so there are no hidden members and no grips to gate (`HarnessParamAttributes` and
+`CollapsedProxyAttributes` no longer exist). See [[collapsible-harness]]. The **GH internals below are
+still accurate** and worth keeping: how wire drags resolve, and why grip flags live on param attributes.
 
 To stop wires being pulled out of a collapsed Physalia harness (the proxy Chat + its hidden members piled at the proxy pivot), you must gate the **parameter attributes'** `HasInputGrip`/`HasOutputGrip`, not the component's.
 

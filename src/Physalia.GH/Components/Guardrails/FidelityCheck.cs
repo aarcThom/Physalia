@@ -9,6 +9,7 @@ using Grasshopper.Kernel;
 using Physalia.Core.Signals;
 using Physalia.Core.Validation;
 using Physalia.GH.Generation;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Components;
 
@@ -111,7 +112,7 @@ public class FidelityCheck : RoutingComponentBase<string>
             bool unwired = Params.Input[DefinitionInputIndex].SourceCount == 0;
             string wiringProblem = unwired ? "Definition input is unwired" : "Definition input is blank";
 
-            definition = GhJsonBridge.TryGetAuthoredDefinition(OnPingDocument(), placed) ?? string.Empty;
+            definition = GhJsonBridge.TryGetAuthoredDefinition(PhyDocuments.Host(this), placed) ?? string.Empty;
             if (string.IsNullOrWhiteSpace(definition))
             {
                 // No recorded definition for this turn either. A wiring problem is the USER's
@@ -140,17 +141,17 @@ public class FidelityCheck : RoutingComponentBase<string>
                 level: GH_RuntimeMessageLevel.Remark);
         }
 
-        GhJsonBridge.FidelityReport report = GhJsonBridge.VerifyPlacementFidelity(definition, placed, OnPingDocument());
+        GhJsonBridge.FidelityReport report = GhJsonBridge.VerifyPlacementFidelity(definition, placed, PhyDocuments.Host(this));
 
         if (report.Misconfiguration is not null && fallbackNote is null
-            && GhJsonBridge.TryGetAuthoredDefinition(OnPingDocument(), placed) is { } recorded)
+            && GhJsonBridge.TryGetAuthoredDefinition(PhyDocuments.Host(this), placed) is { } recorded)
         {
             // The wired Definition reads something that is not GhJSON (the classic mis-wire: a
             // markdown output). The placement's own record covers this turn — verify against it
             // and keep the mis-wire visible as a warning instead of skipping the check.
             fallbackNote = report.Misconfiguration
                 + " Verified against the definition recorded at placement instead.";
-            report = GhJsonBridge.VerifyPlacementFidelity(recorded, placed, OnPingDocument());
+            report = GhJsonBridge.VerifyPlacementFidelity(recorded, placed, PhyDocuments.Host(this));
         }
 
         if (report.Misconfiguration is not null)

@@ -1,20 +1,19 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-using System.Drawing;
-using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Attributes;
-using Physalia.GH.Harness;
 
 namespace Physalia.GH.Attributes;
 
 /// <summary>
 /// Default attributes for Physalia components that have no custom drawing of their own.
-/// Behaves exactly like <see cref="GH_ComponentAttributes"/> except it honours the harness
-/// collapse state: when the owning component is a collapsed harness member it shrinks to a
-/// point at the proxy Chat and draws nothing (see <see cref="CollapseGuard"/>). Components
-/// with bespoke attributes call the same guard from their own <c>Layout</c>/<c>Render</c>.
+///
+/// <para>Behaves exactly like <see cref="GH_ComponentAttributes"/>. It exists as the single seam
+/// every Physalia component's attributes descend from, so shared canvas behaviour has one place to
+/// live. It used to carry the harness collapse guard, back when a harness was simulated by shrinking
+/// its members to a point and skipping their render; harnesses are now real sub-documents, so there
+/// is nothing to hide and no guard to apply.</para>
 /// </summary>
 public class PhyComponentAttributes : GH_ComponentAttributes
 {
@@ -25,35 +24,5 @@ public class PhyComponentAttributes : GH_ComponentAttributes
     public PhyComponentAttributes(IGH_Component component)
         : base(component)
     {
-    }
-
-    /// <summary>
-    /// Gets a value indicating whether the owning component is currently a collapsed harness
-    /// member — in which case its layout shrinks to the proxy and its render draws nothing. This
-    /// is the single place subclasses consult the harness collapse state, so they need not
-    /// reference <see cref="CollapseGuard"/> directly.
-    /// </summary>
-    protected bool IsHarnessCollapsed => CollapseGuard.IsCollapsed(this);
-
-    /// <inheritdoc/>
-    protected override void Layout()
-    {
-        if (CollapseGuard.TryCollapseLayout(this))
-        {
-            return;
-        }
-
-        base.Layout();
-    }
-
-    /// <inheritdoc/>
-    protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
-    {
-        if (CollapseGuard.IsCollapsed(this))
-        {
-            return;
-        }
-
-        base.Render(canvas, graphics, channel);
     }
 }

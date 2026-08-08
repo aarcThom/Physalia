@@ -33,7 +33,7 @@ namespace Physalia.GH.Components;
 /// and a Runtime Health Check scopes its runtime-health scan (errors, warnings, dead components)
 /// to exactly those GUIDs.
 /// </summary>
-public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
+public class ComponentTransmitter : RoutingComponentBase<string>
 {
     private const float PlacementGap = 50f;
 
@@ -98,25 +98,6 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
     public void ResetPlacementTarget()
     {
         _placementOffset = null;
-    }
-
-    // IHarnessArrow — lets a collapsed Chat proxy delegate its bottom arrow to this transmitter.
-    // The wire lands on the stored placement point; a drop simply stores the new point.
-
-    /// <inheritdoc/>
-    IEnumerable<PointF> IHarnessArrow.GetArrowEndpoints(GH_Document doc)
-    {
-        if (PlacementTarget is { } target)
-        {
-            yield return target;
-        }
-    }
-
-    /// <inheritdoc/>
-    void IHarnessArrow.HandleDrop(GH_Document doc, PointF dropPoint, bool ctrl)
-    {
-        SetPlacementTarget(dropPoint);
-        ExpireSolution(true);
     }
 
     /// <inheritdoc/>
@@ -366,7 +347,8 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
     /// </summary>
     private void RemovePreviouslyPlaced()
     {
-        GH_Document? doc = OnPingDocument();
+        // Placed objects live on the user's canvas, not in the harness this transmitter runs in.
+        GH_Document? doc = PhyDocuments.Host(this);
         if (doc is not null)
         {
             foreach (Guid g in _placedGuids)

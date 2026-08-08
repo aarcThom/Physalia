@@ -21,24 +21,7 @@ public abstract class PhyBase : GH_Component
     }
 
     /// <summary>
-    /// Gets or sets a value indicating whether this component is currently hidden as a
-    /// collapsed member of a harness. When true its attributes shrink the node and its wires
-    /// to a point at <see cref="HarnessCollapsePoint"/> and draw nothing, while the component
-    /// stays wired and keeps solving. Managed by <see cref="Harness.Harness"/>; session-only
-    /// — the owning Chat persists the group and collapse state, not the member.
-    /// </summary>
-    public bool HarnessCollapsed { get; set; }
-
-    /// <summary>
-    /// Gets or sets the shared point all collapsed members shrink to — the proxy Chat's
-    /// pivot. Every member of one harness uses the same point so the wires between them become
-    /// zero-length and vanish.
-    /// </summary>
-    public PointF HarnessCollapsePoint { get; set; }
-
-    /// <summary>
-    /// Provides the default Physalia attributes, which honour the harness collapse state.
-    /// Components with bespoke drawing override this and call the collapse guard themselves.
+    /// Provides the default Physalia attributes. Components with bespoke drawing override this.
     /// </summary>
     public override void CreateAttributes()
     {

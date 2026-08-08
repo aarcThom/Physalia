@@ -11,6 +11,7 @@ using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Signals;
 using Rhino.Geometry;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Components;
 
@@ -174,7 +175,7 @@ public class GeometryObservation : RoutingComponentBase<string>
     /// <returns>The combined bounding box, or an invalid box when nothing previewable was found.</returns>
     private BoundingBox ComputeScopeBounds(string scope)
     {
-        GH_Document? doc = OnPingDocument();
+        GH_Document? doc = PhyDocuments.Host(this);
         if (doc is null)
         {
             return BoundingBox.Empty;

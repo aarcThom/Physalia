@@ -18,6 +18,7 @@ using GhJSON.Grasshopper.PutOperations;
 using Grasshopper.Kernel;
 using Newtonsoft.Json.Linq;
 using Physalia.GH.Components;
+using Physalia.GH.Harness;
 using GHGroupObject = Grasshopper.Kernel.Special.GH_Group;
 using GHNumberSlider = Grasshopper.Kernel.Special.GH_NumberSlider;
 using GHPanel = Grasshopper.Kernel.Special.GH_Panel;
@@ -68,7 +69,7 @@ internal static partial class GhJsonBridge
     /// <returns>A <see cref="CanvasPatchOutcome"/> describing the outcome.</returns>
     internal static CanvasPatchOutcome ApplyPatchToCanvas(string patchJson, PointF fallbackOrigin, bool verifyBase)
     {
-        GH_Document? doc = Grasshopper.Instances.ActiveCanvas?.Document;
+        GH_Document? doc = PhyDocuments.ActiveHost();
         if (doc is null)
         {
             return PatchFailure("No active Grasshopper document to apply the patch to.");

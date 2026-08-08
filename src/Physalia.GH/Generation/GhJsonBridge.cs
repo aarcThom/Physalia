@@ -18,6 +18,7 @@ using Physalia.Core.Grounding;
 using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
 using Physalia.GH.Components;
+using Physalia.GH.Harness;
 using GHClusterObject = Grasshopper.Kernel.Special.GH_Cluster;
 
 namespace Physalia.GH.Generation;
@@ -142,7 +143,7 @@ internal static partial class GhJsonBridge
     /// <param name="doc">The freshly captured document to annotate in place.</param>
     private static void InjectFeedbackLinks(GhJsonDocument doc)
     {
-        GH_Document? live = Grasshopper.Instances.ActiveCanvas?.Document;
+        GH_Document? live = PhyDocuments.ActiveHost();
         if (live is null)
         {
             return;
@@ -196,7 +197,7 @@ internal static partial class GhJsonBridge
     /// <param name="doc">The freshly captured document to annotate in place.</param>
     private static void InjectPickerValues(GhJsonDocument doc)
     {
-        GH_Document? live = Grasshopper.Instances.ActiveCanvas?.Document;
+        GH_Document? live = PhyDocuments.ActiveHost();
         if (live is null)
         {
             return;
@@ -226,7 +227,7 @@ internal static partial class GhJsonBridge
     /// <param name="doc">The freshly captured document to annotate in place.</param>
     private static void InjectGroundingSelection(GhJsonDocument doc)
     {
-        GH_Document? live = Grasshopper.Instances.ActiveCanvas?.Document;
+        GH_Document? live = PhyDocuments.ActiveHost();
         if (live is null)
         {
             return;
@@ -444,17 +445,17 @@ internal static partial class GhJsonBridge
         // whose Definition input is unwired or miswired can still verify this turn.
         if (placed.Success)
         {
-            RecordAuthoredDefinition(Grasshopper.Instances.ActiveCanvas?.Document, json, placed.PlacedGuids);
+            RecordAuthoredDefinition(PhyDocuments.ActiveHost(), json, placed.PlacedGuids);
 
             // Now that the objects are live, their REAL sizes are knowable — which the model authoring
             // pivots never was. Nudge out whatever overlaps its authored spacing could not have
             // predicted (a nicknamed slider rendering 200+ wide into a 150-unit stage gap, a tall
             // documentation Panel pushing its group box into the area above).
-            SeparatePlacedOverlaps(Grasshopper.Instances.ActiveCanvas?.Document);
+            SeparatePlacedOverlaps(PhyDocuments.ActiveHost());
 
             // Everything the model placed lands in the master "Physalia" group — the shared
             // workspace the group-scoped grounding exports and the user can add their own work to.
-            EnrollPlaced(Grasshopper.Instances.ActiveCanvas?.Document, placed.PlacedGuids);
+            EnrollPlaced(PhyDocuments.ActiveHost(), placed.PlacedGuids);
         }
 
         return placed;
@@ -757,7 +758,7 @@ internal static partial class GhJsonBridge
         var referenceIssues = new List<string>();
         ReferencePlan? referencePlan = ExtractReferences(
             ref doc,
-            CanvasRhinoReferences.Collect(Grasshopper.Instances.ActiveCanvas?.Document),
+            CanvasRhinoReferences.Collect(PhyDocuments.ActiveHost()),
             referenceIssues);
 
         if (doc.Components is null || doc.Components.Count == 0)
@@ -968,7 +969,7 @@ internal static partial class GhJsonBridge
             return;
         }
 
-        GH_Document? doc = Grasshopper.Instances.ActiveCanvas?.Document;
+        GH_Document? doc = PhyDocuments.ActiveHost();
         if (doc is null)
         {
             return;
@@ -1243,7 +1244,7 @@ internal static partial class GhJsonBridge
 
             // Place clusters lifted out before Put and rewire their connections to the placed graph.
             GH_Document? hostDoc = result.PlacedObjects.FirstOrDefault()?.OnPingDocument()
-                ?? Grasshopper.Instances.ActiveCanvas?.Document;
+                ?? PhyDocuments.ActiveHost();
 
             // Claim the file's ids for the placed objects in the stable-id registry, so the next
             // canvas export keeps the numbering the model authored (ids already taken by earlier
@@ -1675,7 +1676,7 @@ internal static partial class GhJsonBridge
     // Placement path for a graph that is clusters only (the GhJSON library Put had nothing to do).
     private static PlaceResult PlaceClustersOnly(ClusterPlan plan)
     {
-        GH_Document? host = Grasshopper.Instances.ActiveCanvas?.Document;
+        GH_Document? host = PhyDocuments.ActiveHost();
         if (host is null)
         {
             return new PlaceResult(false, 0, 0, 0, "No active Grasshopper document to place clusters into.", Array.Empty<Guid>(), Array.Empty<string>(), Array.Empty<string>());

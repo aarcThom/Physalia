@@ -1,8 +1,10 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using System;
 using System.Collections.Generic;
 using Grasshopper;
+using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 
 namespace Physalia.GH.Harness;
@@ -79,6 +81,48 @@ internal static class PhyDocuments
     /// </summary>
     /// <returns>The root document behind the active canvas, or null when there is none.</returns>
     internal static GH_Document? ActiveHost() => Host(Instances.ActiveCanvas?.Document);
+
+    /// <summary>
+    /// Runs an action with the canvas pointed at the host document, restoring the previous view
+    /// afterwards.
+    ///
+    /// <para>The GhJSON library resolves its target from <c>Instances.ActiveCanvas.Document</c>
+    /// internally (<c>CanvasReader.GetActiveDocument</c>) and takes no document parameter — its
+    /// placer is <c>internal</c>, so there is no seam to pass one through. If the user happens to
+    /// be inside a harness when the model places a graph, every component lands in the pipeline's
+    /// own document instead of on their canvas. Wrapping the library's write calls in this keeps
+    /// placement on the host no matter what the user is looking at.</para>
+    ///
+    /// <para>Costs nothing in the normal case: when the canvas is already showing the host, the
+    /// action is invoked directly. Grasshopper stores each document's viewport target and zoom on
+    /// the way out and restores them on the way back in, so the user's position inside the harness
+    /// survives the round trip. Only for writes — reads resolve their objects from the host
+    /// document directly rather than swapping the canvas, which would thrash on every solve.</para>
+    /// </summary>
+    /// <typeparam name="T">The action's result type.</typeparam>
+    /// <param name="action">The work to run against the host document.</param>
+    /// <returns>Whatever the action returned.</returns>
+    internal static T OnHostCanvas<T>(Func<T> action)
+    {
+        GH_Canvas? canvas = Instances.ActiveCanvas;
+        GH_Document? shown = canvas?.Document;
+        GH_Document? host = Host(shown);
+
+        if (canvas is null || shown is null || host is null || ReferenceEquals(shown, host))
+        {
+            return action();
+        }
+
+        canvas.Document = host;
+        try
+        {
+            return action();
+        }
+        finally
+        {
+            canvas.Document = shown;
+        }
+    }
 
     /// <summary>
     /// Gets a value indicating whether a document is a harness sub-document rather than a

@@ -1515,17 +1515,15 @@ public class ChatWindow : Form
             return;
         }
 
-        GH_Document? doc = Instances.ActiveCanvas?.Document;
+        // Harnesses included: after a pipeline moves into one, that is the only place a Chat lives,
+        // and without looking inside this would find no replacement and close the window.
         Chat? next = null;
-        if (doc is not null)
+        foreach (IGH_DocumentObject obj in Harness.PhyDocuments.ObjectsIncludingHarnesses(Harness.PhyDocuments.ActiveHost()))
         {
-            foreach (IGH_DocumentObject obj in doc.Objects)
+            if (obj is Chat cb && !ReferenceEquals(cb, removed))
             {
-                if (obj is Chat cb && !ReferenceEquals(cb, removed))
-                {
-                    next = cb;
-                    break;
-                }
+                next = cb;
+                break;
             }
         }
 

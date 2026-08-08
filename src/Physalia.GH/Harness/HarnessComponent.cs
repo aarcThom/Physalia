@@ -146,16 +146,21 @@ public sealed class HarnessComponent : PhyBase
         // One undo record for the whole move, so a single Ctrl+Z restores the originals AND takes
         // the harness away. Two records would let the user undo half of it and end up with both.
         var undo = new GH_UndoRecord("Move into Harness");
+
+        // The harness goes on FIRST. Removing the originals fires RemovedFromDocument, and a Chat
+        // among them tells the chat window it is gone — which closes the window unless a
+        // replacement Chat is already reachable. Adding the harness up front means the relocated
+        // copy inside it is discoverable at that moment.
+        host.AddObject(harness, false);
+        harness.Attributes.Pivot = anchor;
+        undo.AddAction(new GH_AddObjectAction(harness));
+
         foreach (IGH_DocumentObject obj in moving)
         {
             undo.AddAction(new GH_RemoveObjectAction(obj));
         }
 
         host.RemoveObjects(moving, false);
-        host.AddObject(harness, false);
-        harness.Attributes.Pivot = anchor;
-
-        undo.AddAction(new GH_AddObjectAction(harness));
         host.UndoServer.PushUndoRecord(undo);
 
         harness.ExpireSolution(true);

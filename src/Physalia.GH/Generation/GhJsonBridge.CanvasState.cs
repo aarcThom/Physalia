@@ -112,7 +112,10 @@ internal static partial class GhJsonBridge
             return new CanvasStateSnapshot(new GhJsonDocument(), string.Empty, string.Empty, 0, groupScope);
         }
 
-        GhJsonDocument export = GhJsonGrasshopper.GetByGuids(guids);
+        // Resolved against `doc` (already host-resolved above), not the active canvas: while the
+        // user is inside a harness the canvas shows the pipeline, and the library's GetByGuids
+        // would find none of these guids and hand the model an empty canvas.
+        GhJsonDocument export = SerializeByGuids(doc, guids);
 
         // Remap the library's insertion-order numbering onto the session-stable ids, so the ids the
         // model saw (or authored) on earlier turns keep meaning the same components.

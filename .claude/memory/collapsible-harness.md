@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 3d4edd5b-d992-413c-af74-15bf81d67005
-  modified: 2026-08-08T07:53:19.529Z
+  modified: 2026-08-08T08:46:51.283Z
 ---
 
 **Rewritten 2026-08-08.** A harness is now a real `GH_Document` owned by a proxy node; double-clicking
@@ -80,6 +80,26 @@ implementer (`TryGetSoleArrow`). This is required, not cosmetic: the arrow's tar
 component, a placement point) live on the host canvas and a drag cannot cross two canvases.
 `ComponentTransmitter`'s placement offset is now measured from the **proxy's** pivot
 (`ArrowAnchor`), not its own — the transmitter is in a different coordinate space from the drop point.
+
+**The GhJSON library ignores our host resolution — it resolves the target document ITSELF.**
+`CanvasReader.GetActiveDocument()` is literally `Instances.ActiveCanvas.Document`; `PutOptions` has
+no document field, `CanvasPlacer` is `internal`, and there is no `Put` overload taking one. So with
+the user inside a harness, the model's components landed in the pipeline document (bug found
+2026-08-08). The library is reference-only, so the fix is at our call sites — 7 of them:
+- **Writes** (`Put` ×3, `Delete` ×1) are wrapped in `PhyDocuments.OnHostCanvas(...)`, which points
+  the canvas at the host for the duration and restores it in a `finally`. GH's canvas setter saves
+  and restores each document's viewport target/zoom, so the user's position inside the harness
+  survives. No-ops when the canvas is already on the host.
+- **Reads** must NOT swap — `GetByGuids` runs on every canvas-state export, and swapping the canvas
+  per solve would thrash. Replaced with `GhJsonBridge.SerializeByGuids(doc, guids)`, which resolves
+  the objects from an explicit document and calls the public `GhJsonGrasshopper.Serialize(objects,
+  options)`. Keep document order (it feeds id assignment) and set `IncludeSelectedState = false` —
+  the one default where `SerializationOptions` (true) disagrees with `GetOptions` (false).
+
+Related ordering bug fixed at the same time: `CreateFromSelection` removed the originals before
+adding the harness, so `RemovedFromDocument` on the Chat told the window it was gone, no replacement
+Chat was reachable yet, and the window **closed**. The harness is now added first, and
+`ChatWindow.OnComponentRemoved` searches `ObjectsIncludingHarnesses`.
 
 Decompiled-GH facts that shaped it (from `Grasshopper.dll` 8.x + `Grasshopper.xml`):
 - `GH_Canvas.Document` is a **settable** property and the ONLY in-memory way to show a document.

@@ -12,6 +12,7 @@ using GhJSON.Core.SchemaModels;
 using GhJSON.Core.Serialization;
 using GhJSON.Grasshopper;
 using GhJSON.Grasshopper.PutOperations;
+using GhJSON.Grasshopper.Serialization;
 using Grasshopper.Kernel;
 using Newtonsoft.Json;
 using Physalia.Core.Grounding;
@@ -104,7 +105,7 @@ internal static partial class GhJsonBridge
     /// </param>
     internal static void ExportToFile(IReadOnlyList<Guid> guids, string path, string? comment = null)
     {
-        GhJsonDocument doc = GhJsonGrasshopper.GetByGuids(guids);
+        GhJsonDocument doc = SerializeByGuids(PhyDocuments.ActiveHost(), guids);
         StripNickNames(doc);
 
         // Wireless Feedback -> FeedbackCollector links are not GH wires, so GetByGuids misses them.
@@ -1165,6 +1166,30 @@ internal static partial class GhJsonBridge
         return guids;
     }
 
+    // Serializes the named objects out of an explicit document.
+    //
+    // Replaces GhJsonGrasshopper.GetByGuids, which resolves its objects from whatever document the
+    // canvas is showing — inside a harness that is the pipeline, so it would find none of the
+    // canvas guids and report an empty canvas to the model. Serialize() takes the objects
+    // outright, so the document is ours to choose. Objects are taken in document order, as
+    // GetByGuids did, because that order feeds id assignment. IncludeSelectedState is switched off
+    // to match GetByGuids' GetOptions default (SerializationOptions defaults it on); every other
+    // default already agrees.
+    private static GhJsonDocument SerializeByGuids(GH_Document? document, IReadOnlyCollection<Guid> guids)
+    {
+        if (document is null || guids.Count == 0)
+        {
+            return new GhJsonDocument();
+        }
+
+        var wanted = new HashSet<Guid>(guids);
+        List<IGH_DocumentObject> objects = document.Objects
+            .Where(o => o is not null && wanted.Contains(o.InstanceGuid))
+            .ToList();
+
+        return GhJsonGrasshopper.Serialize(objects, new SerializationOptions { IncludeSelectedState = false });
+    }
+
     // Shared PutOptions for every Physalia placement: explicit offset (no auto-layout), connections
     // and groups created, fresh instance guids, invalid components skipped, placed objects left
     // deselected (so a fresh deserialize/placement doesn't drop a selection lasso on the canvas).
@@ -1192,7 +1217,9 @@ internal static partial class GhJsonBridge
         PutResult result;
         try
         {
-            result = GhJsonGrasshopper.Put(doc, options);
+            // Always place on the user's canvas, never into a harness the user happens to be
+            // editing — the library targets whatever document the canvas is showing.
+            result = PhyDocuments.OnHostCanvas(() => GhJsonGrasshopper.Put(doc, options));
         }
         finally
         {

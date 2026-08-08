@@ -1500,7 +1500,7 @@ internal static partial class GhJsonBridge
         doc.RemoveObject(live, false);
 
         var oneDoc = new GhJsonDocument("1.0", null, new List<GhJsonComponent> { merged }, null, null);
-        PutResult result = GhJsonGrasshopper.Put(oneDoc, new PutOptions
+        PutResult result = PhyDocuments.OnHostCanvas(() => GhJsonGrasshopper.Put(oneDoc, new PutOptions
         {
             Offset = PointF.Empty,
             AutoOffset = false,
@@ -1509,7 +1509,7 @@ internal static partial class GhJsonBridge
             RegenerateInstanceGuids = false,
             SkipInvalidComponents = false,
             SelectPlacedObjects = false,
-        });
+        }));
 
         IGH_DocumentObject? placed = result.Success ? result.PlacedObjects.FirstOrDefault() : null;
         if (placed is null)
@@ -1598,7 +1598,8 @@ internal static partial class GhJsonBridge
             return;
         }
 
-        DeleteResult result = GhJsonGrasshopper.Delete(guids, new DeleteOptions { Redraw = false });
+        DeleteResult result = PhyDocuments.OnHostCanvas(
+            () => GhJsonGrasshopper.Delete(guids, new DeleteOptions { Redraw = false }));
         removedGuids.AddRange(result.Deleted);
         foreach ((Guid guid, string error) in result.Failed)
         {
@@ -1633,7 +1634,7 @@ internal static partial class GhJsonBridge
         }
 
         var addDoc = new GhJsonDocument("1.0", null, adds, null, null);
-        PutResult result = GhJsonGrasshopper.Put(addDoc, BuildPutOptions(PointF.Empty));
+        PutResult result = PhyDocuments.OnHostCanvas(() => GhJsonGrasshopper.Put(addDoc, BuildPutOptions(PointF.Empty)));
 
         if (!result.Success)
         {

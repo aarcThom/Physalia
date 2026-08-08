@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 3d4edd5b-d992-413c-af74-15bf81d67005
-  modified: 2026-08-08T08:46:51.283Z
+  modified: 2026-08-08T09:08:04.147Z
 ---
 
 **Rewritten 2026-08-08.** A harness is now a real `GH_Document` owned by a proxy node; double-clicking
@@ -80,6 +80,30 @@ implementer (`TryGetSoleArrow`). This is required, not cosmetic: the arrow's tar
 component, a placement point) live on the host canvas and a drag cannot cross two canvases.
 `ComponentTransmitter`'s placement offset is now measured from the **proxy's** pivot
 (`ArrowAnchor`), not its own — the transmitter is in a different coordinate space from the drop point.
+
+**The harness is the plug-in's base unit (2026-08-08, third pass).** The Physalia widget's first
+click now yields a **Harness with a Chat inside it**, not a bare Chat: `ChatWindow.DropComponent`
+builds a `HarnessComponent`, adds the Chat straight into `EnsureInnerDocument()` (a direct
+`AddObject`, no archive round-trip, so the window's binding to the Chat holds) and drops the *proxy*
+on the canvas. `EnsureComponentPlaced` therefore returns the Chat's document — the harness's.
+
+`HarnessResidency` (new) enforces it: a `PhyBase` that is not a `HarnessComponent` and lands outside
+a harness is **removed on the next idle pass**, with the reason on the Rhino command line. Hooked
+from `PhyBase.AddedToDocument` (every subclass override already called base). Deliberately not
+undoable — an undo would re-add it and trip the guard again. Four exemptions, and each matters:
+`HarnessComponent` itself; anything already in a harness document; `GhJsonBridge.IsImporting`; and
+**anything added to a document that is not the canvas document**, which is how a file load is
+distinguished from a user placement (GH reads every object in before handing the document to the
+canvas). *`GH_Document.Context` looks like the natural signal but its own SDK docs say it is a
+setter, not a getter — do not use it for this.* Existing files with pipelines loose on the canvas are
+therefore left alone; migrate them with the Chat's "Add to Harness".
+
+Because presets are Physalia pipelines, they must land **inside** the harness, not on the canvas —
+the splice rewires the workflow onto the live Chat and a wire cannot cross documents. So
+`PhyDocuments.OnHostCanvas` was generalised to `OnCanvas(target, action)` (null target = host), and
+`ExecutePut`/`PlaceDocument` gained a `target` document that `LoadAndPlaceAnchored` fills from
+`anchor.OnPingDocument()`. Model-authored graphs still pass null and land on the user's canvas.
+`ChatWindow.MoveIntoHarness` is gone — a preset no longer needs moving afterwards.
 
 **The GhJSON library ignores our host resolution — it resolves the target document ITSELF.**
 `CanvasReader.GetActiveDocument()` is literally `Instances.ActiveCanvas.Document`; `PutOptions` has

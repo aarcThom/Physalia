@@ -1658,10 +1658,14 @@ public class ChatWindow : Form
         DropComponent(canvas, doc);
     }
 
-    // Adds this window's Chat to the document and positions it a few pixels right of the window,
-    // vertically centred on it. Split out of MaybePlaceComponent so preset placement can guarantee
-    // the component is on the canvas before anchoring a workflow to it (see EnsureComponentPlaced).
-    // Runs on the UI thread.
+    // Puts this window's Chat inside a fresh Harness and drops the HARNESS on the document, a few
+    // pixels right of the window and vertically centred on it.
+    //
+    // The harness is the plug-in's unit of work: a pipeline lives in its own document and the user's
+    // canvas carries only the proxy. So first use never places a bare Chat — it places a harness with
+    // the Chat already inside, ready for the pipeline to be built around it. Split out of
+    // MaybePlaceComponent so preset placement can guarantee the Chat has a document before anchoring
+    // a workflow to it (see EnsureComponentPlaced). Runs on the UI thread.
     private void DropComponent(GH_Canvas canvas, GH_Document doc)
     {
         if (_component.Attributes is null)
@@ -1669,30 +1673,36 @@ public class ChatWindow : Form
             _component.CreateAttributes();
         }
 
+        var harness = new Harness.HarnessComponent();
+        harness.CreateAttributes();
+
+        // The Chat goes in directly — no archive round-trip — so this window's binding to it holds.
+        GH_Document inner = harness.EnsureInnerDocument();
+        _component.Attributes!.Pivot = new System.Drawing.PointF(0f, 0f);
+        inner.AddObject(_component, false);
+        ComponentHelpers.ApplyNickNameDisplay(_component);
+
         // Anchor = a few px right of the window's right edge, level with its vertical centre.
         System.Drawing.PointF anchor = AnchorRightOfWindow(canvas);
 
-        // Provisional drop, then nudge so the component's left edge sits at the anchor and its
-        // vertical centre lines up with it (Pivot is interior to the bounds, not a corner).
-        _component.Attributes!.Pivot = anchor;
-        doc.AddObject(_component, false);
-
-        // Match the rest of the canvas: show full parameter names when "Draw Full Names" is on.
-        ComponentHelpers.ApplyNickNameDisplay(_component);
+        // Provisional drop, then nudge so the proxy's left edge sits at the anchor and its vertical
+        // centre lines up with it (Pivot is interior to the bounds, not a corner).
+        harness.Attributes!.Pivot = anchor;
+        doc.AddObject(harness, false);
 
         // Force a layout so Bounds is valid (GH lays attributes out lazily, so a just-added
         // component's Bounds is otherwise stale), then shift Pivot by the gap between where the
         // bounds landed and where we want them.
-        _component.Attributes.ExpireLayout();
-        _component.Attributes.PerformLayout();
-        System.Drawing.RectangleF bounds = _component.Attributes.Bounds;
+        harness.Attributes.ExpireLayout();
+        harness.Attributes.PerformLayout();
+        System.Drawing.RectangleF bounds = harness.Attributes.Bounds;
         float dx = anchor.X - bounds.Left;
         float dy = anchor.Y - (bounds.Top + (bounds.Height / 2f));
-        _component.Attributes.Pivot = new System.Drawing.PointF(
-            _component.Attributes.Pivot.X + dx,
-            _component.Attributes.Pivot.Y + dy);
-        _component.Attributes.ExpireLayout();
-        _component.Attributes.PerformLayout();
+        harness.Attributes.Pivot = new System.Drawing.PointF(
+            harness.Attributes.Pivot.X + dx,
+            harness.Attributes.Pivot.Y + dy);
+        harness.Attributes.ExpireLayout();
+        harness.Attributes.PerformLayout();
         canvas.Refresh();
     }
 
@@ -1720,8 +1730,10 @@ public class ChatWindow : Form
             return null;
         }
 
+        // Drops a harness onto `doc` with the Chat inside it, so the Chat's document is the
+        // harness's, not the canvas's — which is what a preset must be anchored into.
         DropComponent(canvas, doc);
-        return doc;
+        return _component.OnPingDocument();
     }
 
     // Creates a fresh, empty document and makes it the canvas's active one, so a chat started with
@@ -1861,47 +1873,15 @@ public class ChatWindow : Form
                 return;
             }
 
+            // The preset was placed into the Chat's own document — its harness — because the
+            // splice rewires the workflow onto the live Chat and a wire cannot cross documents.
+            // Nothing to move afterwards: it already landed where it belongs.
             doc.NewSolution(false); // register the re-wired sources, then redraw
-
-            // A predefined workflow lands in its own harness, so it never clutters the user's
-            // canvas: the placed components plus the Chat they were anchored to move into a
-            // harness document, leaving a single proxy node behind. A second Chat in the preset is
-            // a peer entry point and travels with the rest.
-            var moving = result.PlacedGuids
-                .Select(g => doc.FindObject(g, false))
-                .Where(o => o is not null)
-                .Select(o => o!)
-                .ToList();
-
-            if (!moving.Contains(_component))
-            {
-                moving.Add(_component);
-            }
-
-            MoveIntoHarness(moving);
-
             Instances.ActiveCanvas?.Refresh();
         }
         catch (Exception ex)
         {
             Rhino.RhinoApp.WriteLine($"[Physalia] Preset placement failed: {ex.Message}");
-        }
-    }
-
-    // Moves a set of objects into a new harness and re-points this window at the Chat that ends up
-    // inside it. The move is an archive round-trip, so everything comes back as a NEW instance —
-    // including the Chat this window was bound to, whose original is deleted by the move.
-    private void MoveIntoHarness(IReadOnlyList<IGH_DocumentObject> moving)
-    {
-        if (_component.OnPingDocument() is not { } doc)
-        {
-            return;
-        }
-
-        Harness.HarnessComponent? harness = Harness.HarnessComponent.CreateFromSelection(doc, moving);
-        if (harness?.InnerDocument?.Objects.OfType<Chat>().FirstOrDefault() is { } relocated)
-        {
-            SetActiveComponent(relocated);
         }
     }
 

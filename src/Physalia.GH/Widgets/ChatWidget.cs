@@ -300,11 +300,13 @@ public sealed class ChatWidget : GH_Widget
         }
     }
 
-    // Opens (or focuses) the single shared chat window. Reuses a Chat already on the canvas;
-    // otherwise creates one but does NOT place it — the window drops it onto the document itself,
-    // to its right, once a provider is available (so first-run setup never litters the canvas).
-    // Works even with no document open: the new Chat stays detached until the window places it,
-    // at which point the window creates a document for it.
+    // Opens (or focuses) the single shared chat window. Reuses a Chat already in the file (inside a
+    // harness or, in an older file, loose on the canvas); otherwise creates one but does NOT place
+    // it — the window wraps it in a Harness and drops that on the document, to its right, once a
+    // provider is available (so first-run setup never litters the canvas). A first click therefore
+    // yields a Harness on the canvas, not a bare Chat: the harness is the plug-in's unit of work.
+    // Works even with no document open: the new Chat stays detached until the window places it, at
+    // which point the window creates a document for it.
     private static void OpenChat(GH_Canvas canvas)
     {
         GH_Document? doc = canvas?.Document;

@@ -29,6 +29,19 @@ public abstract class PhyBase : GH_Component
     }
 
     /// <summary>
+    /// Notes the placement so the harness-residency guard can check it. Physalia components belong
+    /// inside a harness; one dropped straight onto the user's canvas is removed on the next idle
+    /// pass, with the reason written to the Rhino command line. Existing files are left as they
+    /// are — see <see cref="Harness.HarnessResidency"/>.
+    /// </summary>
+    /// <param name="document">The document this component was added to.</param>
+    public override void AddedToDocument(GH_Document document)
+    {
+        base.AddedToDocument(document);
+        Harness.HarnessResidency.Track(this, document);
+    }
+
+    /// <summary>
     /// Provides an Icon for the component. Resolves the embedded resource named
     /// after the concrete component type (e.g. <c>SchemaValidator</c> → <c>SchemaValidator.png</c>),
     /// honouring an explicit <see cref="IconPath"/> override if one is set, and

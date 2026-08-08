@@ -102,18 +102,28 @@ internal static class PhyDocuments
     /// <typeparam name="T">The action's result type.</typeparam>
     /// <param name="action">The work to run against the host document.</param>
     /// <returns>Whatever the action returned.</returns>
-    internal static T OnHostCanvas<T>(Func<T> action)
+    internal static T OnHostCanvas<T>(Func<T> action) => OnCanvas(null, action);
+
+    /// <summary>
+    /// Runs an action with the canvas pointed at a chosen document, restoring the previous view
+    /// afterwards. See <see cref="OnHostCanvas{T}"/> for why this exists at all.
+    /// </summary>
+    /// <typeparam name="T">The action's result type.</typeparam>
+    /// <param name="target">The document to place into; null means the host document.</param>
+    /// <param name="action">The work to run against that document.</param>
+    /// <returns>Whatever the action returned.</returns>
+    internal static T OnCanvas<T>(GH_Document? target, Func<T> action)
     {
         GH_Canvas? canvas = Instances.ActiveCanvas;
         GH_Document? shown = canvas?.Document;
-        GH_Document? host = Host(shown);
+        GH_Document? destination = target ?? Host(shown);
 
-        if (canvas is null || shown is null || host is null || ReferenceEquals(shown, host))
+        if (canvas is null || shown is null || destination is null || ReferenceEquals(shown, destination))
         {
             return action();
         }
 
-        canvas.Document = host;
+        canvas.Document = destination;
         try
         {
             return action();

@@ -730,7 +730,7 @@ internal static partial class GhJsonBridge
     /// a specific placeholder component rather than the graph corner.
     /// </param>
     /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
-    private static PlaceResult PlaceDocument(GhJsonDocument doc, PointF targetOrigin, bool paramIndexFirst = false, bool anchorVisualTopLeft = false)
+    private static PlaceResult PlaceDocument(GhJsonDocument doc, PointF targetOrigin, bool paramIndexFirst = false, bool anchorVisualTopLeft = false, GH_Document? target = null)
     {
         if (doc.Components is null || doc.Components.Count == 0)
         {
@@ -800,7 +800,7 @@ internal static partial class GhJsonBridge
             options.CreateConnections = false;
         }
 
-        PlaceResult result = ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan, referencePlan: referencePlan, paramIndexFirst: paramIndexFirst, recordAuthoredIds: authoredIdsRestored);
+        PlaceResult result = ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan, referencePlan: referencePlan, paramIndexFirst: paramIndexFirst, recordAuthoredIds: authoredIdsRestored, target: target);
 
         // ComputeOffset aligned the top-left PIVOT corner to the target, but a component's pivot is
         // its mid-left anchor, so the visible graph floats a (per-graph variable) amount above the
@@ -1042,9 +1042,13 @@ internal static partial class GhJsonBridge
 
         PointF anchorPivot = anchor.Attributes?.Pivot ?? new PointF(50f, 50f);
 
+        // Place into the anchor's OWN document, not the user's canvas. The anchor is the live Chat,
+        // which lives inside a harness, and the spliced wires cannot cross a document boundary.
+        GH_Document? anchorDocument = anchor.OnPingDocument();
+
         if (placeholder is null || placeholder.Id is not int placeholderId || placeholder.Pivot is null)
         {
-            return PlaceDocument(doc, anchorPivot);
+            return PlaceDocument(doc, anchorPivot, target: anchorDocument);
         }
 
         // Capture every connection touching the placeholder, recording the OTHER endpoint plus the
@@ -1082,7 +1086,7 @@ internal static partial class GhJsonBridge
             anchorPivot.X - (float)placeholder.Pivot.X,
             anchorPivot.Y - (float)placeholder.Pivot.Y));
 
-        return ExecutePut(prunedDoc, options, unfixedIssues, result => RewireAnchor(anchor, rewires, result));
+        return ExecutePut(prunedDoc, options, unfixedIssues, result => RewireAnchor(anchor, rewires, result), target: anchorDocument);
     }
 
     // Re-establishes the placeholder's connections against the live anchor component. Each captured
@@ -1211,15 +1215,17 @@ internal static partial class GhJsonBridge
     // With paramIndexFirst set (the LLM path), Put placed components only and every connection is
     // wired here, paramIndex-first; unresolved endpoints surface as warnings the transmitter routes
     // back to the model.
-    private static PlaceResult ExecutePut(GhJsonDocument doc, PutOptions options, IReadOnlyList<string> unfixedIssues, Action<PutResult>? afterPlace = null, ClusterPlan? clusterPlan = null, ReferencePlan? referencePlan = null, bool paramIndexFirst = false, bool recordAuthoredIds = false)
+    private static PlaceResult ExecutePut(GhJsonDocument doc, PutOptions options, IReadOnlyList<string> unfixedIssues, Action<PutResult>? afterPlace = null, ClusterPlan? clusterPlan = null, ReferencePlan? referencePlan = null, bool paramIndexFirst = false, bool recordAuthoredIds = false, GH_Document? target = null)
     {
         IsImporting = true;
         PutResult result;
         try
         {
-            // Always place on the user's canvas, never into a harness the user happens to be
-            // editing — the library targets whatever document the canvas is showing.
-            result = PhyDocuments.OnHostCanvas(() => GhJsonGrasshopper.Put(doc, options));
+            // Pin the canvas to the destination for the duration: the library places into whatever
+            // document the canvas is showing. Null target means the user's canvas — a model-authored
+            // graph belongs there, never in a harness the user happens to be editing. A preset
+            // passes the anchor Chat's own document, so a pipeline lands inside its harness.
+            result = PhyDocuments.OnCanvas(target, () => GhJsonGrasshopper.Put(doc, options));
         }
         finally
         {
@@ -1271,7 +1277,7 @@ internal static partial class GhJsonBridge
 
             // Place clusters lifted out before Put and rewire their connections to the placed graph.
             GH_Document? hostDoc = result.PlacedObjects.FirstOrDefault()?.OnPingDocument()
-                ?? PhyDocuments.ActiveHost();
+                ?? target ?? PhyDocuments.ActiveHost();
 
             // Claim the file's ids for the placed objects in the stable-id registry, so the next
             // canvas export keeps the numbering the model authored (ids already taken by earlier

@@ -44,17 +44,15 @@ internal static class PhyDocuments
 
         for (int hop = 0; current is not null && hop < MaxOwnerHops; hop++)
         {
-            IGH_DocumentOwner? owner = current.Owner;
-            if (owner is null)
-            {
-                return current; // top-level: nobody owns it
-            }
+            // A harness records its own ownership rather than using GH_Document.Owner (see
+            // HarnessComponent.Owners for why); a real GH cluster uses Owner, so both are followed.
+            GH_Document? parent = HarnessComponent.OwnerOf(current)?.OnPingDocument()
+                ?? current.Owner?.OwnerDocument();
 
-            GH_Document? parent = owner.OwnerDocument();
             if (parent is null || ReferenceEquals(parent, current))
             {
-                // An owner that is not itself placed on a document yet (or a self-reference from a
-                // corrupt file) — the current document is as far up as we can honestly go.
+                // Top-level, an owner not yet placed on a document, or a self-reference from a
+                // corrupt file — this is as far up as we can honestly go.
                 return current;
             }
 
@@ -89,7 +87,7 @@ internal static class PhyDocuments
     /// <param name="document">The document to test.</param>
     /// <returns>True when the document is owned by a harness.</returns>
     internal static bool IsHarnessDocument(GH_Document? document) =>
-        document?.Owner is HarnessComponent;
+        HarnessComponent.OwnerOf(document) is not null;
 
     /// <summary>
     /// Enumerates a document's objects together with everything inside any harness it contains,

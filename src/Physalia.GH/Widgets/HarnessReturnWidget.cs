@@ -151,7 +151,7 @@ public sealed class HarnessReturnWidget : GH_Widget
 
     // The harness owning whatever document the canvas is showing, or null when the canvas is on an
     // ordinary document.
-    private static HarnessComponent? HarnessOf(GH_Canvas? canvas) => canvas?.Document?.Owner as HarnessComponent;
+    private static HarnessComponent? HarnessOf(GH_Canvas? canvas) => HarnessComponent.OwnerOf(canvas?.Document);
 
     // The Widgets-menu icon: the same left-pointing triangle the pill draws.
     private static Bitmap CreateIcon()

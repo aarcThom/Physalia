@@ -34,7 +34,7 @@ namespace Physalia.GH.Components;
 /// wires survive), and a submission declaring parameters outside the locked set is rejected with
 /// corrective feedback on the Fail Signal.
 /// </summary>
-public class PyTransmitter : RoutingComponentBase<string>
+public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
 {
     private Guid _linkedGuid = Guid.Empty;
     private string? _pushError;
@@ -69,12 +69,14 @@ public class PyTransmitter : RoutingComponentBase<string>
     /// <inheritdoc/>
     public override void CreateAttributes()
     {
-        m_attributes = new PyTransmitterAttrib(this);
+        // A plain node: the drag arrow now lives on the harness proxy, which sits on the same canvas
+        // as the script components this transmitter targets (see IHarnessArrow).
+        m_attributes = new PhyComponentAttributes(this);
     }
 
     /// <summary>
     /// Links this component to a GH Python Script component.
-    /// Called by <see cref="PyTransmitterAttrib"/> when the user drops the wire.
+    /// Called from the right-click picker, and by the harness proxy's delegated arrow on drop.
     /// </summary>
     /// <param name="guid">The InstanceGuid of the Python Script component to link.</param>
     public void LinkTo(Guid guid)
@@ -84,11 +86,36 @@ public class PyTransmitter : RoutingComponentBase<string>
 
     /// <summary>
     /// Removes the current link. Does not modify the previously-linked component's code.
-    /// Called by <see cref="PyTransmitterAttrib"/> when the user Ctrl+drops the wire.
+    /// Called from the right-click picker, and by the harness proxy's delegated arrow on Ctrl+drop.
     /// </summary>
     public void Unlink()
     {
         _linkedGuid = Guid.Empty;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>The wire lands just under the linked script component.</remarks>
+    IEnumerable<PointF> IHarnessArrow.GetArrowEndpoints(GH_Document hostDocument)
+    {
+        if (_linkedGuid != Guid.Empty && hostDocument.FindObject(_linkedGuid, false) is { } target)
+        {
+            RectangleF b = target.Attributes.Bounds;
+            yield return new PointF(b.Left + (b.Width / 2f), b.Bottom + 6f);
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Links the script component under the drop point; Ctrl unlinks instead.</remarks>
+    void IHarnessArrow.HandleDrop(GH_Document hostDocument, PointF dropPoint, bool ctrl)
+    {
+        foreach (IGH_DocumentObject obj in hostDocument.Objects)
+        {
+            if (obj.Attributes.Bounds.Contains(dropPoint) && GhPythonBridge.IsScriptComponent(obj))
+            {
+                SetLink(ctrl ? Guid.Empty : obj.InstanceGuid);
+                return;
+            }
+        }
     }
 
     /// <inheritdoc/>

@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper;
 using Grasshopper.GUI.Canvas;
@@ -33,7 +35,7 @@ namespace Physalia.GH.Harness;
 /// <para>Components inside the harness see the inner document from <c>OnPingDocument()</c>; anything
 /// that means "the user's canvas" must go through <see cref="PhyDocuments"/>.</para>
 /// </summary>
-public sealed class HarnessComponent : PhyBase, IGH_DocumentOwner
+public sealed class HarnessComponent : PhyBase
 {
     // Archive chunk holding the inner document, written by GH_Document.Write and rehydrated by
     // GH_Document.Read. This is the only nested-archive persistence in the plug-in; every other
@@ -46,12 +48,20 @@ public sealed class HarnessComponent : PhyBase, IGH_DocumentOwner
     // Duration in ms of the animated zoom-to-fit, matching GH's own cluster-editing transition.
     private const int ZoomDuration = 250;
 
-    private GH_Document? _inner;
+    // Maps a harness document back to the component holding it.
+    //
+    // Deliberately NOT GH_Document.Owner, even though that is what a cluster uses. Setting Owner
+    // makes GH_Canvas paint its own hard-coded cluster icon at the top-left of the canvas (a
+    // private _regionCluster, not a widget, so it cannot be removed from the widget list) whose
+    // menu runs "Save and Return" — and that calls GH_DocumentServer.RemoveDocument, which
+    // DISPOSES the document and would destroy the running pipeline. Owning the mapping ourselves
+    // leaves the harness return widget as the only affordance, and as a bonus keeps the document's
+    // render queue enabled (Owner's setter disables it), so previews from inside a harness survive.
+    //
+    // Weak on the document, so a discarded harness document is collected normally.
+    private static readonly ConditionalWeakTable<GH_Document, HarnessComponent> Owners = new();
 
-    // Whether the inner document has been handed to the document server. It is registered on first
-    // entry and stays registered for the session: GH_DocumentServer.RemoveDocument DISPOSES the
-    // document, so un-registering on the way out would destroy the live pipeline.
-    private bool _registered;
+    private GH_Document? _inner;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HarnessComponent"/> class.
@@ -80,6 +90,19 @@ public sealed class HarnessComponent : PhyBase, IGH_DocumentOwner
     public override void CreateAttributes()
     {
         m_attributes = new Attributes.HarnessAttrib(this);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Editing the harness is the right-click action, because double-click is spent on the chat
+    /// window — the harness node stands in for the Chat that moved inside it, so it behaves like
+    /// one.
+    /// </remarks>
+    public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
+    {
+        base.AppendAdditionalMenuItems(menu);
+        Menu_AppendSeparator(menu);
+        Menu_AppendItem(menu, "Edit Harness", (_, _) => OpenInCanvas());
     }
 
     /// <summary>
@@ -175,15 +198,11 @@ public sealed class HarnessComponent : PhyBase, IGH_DocumentOwner
             return; // already inside
         }
 
-        if (!_registered)
-        {
-            // Nested documents are deliberately unknown to the document server; clear the flag
-            // before registering. The canvas setter clears it too, but AddDocument comes first.
-            inner.Nested = false;
-            Instances.DocumentServer.AddDocument(inner);
-            _registered = true;
-        }
-
+        // The document is deliberately NOT registered with the document server. The canvas setter
+        // only calls PromoteDocument on it, which no-ops for an unregistered document, so pointing
+        // the canvas here is enough. Staying out of the server keeps the harness off the document
+        // dropdown, out of the exit-time "save changes?" sweep, and — most importantly — out of
+        // reach of RemoveDocument, which disposes.
         canvas.Document = inner;
         inner.Enabled = true;
 
@@ -214,42 +233,42 @@ public sealed class HarnessComponent : PhyBase, IGH_DocumentOwner
         canvas.Refresh();
     }
 
-    /// <inheritdoc/>
-    /// <remarks>The document this harness node itself sits on — the user's canvas.</remarks>
-    public GH_Document OwnerDocument() => OnPingDocument();
+    /// <summary>
+    /// Gets the harness holding a document, or null when the document is an ordinary file.
+    /// </summary>
+    /// <param name="document">The document to look up.</param>
+    /// <returns>The owning harness component, or null.</returns>
+    internal static HarnessComponent? OwnerOf(GH_Document? document) =>
+        document is not null && Owners.TryGetValue(document, out HarnessComponent? owner) ? owner : null;
 
-    /// <inheritdoc/>
-    /// <remarks>
-    /// Raised when Grasshopper is about to drop the harness document (File, "Save and Return", or
-    /// closing it from the document list). The document is disposed immediately afterwards, so the
-    /// live pipeline cannot be kept; the contents are captured here and rehydrated on the next
-    /// entry. Session state — the conversation, latched signals, solve state — does not survive
-    /// this path, which is why the canvas return widget exists.
-    /// </remarks>
-    public void DocumentClosed(GH_Document document)
+    /// <summary>
+    /// Finds the single transmitter inside this harness whose drag arrow the proxy should host.
+    /// </summary>
+    /// <param name="arrow">The sole transmitter, when there is exactly one.</param>
+    /// <returns>True when exactly one transmitter is present.</returns>
+    internal bool TryGetSoleArrow(out IHarnessArrow? arrow)
     {
-        if (!ReferenceEquals(document, _inner))
+        arrow = null;
+        if (_inner is null)
         {
-            return;
+            return false;
         }
 
-        var chunk = new GH_LooseChunk(DocumentChunk);
-        document.Write(chunk);
-
-        var revived = new GH_Document();
-        Adopt(revived.Read(chunk) ? revived : new GH_Document());
-        _registered = false;
-    }
-
-    /// <inheritdoc/>
-    /// <remarks>Edits inside the harness dirty the host file, since that is where they are saved.</remarks>
-    public void DocumentModified(GH_Document document)
-    {
-        if (ReferenceEquals(document, _inner))
+        List<IHarnessArrow> found = _inner.Objects.OfType<IHarnessArrow>().Take(2).ToList();
+        if (found.Count != 1)
         {
-            OnPingDocument()?.Modified();
+            return false; // none to host, or several with no way to choose between them
         }
+
+        arrow = found[0];
+        return true;
     }
+
+    /// <summary>
+    /// Finds the Chat driving this harness's pipeline, so the proxy can open the chat window.
+    /// </summary>
+    /// <returns>The first Chat inside the harness, or null when it holds none.</returns>
+    internal Chat? FindChat() => _inner?.Objects.OfType<Chat>().FirstOrDefault();
 
     /// <inheritdoc/>
     public override bool Write(GH_IWriter writer)
@@ -307,13 +326,18 @@ public sealed class HarnessComponent : PhyBase, IGH_DocumentOwner
         Message = count == 0 ? "empty" : $"{count} component{(count == 1 ? string.Empty : "s")}";
     }
 
-    // Adopts a document as this harness's contents: owned by us (so PhyDocuments can climb back to
-    // the user's canvas and GH treats it as subsidiary), nested (unknown to the canvas and document
-    // server until we deliberately register it), and enabled so it keeps solving off-canvas.
+    // Adopts a document as this harness's contents: recorded in the owner table (so PhyDocuments
+    // can climb back to the user's canvas) and enabled so it keeps solving while off-canvas.
     private void Adopt(GH_Document document)
     {
-        document.Owner = this;
-        document.Nested = true;
+        if (_inner is not null)
+        {
+            Owners.Remove(_inner);
+        }
+
+        Owners.Remove(document);
+        Owners.Add(document, this);
+
         document.Enabled = true;
         _inner = document;
     }

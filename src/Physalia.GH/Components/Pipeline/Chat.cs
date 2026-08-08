@@ -347,7 +347,7 @@ public class Chat : StatefulComponentBase
 
         Menu_AppendItem(
             menu,
-            "Move Selected into a Harness",
+            "Add to Harness",
             (_, _) => MoveSelectionIntoHarness(),
             enabled: !insideHarness);
     }

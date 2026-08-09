@@ -5,9 +5,18 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 0eca70cc-9bb8-4158-ad22-447c419bac1b
+  modified: 2026-08-09T05:38:44.598Z
 ---
 
 Persistent LLM memory feature (built 2026-07-02 on branch `feat/memory-tool`, autonomous session; builds clean, 175 Core tests green, svelte-check clean; **live Rhino test pending**).
+
+**Folders renamed 2026-08-08:** the physical roots are now `Files/MEMORIES/GLOBAL` and
+`Files/MEMORIES/LOCAL/<document-key>` (were `Files/memories/global|local`), matching the uppercase
+convention of the other `Files/` folders. `MemoryLocations` is the only code that names them. The
+**model-facing virtual scheme is unchanged and stays lower-case** — `/memories/global/…` and
+`/memories/local/…` — because `MemoryStore.TryResolve` lower-cases the scope segment before matching,
+so the disk names and the API names are independent. Renaming the virtual scheme would have changed
+the prompt contract and every path already written into existing memory files.
 
 **Shape:** an Anthropic-style memory tool — single `memory` function, `command` enum `view/create/str_replace/insert/delete/rename` — reused across all providers (schema is provider-agnostic; backend is one execution layer separate from the schema).
 

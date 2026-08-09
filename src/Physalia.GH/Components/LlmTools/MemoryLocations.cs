@@ -14,10 +14,14 @@ namespace Physalia.GH.Components;
 
 /// <summary>
 /// Resolves the physical directories the <see cref="MemoryTool"/> reads and writes, under
-/// <c>Files/memories</c> beside the plug-in (the same <c>Files</c> tree the rest of Physalia keeps
+/// <c>Files/MEMORIES</c> beside the plug-in (the same <c>Files</c> tree the rest of Physalia keeps
 /// user-alterable content in). The global memory is a single shared folder; each Grasshopper document
 /// gets its own local folder keyed by its file so per-document memory follows the .gh file across
 /// sessions.
+///
+/// <para>These are the folder names on disk only. The model addresses memory through a virtual
+/// <c>/memories/global</c> and <c>/memories/local</c> scheme (see <c>MemoryStore</c>), which is
+/// matched case-insensitively and is unaffected by what these folders are called.</para>
 /// </summary>
 internal static class MemoryLocations
 {
@@ -33,19 +37,19 @@ internal static class MemoryLocations
     internal static MemoryRoots ResolveRoots(GH_Document? document)
     {
         string root = MemoriesRoot();
-        string global = Path.Combine(root, "global");
-        string local = Path.Combine(root, "local", DocumentKey(document));
+        string global = Path.Combine(root, "GLOBAL");
+        string local = Path.Combine(root, "LOCAL", DocumentKey(document));
         return new MemoryRoots(global, local);
     }
 
-    // Files/memories beside the executing assembly. Falls back to a "memories" folder in the current
+    // Files/MEMORIES beside the executing assembly. Falls back to a "MEMORIES" folder in the current
     // directory if the assembly location is unknown (should not happen in a loaded plug-in).
     private static string MemoriesRoot()
     {
         string? assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
         return assemblyDir is null
-            ? "memories"
-            : Path.Combine(assemblyDir, "Files", "memories");
+            ? "MEMORIES"
+            : Path.Combine(assemblyDir, "Files", "MEMORIES");
     }
 
     // A stable, filesystem-safe key for the document's local memory folder: the sanitized file name

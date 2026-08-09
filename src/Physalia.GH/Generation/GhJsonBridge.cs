@@ -394,24 +394,6 @@ internal static partial class GhJsonBridge
     }
 
     /// <summary>
-    /// Reads the <c>metadata.description</c> from a <c>.ghjson</c> file, or null if the file is
-    /// missing/invalid or carries no description. Used to surface preset descriptions in the UI.
-    /// </summary>
-    /// <param name="path">Path to the <c>.ghjson</c> file.</param>
-    /// <returns>The description text, or null when none is available.</returns>
-    internal static string? TryReadMetadataDescription(string path)
-    {
-        try
-        {
-            return GhJson.FromFile(path).Metadata?.Description;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Parses a GhJSON string and places its components onto the active Grasshopper canvas,
     /// with the content's top-left pivot aligned to <paramref name="targetOrigin"/>.
     /// </summary>
@@ -730,7 +712,7 @@ internal static partial class GhJsonBridge
     /// a specific placeholder component rather than the graph corner.
     /// </param>
     /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
-    private static PlaceResult PlaceDocument(GhJsonDocument doc, PointF targetOrigin, bool paramIndexFirst = false, bool anchorVisualTopLeft = false, GH_Document? target = null)
+    private static PlaceResult PlaceDocument(GhJsonDocument doc, PointF targetOrigin, bool paramIndexFirst = false, bool anchorVisualTopLeft = false)
     {
         if (doc.Components is null || doc.Components.Count == 0)
         {
@@ -800,7 +782,7 @@ internal static partial class GhJsonBridge
             options.CreateConnections = false;
         }
 
-        PlaceResult result = ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan, referencePlan: referencePlan, paramIndexFirst: paramIndexFirst, recordAuthoredIds: authoredIdsRestored, target: target);
+        PlaceResult result = ExecutePut(doc, options, unfixedIssues, clusterPlan: clusterPlan, referencePlan: referencePlan, paramIndexFirst: paramIndexFirst, recordAuthoredIds: authoredIdsRestored);
 
         // ComputeOffset aligned the top-left PIVOT corner to the target, but a component's pivot is
         // its mid-left anchor, so the visible graph floats a (per-graph variable) amount above the
@@ -1009,127 +991,6 @@ internal static partial class GhJsonBridge
         doc.DestroyAttributeCache();
     }
 
-    /// <summary>
-    /// Loads a <c>.ghjson</c> preset and places it anchored to an existing live component. The first
-    /// component in the file whose type matches <paramref name="placeholderComponentGuid"/> is treated
-    /// as a placeholder slot: it is not instantiated; instead <paramref name="anchor"/> is spliced in
-    /// where it would have gone. The rest of the graph is offset so the placeholder's pivot lands on
-    /// the anchor's pivot (preserving the preset's relative layout), and every connection that touched
-    /// the placeholder is re-wired to the matching parameter on <paramref name="anchor"/>.
-    /// </summary>
-    /// <param name="path">Path to the <c>.ghjson</c> file.</param>
-    /// <param name="anchor">The live component to splice in for the placeholder slot.</param>
-    /// <param name="placeholderComponentGuid">The component-type GUID that marks the placeholder slot.</param>
-    /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
-    internal static PlaceResult LoadAndPlaceAnchored(string path, IGH_Component anchor, Guid placeholderComponentGuid)
-    {
-        ArgumentNullException.ThrowIfNull(anchor);
-
-        GhJsonDocument doc = GhJson.FromFile(path);
-        if (doc.Components is null || doc.Components.Count == 0)
-        {
-            return EmptyDocumentResult();
-        }
-
-        var fixResult = GhJson.Fix(doc);
-        doc = fixResult.Document;
-        IReadOnlyList<string> unfixedIssues = fixResult.UnfixedIssues ?? (IReadOnlyList<string>)Array.Empty<string>();
-
-        // Locate the first placeholder slot (e.g. the preset's own Chat). With no slot to splice,
-        // fall back to ordinary placement anchored at the live component's pivot.
-        GhJsonComponent? placeholder = doc.Components.FirstOrDefault(
-            c => c.ComponentGuid is Guid g && g == placeholderComponentGuid);
-
-        PointF anchorPivot = anchor.Attributes?.Pivot ?? new PointF(50f, 50f);
-
-        // Place into the anchor's OWN document, not the user's canvas. The anchor is the live Chat,
-        // which lives inside a harness, and the spliced wires cannot cross a document boundary.
-        GH_Document? anchorDocument = anchor.OnPingDocument();
-
-        if (placeholder is null || placeholder.Id is not int placeholderId || placeholder.Pivot is null)
-        {
-            return PlaceDocument(doc, anchorPivot, target: anchorDocument);
-        }
-
-        // Capture every connection touching the placeholder, recording the OTHER endpoint plus the
-        // placeholder-side parameter name and direction, then keep only the connections that don't.
-        var rewires = new List<RewireRequest>();
-        var keptConnections = new List<GhJsonConnection>();
-        foreach (GhJsonConnection conn in doc.Connections ?? Enumerable.Empty<GhJsonConnection>())
-        {
-            bool fromSlot = conn.From?.Id is int fromId && fromId == placeholderId;
-            bool toSlot = conn.To?.Id is int toId && toId == placeholderId;
-
-            if (fromSlot && toSlot)
-            {
-                continue; // self-loop on the slot — nothing meaningful to re-wire
-            }
-
-            if (fromSlot && conn.To is { } to && to.Id is int toOtherId)
-            {
-                rewires.Add(new RewireRequest(toOtherId, to.ParamName, conn.From!.ParamName, SlotIsSource: true));
-            }
-            else if (toSlot && conn.From is { } from && from.Id is int fromOtherId)
-            {
-                rewires.Add(new RewireRequest(fromOtherId, from.ParamName, conn.To!.ParamName, SlotIsSource: false));
-            }
-            else
-            {
-                keptConnections.Add(conn);
-            }
-        }
-
-        var keptComponents = doc.Components.Where(c => !ReferenceEquals(c, placeholder)).ToList();
-        var prunedDoc = new GhJsonDocument(doc.Schema, doc.Metadata, keptComponents, keptConnections, doc.Groups);
-
-        var options = BuildPutOptions(new PointF(
-            anchorPivot.X - (float)placeholder.Pivot.X,
-            anchorPivot.Y - (float)placeholder.Pivot.Y));
-
-        return ExecutePut(prunedDoc, options, unfixedIssues, result => RewireAnchor(anchor, rewires, result), target: anchorDocument);
-    }
-
-    // Re-establishes the placeholder's connections against the live anchor component. Each captured
-    // endpoint id is remapped to its newly-placed InstanceGuid via Put's id-to-guid mapping, the
-    // matching parameter is found by name on both sides, and a source is added in the recorded
-    // direction. Every lookup is guarded; an unresolved endpoint is skipped.
-    private static void RewireAnchor(IGH_Component anchor, IReadOnlyList<RewireRequest> rewires, PutResult result)
-    {
-        foreach (RewireRequest rewire in rewires)
-        {
-            if (!result.IdToGuidMapping.TryGetValue(rewire.OtherId, out Guid otherGuid))
-            {
-                continue;
-            }
-
-            IGH_DocumentObject? placed = result.PlacedObjects.FirstOrDefault(o => o.InstanceGuid == otherGuid);
-            if (placed is null)
-            {
-                continue;
-            }
-
-            IGH_Param? source;
-            IGH_Param? sink;
-            if (rewire.SlotIsSource)
-            {
-                // anchor output -> placed component input
-                source = FindParam(anchor, rewire.SlotParamName, output: true);
-                sink = FindParam(placed, rewire.OtherParamName, output: false);
-            }
-            else
-            {
-                // placed component output -> anchor input
-                source = FindParam(placed, rewire.OtherParamName, output: true);
-                sink = FindParam(anchor, rewire.SlotParamName, output: false);
-            }
-
-            if (source is not null && sink is not null)
-            {
-                sink.AddSource(source);
-            }
-        }
-    }
-
     // Finds an input or output parameter by full Name on a placed object: a component's matching param
     // list, or the floating param itself. Returns null when no match exists.
     private static IGH_Param? FindParam(IGH_DocumentObject obj, string? name, bool output)
@@ -1215,17 +1076,15 @@ internal static partial class GhJsonBridge
     // With paramIndexFirst set (the LLM path), Put placed components only and every connection is
     // wired here, paramIndex-first; unresolved endpoints surface as warnings the transmitter routes
     // back to the model.
-    private static PlaceResult ExecutePut(GhJsonDocument doc, PutOptions options, IReadOnlyList<string> unfixedIssues, Action<PutResult>? afterPlace = null, ClusterPlan? clusterPlan = null, ReferencePlan? referencePlan = null, bool paramIndexFirst = false, bool recordAuthoredIds = false, GH_Document? target = null)
+    private static PlaceResult ExecutePut(GhJsonDocument doc, PutOptions options, IReadOnlyList<string> unfixedIssues, Action<PutResult>? afterPlace = null, ClusterPlan? clusterPlan = null, ReferencePlan? referencePlan = null, bool paramIndexFirst = false, bool recordAuthoredIds = false)
     {
         IsImporting = true;
         PutResult result;
         try
         {
-            // Pin the canvas to the destination for the duration: the library places into whatever
-            // document the canvas is showing. Null target means the user's canvas — a model-authored
-            // graph belongs there, never in a harness the user happens to be editing. A preset
-            // passes the anchor Chat's own document, so a pipeline lands inside its harness.
-            result = PhyDocuments.OnCanvas(target, () => GhJsonGrasshopper.Put(doc, options));
+            // Always place on the user's canvas, never into a harness the user happens to be
+            // editing — the library targets whatever document the canvas is showing.
+            result = PhyDocuments.OnHostCanvas(() => GhJsonGrasshopper.Put(doc, options));
         }
         finally
         {
@@ -1277,7 +1136,7 @@ internal static partial class GhJsonBridge
 
             // Place clusters lifted out before Put and rewire their connections to the placed graph.
             GH_Document? hostDoc = result.PlacedObjects.FirstOrDefault()?.OnPingDocument()
-                ?? target ?? PhyDocuments.ActiveHost();
+                ?? PhyDocuments.ActiveHost();
 
             // Claim the file's ids for the placed objects in the stable-id registry, so the next
             // canvas export keeps the numbering the model authored (ids already taken by earlier
@@ -2284,10 +2143,6 @@ internal static partial class GhJsonBridge
         result.IdToGuidMapping.TryGetValue(id, out Guid guid)
             ? result.PlacedObjects.FirstOrDefault(o => o.InstanceGuid == guid)
             : null;
-
-    // A connection from the placeholder slot to re-wire against the live anchor: the other endpoint's
-    // GhJSON id + parameter name, the slot-side parameter name, and whether the slot was the source.
-    private readonly record struct RewireRequest(int OtherId, string? OtherParamName, string? SlotParamName, bool SlotIsSource);
 
     /// <summary>
     /// Re-establishes wireless Feedback -> FeedbackCollector links after placement. The links were

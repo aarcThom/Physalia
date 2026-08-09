@@ -16,7 +16,7 @@ namespace Physalia.GH.Components;
 /// tool (view, create, str_replace, insert, delete, rename) — a well-worn file-editing shape every
 /// frontier model handles, so the identical schema works on OpenAI and Gemini too. When the model
 /// calls it, the dispatched signal arrives from a Router, the node runs the command against
-/// <c>Files/memories</c> (a global folder shared across documents, plus a per-document local folder),
+/// <c>Files/MEMORIES</c> (a GLOBAL folder shared across documents, plus a per-document LOCAL folder),
 /// and it emits the result as a tool result (wire its Result output through a Feedback component into a
 /// Feedback Collector and back to the Router's Results input).
 ///

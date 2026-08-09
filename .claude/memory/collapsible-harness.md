@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 3d4edd5b-d992-413c-af74-15bf81d67005
-  modified: 2026-08-08T09:08:04.147Z
+  modified: 2026-08-09T05:29:56.911Z
 ---
 
 **Rewritten 2026-08-08.** A harness is now a real `GH_Document` owned by a proxy node; double-clicking
@@ -98,12 +98,26 @@ canvas). *`GH_Document.Context` looks like the natural signal but its own SDK do
 setter, not a getter — do not use it for this.* Existing files with pipelines loose on the canvas are
 therefore left alone; migrate them with the Chat's "Add to Harness".
 
-Because presets are Physalia pipelines, they must land **inside** the harness, not on the canvas —
-the splice rewires the workflow onto the live Chat and a wire cannot cross documents. So
-`PhyDocuments.OnHostCanvas` was generalised to `OnCanvas(target, action)` (null target = host), and
-`ExecutePut`/`PlaceDocument` gained a `target` document that `LoadAndPlaceAnchored` fills from
-`anchor.OnPingDocument()`. Model-authored graphs still pass null and land on the user's canvas.
-`ChatWindow.MoveIntoHarness` is gone — a preset no longer needs moving afterwards.
+**A preset is now a stock `.gh` file in `Files/Presets`** (renamed from `Files/PRESETS`), holding one
+harness's worth of pipeline — which is exactly what saving from inside a harness produces, so
+authoring one needs no export step. `HandlePlacePreset` reads the archive via
+`HarnessComponent.ReadDocumentFile` (`GH_Archive` + chunk `"Definition"` + `DestroyProxySources`,
+NOT `GH_DocumentIO.Open`, which stamps `FilePath` and appends to GH's recent-files MRU) and hands it
+to `ReplaceInnerDocument`, then re-points the window at the Chat inside. It refuses a preset with no
+Chat. A Chat still loose on the canvas (pre-harness file) gets the preset in a harness of its own
+beside it. **The whole ghjson-preset splice is deleted**: `LoadAndPlaceAnchored`, `RewireAnchor`,
+`RewireRequest`, `TryReadMetadataDescription`, the `target` parameter on `ExecutePut`/`PlaceDocument`
+and `PhyDocuments.OnCanvas` — every Put once again means "the user's canvas", so `OnHostCanvas` is
+back to being the only pin. `ChatWindow.MoveIntoHarness` is gone too.
+
+The Chat's **"Add to Harness" menu item is removed**, and with it `Chat.MoveSelectionIntoHarness` and
+`HarnessComponent.CreateFromSelection` (its only caller). Migrating a pre-harness file is now
+copy/paste: open a harness and paste the pipeline in — allowed, because the paste target is a harness
+document.
+
+Serialization behaves as wanted with no extra work: saving the host file writes the harness and its
+contents (the proxy's `Write` nests the whole document); saving *while inside* a harness writes just
+that harness's contents, which is what makes `.gh` presets authorable.
 
 **The GhJSON library ignores our host resolution — it resolves the target document ITSELF.**
 `CanvasReader.GetActiveDocument()` is literally `Instances.ActiveCanvas.Document`; `PutOptions` has

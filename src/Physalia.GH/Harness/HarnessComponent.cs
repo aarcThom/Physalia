@@ -106,66 +106,78 @@ public sealed class HarnessComponent : PhyBase
     }
 
     /// <summary>
-    /// Moves a set of objects off a document and into a new harness placed where they were.
+    /// Reads a Grasshopper file into a detached document, ready to become a harness's contents.
     ///
-    /// <para>The objects are carried across by archive rather than by reference: Grasshopper ties a
-    /// document object to the document that holds it, so a move is a serialize-delete-deserialize.
-    /// Wires between the moved objects survive because they are recorded by instance guid inside the
-    /// same archive; wires to objects left behind do not, which is why the Chat menu item pulls the
-    /// whole pipeline in at once.</para>
+    /// <para>Reads the archive directly rather than going through <c>GH_DocumentIO.Open</c>, which
+    /// stamps the file path onto the document and appends it to Grasshopper's recent-files list —
+    /// neither is wanted for bundled content the user never opened.</para>
     /// </summary>
-    /// <param name="host">The document the objects currently live on.</param>
-    /// <param name="objects">The objects to move; harness proxies are ignored.</param>
-    /// <returns>The harness left in their place, or null when there was nothing to move.</returns>
-    public static HarnessComponent? CreateFromSelection(GH_Document host, IReadOnlyList<IGH_DocumentObject> objects)
+    /// <param name="path">The .gh (or .ghx) file to read.</param>
+    /// <returns>The loaded document, or null when the file could not be read.</returns>
+    internal static GH_Document? ReadDocumentFile(string path)
     {
-        ArgumentNullException.ThrowIfNull(host);
-        ArgumentNullException.ThrowIfNull(objects);
-
-        var moving = objects.Where(o => o is not null and not HarnessComponent).ToList();
-        if (moving.Count == 0)
+        var archive = new GH_Archive();
+        if (!archive.ReadFromFile(path))
         {
             return null;
         }
 
-        // Where the group sat, so the proxy lands in the space it frees up.
-        PointF anchor = Centre(moving);
-
-        var chunk = new GH_LooseChunk("HarnessMove");
-        host.Write(chunk, moving);
-
-        var inner = new GH_Document();
-        if (!inner.Read(chunk))
+        var document = new GH_Document();
+        if (!archive.ExtractObject(document, "Definition"))
         {
             return null;
         }
+
+        document.DestroyProxySources();
+        return document;
+    }
+
+    /// <summary>
+    /// Creates a harness holding the given document. The caller places the proxy.
+    /// </summary>
+    /// <param name="contents">The document to hold.</param>
+    /// <returns>The new harness.</returns>
+    internal static HarnessComponent CreateWith(GH_Document contents)
+    {
+        ArgumentNullException.ThrowIfNull(contents);
 
         var harness = new HarnessComponent();
-        harness.Adopt(inner);
+        harness.CreateAttributes();
+        harness.Adopt(contents);
+        return harness;
+    }
 
-        // One undo record for the whole move, so a single Ctrl+Z restores the originals AND takes
-        // the harness away. Two records would let the user undo half of it and end up with both.
-        var undo = new GH_UndoRecord("Move into Harness");
+    /// <summary>
+    /// Swaps this harness's contents for another document, following the canvas across if the
+    /// harness happens to be open at the time.
+    /// </summary>
+    /// <param name="document">The document to hold from now on.</param>
+    public void ReplaceInnerDocument(GH_Document document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
 
-        // The harness goes on FIRST. Removing the originals fires RemovedFromDocument, and a Chat
-        // among them tells the chat window it is gone — which closes the window unless a
-        // replacement Chat is already reachable. Adding the harness up front means the relocated
-        // copy inside it is discoverable at that moment.
-        host.AddObject(harness, false);
-        harness.Attributes.Pivot = anchor;
-        undo.AddAction(new GH_AddObjectAction(harness));
+        GH_Document? previous = _inner;
+        bool wasOnCanvas = previous is not null && ReferenceEquals(Instances.ActiveCanvas?.Document, previous);
 
-        foreach (IGH_DocumentObject obj in moving)
+        Adopt(document);
+
+        // The old contents are dropped, not disposed — something may still hold a reference to a
+        // component in it (the chat window's Chat, for one). Disabling it stops it solving on.
+        if (previous is not null)
         {
-            undo.AddAction(new GH_RemoveObjectAction(obj));
+            previous.Enabled = false;
         }
 
-        host.RemoveObjects(moving, false);
-        host.UndoServer.PushUndoRecord(undo);
+        if (wasOnCanvas && Instances.ActiveCanvas is { } canvas)
+        {
+            canvas.Document = document;
+            document.Enabled = true;
+        }
 
-        harness.ExpireSolution(true);
-
-        return harness;
+        if (OnPingDocument() is not null)
+        {
+            ExpireSolution(true);
+        }
     }
 
     /// <summary>
@@ -357,19 +369,6 @@ public sealed class HarnessComponent : PhyBase
         }
 
         _inner.Enabled = true;
-    }
-
-    // The centre of a set of objects' bounds, used to drop the proxy where the group used to be.
-    private static PointF Centre(IReadOnlyList<IGH_DocumentObject> objects)
-    {
-        RectangleF box = RectangleF.Empty;
-        foreach (IGH_DocumentObject obj in objects)
-        {
-            RectangleF bounds = obj.Attributes?.Bounds ?? RectangleF.Empty;
-            box = box.IsEmpty ? bounds : RectangleF.Union(box, bounds);
-        }
-
-        return new PointF(box.X + (box.Width / 2f), box.Y + (box.Height / 2f));
     }
 
     // Frames the harness contents in the viewport, mirroring GH's own cluster-editing transition.

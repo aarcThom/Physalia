@@ -1384,15 +1384,15 @@ public class ChatWindow : Form
         MaybePushChats();
     }
 
-    // Pushes the bundled presets (file name + metadata.description) to the page, but only when the
-    // set actually changes. A cheap signature (file names + last-write times) is compared first so
-    // the descriptions — which require parsing each .ghjson — are re-read only on a real change, not
-    // on every 0.15 s tick.
+    // Pushes the bundled presets to the page, but only when the set actually changes — a cheap
+    // signature (file names + last-write times) is compared first, so this is nearly free on the
+    // 0.15 s tick. No description is offered: a Grasshopper file carries none that can be read
+    // without instantiating every component in it, so the file name is the label.
     private void MaybePushPresets()
     {
         string dir = GetPresetsDir();
         List<string> paths = Directory.Exists(dir)
-            ? Directory.EnumerateFiles(dir, "*.ghjson")
+            ? Directory.EnumerateFiles(dir, "*.gh")
                 .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
                 .ToList()
             : new List<string>();
@@ -1411,7 +1411,7 @@ public class ChatWindow : Form
             .Select(p => new
             {
                 file = Path.GetFileName(p),
-                description = Generation.GhJsonBridge.TryReadMetadataDescription(p),
+                description = (string?)null,
             })
             .ToList();
 
@@ -1829,11 +1829,13 @@ public class ChatWindow : Form
         }
     }
 
-    // Places a bundled preset (.ghjson from Files/PRESETS) onto the canvas at the centre of the
-    // current view. The requested file name is validated against the presets directory (only a
-    // bare file name from the enumerated set is honoured — no path traversal). Runs on the UI
-    // thread (bridge dispatch); GhJsonBridge.LoadAndPlace -> Put mutates the document and triggers
-    // its own solution, which is safe here (outside any active solve, as in HandleConnectConversationLog).
+    // Loads a bundled preset (a .gh from Files/PRESETS) as the contents of a harness.
+    //
+    // A preset IS a harness's document, so there is nothing to place, splice or re-wire: the file is
+    // read and becomes the harness's contents wholesale, and the window re-points at the Chat inside
+    // it. The requested file name is validated against the presets directory (only a bare file name
+    // from the enumerated set is honoured — no path traversal). Runs on the UI thread (bridge
+    // dispatch), so swapping a document is safe here — outside any active solve.
     private void HandlePlacePreset(Uri uri)
     {
         string file = Path.GetFileName(GetQueryValue(uri.Query, "file"));
@@ -1842,47 +1844,70 @@ public class ChatWindow : Form
             return;
         }
 
-        string presetsDir = GetPresetsDir();
-        string path = Path.Combine(presetsDir, file);
+        string path = Path.Combine(GetPresetsDir(), file);
         if (!File.Exists(path))
         {
             Rhino.RhinoApp.WriteLine($"[Physalia] Preset not found: {file}");
             return;
         }
 
-        // The first Chat in the preset is a placeholder slot: this window's live Chat is spliced
-        // in for it and the rest of the workflow is laid out relative to where the Chat sits. Make
-        // sure the Chat is on the canvas first so there is something to anchor to.
-        GH_Document? doc = EnsureComponentPlaced();
-        if (doc is null)
+        // Guarantees a harness exists to load into: an unplaced Chat is dropped inside a fresh one.
+        GH_Document? current = EnsureComponentPlaced();
+        if (current is null)
         {
+            Rhino.RhinoApp.WriteLine("[Physalia] No Grasshopper canvas to add the preset to.");
             return;
         }
 
-        // Force a layout so the Chat's pivot is valid (GH lays attributes out lazily) before it is
-        // used as the placement anchor.
-        _component.Attributes.ExpireLayout();
-        _component.Attributes.PerformLayout();
-
         try
         {
-            Generation.PlaceResult result = Generation.GhJsonBridge.LoadAndPlaceAnchored(path, _component, _component.ComponentGuid);
-            if (!result.Success)
+            GH_Document? contents = Harness.HarnessComponent.ReadDocumentFile(path);
+            if (contents is null)
             {
-                Rhino.RhinoApp.WriteLine($"[Physalia] Preset placement failed: {result.ErrorMessage}");
+                Rhino.RhinoApp.WriteLine($"[Physalia] Preset could not be read: {file}");
                 return;
             }
 
-            // The preset was placed into the Chat's own document — its harness — because the
-            // splice rewires the workflow onto the live Chat and a wire cannot cross documents.
-            // Nothing to move afterwards: it already landed where it belongs.
-            doc.NewSolution(false); // register the re-wired sources, then redraw
+            // The window has to land on a Chat, and a preset that carries none would leave it
+            // driving the pipeline it just replaced. Refuse rather than half-apply.
+            if (contents.Objects.OfType<Chat>().FirstOrDefault() is not { } presetChat)
+            {
+                Rhino.RhinoApp.WriteLine(
+                    $"[Physalia] Preset '{file}' contains no Chat component, so there would be nothing to "
+                    + "drive it. Save a preset from inside a harness that has one.");
+                return;
+            }
+
+            if (Harness.HarnessComponent.OwnerOf(current) is { } harness)
+            {
+                harness.ReplaceInnerDocument(contents);
+            }
+            else
+            {
+                // The Chat is loose on the canvas (a file from before harnesses). Give the preset a
+                // harness of its own beside it rather than disturbing what is already there.
+                DropPresetHarness(current, contents);
+            }
+
+            SetActiveComponent(presetChat);
             Instances.ActiveCanvas?.Refresh();
         }
         catch (Exception ex)
         {
-            Rhino.RhinoApp.WriteLine($"[Physalia] Preset placement failed: {ex.Message}");
+            Rhino.RhinoApp.WriteLine($"[Physalia] Preset could not be added: {ex.Message}");
         }
+    }
+
+    // Drops a harness carrying the preset onto the host canvas, to the right of the window.
+    private void DropPresetHarness(GH_Document chatDocument, GH_Document contents)
+    {
+        GH_Document host = Harness.PhyDocuments.Host(chatDocument) ?? chatDocument;
+        GH_Canvas? canvas = Instances.ActiveCanvas;
+
+        Harness.HarnessComponent harness = Harness.HarnessComponent.CreateWith(contents);
+        harness.Attributes!.Pivot = canvas is null ? new System.Drawing.PointF(50f, 50f) : AnchorRightOfWindow(canvas);
+        host.AddObject(harness, false);
+        harness.ExpireSolution(true);
     }
 
     private static IGH_Param? FindInputByName(IGH_Component component, string name)
@@ -1999,7 +2024,9 @@ public class ChatWindow : Form
             : Path.Combine(assemblyDir, "Files", "API_KEY_CONFIG.YAML");
     }
 
-    // Directory of bundled GhJSON preset definitions shipped beside the plug-in (Files/PRESETS).
+    // Directory of bundled preset harnesses shipped beside the plug-in (Files/PRESETS). A preset is
+    // an ordinary Grasshopper file holding one harness's worth of pipeline — which is exactly what
+    // saving from inside a harness produces, so authoring one needs no export step.
     private static string GetPresetsDir()
     {
         string? assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);

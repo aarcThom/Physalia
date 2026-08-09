@@ -5,11 +5,22 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5eb77ca2-b5d4-41b5-99ed-df20ad19d9aa
+  modified: 2026-08-09T05:29:46.329Z
 ---
+
+**SUPERSEDED 2026-08-08 (section 1 only).** A preset is now a **stock `.gh` file in `Files/Presets`**,
+not a `.ghjson`: it holds one harness's worth of pipeline, so `HandlePlacePreset` reads the archive
+(`HarnessComponent.ReadDocumentFile`, chunk `"Definition"`, direct `GH_Archive` rather than
+`GH_DocumentIO.Open` — which stamps FilePath and pollutes GH's recent-files MRU) and hands it to
+`HarnessComponent.ReplaceInnerDocument`, then re-points the window at the Chat inside. **No splice,
+no placeholder, no re-wiring** — `LoadAndPlaceAnchored`, `RewireAnchor` and `RewireRequest` are
+DELETED, along with `TryReadMetadataDescription` (a `.gh` carries no readable description, so the
+gallery shows file names only). Authoring a preset = save from inside a harness. See
+[[collapsible-harness]]. Sections 2 and 3 below still stand.
 
 Session 2026-06-23 changes to how the chat window's "Add preset" places a bundled `.ghjson` workflow. Extends [[chat-window]]. Builds clean (`dotnet build src/Physalia.slnx`); live-Rhino verification still pending.
 
-## 1. Preset placement splices in the live Chat (no duplicate)
+## 1. Preset placement splices in the live Chat (no duplicate) — SUPERSEDED, see above
 A preset's first `Chat` component is a **placeholder slot** — it must NOT be instantiated. The window's already-placed live `Chat` (`_component`) is spliced in for it, and the whole workflow is laid out relative to where that live Chat sits. Before this fix, `HandlePlacePreset` called `GhJsonBridge.LoadAndPlace(path, viewport.MidPoint)` which placed a *second* dead Chat driving the wired pipeline (orphaned red `Prompt Signal` wire).
 
 - **New `GhJsonBridge.LoadAndPlaceAnchored(string path, IGH_Component anchor, Guid placeholderComponentGuid)`** (`Generation/GhJsonBridge.cs`): FromFile → `GhJson.Fix` → find FIRST component whose `ComponentGuid == placeholderComponentGuid` → record its pivot + every connection touching its id (the OTHER endpoint id + param names + direction) → rebuild the `GhJsonDocument` WITHOUT that component and those connections → `Offset = anchorPivot − placeholderPivot`, `AutoOffset=false` (so the graph keeps its relative layout but lands on the live Chat) → `Put` → re-wire each captured connection to the matching **named** param on `anchor`, remapping the other endpoint's id → placed `InstanceGuid` via `PutResult.IdToGuidMapping` (same pattern as `RestoreFeedbackLinks`). No placeholder found → falls back to ordinary placement at the anchor pivot.

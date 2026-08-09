@@ -1,9 +1,8 @@
 <script lang="ts">
-	// "Add preset" page. Lists the bundled GhJSON preset definitions shipped under Files/PRESETS
-	// (pushed by the host via setPresets) and places the chosen one onto the canvas through the
-	// bridge. Each preset is a pre-wired Physalia pipeline; placing one drops it at the centre of
-	// the current canvas view. The button shows the preset's file name; hovering reveals a popup
-	// with the description taken from the file's metadata.description.
+	// "Add preset" page. Lists the bundled preset harnesses shipped under Files/PRESETS (pushed by
+	// the host via setPresets) and loads the chosen one through the bridge. A preset is an ordinary
+	// Grasshopper file holding one harness's worth of pipeline, so it becomes the harness's contents
+	// wholesale. The button shows the preset's file name.
 	import { Button } from '$lib/components/ui/button/index.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -21,9 +20,9 @@
 
 	let { presets, onplace, onclose }: Props = $props();
 
-	// Button label = the file name without the redundant .ghjson extension.
+	// Button label = the file name without the redundant .gh extension.
 	function presetName(file: string): string {
-		return file.replace(/\.ghjson$/i, '');
+		return file.replace(/\.gh$/i, '');
 	}
 </script>
 
@@ -37,8 +36,8 @@
 
 	<h2 class="text-lg font-semibold">Add a preset</h2>
 	<p class="text-muted-foreground mt-1 text-sm">
-		Drop a ready-made Physalia pipeline onto the canvas. Pick one below — it appears at the centre
-		of your current view, ready to wire up. Hover a preset to see what it does.
+		Load a ready-made Physalia pipeline into your harness. Pick one below — it replaces whatever
+		the harness holds now, ready to use.
 	</p>
 
 	{#if presets.length > 0}
@@ -67,8 +66,8 @@
 		<div class="mt-6 flex flex-col items-center gap-4">
 			<HappyFace />
 			<p class="text-muted-foreground text-center text-sm">
-				No presets found. Add <code>.ghjson</code> files to the plug-in's
-				<code>Files/PRESETS</code> folder and they'll show up here.
+				No presets found. Save a harness as a Grasshopper file, drop the <code>.gh</code> into the
+				plug-in's <code>Files/PRESETS</code> folder, and it'll show up here.
 			</p>
 		</div>
 	{/if}

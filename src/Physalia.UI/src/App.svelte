@@ -161,7 +161,7 @@
 	// pushed by the host; null = no estimator wired (or no count yet) → the counter hides.
 	let tokenCount = $state<number | null>(null);
 
-	// Bundled presets (from Files/PRESETS), pushed by the host.
+	// Bundled preset harnesses (from Files/PRESETS), pushed by the host.
 	let presets = $state<UiPreset[]>([]);
 	// Every Chat on the canvas (the bottom switcher row), pushed by the host.
 	let chats = $state<UiChat[]>([]);
@@ -307,7 +307,7 @@
 		window.location.href = `${BRIDGE_SCHEME}://connectconversationlog`;
 	}
 
-	// Ask the host to place the chosen bundled preset (.ghjson) on the canvas, then return to chat.
+	// Ask the host to load the chosen bundled preset (.gh) into the harness, then return to chat.
 	function placePreset(file: string) {
 		window.location.href = `${BRIDGE_SCHEME}://placepreset?file=${encodeURIComponent(file)}`;
 		panel = null;

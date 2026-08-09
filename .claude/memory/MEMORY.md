@@ -91,6 +91,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 ## Platform / Build
 - [SVG → transparent PNG](svg-rasterization-headless-chrome.md) — no magick/inkscape/rsvg on this box; rasterize icons with headless Chrome + `--default-background-color=00000000`.
 - [Physalia repo gotchas](physalia-repo-gotchas.md) — slnx in `src/`; the `Files` → bin pipeline + its two MSBuild gotchas (stray `src/Physalia.GH/Files`, VS one-build UI lag needing `DisableFastUpToDateCheck` on BOTH projects).
+- [ILRepack Release double-merge](ilrepack-release-double-merge.md) — the package ships its own Release-ONLY merge target that fails; the empty `src/Physalia.GH/ILRepack.targets` exists solely to suppress it. Don't delete it.
 - [Mac todo](mac-todo.md) — Windows-only / unverified-on-Mac surfaces: PrompterAttrib WinForms, the Serializer `#if WINDOWS` split, GhPythonBridge DLL HintPaths.
 - [GH code editor abandoned](gh-code-editor-abandoned.md) — native GH script editor unreachable (Eto 2.7-vs-2.11 CS1705 + a lifecycle requirement); custom Eto dialog instead.
 - [Python output list access](python-output-list-access.md) — **RESOLVED 2026-06-29** (this index line said "STILL BROKEN" until 2026-07-30; the topic file was right). Real fix = `MarshOutputs` on, plus No Type Hint + List access.

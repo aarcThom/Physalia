@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
-using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.ConvoInstruct;
@@ -332,58 +331,6 @@ public class Chat : StatefulComponentBase
                 // The top-of-method reset ran before _emoji changed, so rebuild the icon now.
                 ResetEmojiIcon();
             }
-        }
-    }
-
-    /// <inheritdoc/>
-    public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
-    {
-        base.AppendAdditionalMenuItems(menu);
-        Menu_AppendSeparator(menu);
-
-        // Moving into a harness only makes sense from the user's canvas: a harness cannot contain
-        // another, and there is nothing to move a pipeline out of when it is already inside one.
-        bool insideHarness = PhyDocuments.IsHarnessDocument(OnPingDocument());
-
-        Menu_AppendItem(
-            menu,
-            "Add to Harness",
-            (_, _) => MoveSelectionIntoHarness(),
-            enabled: !insideHarness);
-    }
-
-    /// <summary>
-    /// Moves this Chat and the document's other selected objects into a new harness, leaving a
-    /// harness proxy in their place. This is the pipeline's route off the user's canvas and into
-    /// its own document.
-    /// </summary>
-    public void MoveSelectionIntoHarness()
-    {
-        GH_Document? doc = OnPingDocument();
-        if (doc is null || PhyDocuments.IsHarnessDocument(doc))
-        {
-            return;
-        }
-
-        // The Chat anchors the pipeline, so it always travels even when the user selected only the
-        // components around it.
-        var moving = doc.SelectedObjects()
-            .Where(o => o is not HarnessComponent)
-            .ToList();
-
-        if (!moving.Any(o => ReferenceEquals(o, this)))
-        {
-            moving.Add(this);
-        }
-
-        HarnessComponent? harness = HarnessComponent.CreateFromSelection(doc, moving);
-
-        // The move is an archive round-trip, so this instance is deleted and a copy of it lands
-        // inside the harness. Any open window was bound to the original — re-point it at the copy,
-        // or it would be driving a Chat that is no longer on any document.
-        if (harness?.InnerDocument?.Objects.OfType<Chat>().FirstOrDefault() is { } relocated)
-        {
-            _activeWindow?.SetActiveComponent(relocated);
         }
     }
 

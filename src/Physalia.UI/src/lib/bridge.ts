@@ -219,11 +219,11 @@ export interface UiChat {
 	emoji: string;
 }
 
-/** A bundled preset (.ghjson in Files/PRESETS) offered on the Add-preset page. */
+/** A bundled preset harness (.gh in Files/PRESETS) offered on the Add-preset page. */
 export interface UiPreset {
-	/** The preset file name, e.g. "complex-node.ghjson" — used as the wire value when placing. */
+	/** The preset file name, e.g. "claude-code-node.gh" — used as the wire value when loading. */
 	file: string;
-	/** The preset's metadata.description, shown on hover. Null/absent when none is set. */
+	/** Unused for .gh presets, which carry no readable description. Kept for the popup shape. */
 	description?: string | null;
 }
 
@@ -236,7 +236,7 @@ export interface PhysaliaHost {
 	/** Estimated token count from a Token Estimator wired downstream of the viewed Conversation Log,
 	 *  or null to hide the counter (no estimator wired, or no count produced yet). */
 	setTokenCount(count: number | null): void;
-	/** Bundled presets (from Files/PRESETS) for the Add-preset page. */
+	/** Bundled preset harnesses (from Files/PRESETS) for the Add-preset page. */
 	setPresets(presets: UiPreset[]): void;
 	/** Every Chat on the canvas, for the bottom switcher row. */
 	setChats(chats: UiChat[]): void;

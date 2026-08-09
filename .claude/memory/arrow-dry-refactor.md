@@ -26,4 +26,4 @@ metadata:
 - `CollapseGuard.CollapseParams` is still called by `CollapsedProxyAttributes` (native-node param collapse — different API, legit, it's a `GH_Attributes<IGH_DocumentObject>` not in the spine).
 - `PrompterAttrib` left untouched (bespoke; note it does NOT honour CollapseGuard — possible real gap, not addressed).
 
-Note: memory notes that describe the OLD arrow internals ([[collapsed-chatbox-arrow]], [[chat-widget]]) still describe behaviour correctly but the *implementation* now routes through `ArrowGrip` + this spine.
+Note: the arrow is now hosted by the **harness proxy**, not the transmitters — see [[harness-subdocument]] — but it still routes through `ArrowGrip` + this spine.

@@ -54,9 +54,6 @@ export interface UiState {
 	status: string;
 	/** Setup-screen ids of every provider already configured (matches providers.ts ids). */
 	configuredProviders: string[];
-	/** True once the viewed Chat sits in a harness on the canvas — retires the connect screen's
-	 *  "Place predefined/empty harness" options, since a second harness would orphan the first. */
-	harnessPlaced: boolean;
 	/** True when a component-catalog grounding is wired into the Conversation Log (greys the grounding icon when false). */
 	groundingWired: boolean;
 	/** The available component tabs and their panels, for the grounding selector. */

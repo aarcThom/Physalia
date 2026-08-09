@@ -110,14 +110,48 @@ Events between pipeline components travel as **`PhySignal`s** — immutable, seq
 
 ---
 
+## The Harness — the plug-in's base unit (`src/Physalia.GH/Harness/`)
+
+A **Harness** (`HarnessComponent`) holds its own `GH_Document`. The user's canvas carries only the
+proxy node; the entire Physalia pipeline — Chat included — lives inside it. Right-click →
+**"Edit Harness"** points the canvas at the inner document, the canvas return widget comes back,
+double-click opens the chat window on the Chat inside. It needs no cluster input/output hooks: a
+pipeline never exchanges *dataflow* with the canvas, it only scans it and writes to it by side effect.
+
+- **Every Physalia component must live in a harness.** `HarnessResidency` (hooked from
+  `PhyBase.AddedToDocument`) removes a stray on the next idle pass and says why on the Rhino command
+  line. Exempt: the proxy itself, anything already inside a harness, `GhJsonBridge.IsImporting`, and
+  anything added to a document that is not the canvas document (that is how a file load is told apart
+  from a user placement — existing files are left alone).
+- **`OnPingDocument()` inside a harness returns the SUB-document.** Use `PhyDocuments.Host(this)` /
+  `ActiveHost()` for anything meaning "the user's canvas" (grounding, placement, reports, memory
+  scope); keep `ScheduleSolution`/`NewSolution` and co-resident peer lookups on the local document.
+  The GhJSON library resolves its own target from the active canvas, so its writes are wrapped in
+  `PhyDocuments.OnHostCanvas(...)` and its reads replaced by `GhJsonBridge.SerializeByGuids`.
+- **Ownership is ours, not `GH_Document.Owner`** (a `ConditionalWeakTable` in `HarnessComponent`).
+  Setting `Owner` makes Grasshopper paint its own cluster icon whose menu disposes the document.
+- **Presets are stock `.gh` files** in `Files/PRESETS`, each one a harness's worth of pipeline —
+  exactly what saving from inside a harness produces. Loading one adds a NEW harness holding it.
+- **A document may hold any number of harnesses** — one per line of work. Nothing is ever replaced or
+  swept: each placement mints its own Chat (except the first, which adopts the window's detached one),
+  drops the proxy at the first free spot right of the window (`PlaceHarness` steps down past anything
+  already there), and switches the window to the new Chat. The switcher row is the way back.
+- Nothing is placed automatically: the chat window's connect screen offers "Place predefined harness"
+  and "Place empty harness", and the header menu carries the same two ("Add preset" / "Add empty
+  harness") for once a conversation is under way.
+
+Detail: memory note `harness-subdocument`.
+
+---
+
 ## GH Component Inventory
 
 ### Built (`src/Physalia.GH/Components/`)
 | Folder | Components |
 |---|---|
-| **Pipeline** | System Prompt (system prompt assembly; takes a `Grounding` list folded into the prompt), Chat (chat window entry point; mints Prompt Signals; displays the wired Conversation Log's conversation), Conversation Log (append-only conversation log; identity-based turns via four Signal inputs — input order: System Prompt, Prompt Signal, Grounding, Human Tools, Response Signal, Feedback Signal, LLM Tool Signal), LLM Call (async LLM forward pass) |
+| **Pipeline** | Harness (the base unit — a proxy over its own sub-document holding the pipeline; right-click "Edit Harness" to go in, double-click opens the chat window), System Prompt (system prompt assembly; takes a `Grounding` list folded into the prompt), Chat (chat window entry point; mints Prompt Signals; displays the wired Conversation Log's conversation; lives INSIDE a harness), Conversation Log (append-only conversation log; identity-based turns via four Signal inputs — input order: System Prompt, Prompt Signal, Grounding, Human Tools, Response Signal, Feedback Signal, LLM Tool Signal), LLM Call (async LLM forward pass) |
 | **Guardrails** | Schema Validator (JSON extraction + schema validation), GH Definition Validator (GhJSON/ghpatch parse + library schema + structural integrity), Component Resolver, Required Input Check (statically knowable wiring defects: required inputs wired/internalized, multi-wire into item-access inputs, endpoint paramIndex bounds, orphan data components — full graphs and ghpatch adds), Fidelity Check (post-placement intent-vs-realization diff via the authored-placement ledger; self-sources the definition recorded at placement when its Definition input is unwired/miswired; full graphs only, patches pass through), Runtime Health Check (was Canvas Observation — errors/dead/null scan with sampled values; Fail on Warnings is a context-MENU toggle, not an input — never register an input before the base-appended Signal on a shipped RoutingComponentBase subclass, it shifts saved-doc param layouts), Geometry Observation (viewport snapshot; single Signal output via `HasFailOutput => false`), Geometry Report (text-only spatial digest: per-component bboxes, disjoint groups + gaps, containments — the non-image fidelity feedback; single Signal output via `HasFailOutput => false`. Its closing instruction is single-shot — "matches your intent → reply in prose" — UNLESS the Message input carries a Build Plan progress digest, detected by `BuildPlanParser.DigestMarker`, in which case the digest's staged instruction replaces it and leads the report) |
-| **GhPython** | PyTransmitter (pushes generated Python into a linked Script component via grip-link; routes its errors; when an enabled Interface Lock grip-links to it, pushes **code only** — never restructures the target's params — and rejects submissions declaring unknown input/output names with corrective Fail feedback), PythonShortcut |
+| **GhPython** | PyTransmitter (pushes generated Python into a linked Script component — linked via its right-click "Link to Script Component" picker over the HOST canvas, since a grip drag cannot cross into a harness; the drag arrow itself is hosted by the harness proxy; routes its errors; when an enabled Interface Lock grip-links to it, pushes **code only** — never restructures the target's params — and rejects submissions declaring unknown input/output names with corrective Fail feedback), PythonShortcut |
 | **Grounding** | ClusterGrounder (.ghx cluster — scaffold), PythonGrounder (python function — scaffold), CanvasStateGrounder, ComponentCatalogGrounder, DocumentUnitsGrounder, Tools Present (`ToolsInUse` — scans Router-wired tool nodes, emits `ToolsGrounding`; lives here, not under LLM Tools, because its output is grounding), Interface Lock (`InterfaceLock` — grip-links to a **PyTransmitter** via its own bottom arrow/gradient wire, reads the transmitter's target script component and emits `ScriptInterfaceGrounding`: the exact inputs (name/type-hint/access) and outputs (name/access) rendered as verbatim-copyable PythonComponent JSON entries, declared LOCKED; the same link makes the transmitter enforce the contract — see GhPython row. Refreshes via a SolutionEnd signature watch; disabling the component suspends the lock without unlinking) — all emit `GH_Grounding` for the Conversation Log's Grounding input. `Grounding` is a Core discriminated union (`ComponentCatalogGrounding` migrated from System Prompt's old catalog input; `GH_Grounding.CastFrom` adapts producer goo like `GH_ComponentCatalog`) |
 | **LLM Tools** | Model-callable tools (`LlmToolComponentBase : StatefulComponentBase`; Core type `LlmToolDefinition`, goo `GH_LlmToolDefinition`, param `Param_LlmToolDefinition`): WebSearch, ReadUrl, MemoryTool, RhinoGeometryTool, ComponentSearch, RhinoCommonSearch — plus Router (dispatch loop). Tools Present lives in the **Grounding** section |
 | **Human Tools** | Chat-window affordances for the HUMAN, not the model (`HumanToolComponentBase : PhyBase` — passive emitters: no inputs, one `Param_HumanTool` output; Core union `HumanTool` in `Physalia.Core/HumanTools/`): Geometry Snapshot + View Snapshot (both `SnapshotToolComponentBase`, which owns the shared "Send With Default Message" context-menu toggle: on = the capture is sent as its own message carrying an editable default message, off = it attaches to the prompt box for the human to caption, on its OWN image lane independent of Add Image and of the other snapshot tool. Geometry Snapshot frames the camera on transmitter-generated geometry and is armed only while such geometry exists; **View Snapshot captures the active viewport as-is — no geometry scan, no camera move, so wired is armed**), Add Image (enables image paste/drop/picker in the prompt box — image intake is fully disabled without it, except for a snapshot tool's own attach lane, see `ConversationLog.AcceptsPromptImages`), Export Conversation (header button → saves the viewed conversation as a .txt transcript; **replaced the `/export` slash command**, which no longer exists — the composer now has no built-in commands), Signal Trace (header button → opens `SignalTraceWindow`; **replaced the signal-trace canvas widget**, which was deleted. The trace log itself is still process-wide/session-wide, not per-conversation). Wired into the Conversation Log's Human Tools input; never touch the system prompt, never advertised to the model |
@@ -214,5 +248,7 @@ Other: `Colour`
         /SYSTEM_PROMPTS
         /PROMPTS
         /RECEIVERS        ← .receiver files
+        /PRESETS          ← preset harnesses (.gh — a saved harness sub-document)
+        /MEMORIES         ← memory tool: /GLOBAL and /LOCAL/<document-key>
         /agent_guides
 ```

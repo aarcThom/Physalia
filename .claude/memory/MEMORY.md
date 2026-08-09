@@ -9,7 +9,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Commit/PR messages output-only](commit-and-pr-messages-output-only.md) — print them in chat; never run `git commit`/`push`/`gh`.
 
 ## Latest
-- **2026-08-08: the harness is now a REAL owned sub-document** — double-click the proxy and the canvas goes into it, cluster-style. The whole in-place visual collapse is deleted. Core new seam: `PhyDocuments.Host()` splits *local* document (scheduling, peer lookups) from *host* document (grounding, placement, reports) — the 13 `ActiveCanvas.Document` sites in `GhJsonBridge*` were the dangerous ones. See [[collapsible-harness]]. **Gating spike untested in Rhino: does an off-canvas owned document run its own `ScheduleSolution` timer?**
+- **2026-08-08: the HARNESS is the plug-in's base unit — a real owned GH sub-document.** Right-click → "Edit Harness" goes inside; every Physalia component must live in one (`HarnessResidency` removes strays); presets are stock `.gh` files in `Files/PRESETS`; nothing is placed until the user asks, and a document may hold **many** harnesses (2026-08-08 follow-up: placement never replaces or sweeps — each mints its own Chat and finds a free spot). The whole in-place visual collapse is DELETED. Core seam: `PhyDocuments` splits *local* document (scheduling, peer lookups) from *host* document (grounding, placement, reports). See [[harness-subdocument]]. **Nothing here has run in Rhino yet — the gating spike is whether an off-canvas owned document runs its own `ScheduleSolution` timer.**
 - **2026-08-04: the phy_critter mark is the project's ONLY logo.** Canvas widget → `Resources/critter.png`; chat UI → inlined in `HappyFace.svelte`. The old jellyfish (`Images/logo.svg`, `Resources/logo.png`) is DELETED. `Images/physalia.svg` (README wordmark) is a separate asset, untouched. See [[chat-widget]], [[svg-rasterization-headless-chrome]].
 - [Interface Lock grounder](interface-lock-grounder.md) — 2026-07-31: new Grounding component grip-links to a PyTransmitter, emits `ScriptInterfaceGrounding` (target's exact I/O as copyable JSON) and makes the transmitter push code-only + reject unknown param names; first-ever type-hint READ-back via `Converter.TargetType.Type`. Live Rhino test pending.
 - [Compaction tool-pairing fix](compaction-tool-pairing-fix.md) — 2026-07-29: the Anchored Window's `Keep First = 2` cut a tool exchange in half, Anthropic 400'd, and a staged build died at 3/5. `Reassemble` now pairs BOTH directions, `KeepHeadAndTail` never splits an exchange, `LlmCall` repairs before sending. Gemini tool calls still unparsed. Live Rhino test pending.
@@ -59,15 +59,13 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 
 ## Chat UI & Canvas
 - [Chat window](chat-window.md) — Eto WebView + full Svelte/shadcn UI in `src/Physalia.UI`; bundle EMBEDDED in the assembly, extracted to temp at runtime. Plan: `planning/chat-window.md`.
-- [Chat widget](chat-widget.md) — bottom-right canvas widget opens the chat window; find-or-creates a Chat; `IsPipelineReady` setup detection.
+- [Chat widget](chat-widget.md) — bottom-right canvas widget opens the chat window; finds a Chat anywhere (harnesses included) or creates a detached one. Places NOTHING.
+- [Harness sub-document](harness-subdocument.md) — the base unit: a real owned `GH_Document` behind a proxy node. Local-vs-host split, residency guard, `.gh` presets, proxy-hosted arrows.
+- [Chat window placement fixes](chat-window-placement-fixes.md) — full-name `ExpireLayout`; window centred over the GH editor for multi-monitor anchoring.
 - [UI design: neumorphism](ui-design-neumorphism.md) — `--neu-*` tokens + `.neu-*` helpers; the two edge-shadow gotchas (gutter clip, overflow-hidden clips child shadows).
 - [Chatbox switcher row](chatbox-switcher-row.md) — bottom circles switch the one window between Chat components; `selectchatbox` bridge verb.
 - [Chatbox emoji identity](chatbox-emoji-identity.md) — random ocean emoji as canvas icon + switcher dot (TextRenderer colour emoji, deduped, persisted).
 - [Chat token counter](chat-token-counter.md) — mirrors the TokenEstimator downstream of the viewed chat's Conversation Log; hidden when none wired.
-- [Preset placement](preset-placement.md) — "Add preset" splices the live Chat into the preset's placeholder slot; + `ExpandToFullName` ExpireLayout fix; window centres over the GH editor.
-- [Collapsible harness](collapsible-harness.md) — hide/show a Chat's pipeline behind the proxy node (in-place visual collapse, not a cluster); `src/Physalia.GH/Harness/`.
-- [Collapsed Chatbox arrow](collapsed-chatbox-arrow.md) — proxy shows a delegated bottom drag arrow (`IHarnessArrow`) when it holds exactly one transmitter.
-- [GH collapsed-harness grips](gh-collapsed-harness-grips.md) — block wire-drag by gating PARAM-attribute HasInput/OutputGrip, not the component; hidden members leak grips at the proxy pivot.
 - [GH no-preview Hidden palette](gh-nopreview-hidden-palette.md) — to tint a signal-only component via GH_Skin, swap the **Hidden** palette: GH forces non-preview nodes onto `GH_Palette.Hidden`.
 - [Resources tab + Image Gatherer](resources-tab-image-gatherer.md) — ImageResource goo, path-only persistence, and the Eto/WPF GridView edit-commit gotcha (two crashes).
 - [Prompter image references](prompter-image-references.md) — `/<alias>` inline images: Core parser, signal flow, alias rules, PrompterAttrib grip gotcha.

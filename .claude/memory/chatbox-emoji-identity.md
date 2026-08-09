@@ -34,4 +34,4 @@ Rhino test of the colour icons pending.
   bitmap *and* live on the canvas DC — both monochrome. To colour-render a system emoji font you
   need DirectWrite/Direct2D, SkiaSharp, or pre-made images; we chose pre-made images.
 
-Related: [[chatbox-switcher-row]], [[collapsible-harness]], [[chat-window]].
+Related: [[chatbox-switcher-row]], [[harness-subdocument]], [[chat-window]].

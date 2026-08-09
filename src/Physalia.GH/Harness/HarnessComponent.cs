@@ -148,39 +148,6 @@ public sealed class HarnessComponent : PhyBase
     }
 
     /// <summary>
-    /// Swaps this harness's contents for another document, following the canvas across if the
-    /// harness happens to be open at the time.
-    /// </summary>
-    /// <param name="document">The document to hold from now on.</param>
-    public void ReplaceInnerDocument(GH_Document document)
-    {
-        ArgumentNullException.ThrowIfNull(document);
-
-        GH_Document? previous = _inner;
-        bool wasOnCanvas = previous is not null && ReferenceEquals(Instances.ActiveCanvas?.Document, previous);
-
-        Adopt(document);
-
-        // The old contents are dropped, not disposed — something may still hold a reference to a
-        // component in it (the chat window's Chat, for one). Disabling it stops it solving on.
-        if (previous is not null)
-        {
-            previous.Enabled = false;
-        }
-
-        if (wasOnCanvas && Instances.ActiveCanvas is { } canvas)
-        {
-            canvas.Document = document;
-            document.Enabled = true;
-        }
-
-        if (OnPingDocument() is not null)
-        {
-            ExpireSolution(true);
-        }
-    }
-
-    /// <summary>
     /// Gets the harness document, creating it on first use.
     /// </summary>
     /// <returns>The inner document, owned by this component.</returns>

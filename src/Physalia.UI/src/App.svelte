@@ -59,9 +59,6 @@
 	let connected = $state(false);
 	let busy = $state(false);
 	let needsSetup = $state(false);
-	// True once this Chat sits in a harness on the canvas; retires the connect screen's placement
-	// options so a second harness can't orphan the first.
-	let harnessPlaced = $state(false);
 	let status = $state('');
 	let configuredProviders = $state<string[]>([]);
 	// Grounding state for the grounding panel: whether a component catalog is wired (enables the
@@ -195,7 +192,6 @@
 				connected = next.connected;
 				busy = next.busy;
 				needsSetup = next.needsSetup ?? false;
-				harnessPlaced = next.harnessPlaced ?? false;
 				status = next.status ?? '';
 				configuredProviders = next.configuredProviders ?? [];
 				groundingWired = next.groundingWired ?? false;
@@ -305,13 +301,16 @@
 		window.location.href = `${BRIDGE_SCHEME}://open?url=${encodeURIComponent(url)}`;
 	}
 
-	// Ask the host to drop an empty harness — just this Chat — onto the canvas. The next state tick
-	// reports `harnessPlaced`, which retires the placement options on its own.
+	// Ask the host to drop an empty harness — a Chat and nothing else — onto the canvas, and switch
+	// this window to it. Repeatable: a document can carry any number of harnesses, so this stays
+	// available from the header menu long after the first one is placed.
 	function placeEmptyHarness() {
 		window.location.href = `${BRIDGE_SCHEME}://placeemptyharness`;
+		panel = null;
 	}
 
-	// Ask the host to load the chosen bundled preset (.gh) into the harness, then return to chat.
+	// Ask the host to place the chosen bundled preset (.gh) as a NEW harness beside whatever is
+	// already on the canvas, switch this window to the Chat inside it, then return to chat.
 	function placePreset(file: string) {
 		window.location.href = `${BRIDGE_SCHEME}://placepreset?file=${encodeURIComponent(file)}`;
 		panel = null;
@@ -544,6 +543,9 @@
 				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('preset')}>
 					Add preset
 				</DropdownMenuItem>
+				<DropdownMenuItem class="whitespace-nowrap" onSelect={placeEmptyHarness}>
+					Add empty harness
+				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('manualdef')}>
 					Add new manual definition
@@ -697,7 +699,6 @@
 						onpreset={() => openPanel('preset')}
 						onemptyharness={placeEmptyHarness}
 						onconfigure={openSetup}
-						{harnessPlaced}
 					/>
 			{:else}
 			{#if isEmpty}

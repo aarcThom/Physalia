@@ -8,9 +8,13 @@ metadata:
   modified: 2026-08-09T06:19:21.849Z
 ---
 
-Built 2026-08-08 (replaces the in-place "collapsible harness" entirely). Builds clean; **no part of
-this has been run in Rhino yet.** Related: [[chat-window]], [[chat-widget]], [[chatbox-switcher-row]],
-[[ghjson-library-reference-only]].
+Built 2026-08-08 (replaces the in-place "collapsible harness" entirely). Related: [[chat-window]],
+[[chat-widget]], [[chatbox-switcher-row]], [[ghjson-library-reference-only]].
+
+**Live-run status:** first Rhino run 2026-08-09 — the window opens and the preset gallery lists the
+bundled `.gh` files (that took the push-gate fix in [[chat-window]]; the gallery was empty until the
+window was closed and reopened). **Still unconfirmed live: the `ScheduleSolution` spike below, and
+whether a placed harness's pipeline actually runs.**
 
 ## What it is
 

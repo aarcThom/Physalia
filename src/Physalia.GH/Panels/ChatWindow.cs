@@ -51,6 +51,10 @@ public class ChatWindow : Form
     private const float PlacementGap = 20f;
     private const int MaxPlacementRows = 40;
 
+    // Ticks (at 0.15 s each — so about five seconds) the push gate waits for DocumentLoaded before
+    // giving up and assuming the page is up. Purely a backstop; the event is the real signal.
+    private const int TicksBeforePageAssumedReady = 33;
+
     private static readonly JsonSerializerOptions WriteOpts =
         new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -111,7 +115,15 @@ public class ChatWindow : Form
     private Chat _component;
     private readonly WebView _webView;
     private readonly UITimer _timer;
+
+    // "LoadUi has been called" — guards against loading twice, nothing more.
     private bool _loaded;
+
+    // "The page is up and window.physalia is installed" — the gate every push waits on. Distinct
+    // from _loaded: the bundle takes a moment to extract and parse, and anything pushed in between
+    // is swallowed by the window.physalia&& guard in the pushed script.
+    private bool _pageReady;
+    private int _ticksAwaitingPage;
 
     // last-pushed state, for change detection so we only ExecuteScript on a real change
     private Conversation? _lastConversation;
@@ -161,6 +173,7 @@ public class ChatWindow : Form
 
         _webView = new WebView();
         _webView.DocumentLoading += OnDocumentLoading;
+        _webView.DocumentLoaded += OnDocumentLoaded;
         Content = _webView;
 
         // GH never re-solves on a wire connection, so polling is the simplest correct
@@ -1167,9 +1180,17 @@ public class ChatWindow : Form
     // Pulls current pipeline state and pushes only what changed to the page.
     private void Tick()
     {
-        if (!_loaded)
+        if (!_pageReady)
         {
-            return;
+            // Safety net for a backend that never raises DocumentLoaded: rather than leave the
+            // window permanently dead, assume the page is up after the grace period. Worst case is
+            // the pre-fix behaviour — a swallowed first push — not a frozen window.
+            if (++_ticksAwaitingPage < TicksBeforePageAssumedReady)
+            {
+                return;
+            }
+
+            MarkPageReady();
         }
 
         ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
@@ -1564,9 +1585,38 @@ public class ChatWindow : Form
         }
     }
 
+    // The page has finished loading and installed its window.physalia bridge, so pushes can land.
+    //
+    // Only the FIRST completed navigation counts. On WebView2 a cancelled phbridge:// navigation
+    // also raises this (NavigationCompleted fires with IsSuccess false), and re-running the reset
+    // there would force a full history re-push on every single user action.
+    private void OnDocumentLoaded(object? sender, WebViewLoadedEventArgs e) => MarkPageReady();
+
+    // Opens the push gate and drops every last-pushed cache, because anything sent while the page
+    // was still loading went nowhere.
+    //
+    // The two global signatures have to go with them. Change detection assumes a swallowed push will
+    // be made good by the next change, which holds for history and state but NOT for these: the
+    // preset list changes only when the .gh files under Files/PRESETS do, and the switcher row only
+    // when Chats are added or moved. A push lost during load left the preset gallery empty for the
+    // life of the window — reopening it worked only because that built a window with fresh caches.
+    private void MarkPageReady()
+    {
+        if (_pageReady)
+        {
+            return;
+        }
+
+        _pageReady = true;
+        ResetPushedState();
+        _lastPresetSignature = null;
+        _lastChats = null;
+    }
+
     // Drops the per-component last-pushed caches so a freshly viewed Chat re-pushes its full
     // history/state next tick. The preset and chat-list signatures are global (not per viewed
-    // component), so they are left intact.
+    // component), so a Chat switch leaves them intact — see MarkPageReady for the one case that
+    // must clear them too.
     private void ResetPushedState()
     {
         _lastConversation = null;

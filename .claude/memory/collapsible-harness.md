@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 3d4edd5b-d992-413c-af74-15bf81d67005
-  modified: 2026-08-09T05:29:56.911Z
+  modified: 2026-08-09T06:12:32.060Z
 ---
 
 **Rewritten 2026-08-08.** A harness is now a real `GH_Document` owned by a proxy node; double-clicking
@@ -81,11 +81,21 @@ component, a placement point) live on the host canvas and a drag cannot cross tw
 `ComponentTransmitter`'s placement offset is now measured from the **proxy's** pivot
 (`ArrowAnchor`), not its own — the transmitter is in a different coordinate space from the drop point.
 
-**The harness is the plug-in's base unit (2026-08-08, third pass).** The Physalia widget's first
-click now yields a **Harness with a Chat inside it**, not a bare Chat: `ChatWindow.DropComponent`
-builds a `HarnessComponent`, adds the Chat straight into `EnsureInnerDocument()` (a direct
-`AddObject`, no archive round-trip, so the window's binding to the Chat holds) and drops the *proxy*
-on the canvas. `EnsureComponentPlaced` therefore returns the Chat's document — the harness's.
+**The harness is the plug-in's base unit (2026-08-08, third pass).** When a harness is placed it is a
+**Harness with a Chat inside it**, never a bare Chat: `ChatWindow.DropComponent` builds a
+`HarnessComponent`, adds the Chat straight into `EnsureInnerDocument()` (a direct `AddObject`, no
+archive round-trip, so the window's binding to the Chat holds) and drops the *proxy* on the canvas.
+`EnsureComponentPlaced` therefore returns the Chat's document — the harness's.
+
+**Placement is user-driven only (fourth pass).** `MaybePlaceComponent` is GONE — opening the window
+from the widget no longer drops anything on the canvas once a provider appears. The connect screen
+offers exactly two placement options plus LLM setup: **"Place predefined harness"** (the preset
+gallery) and **"Place empty harness"** (`placeemptyharness` → `HandlePlaceEmptyHarness`). The old
+"Connect a Conversation Log" option, its `connectconversationlog` verb and `FindInputByName` are
+deleted. A new `harnessPlaced` state flag (`PhyDocuments.IsHarnessDocument(_component.OnPingDocument())`)
+retires both options once a harness exists — a second one would orphan the first — and the connect
+screen then just points the user into the harness. With nothing placed, `HandlePlacePreset` builds
+the harness straight from the preset rather than making an empty one and overwriting it.
 
 `HarnessResidency` (new) enforces it: a `PhyBase` that is not a `HarnessComponent` and lands outside
 a harness is **removed on the next idle pass**, with the reason on the Rhino command line. Hooked

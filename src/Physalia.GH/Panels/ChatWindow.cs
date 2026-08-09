@@ -114,6 +114,7 @@ public class ChatWindow : Form
     private bool? _lastBusy;
     private bool? _lastReady;
     private bool? _lastNeedsSetup;
+    private bool? _lastHarnessPlaced;
     private string? _lastStatus;
     private string? _lastConfigured;
     private string? _lastPresetSignature;
@@ -325,8 +326,8 @@ public class ChatWindow : Form
             case "savekey":
                 HandleSaveKey(uri);
                 break;
-            case "connectconversationlog":
-                HandleConnectConversationLog();
+            case "placeemptyharness":
+                HandlePlaceEmptyHarness();
                 break;
             case "placepreset":
                 HandlePlacePreset(uri);
@@ -1182,17 +1183,18 @@ public class ChatWindow : Form
         // once the probe has landed and no chat-model provider is configured.
         bool needsSetup = _configuredProviders is not null && !HasLlmProvider();
 
-        // Once a provider is known to exist (chat mode, not setup), drop this window's Chat
-        // onto the canvas if it isn't there yet — so the window is backed by a real component
-        // immediately, without waiting for the first message.
-        MaybePlaceComponent();
+        // Whether this window's Chat already sits in a harness. Nothing is placed until the user
+        // picks one of the connect screen's two options, so this is what tells the page to stop
+        // offering them — a second harness would orphan the first.
+        bool harnessPlaced = Harness.PhyDocuments.IsHarnessDocument(_component.OnPingDocument());
 
         // Pipeline-wiring readiness: chat needs ConversationLog -> [compactor…] -> LLM Call -> Model. Shown
         // as a hint once a provider exists but the graph isn't fully wired.
         bool ready = PromptPipelineView.IsPipelineReady(_component, 0);
         string status = needsSetup ? "Setup mode"
             : busy ? "Working…"
-            : conversationLog is null ? "Choose an option above, or connect a Conversation Log to begin."
+            : conversationLog is null && !harnessPlaced ? "Choose an option above to begin."
+            : conversationLog is null ? "Harness placed — open it on the canvas and wire a Conversation Log to the Chat."
             : !ready ? "Add an LLM Call with a Model — directly or through a compactor — to begin."
             : string.Empty;
 
@@ -1360,6 +1362,7 @@ public class ChatWindow : Form
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
+            || harnessPlaced != _lastHarnessPlaced
             || groundingSignature != _lastGroundingSignature)
         {
             _lastConnected = connected;
@@ -1368,9 +1371,10 @@ public class ChatWindow : Form
             _lastNeedsSetup = needsSetup;
             _lastStatus = status;
             _lastConfigured = configuredJson;
+            _lastHarnessPlaced = harnessPlaced;
             _lastGroundingSignature = groundingSignature;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired }, WriteOpts);
+                new { connected, busy, ready, needsSetup, status, configuredProviders, harnessPlaced, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 
@@ -1623,49 +1627,12 @@ public class ChatWindow : Form
     private bool HasLlmProvider() =>
         _configuredProviders is { } configured && configured.Any(id => !ToolProviderIds.Contains(id));
 
-    // Drops this window's Chat onto the canvas, to the right of the window and vertically
-    // centred on it, the moment a provider becomes available — but only when the component isn't
-    // already on a document. A Chat loaded from a saved file or hand-placed by the user is left
-    // exactly where it is (we never move it); and while in first-run setup (no provider) nothing is
-    // placed, so the canvas isn't littered with an unusable component. If no document is open (the
-    // window was opened from the widget with an empty canvas), a fresh document is created to host
-    // the component — but only here, past the setup gate, so opening the setup page never makes
-    // one. Runs on the UI thread (Tick).
-    private void MaybePlaceComponent()
-    {
-        if (_component.OnPingDocument() is not null)
-        {
-            return; // already bound to a canvas component — leave it where the user/file put it
-        }
-
-        if (!HasLlmProvider())
-        {
-            return; // still probing, or no LLM yet (a web-tool key alone isn't enough): don't place
-        }
-
-        GH_Canvas canvas = Instances.ActiveCanvas;
-        if (canvas is null)
-        {
-            return;
-        }
-
-        GH_Document? doc = canvas.Document ?? CreateActiveDocument(canvas);
-        if (doc is null)
-        {
-            return;
-        }
-
-        DropComponent(canvas, doc);
-    }
-
     // Puts this window's Chat inside a fresh Harness and drops the HARNESS on the document, a few
     // pixels right of the window and vertically centred on it.
     //
     // The harness is the plug-in's unit of work: a pipeline lives in its own document and the user's
-    // canvas carries only the proxy. So first use never places a bare Chat — it places a harness with
-    // the Chat already inside, ready for the pipeline to be built around it. Split out of
-    // MaybePlaceComponent so preset placement can guarantee the Chat has a document before anchoring
-    // a workflow to it (see EnsureComponentPlaced). Runs on the UI thread.
+    // canvas carries only the proxy. So a Chat is never placed bare — it goes inside a harness, ready
+    // for the pipeline to be built around it. Runs on the UI thread.
     private void DropComponent(GH_Canvas canvas, GH_Document doc)
     {
         if (_component.Attributes is null)
@@ -1706,16 +1673,15 @@ public class ChatWindow : Form
         canvas.Refresh();
     }
 
-    // Guarantees this window's Chat is on a canvas, dropping it if it isn't yet (e.g. a preset is
-    // placed before MaybePlaceComponent's provider-gated tick has run). Unlike MaybePlaceComponent it
-    // does not gate on configured providers — the user has explicitly asked to place a workflow that
-    // the Chat anchors. Returns the hosting document, or null if no canvas/document is available.
-    // Runs on the UI thread (bridge dispatch).
+    // Guarantees this window's Chat is on a canvas, dropping it inside a fresh harness if it isn't
+    // yet, and creating a document to hold it when nothing is open. Only ever reached because the
+    // user asked for it — nothing is placed on a timer. Returns the Chat's document (the harness's),
+    // or null if no canvas is available. Runs on the UI thread (bridge dispatch).
     private GH_Document? EnsureComponentPlaced()
     {
         if (_component.OnPingDocument() is { } existing)
         {
-            return existing; // already on a canvas — leave it where the user/file/tick put it
+            return existing; // already on a canvas — leave it where the user or file put it
         }
 
         GH_Canvas canvas = Instances.ActiveCanvas;
@@ -1737,8 +1703,8 @@ public class ChatWindow : Form
     }
 
     // Creates a fresh, empty document and makes it the canvas's active one, so a chat started with
-    // no file open has a real canvas to drop the Chat onto. Returns null if the document server
-    // is unavailable. Runs on the UI thread (Tick), so touching the canvas/document is safe.
+    // no file open has a real canvas to drop the harness onto. Returns null if the document server
+    // is unavailable. Runs on the UI thread, so touching the canvas/document is safe.
     private static GH_Document? CreateActiveDocument(GH_Canvas canvas)
     {
         GH_DocumentServer? server = Instances.DocumentServer;
@@ -1753,41 +1719,25 @@ public class ChatWindow : Form
         return doc;
     }
 
-    // Places a ConversationLog on the canvas and wires this Chat's Prompt Signal output into it, so a
-    // freshly opened chat gets the start of a pipeline without hand-wiring (the connect screen's
-    // top option). Idempotent: does nothing if a ConversationLog is already wired. Runs on the UI thread
-    // (bridge dispatch), so editing the document and forcing a solve is safe. A reported "connected"
-    // on the next state tick dismisses the connect screen on its own.
-    private void HandleConnectConversationLog()
+    // Drops an empty harness — this window's Chat and nothing else — onto the canvas, from the
+    // connect screen's "Place empty harness" option. Nothing is placed until the user asks: opening
+    // the window from the widget no longer litters the canvas on its own.
+    //
+    // Idempotent: once the Chat has a document there is already a harness, and a second one would
+    // just orphan the first. Runs on the UI thread (bridge dispatch), so editing the document and
+    // forcing a solve is safe.
+    private void HandlePlaceEmptyHarness()
     {
-        if (PromptPipelineView.FindConversationLog(_component, 0) is not null)
+        if (_component.OnPingDocument() is not null)
         {
-            return; // already wired — nothing to do
+            return; // already placed
         }
 
-        GH_Document? doc = _component.OnPingDocument();
-        if (doc is null)
+        if (EnsureComponentPlaced() is { } document)
         {
-            return; // Chat isn't on a canvas yet (shouldn't happen past the provider-setup gate)
+            document.NewSolution(false);
+            Instances.ActiveCanvas?.Refresh();
         }
-
-        var conversationLog = new ConversationLog();
-        conversationLog.CreateAttributes();
-
-        // Drop it to the right of the Chat, level with its top, so the wire runs left-to-right.
-        System.Drawing.RectangleF cb = _component.Attributes.Bounds;
-        conversationLog.Attributes.Pivot = new System.Drawing.PointF(cb.Right + 120f, cb.Top);
-
-        doc.AddObject(conversationLog, false);
-        ComponentHelpers.ApplyNickNameDisplay(conversationLog);
-
-        // Wire Chat Prompt Signal (its sole output) into the ConversationLog's Prompt Signal input,
-        // matched by name so it survives any future parameter reordering.
-        IGH_Param? promptInput = FindInputByName(conversationLog, "Prompt Signal");
-        promptInput?.AddSource(_component.Params.Output[0]);
-
-        doc.NewSolution(false);
-        Instances.ActiveCanvas?.Refresh();
     }
 
     // Clears every Physalia lifecycle component in the open document back to Empty — dropping
@@ -1851,14 +1801,6 @@ public class ChatWindow : Form
             return;
         }
 
-        // Guarantees a harness exists to load into: an unplaced Chat is dropped inside a fresh one.
-        GH_Document? current = EnsureComponentPlaced();
-        if (current is null)
-        {
-            Rhino.RhinoApp.WriteLine("[Physalia] No Grasshopper canvas to add the preset to.");
-            return;
-        }
-
         try
         {
             GH_Document? contents = Harness.HarnessComponent.ReadDocumentFile(path);
@@ -1878,15 +1820,18 @@ public class ChatWindow : Form
                 return;
             }
 
-            if (Harness.HarnessComponent.OwnerOf(current) is { } harness)
+            GH_Document? current = _component.OnPingDocument();
+
+            if (current is not null && Harness.HarnessComponent.OwnerOf(current) is { } harness)
             {
+                // The window already drives a harness — load the preset into it rather than leaving
+                // the existing one orphaned beside the new arrival.
                 harness.ReplaceInnerDocument(contents);
             }
-            else
+            else if (!DropPresetHarness(current, contents))
             {
-                // The Chat is loose on the canvas (a file from before harnesses). Give the preset a
-                // harness of its own beside it rather than disturbing what is already there.
-                DropPresetHarness(current, contents);
+                Rhino.RhinoApp.WriteLine("[Physalia] No Grasshopper canvas to add the preset to.");
+                return;
             }
 
             SetActiveComponent(presetChat);
@@ -1898,29 +1843,33 @@ public class ChatWindow : Form
         }
     }
 
-    // Drops a harness carrying the preset onto the host canvas, to the right of the window.
-    private void DropPresetHarness(GH_Document chatDocument, GH_Document contents)
+    // Drops a harness carrying the preset onto the canvas, to the right of the window. Used both
+    // when nothing has been placed yet (the preset IS the first harness — no empty one is made and
+    // then overwritten) and when the Chat is loose on the canvas in a pre-harness file, where the
+    // preset gets a harness of its own rather than disturbing what is already there.
+    // Returns false when there is no canvas to place onto.
+    private bool DropPresetHarness(GH_Document? chatDocument, GH_Document contents)
     {
-        GH_Document host = Harness.PhyDocuments.Host(chatDocument) ?? chatDocument;
         GH_Canvas? canvas = Instances.ActiveCanvas;
-
-        Harness.HarnessComponent harness = Harness.HarnessComponent.CreateWith(contents);
-        harness.Attributes!.Pivot = canvas is null ? new System.Drawing.PointF(50f, 50f) : AnchorRightOfWindow(canvas);
-        host.AddObject(harness, false);
-        harness.ExpireSolution(true);
-    }
-
-    private static IGH_Param? FindInputByName(IGH_Component component, string name)
-    {
-        foreach (IGH_Param param in component.Params.Input)
+        if (canvas is null)
         {
-            if (param.Name == name)
-            {
-                return param;
-            }
+            return false;
         }
 
-        return null;
+        GH_Document? host = chatDocument is null
+            ? canvas.Document ?? CreateActiveDocument(canvas)
+            : Harness.PhyDocuments.Host(chatDocument) ?? chatDocument;
+
+        if (host is null)
+        {
+            return false;
+        }
+
+        Harness.HarnessComponent harness = Harness.HarnessComponent.CreateWith(contents);
+        harness.Attributes!.Pivot = AnchorRightOfWindow(canvas);
+        host.AddObject(harness, false);
+        harness.ExpireSolution(true);
+        return true;
     }
 
     // The canvas-world point a few pixels right of the window's right edge, level with its vertical

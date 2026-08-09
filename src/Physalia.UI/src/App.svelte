@@ -59,6 +59,9 @@
 	let connected = $state(false);
 	let busy = $state(false);
 	let needsSetup = $state(false);
+	// True once this Chat sits in a harness on the canvas; retires the connect screen's placement
+	// options so a second harness can't orphan the first.
+	let harnessPlaced = $state(false);
 	let status = $state('');
 	let configuredProviders = $state<string[]>([]);
 	// Grounding state for the grounding panel: whether a component catalog is wired (enables the
@@ -192,6 +195,7 @@
 				connected = next.connected;
 				busy = next.busy;
 				needsSetup = next.needsSetup ?? false;
+				harnessPlaced = next.harnessPlaced ?? false;
 				status = next.status ?? '';
 				configuredProviders = next.configuredProviders ?? [];
 				groundingWired = next.groundingWired ?? false;
@@ -301,10 +305,10 @@
 		window.location.href = `${BRIDGE_SCHEME}://open?url=${encodeURIComponent(url)}`;
 	}
 
-	// Ask the host to place a ConversationLog on the canvas and wire it to this Chat. The next state
-	// tick reports `connected`, which dismisses the connect screen on its own.
-	function connectConversationLog() {
-		window.location.href = `${BRIDGE_SCHEME}://connectconversationlog`;
+	// Ask the host to drop an empty harness — just this Chat — onto the canvas. The next state tick
+	// reports `harnessPlaced`, which retires the placement options on its own.
+	function placeEmptyHarness() {
+		window.location.href = `${BRIDGE_SCHEME}://placeemptyharness`;
 	}
 
 	// Ask the host to load the chosen bundled preset (.gh) into the harness, then return to chat.
@@ -690,9 +694,10 @@
 				<ManualDefinition onclose={closePanel} />
 			{:else if showConnect}
 				<ConnectOptions
-						onconnectconversationlog={connectConversationLog}
 						onpreset={() => openPanel('preset')}
+						onemptyharness={placeEmptyHarness}
 						onconfigure={openSetup}
+						{harnessPlaced}
 					/>
 			{:else}
 			{#if isEmpty}

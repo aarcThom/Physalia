@@ -55,6 +55,10 @@ public class ChatWindow : Form
     // giving up and assuming the page is up. Purely a backstop; the event is the real signal.
     private const int TicksBeforePageAssumedReady = 33;
 
+    // Switcher-row id (and harness key) of the Home entry. Never collides with a real one: ids are
+    // InstanceGuids and harness keys are either a guid or empty.
+    private const string HomeId = "home";
+
     private static readonly JsonSerializerOptions WriteOpts =
         new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -113,6 +117,13 @@ public class ChatWindow : Form
     // the window (and a double-click on another Chat) rebinds it to a different component,
     // so one window can move between every Chat on the canvas. Always non-null.
     private Chat _component;
+
+    // True while the window shows HOME — the placement and provider-setup screen — instead of a
+    // Chat's conversation. Home is deliberately NOT a Chat: it is always offered, always first in
+    // the switcher row, and it survives every harness in the file being deleted. It is also what
+    // the canvas widget focuses, so the widget is a way back to placement rather than a jump into
+    // whichever conversation happened to be found first.
+    private bool _home;
     private readonly WebView _webView;
     private readonly UITimer _timer;
 
@@ -866,6 +877,14 @@ public class ChatWindow : Form
     // ?images=1 and stashes the full JSON on the page, which we pull back here.
     private async void HandleSubmit(Uri uri)
     {
+        if (_home)
+        {
+            // Home drives no pipeline; _component is whichever Chat was last viewed, so submitting
+            // here would post into a conversation the user cannot see. The composer is already inert
+            // on Home (its gate keys on `connected`) — this is the belt to that pair of braces.
+            return;
+        }
+
         string query = uri.Query;
 
         if (!QueryFlagSet(query, "images"))
@@ -1193,7 +1212,11 @@ public class ChatWindow : Form
             MarkPageReady();
         }
 
-        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        // Home reads no pipeline at all — it is the entry screen, not a conversation. Leaving the
+        // Conversation Log null here is what drives that: every field below is already written to
+        // cope with an unwired Chat, so the whole page falls back to the connect screen and the
+        // composer greys out (its inert gate keys on `connected`).
+        ConversationLog? conversationLog = _home ? null : PromptPipelineView.FindConversationLog(_component, 0);
         Conversation? convo = conversationLog?.ActiveConversation;
         bool busy = conversationLog is not null && PromptPipelineView.IsPipelineBusy(conversationLog);
         bool connected = conversationLog is not null;
@@ -1209,18 +1232,13 @@ public class ChatWindow : Form
         // once the probe has landed and no chat-model provider is configured.
         bool needsSetup = _configuredProviders is not null && !HasLlmProvider();
 
-        // Whether the Chat this window is viewing sits in a harness yet. Nothing is placed until the
-        // user asks, so this only picks the wording of the status line below — the placement options
-        // themselves stay on offer for good, because a document may hold any number of harnesses.
-        bool harnessPlaced = Harness.PhyDocuments.IsHarnessDocument(_component.OnPingDocument());
-
         // Pipeline-wiring readiness: chat needs ConversationLog -> [compactor…] -> LLM Call -> Model. Shown
         // as a hint once a provider exists but the graph isn't fully wired.
-        bool ready = PromptPipelineView.IsPipelineReady(_component, 0);
+        bool ready = !_home && PromptPipelineView.IsPipelineReady(_component, 0);
         string status = needsSetup ? "Setup mode"
             : busy ? "Working…"
-            : conversationLog is null && !harnessPlaced ? "Choose an option above to begin."
-            : conversationLog is null ? "Harness placed — open it on the canvas and wire a Conversation Log to the Chat."
+            : _home ? "Choose an option above to begin."
+            : conversationLog is null ? "Wire a Conversation Log to this Chat to begin."
             : !ready ? "Add an LLM Call with a Model — directly or through a compactor — to begin."
             : string.Empty;
 
@@ -1452,19 +1470,36 @@ public class ChatWindow : Form
     // list changes (a Chat added/removed/moved, the active one switched, or a history appearing).
     private void MaybePushChats()
     {
-        var list = EnumerateChats()
-            .Select(cb => new
+        // Home leads the row and is always present — the way back to placement and provider setup
+        // whatever is, or is not, on the canvas. Its sentinel harness key matches no real one, so
+        // the row always rules a divider between Home and the first Chat.
+        var home = new[]
+        {
+            new
+            {
+                id = HomeId,
+                active = _home,
+                hasHistory = false,
+                emoji = string.Empty,
+                harness = HomeId,
+                home = true,
+            },
+        };
+
+        var list = home
+            .Concat(EnumerateChats().Select(cb => new
             {
                 id = cb.InstanceGuid.ToString(),
-                active = ReferenceEquals(cb, _component),
+                active = !_home && ReferenceEquals(cb, _component),
                 hasHistory = ChatHasHistory(cb),
                 emoji = cb.Emoji,
 
                 // Which harness this Chat belongs to, so the row can rule a divider wherever the
                 // group changes. Empty for a Chat with no harness — one loose on the canvas in a
-                // pre-harness file, or the widget-created one still awaiting placement.
+                // pre-harness file.
                 harness = HarnessOf(cb)?.InstanceGuid.ToString() ?? string.Empty,
-            })
+                home = false,
+            }))
             .ToList();
 
         string json = JsonSerializer.Serialize(list, WriteOpts);
@@ -1478,9 +1513,11 @@ public class ChatWindow : Form
     }
 
     // Every Chat in the file, grouped by harness and ordered left-to-right then top-to-bottom, for a
-    // stable, intuitive circle sequence. The viewed component is always included even when it is not
-    // on a document yet (created by the widget, awaiting its provider-gated placement), so its circle
-    // is present and selectable from the first tick.
+    // stable, intuitive circle sequence.
+    //
+    // A Chat that is not on a document — the backing component the widget creates when a file holds
+    // none — is deliberately absent. It has no conversation to show and nowhere to be switched to;
+    // Home is what stands in its place now.
     private List<Chat> EnumerateChats()
     {
         var result = new List<Chat>();
@@ -1501,12 +1538,6 @@ public class ChatWindow : Form
         }
 
         result.Sort(CompareChats);
-
-        if (!result.Contains(_component))
-        {
-            result.Insert(0, _component);
-        }
-
         return result;
     }
 
@@ -1556,18 +1587,40 @@ public class ChatWindow : Form
     // as "unchanged". No-op when already viewing it. Runs on the UI thread.
     public void SetActiveComponent(Chat component)
     {
-        if (component is null || ReferenceEquals(component, _component))
+        // Leaving Home counts as a switch even when the component is unchanged — the window was
+        // showing the entry screen, not this Chat's conversation.
+        if (component is null || (!_home && ReferenceEquals(component, _component)))
         {
             return;
         }
 
+        _home = false;
         _component = component;
         ResetPushedState();
     }
 
+    /// <summary>
+    /// Switches the window to Home — the harness-placement and provider-setup screen.
+    ///
+    /// <para>Home is not backed by a Chat, so it is always reachable: from its circle at the left of
+    /// the switcher row, from the canvas widget, and as the fallback when the Chat being viewed is
+    /// deleted. Runs on the UI thread.</para>
+    /// </summary>
+    public void ShowHome()
+    {
+        if (_home)
+        {
+            return;
+        }
+
+        _home = true;
+        ResetPushedState();
+    }
+
     // Called when any Chat is removed from the document. If the viewed one was deleted, switch to
-    // another Chat still on the canvas, or close the window when none remain. An unrelated removal
-    // needs nothing here — the switcher row drops its circle on the next tick. Runs on the UI thread.
+    // another Chat still on the canvas, or fall back to Home when none remain — the window stays
+    // open, because Home is where a new harness is placed from. An unrelated removal needs nothing
+    // here: the switcher row drops its circle on the next tick. Runs on the UI thread.
     public void OnComponentRemoved(Chat removed)
     {
         if (!ReferenceEquals(removed, _component))
@@ -1593,15 +1646,21 @@ public class ChatWindow : Form
         }
         else
         {
-            Close();
+            ShowHome();
         }
     }
 
-    // Resolves a switcher-circle click (?id=<InstanceGuid>) to its Chat and views it. Runs on the
-    // UI thread (bridge dispatch).
+    // Resolves a switcher-circle click (?id=<InstanceGuid>, or the Home sentinel) and views it. Runs
+    // on the UI thread (bridge dispatch).
     private void HandleSelectChat(Uri uri)
     {
         string id = GetQueryValue(uri.Query, "id");
+        if (string.Equals(id, HomeId, StringComparison.Ordinal))
+        {
+            ShowHome();
+            return;
+        }
+
         if (string.IsNullOrEmpty(id) || !Guid.TryParse(id, out Guid guid))
         {
             return;

@@ -23,6 +23,22 @@ ConnectOptions screen when it has none). Built 2026-06-23, builds clean, live Rh
   walks `PhyDocuments.ObjectsIncludingHarnesses(host)` and always includes `_component` even when
   detached (widget-created, awaiting placement). `hasHistory` = wired Conversation Log's
   `ActiveConversation` has Messages.
+- **Home leads the row (2026-08-09).** A house icon (lucide `house`), always first, always ruled off
+  from the chats by the divider, sentinel id AND harness key `"home"`. It is **not a Chat** — a
+  `bool _home` on `ChatWindow` — so it survives every harness being deleted and needs no backing
+  component. `Tick` forces `conversationLog = null` while home, which is the whole mechanism: every
+  field downstream already copes with an unwired Chat, so the page falls back to the ConnectOptions
+  screen and the composer greys out (its inert gate keys on `connected`). `HandleSubmit` returns
+  early on home as well — `_component` is still whatever Chat was last viewed, so a send would
+  otherwise post into a conversation the user cannot see. `SetActiveComponent` treats leaving home as
+  a switch even when the component is unchanged; `OnComponentRemoved` falls back to `ShowHome()`
+  instead of closing the window. `EnumerateChats` no longer force-inserts a detached `_component` —
+  Home stands in its place, so a not-yet-placed Chat never gets a circle.
+- **Which entry point lands where:** the canvas widget → `OpenWindow(home: true)` → **always Home**,
+  whether or not harnesses exist (the widget is the door back to placement). Double-clicking a
+  harness → `HarnessAttrib` → `FindChat()` → `OpenWindow()` → **that harness's first Chat**.
+  `selectChat` in `App.svelte` also clears `panel`/`manualSetup`, because those pages render in front
+  of the conversation and Home would otherwise appear to do nothing.
 - **Grouped by harness, with a divider between groups (2026-08-09, once a document could hold many
   harnesses).** `CompareChats` sorts on the owning harness proxy's pivot on the HOST canvas first,
   then the Chat's own pivot inside it. Sorting on the Chat's pivot alone — what it used to do —

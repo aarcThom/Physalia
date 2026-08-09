@@ -300,13 +300,14 @@ public sealed class ChatWidget : GH_Widget
         }
     }
 
-    // Opens (or focuses) the single shared chat window. Reuses a Chat already in the file (inside a
-    // harness or, in an older file, loose on the canvas); otherwise creates one but does NOT place
-    // it — the window wraps it in a Harness and drops that on the document, to its right, once a
-    // provider is available (so first-run setup never litters the canvas). A first click therefore
-    // yields a Harness on the canvas, not a bare Chat: the harness is the plug-in's unit of work.
-    // Works even with no document open: the new Chat stays detached until the window places it, at
-    // which point the window creates a document for it.
+    // Opens (or focuses) the single shared chat window, always landing on HOME — the harness
+    // placement and provider-setup screen — whether or not the file already holds harnesses. The
+    // widget is the way back to placement; double-clicking a harness is the way into a conversation.
+    //
+    // A Chat is still needed as the window's backing component: one already in the file (inside a
+    // harness or, in an older file, loose on the canvas), else a fresh one that is NOT placed and
+    // never gets a circle in the switcher row. Works with no document open too — placement creates
+    // one when the user asks for it.
     private static void OpenChat(GH_Canvas canvas)
     {
         GH_Document? doc = canvas?.Document;
@@ -317,7 +318,7 @@ public sealed class ChatWidget : GH_Widget
             chat.CreateAttributes();
         }
 
-        chat.OpenWindow();
+        chat.OpenWindow(home: true);
     }
 
     // Finds a Chat anywhere in the file, harnesses included — once a pipeline has moved into one,

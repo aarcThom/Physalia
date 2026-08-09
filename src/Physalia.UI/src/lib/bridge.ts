@@ -207,9 +207,12 @@ export interface SetupResult {
 	message: string;
 }
 
-/** One Chat component on the canvas, shown as a circle in the switcher row. */
+/**
+ * One entry in the switcher row: a Chat component on the canvas, or the Home entry that leads it.
+ * Home is not a Chat — it is the placement / provider-setup screen, always present and always first.
+ */
 export interface UiChat {
-	/** The component's InstanceGuid — the wire value sent back when its circle is clicked. */
+	/** The component's InstanceGuid — the wire value sent back when its circle is clicked. 'home' for Home. */
 	id: string;
 	/** True for the Chat the window is currently viewing (its circle reads as selected). */
 	active: boolean;
@@ -217,10 +220,13 @@ export interface UiChat {
 	hasHistory: boolean;
 	/** The sea/ocean emoji that identifies this Chat — shown as its switcher dot (and canvas icon). */
 	emoji: string;
-	/** InstanceGuid of the harness holding this Chat, or '' when it has none (loose on the canvas, or
-	 *  created by the widget and not yet placed). The row is ordered by harness, so a divider goes
-	 *  wherever this differs from the previous entry's — never within a harness. */
+	/** InstanceGuid of the harness holding this Chat, or '' when it has none (loose on the canvas in a
+	 *  pre-harness file). The row is ordered by harness, so a divider goes wherever this differs from
+	 *  the previous entry's — never within a harness. Home carries the sentinel 'home', which matches
+	 *  no real key, so it is always divided from the Chats that follow it. */
 	harness: string;
+	/** True for the single Home entry, drawn as a house icon rather than an emoji. */
+	home: boolean;
 }
 
 /** A bundled preset harness (.gh in Files/PRESETS) offered on the Add-preset page. */

@@ -121,17 +121,37 @@ public class Chat : StatefulComponentBase
     /// same as clicking this component's circle in the window's switcher row) and brought
     /// forward rather than torn down and reopened.
     /// </summary>
-    public void OpenWindow()
+    /// <param name="home">
+    /// True to land on the window's Home screen — harness placement and provider setup — rather than
+    /// on this Chat's conversation. The canvas widget opens this way, so it is a door back to
+    /// placement instead of a jump into whichever conversation it happened to find; this Chat is
+    /// then only the window's backing component. Double-clicking a harness passes false, landing on
+    /// the Chat inside it.
+    /// </param>
+    public void OpenWindow(bool home = false)
     {
         if (_activeWindow is { } existing)
         {
-            existing.SetActiveComponent(this);
+            if (home)
+            {
+                existing.ShowHome();
+            }
+            else
+            {
+                existing.SetActiveComponent(this);
+            }
+
             existing.BringToFront();
             existing.Focus();
             return;
         }
 
         var window = new ChatWindow(this);
+        if (home)
+        {
+            window.ShowHome();
+        }
+
         _activeWindow = window;
         window.Closed += (_, _) =>
         {

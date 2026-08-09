@@ -136,9 +136,12 @@ pipeline never exchanges *dataflow* with the canvas, it only scans it and writes
   swept: each placement mints its own Chat (except the first, which adopts the window's detached one),
   drops the proxy at the first free spot right of the window (`PlaceHarness` steps down past anything
   already there), and switches the window to the new Chat. The switcher row is the way back.
-- Nothing is placed automatically: the chat window's connect screen offers "Place predefined harness"
+- Nothing is placed automatically: the chat window's **Home** screen offers "Place predefined harness"
   and "Place empty harness", and the header menu carries the same two ("Add preset" / "Add empty
   harness") for once a conversation is under way.
+- **Home** is the chat window's entry screen — a house icon leading the switcher row, always present,
+  always divided off from the chat dots. It is a window state (`ChatWindow._home`), not a Chat. The
+  canvas widget always opens on Home; double-clicking a harness opens on the first Chat inside it.
 
 Detail: memory note `harness-subdocument`.
 

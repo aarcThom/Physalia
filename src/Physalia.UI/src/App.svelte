@@ -31,6 +31,7 @@
 	import ActivityIcon from '@lucide/svelte/icons/activity';
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
 	import OctagonIcon from '@lucide/svelte/icons/octagon';
+	import HouseIcon from '@lucide/svelte/icons/house';
 	import { getProvider } from '$lib/chat/providers';
 	import { cn } from '$lib/utils';
 	import type {
@@ -322,9 +323,17 @@
 		window.location.href = `${BRIDGE_SCHEME}://clearall`;
 	}
 
-	// Switch the window to view another Chat component (its conversation log history, or the default
-	// screen when it has none). The next state tick re-pushes that component's history/state.
+	// Switch the window to another switcher entry: a Chat component (its conversation log history, or
+	// the default screen when it has none), or Home. The next state tick re-pushes what to show.
+	//
+	// Any open page is closed on the way. Picking an entry is a request to LOOK at something, and the
+	// preset gallery / manual-definition / setup pages all render in front of the conversation — Home
+	// especially would otherwise appear to do nothing while the gallery that led there stayed up.
 	function selectChat(id: string) {
+		panel = null;
+		manualSetup = false;
+		selectedProviderId = null;
+		setupResult = null;
 		window.location.href = `${BRIDGE_SCHEME}://selectchat?id=${encodeURIComponent(id)}`;
 	}
 
@@ -819,8 +828,10 @@
 	     Clicking an emoji views that Chat's conversation log history (or the default screen when it
 	     has none). New emojis appear as Chats are placed.
 
-	     The host orders the row harness by harness, so a rule between two dots means they belong to
-	     different harnesses. With a single harness (the common case) no divider is ever drawn. -->
+	     The row is led by Home — a house, not an emoji — which goes back to harness placement and
+	     provider setup. The host orders the rest harness by harness, so a rule between two dots means
+	     they belong to different harnesses; Home carries a sentinel key, so it is always ruled off
+	     from the chats. Within one harness no divider is ever drawn. -->
 	{#if chats.length > 0}
 		<div class="flex shrink-0 items-center justify-center gap-1 pb-2">
 			{#each chats as box, i (box.id)}
@@ -831,11 +842,13 @@
 					type="button"
 					onclick={() => selectChat(box.id)}
 					aria-pressed={box.active}
-					title={box.active
-						? 'Current chat'
-						: box.hasHistory
-							? 'Switch to this chat (has history)'
-							: 'Switch to this chat'}
+					title={box.home
+						? 'Home — place a harness or set up providers'
+						: box.active
+							? 'Current chat'
+							: box.hasHistory
+								? 'Switch to this chat (has history)'
+								: 'Switch to this chat'}
 					class="group flex items-center justify-center rounded-full p-0.5"
 				>
 					<span
@@ -843,11 +856,17 @@
 							'flex size-6 items-center justify-center rounded-full text-sm leading-none transition',
 							box.active
 								? 'bg-[var(--neu-accent)]/15 shadow-[var(--neu-shadow-sm)]'
-								: box.hasHistory
+								: box.hasHistory || box.home
 									? 'opacity-100 group-hover:bg-muted-foreground/10'
 									: 'opacity-40 group-hover:opacity-70'
 						)}
-					>{box.emoji}</span>
+					>
+						{#if box.home}
+							<HouseIcon class="size-3.5" />
+						{:else}
+							{box.emoji}
+						{/if}
+					</span>
 				</button>
 			{/each}
 		</div>

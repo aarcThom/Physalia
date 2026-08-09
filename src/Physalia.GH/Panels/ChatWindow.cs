@@ -1459,6 +1459,11 @@ public class ChatWindow : Form
                 active = ReferenceEquals(cb, _component),
                 hasHistory = ChatHasHistory(cb),
                 emoji = cb.Emoji,
+
+                // Which harness this Chat belongs to, so the row can rule a divider wherever the
+                // group changes. Empty for a Chat with no harness — one loose on the canvas in a
+                // pre-harness file, or the widget-created one still awaiting placement.
+                harness = HarnessOf(cb)?.InstanceGuid.ToString() ?? string.Empty,
             })
             .ToList();
 
@@ -1472,7 +1477,7 @@ public class ChatWindow : Form
         Exec($"window.physalia&&window.physalia.setChats&&window.physalia.setChats({json});");
     }
 
-    // Every Chat on the canvas, ordered left-to-right then top-to-bottom by canvas position for a
+    // Every Chat in the file, grouped by harness and ordered left-to-right then top-to-bottom, for a
     // stable, intuitive circle sequence. The viewed component is always included even when it is not
     // on a document yet (created by the widget, awaiting its provider-gated placement), so its circle
     // is present and selectable from the first tick.
@@ -1495,13 +1500,7 @@ public class ChatWindow : Form
             }
         }
 
-        result.Sort(static (a, b) =>
-        {
-            System.Drawing.PointF pa = a.Attributes?.Pivot ?? default;
-            System.Drawing.PointF pb = b.Attributes?.Pivot ?? default;
-            int cmp = pa.X.CompareTo(pb.X);
-            return cmp != 0 ? cmp : pa.Y.CompareTo(pb.Y);
-        });
+        result.Sort(CompareChats);
 
         if (!result.Contains(_component))
         {
@@ -1510,6 +1509,39 @@ public class ChatWindow : Form
 
         return result;
     }
+
+    // Switcher order: harness by harness across the user's canvas, then Chat by Chat within each
+    // harness — which is what lets the row rule one divider per boundary and never inside a group.
+    //
+    // Sorting on the Chat's own pivot alone would interleave harnesses, because every harness
+    // sub-document has its own coordinate space: two Chats sitting at the same spot in different
+    // harnesses are indistinguishable by position, and a preset's Chat at (0,0) would sort ahead of
+    // everything no matter where its proxy sits.
+    private static int CompareChats(Chat a, Chat b)
+    {
+        int cmp = ComparePivots(HarnessPivot(a), HarnessPivot(b));
+        return cmp != 0
+            ? cmp
+            : ComparePivots(a.Attributes?.Pivot ?? default, b.Attributes?.Pivot ?? default);
+    }
+
+    private static int ComparePivots(System.Drawing.PointF a, System.Drawing.PointF b)
+    {
+        int cmp = a.X.CompareTo(b.X);
+        return cmp != 0 ? cmp : a.Y.CompareTo(b.Y);
+    }
+
+    // The harness holding a Chat, or null when it has none — loose on the canvas in a pre-harness
+    // file, or created by the widget and not yet placed.
+    private static Harness.HarnessComponent? HarnessOf(Chat chat) =>
+        Harness.HarnessComponent.OwnerOf(chat.OnPingDocument());
+
+    // Where a Chat's harness proxy sits on the user's canvas, which is what the group ordering keys
+    // on. Harness-less Chats sort ahead of every harness (and so band together at the left end of
+    // the row) rather than being scattered through it by an arbitrary pivot.
+    private static System.Drawing.PointF HarnessPivot(Chat chat) =>
+        HarnessOf(chat)?.Attributes?.Pivot
+        ?? new System.Drawing.PointF(float.NegativeInfinity, float.NegativeInfinity);
 
     // True when a Chat's wired ConversationLog holds a non-empty conversation — used to fill its circle.
     private static bool ChatHasHistory(Chat chat)

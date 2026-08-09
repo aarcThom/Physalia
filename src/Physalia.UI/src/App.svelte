@@ -817,10 +817,16 @@
 	     sea/ocean glyph, matching the component's canvas icon so the two are easy to pair. The
 	     active chat sits on a raised accent ring; a chat with no recorded history is dimmed.
 	     Clicking an emoji views that Chat's conversation log history (or the default screen when it
-	     has none). New emojis appear as Chats are placed. -->
+	     has none). New emojis appear as Chats are placed.
+
+	     The host orders the row harness by harness, so a rule between two dots means they belong to
+	     different harnesses. With a single harness (the common case) no divider is ever drawn. -->
 	{#if chats.length > 0}
 		<div class="flex shrink-0 items-center justify-center gap-1 pb-2">
-			{#each chats as box (box.id)}
+			{#each chats as box, i (box.id)}
+				{#if i > 0 && chats[i - 1].harness !== box.harness}
+					<span aria-hidden="true" class="bg-muted-foreground/25 mx-1 h-4 w-px shrink-0"></span>
+				{/if}
 				<button
 					type="button"
 					onclick={() => selectChat(box.id)}

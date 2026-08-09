@@ -217,6 +217,10 @@ export interface UiChat {
 	hasHistory: boolean;
 	/** The sea/ocean emoji that identifies this Chat — shown as its switcher dot (and canvas icon). */
 	emoji: string;
+	/** InstanceGuid of the harness holding this Chat, or '' when it has none (loose on the canvas, or
+	 *  created by the widget and not yet placed). The row is ordered by harness, so a divider goes
+	 *  wherever this differs from the previous entry's — never within a harness. */
+	harness: string;
 }
 
 /** A bundled preset harness (.gh in Files/PRESETS) offered on the Add-preset page. */

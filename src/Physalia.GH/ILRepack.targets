@@ -1,0 +1,27 @@
+<Project>
+  <!--
+    Deliberately empty. This file exists to SUPPRESS the default merge that ships inside
+    ILRepack.Lib.MSBuild.Task, not to add anything.
+
+    That package's build targets declare their own target:
+
+        <Target Name="ILRepack" AfterTargets="Build"
+                Condition="$(Configuration.Contains('Release')) and !Exists('$(ILRepackTargetsFile)')">
+
+    with $(ILRepackTargetsFile) defaulting to $(ProjectDir)ILRepack.targets — this file. Because
+    the condition is keyed on the configuration name, it fires in Release only, which is why the
+    problem was invisible in Debug.
+
+    Left to run it merges $(OutputPath)*.dll indiscriminately and passes NO LibraryPath, so
+    Mono.Cecil cannot resolve the host assemblies the merged deps reference and the build fails
+    with "Failed to resolve assembly: 'Grasshopper, Version=8.24.25281.15001'". Our own RepackGha
+    target (in Physalia.GH.csproj) runs first and does the merge properly — correct denylist,
+    LibraryPath derived from the resolved @(ReferencePath) — so the .gha it produced was already
+    correct and the failure came entirely from this second, unconfigured pass running on top of it.
+
+    Its companion CleanReferenceCopyLocalPaths target is gated on the same condition and would
+    delete every ReferenceCopyLocalPath from the output — including the JSON stack that RepackGha
+    deliberately keeps LOOSE and unmerged (see the RepackDenyList comments). Suppressing the pair
+    is what keeps those DLLs beside the .gha.
+  -->
+</Project>

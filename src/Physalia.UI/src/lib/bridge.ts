@@ -51,6 +51,10 @@ export interface UiState {
 	busy: boolean;
 	/** No LLM provider is configured yet — show the first-run setup screen. */
 	needsSetup: boolean;
+	/** The window is on Home — the entry screen. Distinguishes it from a Chat that merely has no
+	 *  Conversation Log wired yet: both show the connect surface, but only Home offers the placement
+	 *  options; an empty harness gets the logo alone. */
+	home: boolean;
 	status: string;
 	/** Setup-screen ids of every provider already configured (matches providers.ts ids). */
 	configuredProviders: string[];

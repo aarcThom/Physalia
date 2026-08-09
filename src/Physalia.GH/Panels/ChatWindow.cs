@@ -1415,8 +1415,13 @@ public class ChatWindow : Form
             _lastStatus = status;
             _lastConfigured = configuredJson;
             _lastGroundingSignature = groundingSignature;
+            // `home` rides along so the page can tell the two connect-screen cases apart: on Home the
+            // placement options are the point, while a Chat merely awaiting its Conversation Log
+            // (an empty harness) shows the logo alone — offering to place another harness there
+            // would answer a question the user did not ask.
+            bool home = _home;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, status, configuredProviders, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired }, WriteOpts);
+                new { connected, busy, ready, needsSetup, home, status, configuredProviders, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired }, WriteOpts);
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 

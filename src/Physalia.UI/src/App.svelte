@@ -60,6 +60,9 @@
 	let connected = $state(false);
 	let busy = $state(false);
 	let needsSetup = $state(false);
+	// The window is on Home (the entry screen) rather than viewing a Chat. Only Home offers the
+	// placement options; a Chat still awaiting its Conversation Log shows the logo alone.
+	let home = $state(false);
 	let status = $state('');
 	let configuredProviders = $state<string[]>([]);
 	// Grounding state for the grounding panel: whether a component catalog is wired (enables the
@@ -193,6 +196,7 @@
 				connected = next.connected;
 				busy = next.busy;
 				needsSetup = next.needsSetup ?? false;
+				home = next.home ?? false;
 				status = next.status ?? '';
 				configuredProviders = next.configuredProviders ?? [];
 				groundingWired = next.groundingWired ?? false;
@@ -486,6 +490,11 @@
 	// connect-a-conversation log / workflow / configure options instead of a bare empty conversation.
 	let showConnect = $derived(!showSetup && !connected && isEmpty);
 
+	// Everything that is NOT a conversation: Home / the empty-harness logo, the first-run and manual
+	// setup screens, and the header pages. They share one scroller of their own — see the markup for
+	// why they must not live inside the Conversation's.
+	let staticSurface = $derived(showSetup || panel !== null || showConnect);
+
 	// Group the flat message list into render units: each user message stands alone, while
 	// a run of consecutive assistant messages (the agentic rounds for one prompt) collapses
 	// into a single assistant turn. The live `stream` partial is appended to the active
@@ -646,12 +655,18 @@
 	     (36px), so pr-3 lines its centre up with theirs: both sit 30px in from the window
 	     edge (12px margin + half of 36px). -->
 	<div class="relative min-h-0 flex-1 pr-3">
-		<Conversation class="h-full">
-			<!-- overflow-y-scroll (not auto) keeps the recessed scrollbar channel (.chat-scroll,
-			     app.css) always visible; the thumb only appears when there is something to scroll.
-			     overflow-x-hidden: a horizontal scrollbar must never appear — overlong unbreakable
-			     content clips instead (and bubble text breaks/hyphenates, see the user Message). -->
-			<ConversationContent class="chat-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-scroll">
+		{#if staticSurface}
+			<!-- Static surfaces (Home, setup, the header pages) get their OWN scroller, deliberately
+			     outside <Conversation>. They are not conversations: each leads with a logo or a
+			     heading and must open at the top. Inside the Conversation they could not — its
+			     stick-to-bottom observer jumps to the bottom whenever content changes while it
+			     believes it is at the bottom, which it does the instant a surface is swapped in, so
+			     Home would open already scrolled past its own logo in a short window. A separate
+			     element sidesteps the fight entirely: a freshly mounted scroller starts at the top,
+			     and switching back remounts the Conversation, which correctly jumps to the latest
+			     message. Classes mirror ConversationContent's own (flex flex-col gap-8 p-4) so the
+			     surfaces sit exactly where they used to. -->
+			<div class="chat-scroll flex h-full flex-col gap-8 overflow-x-hidden overflow-y-scroll p-4">
 			{#if showSetup}
 				<Setup
 					selectedId={selectedProviderId}
@@ -703,13 +718,22 @@
 				/>
 			{:else if panel === 'manualdef'}
 				<ManualDefinition onclose={closePanel} />
-			{:else if showConnect}
+			{:else}
 				<ConnectOptions
 						onpreset={() => openPanel('preset')}
 						onemptyharness={placeEmptyHarness}
 						onconfigure={openSetup}
+						{home}
 					/>
-			{:else}
+			{/if}
+			</div>
+		{:else}
+		<Conversation class="h-full">
+			<!-- overflow-y-scroll (not auto) keeps the recessed scrollbar channel (.chat-scroll,
+			     app.css) always visible; the thumb only appears when there is something to scroll.
+			     overflow-x-hidden: a horizontal scrollbar must never appear — overlong unbreakable
+			     content clips instead (and bubble text breaks/hyphenates, see the user Message). -->
+			<ConversationContent class="chat-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-scroll">
 			{#if isEmpty}
 				<div class="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 text-center">
 					<p class="text-sm font-medium">Physalia chat</p>
@@ -750,10 +774,10 @@
 					</Message>
 				{/if}
 			{/each}
-			{/if}
 		</ConversationContent>
 			<ConversationScrollButton />
 		</Conversation>
+		{/if}
 
 		<!-- Fade the text out at the scroll area's top and bottom edges instead of clipping it
 		     abruptly. Overlay strips rather than a CSS mask — a mask on the scroll container

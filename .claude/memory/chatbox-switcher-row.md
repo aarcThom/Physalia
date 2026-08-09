@@ -34,6 +34,12 @@ ConnectOptions screen when it has none). Built 2026-06-23, builds clean, live Rh
   a switch even when the component is unchanged; `OnComponentRemoved` falls back to `ShowHome()`
   instead of closing the window. `EnumerateChats` no longer force-inserts a detached `_component` —
   Home stands in its place, so a not-yet-placed Chat never gets a circle.
+- **Home vs an empty harness — same surface, different content.** Both show `ConnectOptions` (neither
+  has a Conversation Log, so `showConnect` is true for both). `UiState.home` tells them apart: Home
+  gets the three pills, a placed Chat still awaiting its Conversation Log gets **the logo alone** —
+  the user has already chosen their harness and is inside it, so offering to place another answers a
+  question they did not ask. The status line ("Wire a Conversation Log to this Chat to begin.") is
+  what directs them.
 - **Which entry point lands where:** the canvas widget → `OpenWindow(home: true)` → **always Home**,
   whether or not harnesses exist (the widget is the door back to placement). Double-clicking a
   harness → `HarnessAttrib` → `FindChat()` → `OpenWindow()` → **that harness's first Chat**.

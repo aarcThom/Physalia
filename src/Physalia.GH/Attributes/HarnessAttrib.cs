@@ -19,8 +19,9 @@ namespace Physalia.GH.Attributes;
 /// black edge, pink-to-white inner rim — so a harness reads at a glance as a container rather than
 /// a working component.
 ///
-/// <para>Gestures mirror the Chat the harness stands in for: <b>double-click opens the chat
-/// window</b>, and <b>right-click → "Edit Harness"</b> takes the canvas inside. When the harness
+/// <para>The proxy is the ONLY door onto the chat window: <b>double-click opens it</b> on the Chat
+/// inside, and <b>right-click → "Edit Harness"</b> takes the canvas inside. The Chat itself answers
+/// no gesture — it lives in the sub-document, where the user only reaches it deliberately. When the harness
 /// holds exactly one transmitter the proxy also grows that transmitter's drag arrow, so the drag
 /// happens on the canvas where its target actually lives — see <see cref="IHarnessArrow"/>.</para>
 /// </summary>

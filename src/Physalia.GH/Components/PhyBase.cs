@@ -11,7 +11,6 @@ public abstract class PhyBase : GH_Component
 {
     //grabbing embedded resources
     protected readonly Assembly GHAssembly = Assembly.GetExecutingAssembly();
-
     protected string? IconPath;
     private Bitmap? _iconCache;
 

@@ -11,21 +11,17 @@ using Physalia.GH.Components;
 namespace Physalia.GH.Attributes;
 
 /// <summary>
-/// Attributes for the Chat component. The chat UI lives in a standalone window, opened by
-/// double-clicking the node.
+/// Attributes for the Chat component. The Chat is an ordinary pipeline node: it opens nothing and
+/// carries no tint of its own. The door onto the chat window is the harness proxy that holds it —
+/// see <see cref="HarnessAttrib"/> — because a harness is what the user sees on their canvas.
 ///
-/// <para>The capsule is drawn here rather than by Grasshopper because the Chat has no inputs and is
-/// not preview-capable, so the stock renderer would give it a jagged left edge and force it onto the
-/// grey Hidden palette. Drawing it with both edges rounded and our own palette style sidesteps
-/// both.</para>
+/// <para>The capsule is still drawn here rather than by Grasshopper because the Chat has no inputs
+/// and is not preview-capable, so the stock renderer would give it a jagged left edge and force it
+/// onto the dimmed Hidden palette. Both edges are rounded and the style comes straight from
+/// <see cref="GH_Skin"/>, so the node reads exactly like any other component.</para>
 /// </summary>
 public class ChatAttrib : PhyComponentAttributes
 {
-    // The Chat's own tint: light-blue body, black capsule edge, dark-purple text.
-    private static readonly Color ChatFill = Color.FromArgb(255, 218, 243, 245);
-    private static readonly Color ChatEdge = Color.Black;
-    private static readonly Color ChatText = Color.FromArgb(255, 47, 8, 87);
-
     private readonly Chat _chat;
 
     /// <summary>
@@ -38,19 +34,11 @@ public class ChatAttrib : PhyComponentAttributes
         _chat = chat;
     }
 
-    /// <summary>
-    /// Opens the chat window on double-click.
-    /// </summary>
-    /// <param name="sender">The Grasshopper canvas that raised the event.</param>
-    /// <param name="e">The mouse event data.</param>
-    /// <returns>Handled — the double-click is consumed to open the window.</returns>
-    public override GH_ObjectResponse RespondToMouseDoubleClick(GH_Canvas sender, GH_CanvasMouseEvent e)
-    {
-        _chat.OpenWindow();
-        Selected = false;
-        sender.Refresh();
-        return GH_ObjectResponse.Handled;
-    }
+    // Grasshopper's own capsule style for the node's current selection and lock state. Read fresh
+    // every render rather than cached, so a canvas-theme change is picked up like any other node's.
+    private GH_PaletteStyle CapsuleStyle => _chat.Locked
+        ? (Selected ? GH_Skin.palette_locked_selected : GH_Skin.palette_locked_standard)
+        : (Selected ? GH_Skin.palette_normal_selected : GH_Skin.palette_normal_standard);
 
     /// <inheritdoc/>
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
@@ -61,7 +49,7 @@ public class ChatAttrib : PhyComponentAttributes
             return;
         }
 
-        RenderSmoothCapsule(canvas, graphics, new GH_PaletteStyle(ChatFill, ChatEdge, ChatText));
+        RenderSmoothCapsule(canvas, graphics, CapsuleStyle);
     }
 
     // Mirrors GH_ComponentAttributes.RenderComponentCapsule but rounds both edges

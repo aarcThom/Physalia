@@ -18,9 +18,11 @@ using Physalia.GH.Components;
 namespace Physalia.GH.Harness;
 
 /// <summary>
-/// A proxy node holding a Physalia pipeline in its own Grasshopper document. Double-clicking it
-/// takes the canvas into that document — a secondary screen — the way double-clicking a cluster
-/// does; the canvas return widget (or File, "Save and Return") brings you back.
+/// A proxy node holding a Physalia pipeline in its own Grasshopper document. Right-click →
+/// "Edit Harness" takes the canvas into that document — a secondary screen, the way a cluster does;
+/// the canvas return widget (or File, "Save and Return") brings you back. Double-clicking opens the
+/// chat window on the Chat inside, because the proxy is the only face that pipeline has on the
+/// user's canvas.
 ///
 /// <para>Unlike a cluster this needs no input or output hooks. A Chat has no inputs and one
 /// output, and a Physalia pipeline never exchanges dataflow with the user's canvas: it only
@@ -67,7 +69,7 @@ public sealed class HarnessComponent : PhyBase
     /// Initializes a new instance of the <see cref="HarnessComponent"/> class.
     /// </summary>
     public HarnessComponent()
-        : base("Harness", "Harness", "Holds a Physalia pipeline in its own document. Double-click to edit it on a secondary canvas.", "Pipeline")
+        : base("Harness", "Harness", "Holds a Physalia pipeline in its own document. Double-click to open its chat window; right-click \"Edit Harness\" to edit it on a secondary canvas.", "Pipeline")
     {
     }
 

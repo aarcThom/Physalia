@@ -35,7 +35,7 @@ Vite + Svelte 5 + TS + Tailwind v4 + **shadcn-svelte** with **svelte-ai-elements
 
 ## Files
 - `Components/Core/Chat.cs` — `StatefulComponentBase`, no inputs, one `Prompt Signal` out. `OpenWindow()` (single-instance), `SubmitFromWindow(text, IReadOnlyList<MessageContent>? contentBlocks=null)` → `InvokeOnUiThread(LatchSuccess(text, contentBlocks:…) + ExpireSolution)`.
-- `Attributes/ChatAttrib.cs` — double-click opens the window.
+- `Attributes/ChatAttrib.cs` — capsule render only. **The double-click-to-open gesture and the light-blue tint were both removed 2026-08-09**: the Chat is an ordinary node and the harness proxy (`HarnessAttrib`) is the only door onto the window. The custom render stays (rounded edges + escaping the forced Hidden palette), now driven by `GH_Skin`'s stock styles — see [[gh-nopreview-hidden-palette]].
 - `Components/Core/PromptPipelineView.cs` — shared static traversal: `FindConversation Log` / `IsPipelineBusy` / `GetStreamingText`. Lifted out of `PrompterAttrib` (now delegates to it — pure refactor; **regression-check classic Prompter in Rhino**).
 - `Panels/ChatWindow.cs` — Eto `Form` + `WebView`; `LoadUi`/`TryExtractChatHtml` extract the embedded `Physalia.GH.chat.html` to a temp file and load it via `file://`; UITimer push (async); bridge submit (URL text + image pull); `BuildMessages` maps `ActiveConversation` → UiMessage[] (text / inline images as base64 / tool calls).
 - `src/Physalia.UI/src/`: `App.svelte` (layout + bridge wiring), `lib/bridge.ts` (contract + splitThinking + splitContent + stripDataUrl), `lib/chat/{System Prompt,AssistantTurn,JsonBlock}.svelte`.

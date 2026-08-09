@@ -51,7 +51,7 @@ public class Chat : StatefulComponentBase
     /// Initializes a new instance of the <see cref="Chat"/> class.
     /// </summary>
     public Chat()
-        : base("Chat", "Chat", "Standalone chat window driving the pipeline. Double-click to open the window; send a message to mint a Prompt Signal.", "Pipeline")
+        : base("Chat", "Chat", "Standalone chat window driving the pipeline. Double-click the harness holding it to open the window; send a message to mint a Prompt Signal.", "Pipeline")
     {
         _emoji = OceanEmoji[Random.Shared.Next(OceanEmoji.Length)];
     }

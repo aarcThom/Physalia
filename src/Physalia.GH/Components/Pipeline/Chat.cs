@@ -305,8 +305,12 @@ public class Chat : StatefulComponentBase
     /// <summary>
     /// Notifies the chat window when this component is removed from the document. If the
     /// window is currently viewing this Chat it switches to another one still on the
-    /// canvas, or closes if this was the last; a circle for an unrelated removed Chat
+    /// canvas, or to Home if this was the last; a circle for an unrelated removed Chat
     /// simply drops out of the switcher row on the next tick.
+    ///
+    /// <para>This fires only for a Chat removed from its OWN document. Deleting the harness that
+    /// holds it does not — the sub-document leaves the file with the Chat still inside it, intact.
+    /// The window notices that on its next tick instead; see its liveness check.</para>
     /// </summary>
     /// <param name="document">The document the component was removed from.</param>
     public override void RemovedFromDocument(GH_Document document)

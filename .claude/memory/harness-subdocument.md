@@ -164,6 +164,22 @@ no reason to cap it at one, and the two single-harness mechanisms are gone:
   beside "Add preset" — the connect screen is hidden once a conversation starts, so without it the
   empty-harness path would be unreachable after the first one.
 
+**Deleting a harness fires NO `RemovedFromDocument` for anything inside it (2026-08-09).** Removing the
+proxy takes the whole sub-document out of the file, but the objects in it are untouched and still
+report that inner document from `OnPingDocument()` — so a Chat inside a deleted harness looks perfectly
+placed. The chat window sat frozen on its conversation because of exactly this. There is no per-object
+hook to add; the window instead runs a liveness check each tick (`IsViewedChatLive`) and falls back to
+Home: climb with `PhyDocuments.Host` and you end at a **harness** document only when a proxy up the
+chain is no longer placed, because `Host` stops at the first owner that is not on a document. Testing
+the Chat's own document would always answer "live". Anything else that must react to a harness leaving
+the file needs the same reachability test, not an event.
+
+**Corollary — never resolve the host document from a possibly-orphaned component.** `Host(orphanedChat)`
+returns the DEAD sub-document (non-null!), so `ObjectsIncludingHarnesses` over it happily enumerates the
+deleted harness's contents: the switcher row kept showing the deleted harness's chat dot, and
+"Clear all" would have swept components no longer in the file. `ChatWindow.LiveHost()` gates the
+`Host(_component) ?? ActiveHost()` idiom on `IsViewedChatLive()` and falls back to the canvas otherwise.
+
 `ChatWidget.FindChat`, `ChatWindow.EnumerateChats` and `HandleClearAll` walk `ObjectsIncludingHarnesses`.
 `Chat.MoveSelectionIntoHarness` / `HarnessComponent.CreateFromSelection` were removed with the
 "Add to Harness" menu item.

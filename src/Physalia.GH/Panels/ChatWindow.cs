@@ -1212,6 +1212,17 @@ public class ChatWindow : Form
             MarkPageReady();
         }
 
+        // A Chat can stop being part of the file without ever being removed from a document: deleting
+        // the HARNESS takes its whole sub-document out wholesale, leaving the Chat inside perfectly
+        // intact and still reporting that inner document from OnPingDocument(). No
+        // Chat.RemovedFromDocument fires, so nothing told the window, which sat frozen on the
+        // conversation of a pipeline no longer in the file. Falling back to Home covers that and every
+        // other way the viewed Chat can be orphaned, without needing a hook per case.
+        if (!_home && !IsViewedChatLive())
+        {
+            ShowHome();
+        }
+
         // Home reads no pipeline at all — it is the entry screen, not a conversation. Leaving the
         // Conversation Log null here is what drives that: every field below is already written to
         // cope with an unwired Chat, so the whole page falls back to the connect screen and the
@@ -1530,7 +1541,7 @@ public class ChatWindow : Form
         // The switcher row lists every Chat in the file, so it looks inside harnesses too — a Chat
         // that has moved into one is still a chat the user can switch to, and after the move it is
         // the ONLY place a Chat lives.
-        GH_Document? host = Harness.PhyDocuments.Host(_component) ?? Harness.PhyDocuments.ActiveHost();
+        GH_Document? host = LiveHost();
         if (host is not null)
         {
             foreach (IGH_DocumentObject obj in Harness.PhyDocuments.ObjectsIncludingHarnesses(host))
@@ -1602,6 +1613,37 @@ public class ChatWindow : Form
         _home = false;
         _component = component;
         ResetPushedState();
+    }
+
+    // The user's document to work from — the file whose Chats fill the switcher row and whose
+    // components "Clear all" sweeps.
+    //
+    // Normally that is resolved from the viewed Chat, which is more reliable than the canvas (the
+    // canvas may be showing a harness's insides, or another file entirely). But an ORPHANED Chat — one
+    // whose harness was deleted — must not be trusted: climbing from it stops at the dead
+    // sub-document, which is itself non-null, so the row would go on listing the deleted harness's
+    // Chats and Clear-all would sweep components no longer in the file. Fall back to the canvas there.
+    private GH_Document? LiveHost() =>
+        IsViewedChatLive()
+            ? Harness.PhyDocuments.Host(_component) ?? Harness.PhyDocuments.ActiveHost()
+            : Harness.PhyDocuments.ActiveHost();
+
+    // Whether the Chat being viewed is still part of the open file.
+    //
+    // Climbing the ownership chain from a live Chat ends at the user's document. It ends at a HARNESS
+    // sub-document only when a proxy somewhere up the chain is no longer placed: PhyDocuments.Host
+    // stops as soon as it finds an owner that is not on a document, and a harness sub-document
+    // outlives the proxy that owned it — the objects inside a deleted harness are untouched, so
+    // testing the Chat's own document would always say "live".
+    private bool IsViewedChatLive()
+    {
+        GH_Document? document = _component.OnPingDocument();
+        if (document is null)
+        {
+            return false; // removed outright, or never placed (the widget's backing Chat)
+        }
+
+        return !Harness.PhyDocuments.IsHarnessDocument(Harness.PhyDocuments.Host(document));
     }
 
     /// <summary>
@@ -1933,7 +1975,7 @@ public class ChatWindow : Form
     {
         // "All" spans the whole file, so the sweep descends into every harness — that is where the
         // pipelines actually live — and each document that had something cleared is re-solved.
-        GH_Document? host = Harness.PhyDocuments.Host(_component) ?? Harness.PhyDocuments.ActiveHost();
+        GH_Document? host = LiveHost();
         if (host is null)
         {
             return;

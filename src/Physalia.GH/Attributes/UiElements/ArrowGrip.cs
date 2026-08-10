@@ -27,8 +27,13 @@ public interface IArrowHost
     IArrowHead ArrowHead { get; }
 
     /// <summary>
-    /// Gets a value indicating whether the arrow approaches its end horizontally (rightward tip)
-    /// rather than the default vertical approach (upward tip).
+    /// Gets a value indicating whether the arrow runs HORIZONTALLY: leaving its origin rightwards and
+    /// approaching its end from the left with a rightward tip, rather than the default of dropping
+    /// downward out of the origin and arriving with an upward tip.
+    ///
+    /// <para>Governs both ends together, because the two go with the grip's position: a host whose grip
+    /// sits on the right edge wants a wire that sets off rightwards, not one that dives under the node
+    /// first.</para>
     /// </summary>
     bool HorizontalArrow { get; }
 
@@ -180,6 +185,7 @@ public sealed class ArrowGrip
     private static BezierWire NewWire(PointF from, PointF to, IArrowHost host) =>
         new(from, to, host.ArrowGradient)
         {
+            HorizontalStart = host.HorizontalArrow,
             HorizontalEnd = host.HorizontalArrow,
             ArrowHead = host.ArrowHead,
         };

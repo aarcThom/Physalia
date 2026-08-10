@@ -41,19 +41,75 @@ public abstract class BottomGripAttributes : PhyComponentAttributes
     /// <summary>Gets the expanded pick region (the capsule plus the bottom grip strip).</summary>
     protected RectangleF GripBounds => _gripBounds;
 
-    /// <summary>Gets the bottom-centre of the visible capsule — the grip origin / wire start.</summary>
+    /// <summary>Gets the bottom-centre of the visible capsule.</summary>
     protected PointF BottomCentre =>
         new(_visualBounds.Left + (_visualBounds.Width / 2f), _visualBounds.Y + _visualBounds.Height);
+
+    /// <summary>Gets the right-edge midpoint of the visible capsule, where a Grasshopper output leaves from.</summary>
+    protected PointF RightCentre =>
+        new(_visualBounds.Right, _visualBounds.Y + (_visualBounds.Height / 2f));
+
+    /// <summary>
+    /// Gets the point the grip is drawn at and a wire leaves from. Bottom-centre by default, which is
+    /// what this class is named for; a subclass can put it elsewhere, and must widen the matching side
+    /// of the pick region through <see cref="ExpandForGrip"/> to keep it hittable.
+    /// </summary>
+    protected virtual PointF GripOrigin => BottomCentre;
+
+    /// <summary>
+    /// Gets the region a press must land in to grab the grip — a square centred on
+    /// <see cref="GripOrigin"/>, reaching <see cref="GripExpansion"/> each way.
+    ///
+    /// <para>Distinct from <see cref="GripBounds"/> on purpose. That is the PICK region, and it has to
+    /// cover the whole node so Grasshopper routes a mouse-down here at all; this is the much smaller
+    /// patch where that press means "pull a wire out" rather than "move me". Testing the pick region
+    /// instead — which is what the drag used to do — makes every press anywhere on the node start a
+    /// wire, so the component cannot be dragged at all.</para>
+    /// </summary>
+    protected RectangleF GripHitRegion
+    {
+        get
+        {
+            PointF origin = GripOrigin;
+            return new RectangleF(
+                origin.X - GripExpansion,
+                origin.Y - GripExpansion,
+                GripExpansion * 2f,
+                GripExpansion * 2f);
+        }
+    }
 
     /// <inheritdoc/>
     protected override void Layout()
     {
         base.Layout();
 
-        _visualBounds = Bounds;
-        _gripBounds = new RectangleF(Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height + GripExpansion);
+        _visualBounds = AdjustVisualBounds(Bounds);
+        _gripBounds = ExpandForGrip(_visualBounds);
         Bounds = _gripBounds;
     }
+
+    /// <summary>
+    /// Expands the capsule rect into the pick region that makes the grip hittable — downward by
+    /// default, matching a bottom grip.
+    /// </summary>
+    /// <param name="visual">The capsule rect.</param>
+    /// <returns>The pick region: the capsule plus a strip on the grip's side.</returns>
+    protected virtual RectangleF ExpandForGrip(RectangleF visual) =>
+        new(visual.X, visual.Y, visual.Width, visual.Height + GripExpansion);
+
+    /// <summary>
+    /// Hook for a subclass to resize or reposition the capsule after Grasshopper has laid it out from
+    /// its parameters, but before the grip strip is measured against it.
+    ///
+    /// <para>The seam exists because the grip, the wire origin
+    /// (<see cref="BottomCentre"/>) and the pick region all derive from the capsule rect: adjusting
+    /// <see cref="Bounds"/> after the fact would leave those three disagreeing with what is drawn.
+    /// The base implementation changes nothing.</para>
+    /// </summary>
+    /// <param name="bounds">The capsule rect Grasshopper computed.</param>
+    /// <returns>The rect the capsule should actually occupy.</returns>
+    protected virtual RectangleF AdjustVisualBounds(RectangleF bounds) => bounds;
 
     /// <inheritdoc/>
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
@@ -64,7 +120,7 @@ public abstract class BottomGripAttributes : PhyComponentAttributes
 
         if (channel == GH_CanvasChannel.Objects)
         {
-            DrawGrip(graphics, BottomCentre);
+            DrawGrip(graphics, GripOrigin);
         }
 
         RenderGripContent(canvas, graphics, channel);

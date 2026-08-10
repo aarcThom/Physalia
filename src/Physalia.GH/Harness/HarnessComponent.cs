@@ -84,11 +84,6 @@ public sealed class HarnessComponent : PhyBase
     /// </summary>
     public GH_Document? InnerDocument => _inner;
 
-    /// <summary>
-    /// Gets the number of objects held in the harness.
-    /// </summary>
-    public int Count => _inner?.ObjectCount ?? 0;
-
     /// <inheritdoc/>
     public override void CreateAttributes()
     {
@@ -385,13 +380,13 @@ public sealed class HarnessComponent : PhyBase
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        // The harness itself computes nothing; it keeps the inner document alive and reports what
-        // it holds. Enabled is re-asserted every solve because leaving the harness on the canvas
-        // clears it, and a disabled document ignores the scheduled solutions the pipeline runs on.
+        // The harness itself computes nothing. Enabled is re-asserted every solve because leaving the
+        // harness on the canvas clears it, and a disabled document ignores the scheduled solutions the
+        // pipeline runs on.
+        //
+        // Deliberately sets no Message: the component count used to ride under the node as GH's black
+        // message tag, which said little that mattered and cluttered the canvas.
         ReviveInner();
-
-        int count = Count;
-        Message = count == 0 ? "empty" : $"{count} component{(count == 1 ? string.Empty : "s")}";
     }
 
     // Adopts a document as this harness's contents: recorded in the owner table (so PhyDocuments

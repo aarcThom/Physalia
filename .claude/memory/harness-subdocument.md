@@ -171,6 +171,24 @@ canvas's script components.
   instantiated (which would also fire placement hooks). `HarnessNotes.TypeGuid` and `NotesKey` are
   therefore an **archive contract**: changing either orphans every saved preset's description. Read only
   when the library signature changes, never on the 0.15 s tick.
+- **Proxy size, grip side + selection (2026-08-10).** The harness has NO parameters, so GH's layout made
+  it one of the smallest nodes on the canvas when it stands for a whole pipeline; it is now **×3 wide**,
+  normal height. The resize goes through a new `BottomGripAttributes.AdjustVisualBounds` seam, called
+  between GH's layout and the grip-strip measurement — **not** by assigning `Bounds` afterwards, which
+  would leave the grip, the wire origin and the pick region disagreeing with what is drawn. Grows from
+  the left edge. `HarnessAttrib.Layout` then re-centres `m_innerBounds` on the widened capsule, or the
+  icon/nickname would sit in a corner of it.
+- **The proxy's grip moved to the right edge** (standard GH output position), via two more seams on
+  `BottomGripAttributes`: `GripOrigin` (defaults to `BottomCentre`, harness returns `RightCentre`) and
+  `ExpandForGrip` (defaults to a downward strip, harness widens rightwards). `ArrowAttributeBase
+  .ArrowOrigin` now follows `GripOrigin`, so drawing, hit-testing (`GripBounds`) and the wire all move
+  together — the three must never be set independently. Every other grip component is untouched.
+- **No component-count tag.** `HarnessComponent` no longer sets `Message` (and `Count`, which existed
+  only to feed it, is gone); `HarnessAttrib` also drops its `RenderMessage` call, so GH's black caption
+  cannot reappear under a harness even if something sets `Message` later.
+  **Selected now uses `GH_Skin.palette_normal_selected`** (the standard green) instead of the livery — a
+  node with a private palette that ignores selection looks broken next to every other one. The pink rim
+  is drawn in BOTH states: it is the signature, and the body colour already answers "am I selected".
 - **`HarnessTheme`** now holds the one copy of the family's look (fill / edge / ink / glow + `DrawGlow`);
   `HarnessAttrib`, `HarnessPill` and `HarnessNotesAttrib` all draw from it. The pill outlines in ink
   rather than black — at 30 px a hard black edge reads worse.

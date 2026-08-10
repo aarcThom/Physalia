@@ -26,6 +26,7 @@ public class BezierWire
     private PointF _start;
     private PointF _end;
     private WireGradient _gradient;
+    private bool _horizontalStart;
     private bool _horizontalEnd;
     private IArrowHead _arrowHead = TriangleArrowHead.Default;
 
@@ -100,6 +101,24 @@ public class BezierWire
     }
 
     /// <summary>
+    /// Gets or sets a value indicating whether the wire LEAVES its start heading right, rather than
+    /// the default downward departure. Setting a new value invalidates the segment cache.
+    ///
+    /// <para>Must match the edge the grip sits on, or the wire sets off across the node it came from:
+    /// a bottom-centre grip departs downward, a right-edge grip departs rightwards.</para>
+    /// </summary>
+    public bool HorizontalStart
+    {
+        get => _horizontalStart;
+        set
+        {
+            if (_horizontalStart == value) return;
+            _horizontalStart = value;
+            _dirty = true;
+        }
+    }
+
+    /// <summary>
     /// Gets or sets the head drawn at <see cref="End"/>. Defaults to a filled triangle; assign a
     /// different <see cref="IArrowHead"/> to change the tip ornament without touching the wire.
     /// </summary>
@@ -146,7 +165,12 @@ public class BezierWire
 
     private void Recompute()
     {
-        var cp1 = new PointF(_start.X, _start.Y + _controlOffset);
+        // Each control point pushes the curve out perpendicular to the edge its endpoint sits on, so
+        // the wire leaves and arrives square to the node rather than cutting across it.
+        var cp1 = _horizontalStart
+            ? new PointF(_start.X + _controlOffset, _start.Y)
+            : new PointF(_start.X, _start.Y + _controlOffset);
+
         var cp2 = _horizontalEnd
             ? new PointF(_end.X - _controlOffset, _end.Y)
             : new PointF(_end.X, _end.Y + _controlOffset);

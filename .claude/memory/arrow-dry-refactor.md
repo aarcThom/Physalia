@@ -14,6 +14,16 @@ metadata:
 **Arrow DRY (all in `Attributes/UiElements/`):**
 - The triplicated grip + wire-cache + drag state machine (was duplicated across `GripLinkAttrib`, `CompTxAttrib`, `ChatAttrib`) now lives in one **`ArrowGrip`** controller, driven by an **`IArrowHost`** interface (`ArrowOrigin`, `ArrowGradient`, `ArrowHead`, `HorizontalArrow`, `SettledEndpoints(doc)`, `OnDrop(doc,pt,ctrl)`). Used by **composition** because `ChatAttrib` can't change its `GH_ComponentAttributes` base. Each host keeps only its own hit-test in `RespondToMouseDown` then calls `_arrow.StartDrag/UpdateDrag/EndDrag`; `IsDragging` gates Move/Up.
 - `ChatAttrib`'s old `_wires`/`WireAt`/`DrawArrowWires` are gone (folded into `ArrowGrip`); its harness tint/glow (`RenderSmoothCapsule`/`DrawHarnessGlow`/`LinearGradientBrush`) is untouched — not arrow code.
+- **Two bugs fixed 2026-08-10, both in the shared layer, so every grip component was affected:**
+  - **`TryStartDrag` tested `GripBounds`** — the whole node — so a press ANYWHERE on a Feedback /
+    InterfaceLock / ZoomGuid / PyTransmitter / harness pulled out a wire and the component could not be
+    dragged around the canvas at all. Now tests `GripHitRegion`: a `GripExpansion`-radius square on
+    `GripOrigin`. Keep the two distinct — `GripBounds` is the PICK region and must stay node-sized or GH
+    won't route the mouse-down to the component in the first place.
+  - **`BezierWire` always departed DOWNWARD** (`cp1 = start + (0, offset)`), written when every grip was
+    bottom-centre. Now `HorizontalStart` mirrors `HorizontalEnd`, and `IArrowHost.HorizontalArrow`
+    governs BOTH ends — a right-edge grip must set off rightwards, not dive under its own node first.
+    Only `HarnessAttrib` sets it true, so no other wire changed shape.
 - `GripLinkAttrib` stays as the thin base for the three link attributes; its abstract surface is unchanged, so `FeedbackAttrib`/`PyTransmitterAttrib`/`ZoomGuidAttrib` only changed their gradient line.
 - **Pluggable heads:** new `IArrowHead` + `TriangleArrowHead` (default, current 8f/4f geometry). `BezierWire` gained an `ArrowHead` property and derives tip orientation from its own end tangent (the old `horizontal` bool inside `DrawArrow` is gone; `HorizontalEnd` still shapes the *curve*).
 - **Central gradients:** new `ArrowStyles` static class holds every wire `WireGradient` (`Feedback`, `PyTransmitter`, `CompTx`, `ZoomGuid`, `Proxy`); per-class gradient constants removed.

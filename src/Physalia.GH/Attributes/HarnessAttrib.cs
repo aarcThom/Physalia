@@ -27,6 +27,15 @@ namespace Physalia.GH.Attributes;
 /// </summary>
 public class HarnessAttrib : ArrowAttributeBase
 {
+    // How much wider the proxy is than the capsule Grasshopper would give it. A harness stands for a
+    // whole pipeline, and with no parameters at all GH's own layout would make it one of the smallest
+    // nodes on the canvas. Height is left alone — a node-height bar reads as a node.
+    private const float WidthFactor = 3f;
+
+    // Inset from the capsule to the region the icon (or the nickname) is drawn in, keeping it clear of
+    // the gradient rim.
+    private const float ContentInset = 2f;
+
     private readonly HarnessComponent _harness;
 
     /// <summary>
@@ -39,12 +48,30 @@ public class HarnessAttrib : ArrowAttributeBase
         _harness = harness;
     }
 
+    // The harness livery normally, Grasshopper's own selection palette while selected. Selection has to
+    // read as selection — a node with a private colour scheme that ignores it looks broken next to every
+    // other one — and GH_Skin is where that green comes from, so a canvas theme change follows along.
+    private GH_PaletteStyle CapsuleStyle => Selected
+        ? GH_Skin.palette_normal_selected
+        : HarnessTheme.Style;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The right-edge midpoint, where a Grasshopper output leaves from. The transmitter this stands in
+    /// for reaches sideways to a script component on the same canvas, so a side grip both matches the
+    /// platform and points the right way.
+    /// </remarks>
+    protected override PointF GripOrigin => RightCentre;
+
     /// <inheritdoc/>
     /// <remarks>The delegated arrow uses one proxy style regardless of which transmitter it drives.</remarks>
     public override WireGradient ArrowGradient => ArrowStyles.Proxy;
 
     /// <inheritdoc/>
-    /// <remarks>The proxy arrow terminates horizontally (rightward tip) toward its target.</remarks>
+    /// <remarks>
+    /// The proxy's wire runs horizontally, leaving the right-edge grip rightwards and arriving with a
+    /// rightward tip — matching where <see cref="GripOrigin"/> puts the grip.
+    /// </remarks>
     public override bool HorizontalArrow => true;
 
     /// <inheritdoc/>
@@ -83,10 +110,27 @@ public class HarnessAttrib : ArrowAttributeBase
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Widens the capsule, keeping its left edge where Grasshopper put it — so the node reaches
+    /// rightwards from the spot it was placed at rather than jumping.
+    /// </remarks>
+    protected override RectangleF AdjustVisualBounds(RectangleF bounds) =>
+        new(bounds.X, bounds.Y, bounds.Width * WidthFactor, bounds.Height);
+
+    /// <inheritdoc/>
+    /// <remarks>The grip is on the right, so the hittable strip goes there rather than underneath.</remarks>
+    protected override RectangleF ExpandForGrip(RectangleF visual) =>
+        new(visual.X, visual.Y, visual.Width + GripExpansion, visual.Height);
+
+    /// <inheritdoc/>
     /// <remarks>Only expands the pick region for the grip when there is an arrow to host.</remarks>
     protected override void Layout()
     {
         base.Layout();
+
+        // Grasshopper sized the inner region for the small capsule it thought it was laying out, so the
+        // icon (or the nickname) would sit in a corner of the grown one. Re-centre it on the capsule.
+        m_innerBounds = RectangleF.Inflate(VisualBounds, -ContentInset, -ContentInset);
 
         if (!HasArrow)
         {
@@ -108,14 +152,17 @@ public class HarnessAttrib : ArrowAttributeBase
 
         if (channel == GH_CanvasChannel.Objects)
         {
-            // Grip first, so the capsule paints over its top half and only the lower part peeks out
-            // below the node — the same look the transmitters used to have.
+            // Grip first, so the capsule paints over its inner half and only the outer part peeks past
+            // the node's edge — the same look the transmitters used to have.
             if (HasArrow)
             {
-                DrawGrip(graphics, BottomCentre);
+                DrawGrip(graphics, GripOrigin);
             }
 
-            RenderSmoothCapsule(canvas, graphics, HarnessTheme.Style);
+            RenderSmoothCapsule(canvas, graphics, CapsuleStyle);
+
+            // The rim is drawn in both states: it is the harness's signature, and the point of the
+            // selection colour is to answer "is this selected", which the body already does.
             HarnessTheme.DrawGlow(graphics, Bounds);
         }
 
@@ -155,11 +202,8 @@ public class HarnessAttrib : ArrowAttributeBase
             graphics.SmoothingMode = SmoothingMode.HighQuality;
             canvas.SetSmartTextRenderingHint();
 
-            if (!string.IsNullOrWhiteSpace(_harness.Message))
-            {
-                capsule.RenderEngine.RenderMessage(graphics, _harness.Message, style);
-            }
-
+            // No RenderMessage call: the proxy deliberately carries no message tag, so the black
+            // caption Grasshopper hangs under a node can never appear beneath a harness.
             capsule.Render(graphics, style);
 
             bool iconMode = _harness.IconDisplayMode == GH_IconDisplayMode.icon

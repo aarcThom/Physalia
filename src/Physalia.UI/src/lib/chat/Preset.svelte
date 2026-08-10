@@ -86,7 +86,9 @@
 						<div
 							class="neu-raised text-foreground pointer-events-none absolute top-full left-0 z-10 mt-1 hidden w-full rounded-md px-3 py-2 text-xs whitespace-pre-wrap group-hover:block"
 						>
-							{preset.description?.trim() ? preset.description : 'No description provided.'}
+							{preset.description?.trim()
+							? preset.description
+							: 'No description. Add a Harness Notes panel inside the harness and save it again.'}
 						</div>
 					</div>
 				{/each}

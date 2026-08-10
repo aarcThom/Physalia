@@ -155,6 +155,73 @@ internal static class PresetLibrary
     }
 
     /// <summary>
+    /// Reads a preset's description — the text of the Harness Notes panel inside it — straight out of
+    /// the archive, WITHOUT loading the document.
+    ///
+    /// <para>A Grasshopper file carries no description of its own, and instantiating every component in
+    /// a preset just to read one string would be absurd (and would run their placement hooks). So the
+    /// archive is walked as data: <c>Definition/DefinitionObjects</c> holds one <c>Object</c> chunk per
+    /// component, each stamped with the type's <c>GUID</c> and carrying a <c>Container</c> chunk of
+    /// whatever that component wrote. Finding the Harness Notes type id and reading its key out of the
+    /// container costs one file read and no object construction.</para>
+    ///
+    /// <para>The first non-empty note wins, so a harness documented in several panels still yields a
+    /// description rather than a concatenation.</para>
+    /// </summary>
+    /// <param name="path">Full path to the preset file.</param>
+    /// <returns>The description, or null when the preset has no notes (or cannot be read).</returns>
+    internal static string? ReadDescription(string path)
+    {
+        try
+        {
+            var archive = new GH_Archive();
+            if (!archive.ReadFromFile(path))
+            {
+                return null;
+            }
+
+            GH_IReader? objects = archive.GetRootNode
+                ?.FindChunk("Definition")
+                ?.FindChunk("DefinitionObjects");
+
+            if (objects is null || !objects.ItemExists("ObjectCount"))
+            {
+                return null;
+            }
+
+            int count = objects.GetInt32("ObjectCount");
+            for (int i = 0; i < count; i++)
+            {
+                GH_IReader? entry = objects.FindChunk("Object", i);
+
+                // An Object chunk's own GUID is the TYPE id (ComponentGuid); the instance's lives
+                // inside the Container, with everything else the component wrote.
+                if (entry is null
+                    || !entry.ItemExists("GUID")
+                    || entry.GetGuid("GUID") != Components.HarnessNotes.TypeGuid)
+                {
+                    continue;
+                }
+
+                GH_IReader? container = entry.FindChunk("Container");
+                string notes = string.Empty;
+                if (container is not null
+                    && container.TryGetString(Components.HarnessNotes.NotesKey, ref notes)
+                    && !string.IsNullOrWhiteSpace(notes))
+                {
+                    return notes.Trim();
+                }
+            }
+
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Works out where a user-saved preset of the given name would go, creating the User folder if
     /// needed. Does not write anything and does not care whether the file already exists — the
     /// caller decides what to do about that.

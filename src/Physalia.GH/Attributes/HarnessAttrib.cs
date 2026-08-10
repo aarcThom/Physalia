@@ -27,16 +27,6 @@ namespace Physalia.GH.Attributes;
 /// </summary>
 public class HarnessAttrib : ArrowAttributeBase
 {
-    // Harness tint: light-blue body, black capsule edge, dark-purple text, with a pink-to-white
-    // secondary outline traced just inside the black edge.
-    private static readonly Color HarnessFill = Color.FromArgb(255, 218, 243, 245);
-    private static readonly Color HarnessEdge = Color.Black;
-    private static readonly Color HarnessText = Color.FromArgb(255, 47, 8, 87);
-    private static readonly Color HarnessGlow = Color.FromArgb(255, 236, 0, 150);
-
-    // Width of the secondary gradient outline; about half straddles outside the 1px black edge.
-    private const float GlowWidth = 1f;
-
     private readonly HarnessComponent _harness;
 
     /// <summary>
@@ -125,8 +115,8 @@ public class HarnessAttrib : ArrowAttributeBase
                 DrawGrip(graphics, BottomCentre);
             }
 
-            RenderSmoothCapsule(canvas, graphics, new GH_PaletteStyle(HarnessFill, HarnessEdge, HarnessText));
-            DrawHarnessGlow(graphics);
+            RenderSmoothCapsule(canvas, graphics, HarnessTheme.Style);
+            HarnessTheme.DrawGlow(graphics, Bounds);
         }
 
         // The arrow wires (Wires channel).
@@ -198,38 +188,4 @@ public class HarnessAttrib : ArrowAttributeBase
         }
     }
 
-    // Traces the capsule silhouette with a fat pen filled by a vertical pink-to-white gradient. A
-    // CompoundArray restricts the stroke to the pen's inner half (GH's own inner-shine trick) so it
-    // lands just inside the black edge instead of straddling it.
-    private void DrawHarnessGlow(Graphics graphics)
-    {
-        var capsule = GH_Capsule.CreateCapsule(Bounds, GH_Palette.Hidden);
-        try
-        {
-            capsule.SetJaggedEdges(false, false);
-            GraphicsPath? outline = capsule.OutlineShape;
-            if (outline is null)
-            {
-                return;
-            }
-
-            using var brush = new LinearGradientBrush(
-                RectangleF.Inflate(Bounds, 2f, 2f), Color.White, HarnessGlow, LinearGradientMode.Vertical);
-
-            using var pen = new Pen(brush, GlowWidth * 2f)
-            {
-                LineJoin = LineJoin.Round,
-                CompoundArray = new[] { 0.5f, 1f },
-            };
-
-            SmoothingMode prev = graphics.SmoothingMode;
-            graphics.SmoothingMode = SmoothingMode.HighQuality;
-            graphics.DrawPath(pen, outline);
-            graphics.SmoothingMode = prev;
-        }
-        finally
-        {
-            capsule.Dispose();
-        }
-    }
 }

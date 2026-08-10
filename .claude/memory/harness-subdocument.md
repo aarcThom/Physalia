@@ -159,6 +159,21 @@ canvas's script components.
 - The gallery groups by folder off the host's order (`UiPreset.folder`/`.name`) — no sorting in the UI,
   or page and library would disagree on precedence. `MaybePushPresets`'s tick signature means a
   just-saved harness appears within 0.15 s, no refresh action needed.
+- **Harness Notes (2026-08-10)** — `Components/Pipeline/HarnessNotes.cs` + `HarnessNotesAttrib`. A
+  panel-shaped, param-less annotation in the harness livery: title strip with the nickname, wrapped body,
+  double-click → multi-line `ShowEditBox` (a dialog, not an in-place WinForms text box — that is what made
+  the old Prompter panel awkward on Mac). Width is persisted and user-facing; height follows the wrapped
+  text, measured against a throwaway 1×1 `Bitmap` because `Layout` has no `Graphics`. `Layout` does NOT
+  call base — there are no params to place and the base would size a component capsule.
+  **Its text is the preset's description.** `PresetLibrary.ReadDescription` walks the archive as DATA —
+  `Definition/DefinitionObjects` → `ObjectCount` + indexed `FindChunk("Object", i)`, whose `GUID` item is
+  the **TYPE** id, then its `Container` chunk holds what the component wrote — so no component is ever
+  instantiated (which would also fire placement hooks). `HarnessNotes.TypeGuid` and `NotesKey` are
+  therefore an **archive contract**: changing either orphans every saved preset's description. Read only
+  when the library signature changes, never on the 0.15 s tick.
+- **`HarnessTheme`** now holds the one copy of the family's look (fill / edge / ink / glow + `DrawGlow`);
+  `HarnessAttrib`, `HarnessPill` and `HarnessNotesAttrib` all draw from it. The pill outlines in ink
+  rather than black — at 30 px a hard black edge reads worse.
 - **Widgets stack in one column**: `HarnessPill` holds the shared geometry (row index → Y) and palette
   for `HarnessReturnWidget` (row 0) and `HarnessMenuWidget` (row 1), so the two cannot drift apart.
   Both force `Visible => true` and draw only inside a harness. **`GH_FontServer` is in

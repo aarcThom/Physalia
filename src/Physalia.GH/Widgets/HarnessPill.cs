@@ -51,12 +51,11 @@ internal static class HarnessPill
     private const int GlyphHalfHeight = 6;
     private const int GlyphTextGap = 6;
 
-    private static readonly Color PillFill = Color.FromArgb(255, 218, 243, 245);
-    private static readonly Color PillEdge = Color.FromArgb(255, 47, 8, 87);
-    private static readonly Color PillText = Color.FromArgb(255, 47, 8, 87);
-
-    /// <summary>Gets the ink colour, for a widget drawing its own Widgets-menu icon to match.</summary>
-    internal static Color Ink => PillEdge;
+    // The harness family's look, shared with the proxy node and the Harness Notes panel. The pill
+    // outlines itself in the ink colour rather than black — at 30px it reads better than a hard edge.
+    private static readonly Color PillFill = Attributes.HarnessTheme.Fill;
+    private static readonly Color PillEdge = Attributes.HarnessTheme.Ink;
+    private static readonly Color PillText = Attributes.HarnessTheme.Ink;
 
     /// <summary>
     /// Measures the pill for a label, placed in the given row of the column.

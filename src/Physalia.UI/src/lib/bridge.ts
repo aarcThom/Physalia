@@ -249,7 +249,8 @@ export interface UiPreset {
 	folder: string;
 	/** Display label: the file name without folder or .gh extension. */
 	name: string;
-	/** Unused for .gh presets, which carry no readable description. Kept for the popup shape. */
+	/** The text of the Harness Notes panel inside the preset, read out of its archive by the host —
+	 *  the only description a .gh can carry. Null when the preset has no notes. */
 	description?: string | null;
 }
 

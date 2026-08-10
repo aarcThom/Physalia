@@ -1449,8 +1449,10 @@ public class ChatWindow : Form
     // Pushes the preset library to the page, but only when the set actually changes — a cheap
     // signature (relative paths + last-write times) is compared first, so this is nearly free on the
     // 0.15 s tick. That also means a harness saved as a preset shows up in the gallery within a tick,
-    // with no refresh action needed. No description is offered: a Grasshopper file carries none that
-    // can be read without instantiating every component in it, so the name is the label.
+    // with no refresh action needed.
+    //
+    // Descriptions are read only on the far side of that check, because each one opens the preset's
+    // archive: fine once when the library changes, absurd several times a second.
     private void MaybePushPresets()
     {
         IReadOnlyList<Harness.PresetEntry> entries = Harness.PresetLibrary.Enumerate();
@@ -1471,7 +1473,11 @@ public class ChatWindow : Form
                 file = e.RelativePath,
                 folder = e.Folder,
                 name = Path.GetFileNameWithoutExtension(e.FileName),
-                description = (string?)null,
+
+                // The text of the Harness Notes panel inside the preset, read straight out of the
+                // archive — the only description a .gh can carry.
+                description = Harness.PresetLibrary.ReadDescription(
+                    Path.Combine(Harness.PresetLibrary.RootDir, e.Folder, e.FileName)),
             })
             .ToList();
 

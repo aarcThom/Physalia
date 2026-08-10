@@ -132,6 +132,18 @@ pipeline never exchanges *dataflow* with the canvas, it only scans it and writes
   Setting `Owner` makes Grasshopper paint its own cluster icon whose menu disposes the document.
 - **Presets are stock `.gh` files** in `Files/PRESETS`, each one a harness's worth of pipeline —
   exactly what saving from inside a harness produces. Loading one adds a NEW harness holding it.
+  The library is split three ways (`PresetLibrary`): **`Physalia/`** (shipped), **`User/`** (saved by
+  the user), **`Community/`** (reserved, empty). Nothing outside those folders is listed. Wire values
+  are library-relative (`User/mine.gh`) and resolved by MATCH against the enumerated library, never by
+  composing a path. **Save Harness as Preset…** writes to `User/` — on the proxy's right-click menu and
+  on the **Harness** widget pill (second in the top-left column inside a harness, under "Back to
+  document"); it refuses a harness with no Chat, since the loader would reject it.
+- **Reading a preset re-issues every instance id** (`DocumentIds.MutateAll`): an archive carries the ids
+  it was saved with, so the same preset placed twice would otherwise put duplicate `InstanceGuid`s in one
+  file. Wires and groups are Grasshopper's own problem; a guid held in one of OUR fields is not — any
+  component storing another object's `InstanceGuid` must implement **`IGuidLinked.RemapLinks`** and
+  replace **only** guids the map contains (a link may point outside the document, as PyTransmitter's
+  does). A normal file load (`HarnessComponent.Read`) deliberately preserves ids.
 - **A document may hold any number of harnesses** — one per line of work. Nothing is ever replaced or
   swept: each placement mints its own Chat (except the first, which adopts the window's detached one),
   drops the proxy at the first free spot right of the window (`PlaceHarness` steps down past anything
@@ -252,6 +264,9 @@ Other: `Colour`
         /PROMPTS
         /RECEIVERS        ← .receiver files
         /PRESETS          ← preset harnesses (.gh — a saved harness sub-document)
+            /Physalia     ← shipped with the plug-in
+            /User         ← written by "Save Harness as Preset…"
+            /Community    ← reserved, not populated yet
         /MEMORIES         ← memory tool: /GLOBAL and /LOCAL/<document-key>
         /agent_guides
 ```

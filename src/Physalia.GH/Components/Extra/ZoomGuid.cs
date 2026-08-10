@@ -4,6 +4,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.GH.Attributes;
@@ -17,7 +18,7 @@ namespace Physalia.GH.Components;
 /// output of the linked component (its preview clipping box). Does nothing when the linked
 /// component produces no previewable geometry. Drag the grip to link; Ctrl+drag to unlink.
 /// </summary>
-public class ZoomGuid : PhyBase
+public class ZoomGuid : PhyBase, IGuidLinked
 {
     private Guid _linkedGuid = Guid.Empty;
     private bool _observedLevel;
@@ -121,6 +122,19 @@ public class ZoomGuid : PhyBase
     {
         Rhino.RhinoApp.Idle -= OnIdleZoom;
         base.RemovedFromDocument(document);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The grip links to any component in the same document, so this link is re-pointed when a
+    /// document's ids are re-issued (loading a preset).
+    /// </remarks>
+    void IGuidLinked.RemapLinks(IReadOnlyDictionary<Guid, Guid> replacements)
+    {
+        if (replacements.TryGetValue(_linkedGuid, out Guid replacement))
+        {
+            _linkedGuid = replacement;
+        }
     }
 
     /// <inheritdoc/>

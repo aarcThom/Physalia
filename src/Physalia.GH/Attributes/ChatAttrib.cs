@@ -22,7 +22,15 @@ namespace Physalia.GH.Attributes;
 /// </summary>
 public class ChatAttrib : PhyComponentAttributes
 {
+    // Width (canvas units) of the strip at the node's right edge left to the output parameter, so it
+    // still owns its wire grip. Everything left of it belongs to the component — see Layout.
+    private const float OutputStripWidth = 6f;
+
     private readonly Chat _chat;
+
+    // The bounds Grasshopper laid the output parameter out with, before Layout cut them down to the
+    // grip strip. Render hands them back for the duration of the parameter draw — see RenderSmoothCapsule.
+    private RectangleF _outputLayoutBounds;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ChatAttrib"/> class.
@@ -39,6 +47,41 @@ public class ChatAttrib : PhyComponentAttributes
     private GH_PaletteStyle CapsuleStyle => _chat.Locked
         ? (Selected ? GH_Skin.palette_locked_selected : GH_Skin.palette_locked_standard)
         : (Selected ? GH_Skin.palette_normal_selected : GH_Skin.palette_normal_standard);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Hands the node's width back to the component, so it can be dragged by all of itself.
+    ///
+    /// <para>A parameter's region belongs to the PARAMETER, not to the component, so a click there
+    /// cannot drag the node. Most components get away with this because their name capsules are narrow
+    /// strips down each side with the icon between them — but the Chat has no inputs and one output
+    /// named "Prompt Signal", so Grasshopper's layout handed that one capsule everything the icon did
+    /// not use. That left a sliver of icon as the only place the node could be picked up.</para>
+    ///
+    /// <para>So the output keeps only a narrow strip at the right edge — enough to own its grip, which
+    /// is derived from these bounds — and the rest of the node falls to the component. The bounds
+    /// Grasshopper computed are kept, and handed back while the parameter is drawn, so the node looks
+    /// exactly as it always did.</para>
+    /// </remarks>
+    protected override void Layout()
+    {
+        base.Layout();
+
+        _outputLayoutBounds = RectangleF.Empty;
+        if (_chat.Params.Output.Count == 0)
+        {
+            return;
+        }
+
+        // base.Layout recomputes the parameter's bounds from the component box every time, so this is
+        // always the full band, never a strip left over from the previous pass.
+        IGH_Attributes output = _chat.Params.Output[0].Attributes;
+        _outputLayoutBounds = output.Bounds;
+
+        RectangleF node = Bounds;
+        output.Bounds = new RectangleF(
+            node.Right - OutputStripWidth, node.Y, OutputStripWidth, node.Height);
+    }
 
     /// <inheritdoc/>
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
@@ -105,11 +148,45 @@ public class ChatAttrib : PhyComponentAttributes
                 text.Dispose();
             }
 
-            RenderComponentParameters(canvas, graphics, _chat, style);
+            RenderOutputName(canvas, graphics, style);
         }
         finally
         {
             capsule.Dispose();
+        }
+    }
+
+    // Draws the output's name capsule with Grasshopper's own renderer, which is the only way to be
+    // certain it looks exactly as it did before Layout took the parameter's width away.
+    //
+    // RenderComponentParameters reads the parameter's bounds, and Layout has cut those down to the
+    // grip strip so the component owns the rest of the node — drawing straight from them would squash
+    // the name into that sliver. So the laid-out bounds are lent back for the duration of the draw and
+    // returned immediately afterwards.
+    //
+    // Safe because painting and hit-testing never interleave: mouse events are dispatched between
+    // paints, and the attribute cache holds the attribute OBJECTS rather than copies of their bounds,
+    // so a click always reads the strip. The output grip's Y was taken before the swap, and is the
+    // vertical centre either way.
+    private void RenderOutputName(GH_Canvas canvas, Graphics graphics, GH_PaletteStyle style)
+    {
+        if (_outputLayoutBounds.IsEmpty || _chat.Params.Output.Count == 0)
+        {
+            RenderComponentParameters(canvas, graphics, _chat, style);
+            return;
+        }
+
+        IGH_Attributes output = _chat.Params.Output[0].Attributes;
+        RectangleF strip = output.Bounds;
+        output.Bounds = _outputLayoutBounds;
+
+        try
+        {
+            RenderComponentParameters(canvas, graphics, _chat, style);
+        }
+        finally
+        {
+            output.Bounds = strip;
         }
     }
 }

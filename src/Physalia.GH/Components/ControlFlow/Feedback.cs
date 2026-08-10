@@ -20,7 +20,7 @@ namespace Physalia.GH.Components;
 /// sequence preserved), so an upstream Fail Signal can never be re-injected by later
 /// solves the way the old level-triggered Data+Trigger pair could.</para>
 /// </summary>
-public class Feedback : StatefulComponentBase
+public class Feedback : StatefulComponentBase, IGuidLinked
 {
     private const int InSignal = 0;
 
@@ -88,6 +88,22 @@ public class Feedback : StatefulComponentBase
     public void RemoveCollector(Guid guid)
     {
         _collectorGuids.Remove(guid);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Every collector a Feedback links to lives in the same document, so all of these links are
+    /// re-pointed when a document's ids are re-issued (loading a preset).
+    /// </remarks>
+    void IGuidLinked.RemapLinks(IReadOnlyDictionary<Guid, Guid> replacements)
+    {
+        for (int i = 0; i < _collectorGuids.Count; i++)
+        {
+            if (replacements.TryGetValue(_collectorGuids[i], out Guid replacement))
+            {
+                _collectorGuids[i] = replacement;
+            }
+        }
     }
 
     /// <inheritdoc/>

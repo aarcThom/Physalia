@@ -1,0 +1,10 @@
+# Harnesses you save yourself land here.
+#
+# Use "Save Harness as Preset…" — on a Harness component's right-click menu, or on the "Harness"
+# widget at the top-left of the canvas while you are inside one. Anything here shows up in the chat
+# window's "Add preset" gallery under "User".
+#
+# You can also drop a .gh in by hand: a preset is an ordinary Grasshopper file holding one harness's
+# worth of pipeline, and it must contain a Chat component or it cannot be loaded back.
+#
+# This file only exists to keep the folder in git. It is ignored by the gallery, which lists .gh only.

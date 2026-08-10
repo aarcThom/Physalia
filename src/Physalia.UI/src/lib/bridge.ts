@@ -216,8 +216,15 @@ export interface SetupResult {
  * Home is not a Chat — it is the placement / provider-setup screen, always present and always first.
  */
 export interface UiChat {
-	/** The component's InstanceGuid — the wire value sent back when its circle is clicked. 'home' for Home. */
+	/** The component's InstanceGuid — sent back with `ordinal` when its circle is clicked. 'home' for Home. */
 	id: string;
+	/** Unique render key for the row: `<guid>#<ordinal>`, or 'home'. NOT interchangeable with `id` —
+	 *  two Chats can share an InstanceGuid (the same preset placed twice copies it out of the archive),
+	 *  and a duplicate key collapses two circles into one. Always key the each block on this. */
+	key: string;
+	/** Position in the host's chat list, sent back on click so a shared guid can still be resolved.
+	 *  -1 for Home. */
+	ordinal: number;
 	/** True for the Chat the window is currently viewing (its circle reads as selected). */
 	active: boolean;
 	/** True when this Chat's wired Conversation Log already holds a conversation (its circle is filled). */
@@ -233,10 +240,15 @@ export interface UiChat {
 	home: boolean;
 }
 
-/** A bundled preset harness (.gh in Files/PRESETS) offered on the Add-preset page. */
+/** A preset harness (.gh under Files/PRESETS) offered on the Add-preset page. */
 export interface UiPreset {
-	/** The preset file name, e.g. "claude-code-node.gh" — used as the wire value when loading. */
+	/** Library-relative path, e.g. "Physalia/claude_code_incremental.gh". The wire value when loading:
+	 *  handed back verbatim and matched against the library host-side, never composed into a path. */
 	file: string;
+	/** Which library folder it came from — "Physalia", "User" or "Community". Groups the gallery. */
+	folder: string;
+	/** Display label: the file name without folder or .gh extension. */
+	name: string;
 	/** Unused for .gh presets, which carry no readable description. Kept for the popup shape. */
 	description?: string | null;
 }

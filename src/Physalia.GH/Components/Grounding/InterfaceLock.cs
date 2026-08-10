@@ -24,7 +24,7 @@ namespace Physalia.GH.Components;
 /// to the model. Drag the bottom grip onto a Py Transmitter; wire the Grounding output into a
 /// Conversation Log's Grounding input so the model knows the contract before it generates.
 /// </summary>
-public class InterfaceLock : PhyBase
+public class InterfaceLock : PhyBase, IGuidLinked
 {
     private const int OutGrounding = 0;
 
@@ -144,6 +144,19 @@ public class InterfaceLock : PhyBase
             ToPorts(GhPythonBridge.GetOutputSpecs(target)));
 
         DA.SetData(OutGrounding, new GH_Grounding(grounding));
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The linked transmitter is a peer in the same document, so this link is re-pointed when a
+    /// document's ids are re-issued (loading a preset).
+    /// </remarks>
+    void IGuidLinked.RemapLinks(IReadOnlyDictionary<Guid, Guid> replacements)
+    {
+        if (replacements.TryGetValue(_linkedGuid, out Guid replacement))
+        {
+            _linkedGuid = replacement;
+        }
     }
 
     /// <inheritdoc/>

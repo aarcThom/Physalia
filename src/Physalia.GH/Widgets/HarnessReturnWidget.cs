@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.GUI.Widgets;
@@ -12,7 +11,8 @@ using Physalia.GH.Harness;
 namespace Physalia.GH.Widgets;
 
 /// <summary>
-/// A back button shown at the top-left of the canvas while you are inside a harness document.
+/// A back button shown at the top-left of the canvas while you are inside a harness document — the
+/// first pill in the harness column (see <see cref="HarnessPill"/>).
 ///
 /// <para>Grasshopper has no sub-document navigation UI — not for clusters either. All it offers is
 /// a relabelled File menu entry ("Save and Return") and the document dropdown, and that entry takes
@@ -21,17 +21,10 @@ namespace Physalia.GH.Widgets;
 /// </summary>
 public sealed class HarnessReturnWidget : GH_Widget
 {
-    // Pill geometry in device (screen) pixels, docked to the top-left of the canvas.
-    private const int LeftOffset = 14;
-    private const int TopOffset = 14;
-    private const int Height = 30;
-    private const int PaddingX = 14;
-    private const int ArrowWidth = 10;
-    private const int CornerRadius = 8;
+    private const string Label = "Back to document";
 
-    private static readonly Color PillFill = Color.FromArgb(255, 218, 243, 245);
-    private static readonly Color PillEdge = Color.FromArgb(255, 47, 8, 87);
-    private static readonly Color PillText = Color.FromArgb(255, 47, 8, 87);
+    // Row 0 of the top-left harness column.
+    private const int Row = 0;
 
     // Last-rendered pill in device pixels, reused for hit-testing.
     private Rectangle _frame;
@@ -63,7 +56,7 @@ public sealed class HarnessReturnWidget : GH_Widget
 
     /// <inheritdoc/>
     /// <remarks>Drawn rather than embedded: it is a single glyph and never needs to be themed.</remarks>
-    public override Bitmap Icon_24x24 => _icon ??= CreateIcon();
+    public override Bitmap Icon_24x24 => _icon ??= HarnessPill.CreateIcon(PillGlyph.LeftArrow);
 
     /// <summary>
     /// Draws the back pill when the canvas is showing a harness document, and nothing otherwise.
@@ -73,54 +66,13 @@ public sealed class HarnessReturnWidget : GH_Widget
     {
         _frame = Rectangle.Empty;
 
-        if (canvas?.Graphics is null || HarnessOf(canvas) is null)
+        if (canvas?.Graphics is null || HarnessComponent.OwnerOf(canvas.Document) is null)
         {
             return;
         }
 
-        Graphics g = canvas.Graphics;
-
-        // Widget Render runs under the canvas pan/zoom transform — reset to device space so the
-        // pill is pinned to the window corner regardless of pan and zoom.
-        Matrix oldTransform = g.Transform;
-        SmoothingMode oldMode = g.SmoothingMode;
-        g.ResetTransform();
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-
-        const string label = "Back to document";
-        Font font = GH_FontServer.Standard;
-        int textWidth = (int)g.MeasureString(label, font).Width;
-        _frame = new Rectangle(LeftOffset, TopOffset, (PaddingX * 2) + ArrowWidth + 6 + textWidth, Height);
-
-        using (GraphicsPath pill = RoundedRect(_frame, CornerRadius))
-        using (var fill = new SolidBrush(PillFill))
-        using (var edge = new Pen(PillEdge, 1f))
-        {
-            g.FillPath(fill, pill);
-            g.DrawPath(edge, pill);
-        }
-
-        using (var ink = new SolidBrush(PillText))
-        {
-            float midY = _frame.Y + (_frame.Height / 2f);
-            float arrowX = _frame.X + PaddingX;
-
-            // A left-pointing triangle, drawn rather than glyphed so it renders identically
-            // regardless of the installed fonts.
-            g.FillPolygon(ink, new[]
-            {
-                new PointF(arrowX, midY),
-                new PointF(arrowX + ArrowWidth, midY - 6f),
-                new PointF(arrowX + ArrowWidth, midY + 6f),
-            });
-
-            SizeF textSize = g.MeasureString(label, font);
-            g.DrawString(label, font, ink, arrowX + ArrowWidth + 6f, midY - (textSize.Height / 2f));
-        }
-
-        g.SmoothingMode = oldMode;
-        g.Transform = oldTransform;
-        oldTransform.Dispose();
+        _frame = HarnessPill.Measure(canvas.Graphics, Label, Row);
+        HarnessPill.Draw(canvas.Graphics, _frame, Label, PillGlyph.LeftArrow);
     }
 
     /// <summary>
@@ -145,40 +97,7 @@ public sealed class HarnessReturnWidget : GH_Widget
             return GH_ObjectResponse.Ignore;
         }
 
-        HarnessOf(sender)?.ReturnToHost();
+        HarnessComponent.OwnerOf(sender?.Document)?.ReturnToHost();
         return GH_ObjectResponse.Handled;
-    }
-
-    // The harness owning whatever document the canvas is showing, or null when the canvas is on an
-    // ordinary document.
-    private static HarnessComponent? HarnessOf(GH_Canvas? canvas) => HarnessComponent.OwnerOf(canvas?.Document);
-
-    // The Widgets-menu icon: the same left-pointing triangle the pill draws.
-    private static Bitmap CreateIcon()
-    {
-        var bitmap = new Bitmap(24, 24);
-        using Graphics g = Graphics.FromImage(bitmap);
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        using var ink = new SolidBrush(PillEdge);
-        g.FillPolygon(ink, new[]
-        {
-            new PointF(6f, 12f),
-            new PointF(17f, 4f),
-            new PointF(17f, 20f),
-        });
-
-        return bitmap;
-    }
-
-    private static GraphicsPath RoundedRect(Rectangle bounds, int radius)
-    {
-        int d = radius * 2;
-        var path = new GraphicsPath();
-        path.AddArc(bounds.X, bounds.Y, d, d, 180, 90);
-        path.AddArc(bounds.Right - d, bounds.Y, d, d, 270, 90);
-        path.AddArc(bounds.Right - d, bounds.Bottom - d, d, d, 0, 90);
-        path.AddArc(bounds.X, bounds.Bottom - d, d, d, 90, 90);
-        path.CloseFigure();
-        return path;
     }
 }

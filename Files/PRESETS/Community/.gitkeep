@@ -1,0 +1,6 @@
+# Reserved for shared community pipelines. Nothing populates this yet.
+#
+# The folder exists so the three-way split of the preset library — Physalia / User / Community — is
+# settled, and so the gallery already has a place to put them.
+#
+# This file only exists to keep the folder in git. It is ignored by the gallery, which lists .gh only.

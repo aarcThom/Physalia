@@ -1446,22 +1446,16 @@ public class ChatWindow : Form
         MaybePushChats();
     }
 
-    // Pushes the bundled presets to the page, but only when the set actually changes — a cheap
-    // signature (file names + last-write times) is compared first, so this is nearly free on the
-    // 0.15 s tick. No description is offered: a Grasshopper file carries none that can be read
-    // without instantiating every component in it, so the file name is the label.
+    // Pushes the preset library to the page, but only when the set actually changes — a cheap
+    // signature (relative paths + last-write times) is compared first, so this is nearly free on the
+    // 0.15 s tick. That also means a harness saved as a preset shows up in the gallery within a tick,
+    // with no refresh action needed. No description is offered: a Grasshopper file carries none that
+    // can be read without instantiating every component in it, so the name is the label.
     private void MaybePushPresets()
     {
-        string dir = GetPresetsDir();
-        List<string> paths = Directory.Exists(dir)
-            ? Directory.EnumerateFiles(dir, "*.gh")
-                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
-                .ToList()
-            : new List<string>();
+        IReadOnlyList<Harness.PresetEntry> entries = Harness.PresetLibrary.Enumerate();
 
-        string signature = string.Join(
-            ";",
-            paths.Select(p => $"{Path.GetFileName(p)}|{File.GetLastWriteTimeUtc(p).Ticks}"));
+        string signature = string.Join(";", entries.Select(e => $"{e.RelativePath}|{e.WriteTicks}"));
         if (signature == _lastPresetSignature)
         {
             return;
@@ -1469,10 +1463,14 @@ public class ChatWindow : Form
 
         _lastPresetSignature = signature;
 
-        var presets = paths
-            .Select(p => new
+        var presets = entries
+            .Select(e => new
             {
-                file = Path.GetFileName(p),
+                // The wire value is the library-relative path; the page hands it back verbatim and
+                // PresetLibrary.Resolve matches it against the library rather than composing a path.
+                file = e.RelativePath,
+                folder = e.Folder,
+                name = Path.GetFileNameWithoutExtension(e.FileName),
                 description = (string?)null,
             })
             .ToList();
@@ -1495,6 +1493,8 @@ public class ChatWindow : Form
             {
                 id = HomeId,
                 active = _home,
+                key = HomeId,
+                ordinal = -1,
                 hasHistory = false,
                 emoji = string.Empty,
                 harness = HomeId,
@@ -1503,10 +1503,21 @@ public class ChatWindow : Form
         };
 
         var list = home
-            .Concat(EnumerateChats().Select(cb => new
+            .Concat(EnumerateChats().Select((cb, index) => new
             {
                 id = cb.InstanceGuid.ToString(),
                 active = !_home && ReferenceEquals(cb, _component),
+
+                // The row's render key, and how a click identifies which circle it was.
+                //
+                // NOT the InstanceGuid on its own: two Chats can share one. Placing the same preset
+                // twice copies the Chat straight out of the archive, guid and all, and a duplicate
+                // render key collapses the two circles into one — which is the bug this fixes. The
+                // position disambiguates them; the guid still rides along so a click can be
+                // cross-checked against it.
+                key = $"{cb.InstanceGuid}#{index}",
+                ordinal = index,
+
                 hasHistory = ChatHasHistory(cb),
                 emoji = cb.Emoji,
 
@@ -1713,7 +1724,22 @@ public class ChatWindow : Form
             return;
         }
 
-        foreach (Chat cb in EnumerateChats())
+        List<Chat> chats = EnumerateChats();
+
+        // Resolve by POSITION, verifying the guid still matches. Two Chats can share an InstanceGuid
+        // (the same preset placed twice brings its Chat's guid out of the archive), so the guid alone
+        // cannot say which circle was clicked. The check catches the one race there is: the row
+        // changing between the push and the click.
+        if (int.TryParse(GetQueryValue(uri.Query, "ordinal"), out int ordinal)
+            && ordinal >= 0
+            && ordinal < chats.Count
+            && chats[ordinal].InstanceGuid == guid)
+        {
+            SetActiveComponent(chats[ordinal]);
+            return;
+        }
+
+        foreach (Chat cb in chats)
         {
             if (cb.InstanceGuid == guid)
             {
@@ -1848,7 +1874,21 @@ public class ChatWindow : Form
         inner.AddObject(chat, false);
         ComponentHelpers.ApplyNickNameDisplay(chat);
 
+        // Lay the Chat out and drop the document's attribute cache, which is what the canvas
+        // hit-tests against. Rendering walks Objects directly, so a stale cache produces a component
+        // you can SEE but cannot select or drag — exactly the shape of the bug this fixes. GH's own
+        // advice on DestroyAttributeCache is to call it "whenever you do something which might affect
+        // attributes", and adding an object to an off-canvas document is one of those things.
+        chat.Attributes.ExpireLayout();
+        chat.Attributes.PerformLayout();
+        inner.DestroyAttributeCache();
+
         PlaceHarness(canvas, host, harness);
+
+        // Only now can the Chat see its siblings: until the proxy is on the host document, the harness
+        // it lives in is not reachable from the file, so its emoji was picked blind.
+        chat.EnsureDistinctEmoji();
+
         SetActiveComponent(chat);
         return inner;
     }
@@ -2010,19 +2050,18 @@ public class ChatWindow : Form
     // A preset IS a harness's document, so there is nothing to place, splice or re-wire: the file is
     // read and becomes the new harness's contents wholesale, and the window re-points at the Chat
     // inside it. Existing harnesses are left running untouched — presets accumulate. The requested
-    // file name is validated against the presets directory (only a bare file name from the enumerated
-    // set is honoured — no path traversal). Runs on the UI thread (bridge dispatch), so editing the
-    // document is safe here — outside any active solve.
+    // value is resolved by MATCH against the enumerated library rather than by composing it into a
+    // path, so nothing it contains can reach outside the preset folders. Runs on the UI thread
+    // (bridge dispatch), so editing the document is safe here — outside any active solve.
     private void HandlePlacePreset(Uri uri)
     {
-        string file = Path.GetFileName(GetQueryValue(uri.Query, "file"));
+        string file = GetQueryValue(uri.Query, "file");
         if (string.IsNullOrEmpty(file))
         {
             return;
         }
 
-        string path = Path.Combine(GetPresetsDir(), file);
-        if (!File.Exists(path))
+        if (Harness.PresetLibrary.Resolve(file) is not { } path)
         {
             Rhino.RhinoApp.WriteLine($"[Physalia] Preset not found: {file}");
             return;
@@ -2078,6 +2117,15 @@ public class ChatWindow : Form
 
         Harness.HarnessComponent harness = Harness.HarnessComponent.CreateWith(contents);
         PlaceHarness(canvas!, host, harness);
+
+        // A preset carries the emoji it was saved with, so placing the same one twice would give both
+        // copies the same circle. Its Chats were read in before the harness existed, so this is the
+        // first moment they can see what the rest of the file is using.
+        foreach (Chat chat in contents.Objects.OfType<Chat>())
+        {
+            chat.EnsureDistinctEmoji();
+        }
+
         harness.ExpireSolution(true);
         return true;
     }
@@ -2181,17 +2229,6 @@ public class ChatWindow : Form
         return assemblyDir is null
             ? "API_KEY_CONFIG.YAML"
             : Path.Combine(assemblyDir, "Files", "API_KEY_CONFIG.YAML");
-    }
-
-    // Directory of bundled preset harnesses shipped beside the plug-in (Files/PRESETS). A preset is
-    // an ordinary Grasshopper file holding one harness's worth of pipeline — which is exactly what
-    // saving from inside a harness produces, so authoring one needs no export step.
-    private static string GetPresetsDir()
-    {
-        string? assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        return assemblyDir is null
-            ? "PRESETS"
-            : Path.Combine(assemblyDir, "Files", "PRESETS");
     }
 
     // Maps the committed conversation to the UI message shape (text / images / tool calls).

@@ -34,7 +34,7 @@ namespace Physalia.GH.Components;
 /// wires survive), and a submission declaring parameters outside the locked set is rejected with
 /// corrective feedback on the Fail Signal.
 /// </summary>
-public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
+public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow, IGuidLinked
 {
     private Guid _linkedGuid = Guid.Empty;
     private string? _pushError;
@@ -346,6 +346,21 @@ public class PyTransmitter : RoutingComponentBase<string>, IHarnessArrow
         return realErrors.Count > 0
             ? RoutingResult.Fail(BuildFeedback(realErrors), "Target Python reported errors.", GH_RuntimeMessageLevel.Warning)
             : RoutingResult.Ok(_linkedGuid.ToString());
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The target script component lives on the USER'S CANVAS, not in the harness, so its id is
+    /// normally absent from the mapping and the link is left exactly as it was — which is what keeps a
+    /// preset's transmitter pointing at nothing rather than at something arbitrary. The lookup is still
+    /// made, for the day a transmitter is asked to target a peer.
+    /// </remarks>
+    void IGuidLinked.RemapLinks(IReadOnlyDictionary<Guid, Guid> replacements)
+    {
+        if (replacements.TryGetValue(_linkedGuid, out Guid replacement))
+        {
+            _linkedGuid = replacement;
+        }
     }
 
     /// <inheritdoc/>

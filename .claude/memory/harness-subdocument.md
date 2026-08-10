@@ -127,6 +127,49 @@ canvas's script components.
 
 ## Presets are stock .gh files
 
+**Library split three ways + save-from-harness (2026-08-09).** `Harness/PresetLibrary.cs` owns
+`Files/PRESETS`, now divided into `Physalia/` (shipped), `User/` (saved by the user) and `Community/`
+(reserved, empty — `.gitkeep` files keep User/Community in git AND get them staged into bin, since
+`CopyLibraryFiles` copies files, not empty dirs). Nothing in the PRESETS root is listed any more.
+- **Wire values are library-relative** (`User/mine.gh`) and `Resolve` MATCHES them against the
+  enumerated library instead of composing a path — traversal-proof by construction, not by sanitising.
+- **`ReadDocumentFile` re-issues every instance id (`DocumentIds.MutateAll`, 2026-08-09).** An archive
+  carries the ids it was saved with, so placing the same preset twice used to put two objects with the
+  SAME `InstanceGuid` in one file — the chat window's switcher row collapsed their circles, and anything
+  else keyed by id (signal trace, GhJSON) had to guess. GH re-issues on paste for the same reason.
+  Order matters: `DestroyProxySources()` first, which is `MutateAllIds`'s documented prerequisite.
+  **Wires need no help** (sources are object references, not ids) and groups are GH's own problem, but a
+  guid in one of OUR fields is opaque to it — those components implement **`IGuidLinked.RemapLinks`**:
+  `Feedback` (collector list), `InterfaceLock` (its transmitter), `ZoomGuid`, and `PyTransmitter` —
+  whose target script component lives on the HOST canvas, so its id is absent from the map and the link
+  is correctly left alone. The rule for any new implementer: **only replace a guid the map contains.**
+  `HarnessComponent.Read` deliberately does NOT re-issue — a file load must round-trip its own ids.
+  Unaffected: `ComponentGuid` (static type ids), live `InstanceGuid` uses, and the memory tool's
+  document key (derived from `document.FilePath`).
+- The switcher row still carries `key`/`ordinal` alongside the guid, and resolves clicks by position
+  with a guid cross-check. Not redundant: a file SAVED before the re-issue landed can still hold
+  duplicate ids, and `HarnessComponent.Read` preserves them.
+- **`HarnessComponent.SaveAsPreset()`** — on the proxy's right-click menu and on the new
+  `HarnessMenuWidget`. Prompts via `Rhino.UI.Dialogs.ShowEditBox`, confirms overwrite via
+  `ShowMessage`, writes with `GH_Archive.AppendObject(doc, "Definition")` +
+  `WriteToFile(path, overwrite: true, rememberPath: FALSE)` — `rememberPath: false` is the point: it
+  leaves no stamped FilePath and no recent-files entry on the live sub-document, the same reason
+  `ReadDocumentFile` avoids `GH_DocumentIO.Open`. **Refuses a harness with no Chat**, because
+  `HandlePlacePreset` rejects such a preset at LOAD time — better to explain while a user is present.
+- The gallery groups by folder off the host's order (`UiPreset.folder`/`.name`) — no sorting in the UI,
+  or page and library would disagree on precedence. `MaybePushPresets`'s tick signature means a
+  just-saved harness appears within 0.15 s, no refresh action needed.
+- **Widgets stack in one column**: `HarnessPill` holds the shared geometry (row index → Y) and palette
+  for `HarnessReturnWidget` (row 0) and `HarnessMenuWidget` (row 1), so the two cannot drift apart.
+  Both force `Visible => true` and draw only inside a harness. **`GH_FontServer` is in
+  `Grasshopper.Kernel`, not `Grasshopper.GUI`** — cost a build iteration.
+- **Dev-build hazard:** `CopyLibraryFiles` does `RemoveDir` on `$(TargetDir)Files` every build, so
+  user presets saved into `bin/.../Files/PRESETS/User` are WIPED by the next `dotnet build` — same
+  trap as `API_KEY_CONFIG.YAML`. Fine for an installed `.gha`; copy anything worth keeping into the
+  repo's `Files/PRESETS/` tree.
+
+
+
 `Files/PRESETS/*.gh`, each holding one harness's worth of pipeline. `HandlePlacePreset` reads the
 archive (`HarnessComponent.ReadDocumentFile` — `GH_Archive` + chunk `"Definition"` +
 `DestroyProxySources`, **not** `GH_DocumentIO.Open`, which stamps FilePath and pollutes GH's

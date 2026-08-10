@@ -320,12 +320,7 @@ public class Chat : StatefulComponentBase
     }
 
     /// <summary>
-    /// Reassigns this Chat's emoji to one not already used by another Chat on the canvas,
-    /// so placed boxes are visually distinct. The reassign is collision-based, so a clean file
-    /// load (where every persisted emoji is already unique) leaves persisted emojis untouched,
-    /// while an on-canvas duplicate (copy-paste / duplicate, which also runs through Read) is
-    /// reshuffled because it collides with its source. Falls back to the existing pick when the
-    /// palette is exhausted.
+    /// Gives this Chat a distinct emoji once it has a document.
     /// </summary>
     /// <param name="document">The document this component was added to.</param>
     public override void AddedToDocument(GH_Document document)
@@ -336,8 +331,38 @@ public class Chat : StatefulComponentBase
         // blank canvas slot (the emoji is painted over it live).
         ResetEmojiIcon();
 
+        EnsureDistinctEmoji();
+    }
+
+    /// <summary>
+    /// Reassigns this Chat's emoji to one no other Chat in the FILE is using, so every chat reads
+    /// distinctly on the canvas and as a circle in the window's switcher row.
+    ///
+    /// <para>The reassign is collision-based, so a clean file load (where every persisted emoji is
+    /// already unique) leaves persisted emojis untouched, while a duplicate — copy-paste, or a preset
+    /// carrying the emoji it was saved with — is reshuffled because it collides. Falls back to the
+    /// existing pick when the palette is exhausted.</para>
+    ///
+    /// <para>Called on placement, and again by the chat window once a harness has landed on the
+    /// canvas: a Chat inside a harness cannot see its siblings until the harness it lives in is
+    /// reachable from the user's document, and a preset's Chat is read in long before that.</para>
+    /// </summary>
+    public void EnsureDistinctEmoji()
+    {
+        GH_Document? local = OnPingDocument();
+        if (local is null)
+        {
+            return;
+        }
+
+        // The whole file, harnesses included. Scanning only the local document lets every harness
+        // pick the same emoji as every other, since that is the only Chat each one can see. Host
+        // falls back to the local document when the owning harness is not placed yet, in which case
+        // there is nothing more to compare against anyway.
+        GH_Document scope = Harness.PhyDocuments.Host(local) ?? local;
+
         var used = new HashSet<string>();
-        foreach (IGH_DocumentObject obj in document.Objects)
+        foreach (IGH_DocumentObject obj in Harness.PhyDocuments.ObjectsIncludingHarnesses(scope))
         {
             if (obj is Chat cb && !ReferenceEquals(cb, this) && !string.IsNullOrEmpty(cb._emoji))
             {
@@ -345,16 +370,16 @@ public class Chat : StatefulComponentBase
             }
         }
 
-        if (used.Contains(_emoji))
+        if (!used.Contains(_emoji))
         {
-            string? free = OceanEmoji.FirstOrDefault(e => !used.Contains(e));
-            if (free is not null)
-            {
-                _emoji = free;
+            return;
+        }
 
-                // The top-of-method reset ran before _emoji changed, so rebuild the icon now.
-                ResetEmojiIcon();
-            }
+        string? free = OceanEmoji.FirstOrDefault(e => !used.Contains(e));
+        if (free is not null)
+        {
+            _emoji = free;
+            ResetEmojiIcon();
         }
     }
 

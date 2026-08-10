@@ -333,12 +333,16 @@
 	// Any open page is closed on the way. Picking an entry is a request to LOOK at something, and the
 	// preset gallery / manual-definition / setup pages all render in front of the conversation — Home
 	// especially would otherwise appear to do nothing while the gallery that led there stayed up.
-	function selectChat(id: string) {
+	function selectChat(entry: UiChat) {
 		panel = null;
 		manualSetup = false;
 		selectedProviderId = null;
 		setupResult = null;
-		window.location.href = `${BRIDGE_SCHEME}://selectchat?id=${encodeURIComponent(id)}`;
+
+		// Position as well as guid: two Chats can share an InstanceGuid, so the guid alone cannot say
+		// which circle was clicked. The host resolves by position and cross-checks the guid.
+		window.location.href =
+			`${BRIDGE_SCHEME}://selectchat?id=${encodeURIComponent(entry.id)}&ordinal=${entry.ordinal}`;
 	}
 
 	// Apply a grounding selection to the wired ConversationLog. The payload {all, leaves} is small enough to
@@ -858,13 +862,15 @@
 	     from the chats. Within one harness no divider is ever drawn. -->
 	{#if chats.length > 0}
 		<div class="flex shrink-0 items-center justify-center gap-1 pb-2">
-			{#each chats as box, i (box.id)}
+			<!-- Keyed on box.key, never box.id: two Chats can share an InstanceGuid, and a duplicate
+			     key would collapse their circles into one. -->
+			{#each chats as box, i (box.key)}
 				{#if i > 0 && chats[i - 1].harness !== box.harness}
 					<span aria-hidden="true" class="bg-muted-foreground/25 mx-1 h-4 w-px shrink-0"></span>
 				{/if}
 				<button
 					type="button"
-					onclick={() => selectChat(box.id)}
+					onclick={() => selectChat(box)}
 					aria-pressed={box.active}
 					title={box.home
 						? 'Home — place a harness or set up providers'

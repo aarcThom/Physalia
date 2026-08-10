@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows.Forms;
@@ -94,6 +95,12 @@ public sealed class HarnessComponent : PhyBase
         m_attributes = new Attributes.HarnessAttrib(this);
     }
 
+    /// <summary>
+    /// Gets the menu label for saving this harness to the preset library. Shared with the canvas
+    /// widget inside the harness, so the same action never ends up with two names.
+    /// </summary>
+    internal static string SavePresetLabel => "Save Harness as Preset…";
+
     /// <inheritdoc/>
     /// <remarks>
     /// Editing the harness is the right-click action, because double-click is spent on the chat
@@ -105,6 +112,66 @@ public sealed class HarnessComponent : PhyBase
         base.AppendAdditionalMenuItems(menu);
         Menu_AppendSeparator(menu);
         Menu_AppendItem(menu, "Edit Harness", (_, _) => OpenInCanvas());
+        Menu_AppendItem(menu, SavePresetLabel, (_, _) => SaveAsPreset());
+    }
+
+    /// <summary>
+    /// Saves this harness's pipeline into the user preset folder, so it can be placed again from the
+    /// chat window's preset gallery.
+    ///
+    /// <para>Prompts for a name, confirms an overwrite, and reports the outcome on the Rhino command
+    /// line. Reachable from this component's right-click menu and from the harness widget shown while
+    /// you are inside the harness. Shows dialogs, so it must run on the UI thread.</para>
+    /// </summary>
+    public void SaveAsPreset()
+    {
+        if (_inner is not { ObjectCount: > 0 } contents)
+        {
+            Rhino.UI.Dialogs.ShowMessage(
+                "This harness is empty — there is no pipeline to save.", SavePresetLabel);
+            return;
+        }
+
+        // A preset the gallery cannot load is worse than none: placing one re-points the chat window
+        // at the Chat inside it, so one without a Chat is refused at LOAD time. Refuse to write it
+        // too, while there is still a user here to be told why.
+        if (!contents.Objects.OfType<Chat>().Any())
+        {
+            Rhino.UI.Dialogs.ShowMessage(
+                "This harness has no Chat component, so it could not be loaded back as a preset. "
+                + "Add a Chat inside the harness and save again.",
+                SavePresetLabel);
+            return;
+        }
+
+        if (!Rhino.UI.Dialogs.ShowEditBox(SavePresetLabel, "Preset name:", NickName, false, out string typed))
+        {
+            return; // cancelled
+        }
+
+        if (!PresetLibrary.TryResolveUserPresetPath(typed, out string path, out string error))
+        {
+            Rhino.UI.Dialogs.ShowMessage(error, SavePresetLabel);
+            return;
+        }
+
+        if (File.Exists(path)
+            && Rhino.UI.Dialogs.ShowMessage(
+                $"\"{Path.GetFileName(path)}\" already exists in your presets. Replace it?",
+                SavePresetLabel,
+                Rhino.UI.ShowMessageButton.YesNo,
+                Rhino.UI.ShowMessageIcon.Question) != Rhino.UI.ShowMessageResult.Yes)
+        {
+            return;
+        }
+
+        if (!PresetLibrary.TryWrite(contents, path, out error))
+        {
+            Rhino.UI.Dialogs.ShowMessage($"The preset could not be saved: {error}", SavePresetLabel);
+            return;
+        }
+
+        Rhino.RhinoApp.WriteLine($"[Physalia] Saved harness preset: {path}");
     }
 
     /// <summary>
@@ -113,6 +180,11 @@ public sealed class HarnessComponent : PhyBase
     /// <para>Reads the archive directly rather than going through <c>GH_DocumentIO.Open</c>, which
     /// stamps the file path onto the document and appends it to Grasshopper's recent-files list —
     /// neither is wanted for bundled content the user never opened.</para>
+    ///
+    /// <para>The objects are given fresh instance ids on the way out. An archive carries the ids it was
+    /// saved with, so without this, loading the same preset twice would put two objects with the SAME
+    /// InstanceGuid in one file — which everything that identifies an object by its id then has to
+    /// guess between. Grasshopper re-issues ids on paste for the same reason.</para>
     /// </summary>
     /// <param name="path">The .gh (or .ghx) file to read.</param>
     /// <returns>The loaded document, or null when the file could not be read.</returns>
@@ -130,7 +202,10 @@ public sealed class HarnessComponent : PhyBase
             return null;
         }
 
+        // Proxy sources first: re-issuing ids while any source is still an unresolved id reference
+        // would strand it, which is why MutateAllIds documents this as a prerequisite.
         document.DestroyProxySources();
+        DocumentIds.MutateAll(document);
         return document;
     }
 
@@ -191,6 +266,13 @@ public sealed class HarnessComponent : PhyBase
         // reach of RemoveDocument, which disposes.
         canvas.Document = inner;
         inner.Enabled = true;
+
+        // The canvas hit-tests against the document's attribute cache, and this document has just
+        // arrived from somewhere that never had a canvas — built in memory by a placement, or read
+        // out of a preset archive. Dropping the cache on entry forces it to be rebuilt against what
+        // the document actually holds; without it, objects render (rendering walks Objects) but
+        // cannot be selected or dragged.
+        inner.DestroyAttributeCache();
 
         ZoomToFit(canvas, inner);
         inner.NewSolution(expireAllObjects: false);

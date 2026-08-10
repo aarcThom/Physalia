@@ -39,6 +39,10 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
         // having opted in before the failure happened. The trace-window toggle still turns it
         // off. No canvas exists yet at priority load; the trace defers its event hookup.
         Diagnostics.RuntimeMessageTrace.Enabled = true;
+
+        // The three preset folders (Physalia / User / Community), so they are there to be browsed
+        // and dropped into before anything has been saved.
+        Harness.PresetLibrary.EnsureFolders();
         return GH_LoadingInstruction.Proceed;
     }
 
@@ -46,10 +50,12 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
     {
         e.AddWidget(new ChatWidget());
 
-        // The harness back button. It draws only while the canvas is inside a harness document, so
-        // it costs nothing on an ordinary canvas — but it must be registered up front like any
-        // other widget, since the list is built once per canvas.
+        // The harness column: the back button, then the harness menu beneath it. Both draw only
+        // while the canvas is inside a harness document, so they cost nothing on an ordinary
+        // canvas — but they must be registered up front like any other widget, since the list is
+        // built once per canvas.
         e.AddWidget(new HarnessReturnWidget());
+        e.AddWidget(new HarnessMenuWidget());
     }
 }
 

@@ -189,6 +189,24 @@ canvas's script components.
   **Selected now uses `GH_Skin.palette_normal_selected`** (the standard green) instead of the livery — a
   node with a private palette that ignores selection looks broken next to every other one. The pink rim
   is drawn in BOTH states: it is the signature, and the body colour already answers "am I selected".
+- **Canvas background wash inside a harness (2026-08-10)** — `Widgets/HarnessCanvasTint.cs`, a diagonal
+  **pink → lilac → blue** gradient over the whole window so a secondary screen never looks like the file
+  you came from. Stops are pale on purpose (components sit on top of it): the pink is `Glow` lightened,
+  the middle is `HarnessTheme.Lilac` (the original Physalia panel's title highlight — `Ink` is too near
+  black to lighten into a purple, it just goes grey), the end is `HarnessTheme.Aqua`. **`Fill` does not
+  work as the blue end** — it is so near white that behind translucency it vanishes, so the sweep read as
+  an all-pink canvas fading out; hence `Aqua` (the old panel's entry-section blue) plus stops weighted
+  `0 / 0.32 / 1` to give blue most of the ramp, pink being much the loudest of the three. Three stops means
+  `InterpolationColors`, which supersedes the two ctor colours; the brush rect is inflated 1 px because
+  GDI+ samples a gradient's first row/column from the far end of the ramp and leaves a stray edge line.
+  **Not a widget**: widgets paint at the END of the pipeline, over the components; a background must go
+  under them. Hangs off **`GH_Canvas.CanvasPaintBackground`** ("raised after the background has been
+  drawn" — i.e. grid down, groups/wires/objects still to come). That event is an INSTANCE event
+  (`(GH_Canvas sender)`), while `WidgetListCreated` is the only STATIC hook handing over a new canvas —
+  hence `Attach` is called from `AddWidgets`, made idempotent by `-=` then `+=` on a static method so a
+  rebuilt widget list cannot double-subscribe. Painted in DEVICE space (ResetTransform +
+  `ClientRectangle`), like the pills. GH's own cluster tint is unusable: it keys on `GH_Document.Owner`,
+  which we never set.
 - **`HarnessTheme`** now holds the one copy of the family's look (fill / edge / ink / glow + `DrawGlow`);
   `HarnessAttrib`, `HarnessPill` and `HarnessNotesAttrib` all draw from it. The pill outlines in ink
   rather than black — at 30 px a hard black edge reads worse.

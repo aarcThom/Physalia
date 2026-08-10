@@ -56,6 +56,12 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
         // built once per canvas.
         e.AddWidget(new HarnessReturnWidget());
         e.AddWidget(new HarnessMenuWidget());
+
+        // The harness background wash rides along here because this is the only STATIC hook
+        // Grasshopper offers that hands over a new canvas — the paint events it needs are per-canvas
+        // instance events. It is not a widget: widgets paint over the components, a background under
+        // them. Attach is idempotent, so a rebuilt widget list costs nothing.
+        HarnessCanvasTint.Attach(sender as GH_Canvas);
     }
 }
 

@@ -9,10 +9,8 @@ using System.Text;
 using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
-using Physalia.Core.Common;
-using Physalia.Core.Signals;
 using Physalia.Core.Validation;
-using Physalia.GH.Attributes;
+using Physalia.GH.Attributes.UiElements;
 using Physalia.GH.Generation;
 using Physalia.GH.Harness;
 
@@ -33,7 +31,7 @@ namespace Physalia.GH.Components;
 /// and a Runtime Health Check scopes its runtime-health scan (errors, warnings, dead components)
 /// to exactly those GUIDs.
 /// </summary>
-public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
+public class ComponentTransmitter : TransmitterComponentBase
 {
     private const float PlacementGap = 50f;
 
@@ -57,13 +55,18 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
         : base(
             "Component Transmitter",
             "CompTx",
-            "Places an LLM-generated GhJSON graph on the canvas. Clean placement routes the placed components' GUIDs forward (for a Runtime Health Check to scan); mechanical placement problems route a description back.",
-            "Transmitters")
+            "Places an LLM-generated GhJSON graph on the canvas. Clean placement routes the placed components' GUIDs forward (for a Runtime Health Check to scan); mechanical placement problems route a description back.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("4BA76257-AD4C-462C-AB7E-B130DB176BF4");
+
+    /// <inheritdoc/>
+    public override string OutletLabel => "node";
+
+    /// <inheritdoc/>
+    public override WireGradient OutletGradient => ArrowStyles.CompTx;
 
     /// <summary>
     /// Gets the absolute host-canvas point (the drop-arrow tip) where the placed graph's top-left
@@ -84,22 +87,6 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
         }
     }
 
-    // The pivot the placement offset is measured from: the harness proxy's, because that is the
-    // node the arrow is drawn from and it shares a coordinate space with the drop point. Falls back
-    // to this component's own pivot when it is not in a harness (the arrow is then unreachable, but
-    // an offset stored before the move still resolves sensibly).
-    private PointF ArrowAnchor =>
-        Harness.HarnessComponent.OwnerOf(OnPingDocument())?.Attributes?.Pivot
-            ?? Attributes.Pivot;
-
-    /// <inheritdoc/>
-    public override void CreateAttributes()
-    {
-        // A plain node: the drag arrow now lives on the harness proxy, which sits on the canvas the
-        // placement point belongs to (see IHarnessArrow).
-        m_attributes = new PhyComponentAttributes(this);
-    }
-
     /// <summary>
     /// Stores the placement-target arrow tip, dropped anywhere on the host canvas, as an offset
     /// from <see cref="ArrowAnchor"/> so it travels with the node the arrow hangs off.
@@ -113,7 +100,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 
     /// <inheritdoc/>
     /// <remarks>The single settled wire lands on the stored free-canvas placement point, if any.</remarks>
-    IEnumerable<PointF> IHarnessArrow.GetArrowEndpoints(GH_Document hostDocument)
+    public override IEnumerable<PointF> GetArrowEndpoints(GH_Document hostDocument)
     {
         if (PlacementTarget is { } target)
         {
@@ -123,7 +110,7 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
 
     /// <inheritdoc/>
     /// <remarks>The drop lands anywhere on the canvas — there is no target object to validate.</remarks>
-    void IHarnessArrow.HandleDrop(GH_Document hostDocument, PointF dropPoint, bool ctrl)
+    public override void HandleDrop(GH_Document hostDocument, PointF dropPoint, bool ctrl)
     {
         SetPlacementTarget(dropPoint);
         ExpireSolution(true);
@@ -145,16 +132,6 @@ public class ComponentTransmitter : RoutingComponentBase<string>, IHarnessArrow
     /// scheduled by this component rather than auto-scheduled by the base.
     /// </remarks>
     protected override bool AutoScheduleRead => false;
-
-    /// <inheritdoc/>
-    /// <remarks>
-    /// The GhJSON graph arrives as the consumed signal's payload.
-    /// </remarks>
-    protected override bool TryGetData(PhySignal signal, IGH_DataAccess da, out string data)
-    {
-        data = signal.Payload;
-        return StringHelpers.IsNonBlank(data);
-    }
 
     /// <inheritdoc/>
     /// <remarks>

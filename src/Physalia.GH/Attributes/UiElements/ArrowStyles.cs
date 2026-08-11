@@ -24,12 +24,9 @@ public static class ArrowStyles
     /// <summary>Component Transmitter free-point drop arrow: orange to medium orchid.</summary>
     public static readonly WireGradient CompTx = new(Color.Orange, Color.MediumOrchid);
 
+    /// <summary>Text Transmitter → the input it feeds: neon green to blue.</summary>
+    public static readonly WireGradient TextTx = new(Color.FromArgb(255, 57, 255, 20), Color.Blue);
+
     /// <summary>ZoomGuid → any component link: gold to royal blue.</summary>
     public static readonly WireGradient ZoomGuid = new(Color.Gold, Color.RoyalBlue);
-
-    /// <summary>
-    /// The Chat proxy's delegated arrow, drawn while collapsed over a single transmitter. Uses
-    /// the Feedback blue→purple regardless of which transmitter the proxy stands in for.
-    /// </summary>
-    public static readonly WireGradient Proxy = new(Color.Blue, Color.Purple);
 }

@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Windows.Forms;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
@@ -21,22 +22,54 @@ namespace Physalia.GH.Attributes;
 ///
 /// <para>The proxy is the ONLY door onto the chat window: <b>double-click opens it</b> on the Chat
 /// inside, and <b>right-click → "Edit Harness"</b> takes the canvas inside. The Chat itself answers
-/// no gesture — it lives in the sub-document, where the user only reaches it deliberately. When the harness
-/// holds exactly one transmitter the proxy also grows that transmitter's drag arrow, so the drag
-/// happens on the canvas where its target actually lives — see <see cref="IHarnessArrow"/>.</para>
+/// no gesture — it lives in the sub-document, where the user only reaches it deliberately.</para>
+///
+/// <para>The proxy also grows ONE drag grip per transmitter inside the harness — its outlets (see
+/// <see cref="IHarnessOutlet"/>) — stacked down the right edge, each labelled ("node", "py") and
+/// painted in that transmitter's own wire colour. The drag has to happen out here because the
+/// things a transmitter points at live on the user's canvas, and a drag cannot cross two canvases.
+/// The capsule grows taller to fit them; with no transmitters inside it stays a plain bar with no
+/// grips at all.</para>
 /// </summary>
-public class HarnessAttrib : ArrowAttributeBase
+public class HarnessAttrib : BottomGripAttributes
 {
     // How much wider the proxy is than the capsule Grasshopper would give it. A harness stands for a
     // whole pipeline, and with no parameters at all GH's own layout would make it one of the smallest
-    // nodes on the canvas. Height is left alone — a node-height bar reads as a node.
+    // nodes on the canvas. The base height is left alone — a node-height bar reads as a node — until
+    // outlets need more room than that.
     private const float WidthFactor = 3f;
 
     // Inset from the capsule to the region the icon (or the nickname) is drawn in, keeping it clear of
     // the gradient rim.
     private const float ContentInset = 2f;
 
+    // Vertical room each outlet grip claims. The capsule grows to n * this, so two grips are far
+    // enough apart to aim at and to read their labels between.
+    private const float RowHeight = 20f;
+
+    // Gap between the labels and the capsule's right edge, so a tag never crowds its grip.
+    private const float LabelInset = 7f;
+
+    // Bounds on the strip reserved along the right edge for the outlet labels. The strip is measured
+    // from the labels themselves — a fixed width cropped "node" to "nod" — but never so wide that a
+    // long tag would crowd the mark out of its own capsule.
+    private const float MinLabelColumn = 24f;
+    private const float MaxLabelColumn = 72f;
+
+    // Below this canvas zoom the labels are dropped, the way Grasshopper drops parameter names: the
+    // adjusted font would render them as unreadable smears over the node.
+    private const float LabelZoomFloor = 0.6f;
+
     private readonly HarnessComponent _harness;
+
+    // One handle per outlet, rebuilt only when the harness's transmitters actually change so an
+    // in-flight drag (and each arrow's cached wire geometry) survives a relayout.
+    private readonly List<OutletHandle> _handles = new();
+
+    private OutletHandle? _dragging;
+
+    // Width of the label strip, measured at layout from the labels actually present.
+    private float _labelColumn;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HarnessAttrib"/> class.
@@ -57,37 +90,11 @@ public class HarnessAttrib : ArrowAttributeBase
 
     /// <inheritdoc/>
     /// <remarks>
-    /// The right-edge midpoint, where a Grasshopper output leaves from. The transmitter this stands in
-    /// for reaches sideways to a script component on the same canvas, so a side grip both matches the
-    /// platform and points the right way.
+    /// The right-edge midpoint, where a Grasshopper output leaves from — and where a single outlet's
+    /// grip lands. With more than one the grips are spread from here by
+    /// <see cref="PositionHandles"/>, which is what the proxy actually draws and hit-tests against.
     /// </remarks>
     protected override PointF GripOrigin => RightCentre;
-
-    /// <inheritdoc/>
-    /// <remarks>The delegated arrow uses one proxy style regardless of which transmitter it drives.</remarks>
-    public override WireGradient ArrowGradient => ArrowStyles.Proxy;
-
-    /// <inheritdoc/>
-    /// <remarks>
-    /// The proxy's wire runs horizontally, leaving the right-edge grip rightwards and arriving with a
-    /// rightward tip — matching where <see cref="GripOrigin"/> puts the grip.
-    /// </remarks>
-    public override bool HorizontalArrow => true;
-
-    /// <inheritdoc/>
-    public override IEnumerable<PointF> SettledEndpoints(GH_Document doc)
-        => _harness.TryGetSoleArrow(out IHarnessArrow? arrow) && arrow is not null
-            ? arrow.GetArrowEndpoints(doc)
-            : Array.Empty<PointF>();
-
-    /// <inheritdoc/>
-    public override void OnDrop(GH_Document doc, PointF dropPoint, bool ctrl)
-    {
-        if (_harness.TryGetSoleArrow(out IHarnessArrow? arrow) && arrow is not null)
-        {
-            arrow.HandleDrop(doc, dropPoint, ctrl);
-        }
-    }
 
     /// <summary>
     /// Opens the chat window on double-click, on the Chat inside the harness. The proxy stands in
@@ -110,29 +117,85 @@ public class HarnessAttrib : ArrowAttributeBase
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Widens the capsule, keeping its left edge where Grasshopper put it — so the node reaches
-    /// rightwards from the spot it was placed at rather than jumping.
-    /// </remarks>
-    protected override RectangleF AdjustVisualBounds(RectangleF bounds) =>
-        new(bounds.X, bounds.Y, bounds.Width * WidthFactor, bounds.Height);
+    /// <remarks>A press starts a drag only when it lands on one particular outlet's grip.</remarks>
+    public override GH_ObjectResponse RespondToMouseDown(GH_Canvas sender, GH_CanvasMouseEvent e)
+    {
+        if (e.Button == MouseButtons.Left && HandleAt(e.CanvasLocation) is { } handle)
+        {
+            bool ctrl = (Control.ModifierKeys & Keys.Control) == Keys.Control;
+            _dragging = handle;
+            handle.Grip.StartDrag(sender, e.CanvasLocation, ctrl);
+            return GH_ObjectResponse.Capture;
+        }
+
+        return base.RespondToMouseDown(sender, e);
+    }
 
     /// <inheritdoc/>
-    /// <remarks>The grip is on the right, so the hittable strip goes there rather than underneath.</remarks>
+    public override GH_ObjectResponse RespondToMouseMove(GH_Canvas sender, GH_CanvasMouseEvent e)
+    {
+        if (_dragging is { } handle && handle.Grip.IsDragging)
+        {
+            handle.Grip.UpdateDrag(sender, e.CanvasLocation);
+            return GH_ObjectResponse.Handled;
+        }
+
+        return base.RespondToMouseMove(sender, e);
+    }
+
+    /// <inheritdoc/>
+    public override GH_ObjectResponse RespondToMouseUp(GH_Canvas sender, GH_CanvasMouseEvent e)
+    {
+        if (_dragging is { } handle && handle.Grip.IsDragging)
+        {
+            handle.Grip.EndDrag(sender, sender.Document, e.CanvasLocation, handle);
+            _dragging = null;
+            return GH_ObjectResponse.Handled;
+        }
+
+        return base.RespondToMouseUp(sender, e);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Widens the capsule, keeping its left edge where Grasshopper put it — so the node reaches
+    /// rightwards from the spot it was placed at rather than jumping — and grows it downward when the
+    /// outlets need more height than one node-row.
+    /// </remarks>
+    protected override RectangleF AdjustVisualBounds(RectangleF bounds) =>
+        new(
+            bounds.X,
+            bounds.Y,
+            bounds.Width * WidthFactor,
+            Math.Max(bounds.Height, _handles.Count * RowHeight));
+
+    /// <inheritdoc/>
+    /// <remarks>The grips are on the right, so the hittable strip goes there rather than underneath.</remarks>
     protected override RectangleF ExpandForGrip(RectangleF visual) =>
         new(visual.X, visual.Y, visual.Width + GripExpansion, visual.Height);
 
     /// <inheritdoc/>
-    /// <remarks>Only expands the pick region for the grip when there is an arrow to host.</remarks>
+    /// <remarks>Only expands the pick region for the grips when there are outlets to host.</remarks>
     protected override void Layout()
     {
+        // Before base.Layout(), because AdjustVisualBounds sizes the capsule from the outlet count.
+        RefreshHandles();
+
         base.Layout();
 
         // Grasshopper sized the inner region for the small capsule it thought it was laying out, so the
-        // icon (or the nickname) would sit in a corner of the grown one. Re-centre it on the capsule.
-        m_innerBounds = RectangleF.Inflate(VisualBounds, -ContentInset, -ContentInset);
+        // icon (or the nickname) would sit in a corner of the grown one. Re-centre it on the capsule,
+        // less the strip the outlet labels occupy.
+        _labelColumn = MeasureLabelColumn();
 
-        if (!HasArrow)
+        RectangleF inner = RectangleF.Inflate(VisualBounds, -ContentInset, -ContentInset);
+        m_innerBounds = _handles.Count == 0
+            ? inner
+            : new RectangleF(inner.X, inner.Y, Math.Max(1f, inner.Width - _labelColumn), inner.Height);
+
+        PositionHandles();
+
+        if (_handles.Count == 0)
         {
             Bounds = VisualBounds;
         }
@@ -145,18 +208,18 @@ public class HarnessAttrib : ArrowAttributeBase
     /// </remarks>
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
     {
-        // The capsule, grip and arrow all draw against the un-expanded bounds; restore the pick
+        // The capsule, grips and arrows all draw against the un-expanded bounds; restore the pick
         // region afterwards so hit-testing still covers the grip strip.
         RectangleF outer = Bounds;
         Bounds = VisualBounds;
 
         if (channel == GH_CanvasChannel.Objects)
         {
-            // Grip first, so the capsule paints over its inner half and only the outer part peeks past
-            // the node's edge — the same look the transmitters used to have.
-            if (HasArrow)
+            // Grips first, so the capsule paints over their inner halves and only the outer parts peek
+            // past the node's edge — the same look the transmitters used to have.
+            foreach (OutletHandle handle in _handles)
             {
-                DrawGrip(graphics, GripOrigin);
+                DrawGrip(graphics, handle.Origin);
             }
 
             RenderSmoothCapsule(canvas, graphics, CapsuleStyle);
@@ -164,6 +227,9 @@ public class HarnessAttrib : ArrowAttributeBase
             // The rim is drawn in both states: it is the harness's signature, and the point of the
             // selection colour is to answer "is this selected", which the body already does.
             HarnessTheme.DrawGlow(graphics, Bounds);
+
+            // Labels last: they belong on top of the capsule, not under it.
+            DrawOutletLabels(canvas, graphics);
         }
 
         // The arrow wires (Wires channel).
@@ -173,12 +239,147 @@ public class HarnessAttrib : ArrowAttributeBase
     }
 
     /// <inheritdoc/>
-    /// <remarks>A press only starts a drag when there is a transmitter to delegate the drop to.</remarks>
-    protected override bool TryStartDrag(GH_Canvas sender, GH_CanvasMouseEvent e)
-        => HasArrow && base.TryStartDrag(sender, e);
+    /// <remarks>Each outlet draws its own settled wires, in its own colour.</remarks>
+    protected override void RenderGripContent(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
+    {
+        if (channel != GH_CanvasChannel.Wires)
+        {
+            return;
+        }
 
-    // Whether the harness holds exactly one transmitter, and so should show a drag arrow at all.
-    private bool HasArrow => _harness.TryGetSoleArrow(out _);
+        foreach (OutletHandle handle in _handles)
+        {
+            handle.Grip.DrawWires(graphics, canvas.Document, handle);
+        }
+    }
+
+    // Rebuilds the handle list when the harness's set of transmitters has changed. Identity is
+    // preserved otherwise: a handle owns an ArrowGrip holding the live drag state, so replacing them
+    // wholesale on every relayout would drop a drag mid-gesture.
+    private void RefreshHandles()
+    {
+        IReadOnlyList<IHarnessOutlet> outlets = _harness.Outlets;
+
+        if (_handles.Count == outlets.Count)
+        {
+            bool unchanged = true;
+            for (int i = 0; i < outlets.Count; i++)
+            {
+                if (!ReferenceEquals(_handles[i].Outlet, outlets[i]))
+                {
+                    unchanged = false;
+                    break;
+                }
+            }
+
+            if (unchanged)
+            {
+                return;
+            }
+        }
+
+        _handles.Clear();
+        _dragging = null;
+
+        foreach (IHarnessOutlet outlet in outlets)
+        {
+            _handles.Add(new OutletHandle(outlet));
+        }
+    }
+
+    // Spreads the grips evenly down the right edge of the capsule. With one outlet this lands exactly
+    // on the right-edge midpoint, where a Grasshopper output leaves from.
+    private void PositionHandles()
+    {
+        RectangleF capsule = VisualBounds;
+        for (int i = 0; i < _handles.Count; i++)
+        {
+            float y = capsule.Y + (capsule.Height * (i + 0.5f) / _handles.Count);
+            _handles[i].Origin = new PointF(capsule.Right, y);
+        }
+    }
+
+    // The outlet whose grip a canvas point lands on, or null. The hit patch is deliberately much
+    // smaller than the pick region, which covers the whole node: pressing anywhere else has to keep
+    // meaning "move me".
+    private OutletHandle? HandleAt(PointF point)
+    {
+        foreach (OutletHandle handle in _handles)
+        {
+            var hit = new RectangleF(
+                handle.Origin.X - GripExpansion,
+                handle.Origin.Y - (RowHeight / 2f),
+                GripExpansion * 2f,
+                RowHeight);
+
+            if (hit.Contains(point))
+            {
+                return handle;
+            }
+        }
+
+        return null;
+    }
+
+    // The short tag beside each grip ("node", "py"), right-aligned against the capsule edge. Dropped
+    // when zoomed out, as Grasshopper drops parameter names.
+    //
+    // Drawn from a measured POINT rather than into a rectangle: a rectangle clips, and clipping is
+    // what turned "node" into "nod". Measuring here also means the width comes from the very font the
+    // text is drawn with, which the layout pass cannot know — GH_FontServer's adjusted font follows
+    // the canvas zoom, and layout does not re-run when you zoom.
+    private void DrawOutletLabels(GH_Canvas canvas, Graphics graphics)
+    {
+        if (_handles.Count == 0 || canvas.Viewport.Zoom < LabelZoomFloor)
+        {
+            return;
+        }
+
+        using var ink = new SolidBrush(HarnessTheme.Ink);
+        using var format = new StringFormat(StringFormat.GenericTypographic)
+        {
+            FormatFlags = StringFormatFlags.NoWrap,
+        };
+
+        Font font = GH_FontServer.StandardAdjusted;
+        float right = VisualBounds.Right - LabelInset;
+
+        foreach (OutletHandle handle in _handles)
+        {
+            string label = handle.Outlet.OutletLabel;
+            SizeF size = graphics.MeasureString(label, font, PointF.Empty, format);
+
+            graphics.DrawString(
+                label,
+                font,
+                ink,
+                Math.Max(m_innerBounds.Left, right - size.Width),
+                handle.Origin.Y - (size.Height / 2f),
+                format);
+        }
+    }
+
+    // The strip the labels need along the right edge, measured off-screen because Layout has no
+    // Graphics of its own. Only the icon's region depends on this — the labels themselves are placed
+    // from their own measurement at draw time — so the unadjusted font is close enough here.
+    private float MeasureLabelColumn()
+    {
+        if (_handles.Count == 0)
+        {
+            return 0f;
+        }
+
+        using var surface = new Bitmap(1, 1);
+        using Graphics graphics = Graphics.FromImage(surface);
+
+        float widest = 0f;
+        foreach (OutletHandle handle in _handles)
+        {
+            widest = Math.Max(widest, graphics.MeasureString(handle.Outlet.OutletLabel, GH_FontServer.Standard).Width);
+        }
+
+        return Math.Clamp(widest + LabelInset, MinLabelColumn, MaxLabelColumn);
+    }
 
     // Mirrors GH_ComponentAttributes.RenderComponentCapsule but rounds both edges and drives
     // fill/edge/text from our own palette style: the harness has no parameters at all, so GH would
@@ -232,4 +433,51 @@ public class HarnessAttrib : ArrowAttributeBase
         }
     }
 
+    /// <summary>
+    /// One outlet's arrow: the grip's position on the proxy plus the drag/wire mechanics, with the
+    /// outlet itself supplying colour, endpoints and what a drop means.
+    ///
+    /// <para>This is why the proxy composes <see cref="ArrowGrip"/> rather than deriving from
+    /// <see cref="ArrowAttributeBase"/> as the single-arrow components do: a harness hosts as many
+    /// arrows as it holds transmitters, each with its own drag state.</para>
+    /// </summary>
+    private sealed class OutletHandle : IArrowHost
+    {
+        internal OutletHandle(IHarnessOutlet outlet)
+        {
+            Outlet = outlet;
+        }
+
+        /// <summary>Gets the transmitter this grip stands for.</summary>
+        internal IHarnessOutlet Outlet { get; }
+
+        /// <summary>Gets this outlet's own arrow controller, holding its wires and drag state.</summary>
+        internal ArrowGrip Grip { get; } = new();
+
+        /// <summary>Gets or sets where the grip sits on the proxy, set at layout.</summary>
+        internal PointF Origin { get; set; }
+
+        /// <inheritdoc/>
+        public PointF ArrowOrigin => Origin;
+
+        /// <inheritdoc/>
+        public WireGradient ArrowGradient => Outlet.OutletGradient;
+
+        /// <inheritdoc/>
+        public IArrowHead ArrowHead => TriangleArrowHead.Default;
+
+        /// <inheritdoc/>
+        /// <remarks>
+        /// The grips sit on the right edge, so the wire sets off rightwards and arrives with a
+        /// rightward tip rather than diving under the node first.
+        /// </remarks>
+        public bool HorizontalArrow => true;
+
+        /// <inheritdoc/>
+        public IEnumerable<PointF> SettledEndpoints(GH_Document doc) => Outlet.GetArrowEndpoints(doc);
+
+        /// <inheritdoc/>
+        public void OnDrop(GH_Document doc, PointF dropPoint, bool ctrl) =>
+            Outlet.HandleDrop(doc, dropPoint, ctrl);
+    }
 }

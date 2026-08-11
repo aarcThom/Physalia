@@ -27,8 +27,9 @@ window** on the Chat inside (the proxy stands in for that Chat, so it answers th
 pipeline never exchanges *dataflow* with the user's canvas — it only *scans* it (grounders, guardrails)
 and *writes to it by side effect* (placement). So nothing crosses the boundary as a wire.
 
-Files: `HarnessComponent.cs`, `PhyDocuments.cs`, `HarnessResidency.cs`, `IHarnessArrow.cs`,
-`Attributes/HarnessAttrib.cs`, `Widgets/HarnessReturnWidget.cs`.
+Files: `HarnessComponent.cs`, `PhyDocuments.cs`, `HarnessResidency.cs`, `IHarnessOutlet.cs`,
+`Attributes/HarnessAttrib.cs`, `Widgets/HarnessReturnWidget.cs`,
+`Components/Transmitters/{TransmitterComponentBase,ScriptTransmitterBase,TransmitterLink,TextTransmitter}.cs`.
 
 ## The local-vs-host document split — the core of it
 
@@ -114,16 +115,83 @@ and trip the guard again. Four exemptions:
 The idle deferral also re-checks each queued component, so anything swept into a harness meanwhile is
 spared. Pre-harness files load untouched; migrate by opening a harness and pasting the pipeline in.
 
-## Arrows live on the proxy
+## Arrows live on the proxy — one grip per transmitter (variable outlets, 2026-08-10)
 
 Transmitters draw no arrow (`PyTransmitterAttrib` / `CompTxAttrib` deleted; both use plain
-`PhyComponentAttributes`). `IHarnessArrow` is implemented by the **components** (`PyTransmitter`,
-`ComponentTransmitter`), and `HarnessAttrib : ArrowAttributeBase` hosts the grip and forwards the drop,
-showing it only when the harness holds exactly one implementer (`TryGetSoleArrow`). Required, not
-cosmetic: the arrow's targets live on the host canvas and **a drag cannot cross two canvases**.
-`ComponentTransmitter`'s placement offset is measured from the **proxy's** pivot (`ArrowAnchor`).
-For the same reason `PyTransmitter` gained a **"Link to Script Component" menu picker** over the host
-canvas's script components.
+`PhyComponentAttributes`). Required, not cosmetic: the arrow's targets live on the host canvas and
+**a drag cannot cross two canvases**. `ComponentTransmitter`'s placement offset is measured from the
+**proxy's** pivot (`ArrowAnchor`, now on `TransmitterComponentBase`). For the same reason the script
+transmitters carry a **"Link to Script Component" menu picker** over the host canvas.
+
+**A harness has as many outputs as it has transmitters.** `IHarnessOutlet` (was `IHarnessArrow`) is
+the base transmitter output type: `OutletLabel` (the short tag drawn beside the grip — `"node"`,
+`"py"`) + `OutletGradient` (its own wire colour) + endpoints/drop. `HarnessComponent.Outlets`
+(replaced `TryGetSoleArrow`) lists them **ordered by pivot inside the harness**, top-to-bottom then
+left-to-right — stable across sessions, nothing serialized, and re-orderable by moving nodes inside.
+
+`HarnessAttrib` therefore derives from `BottomGripAttributes` and **composes one `ArrowGrip` per
+outlet** (private `OutletHandle : IArrowHost`) instead of deriving from `ArrowAttributeBase`, which
+bakes in exactly one. Grips spread evenly down the right edge; the capsule grows to
+`n * RowHeight(20)`; labels are right-aligned against the edge and dropped below zoom 0.6.
+`ArrowStyles.Proxy` is deleted — colour now comes from each outlet.
+
+**Labels are drawn from a measured POINT, never into a rectangle** — a rect clips, which is what
+rendered "node" as "nod". Measure with the same `StandardAdjusted` font at draw time (it follows the
+canvas zoom, and Layout does not re-run on zoom), same `GenericTypographic` format for measure and
+draw. Layout only measures the column it carves out of `m_innerBounds` for the icon, where the
+unadjusted font is close enough.
+
+Because the proxy's layout depends on the CONTENTS of a document GH doesn't know is connected to it,
+`Adopt` subscribes to the inner document's `ObjectsAdded`/`ObjectsDeleted` and expires the proxy
+layout — otherwise a newly placed transmitter has no grip until some unrelated relayout.
+
+Transmitter class tree (built for IronPython / C# / plain text to slot in):
+`RoutingComponentBase<string>` → `TransmitterComponentBase` (IHarnessOutlet, `TryGetData` off the
+signal payload, plain attributes, `ArrowAnchor`) → `ScriptTransmitterBase` (`IGuidLinked`: linked
+guid + its persistence under the unchanged `"LinkedGuid"` key, link/unlink undo, picker menu, wire
+endpoint under the target, `ResolveTarget`; subclass supplies `TargetKind` + `IsLinkTarget`) →
+`PyTransmitter` / `TextTransmitter`. `ComponentTransmitter` derives from the first tier (free-point
+drop, no target).
+
+**TextTransmitter (2026-08-10) — the outlet that is NOT a routing component.** Grip `"text"`,
+silver→black wire. Two rewrites got here; the shape below is the one the user specified.
+
+**It is a plain `PhyBase`: one generic `Data In`, one generic `Data Out`, nothing else.** Whatever
+arrives passes through untouched — a signal leaves as the SAME `PhySignal` (same sequence, so
+downstream consume-once still holds and the pipeline reads as if it were not there), text leaves as
+text. No Success/Fail pair, no latch, no state machine, because it decides nothing. What it
+TRANSMITS is the text form of whatever arrived: a signal's payload, or the text itself.
+
+**Why the first two cuts failed:** built on `RoutingComponentBase`, which only ever runs on a
+consumed signal — so a text-only wiring never solved at all, and a single output was impossible.
+The lesson generalizes: *the outlet contract is `IHarnessOutlet`, not the routing base.* A
+transmitter that is not signal-driven implements the interface directly.
+
+- **`TransmitterLink` (new, composed)** now owns "how a transmitter is linked": target guid +
+  persistence (`"LinkedGuid"`, unchanged), undo'd `Set`, settled wire endpoint, grip-drop, picker
+  menu, `Resolve`, `Remap`. `ScriptTransmitterBase` delegates to it (built LAZILY — it is wired from
+  the subclass's `TargetKind`/`IsLinkTarget`, so it cannot be built in the ctor); `TextTransmitter`
+  composes its own. This works because `GH_DocumentObject.Menu_AppendItem` is a public static and
+  `RecordUndoEvent` is public — a non-component helper can drive both.
+- **The grip connects like a standard GH output, to ANY input.** Delivery is `GH_Panel` →
+  `SetUserText`, everything else → `SetPersistentData(params object[])` **found by reflection**
+  (`GH_PersistentParam<T>` has no non-generic interface and T is runtime-only) — which casts the value
+  into whatever the param holds, exactly as an incoming wire's data is cast, so a number input takes
+  "3.5". Target resolution mirrors GH's: nearest **input grip** within 12u, else the row under the
+  cursor, else the node's first input; a Panel or floating param links directly. `TransmitterLink`
+  hit-tests nodes twice (exact bounds, then +8u) because a grip sits just off the capsule edge, and
+  `Endpoints` lands the wire ON `Attributes.InputGrip` when the target has one. **A drop on empty
+  canvas does nothing** — it must never create a target. Note the picker menu can only list top-level
+  objects, so component inputs are reachable by drag only.
+- **Delivery is deferred to `RhinoApp.Idle`** — it writes into and `ExpireSolution`s an object on the
+  HOST document from inside the HARNESS document's solve, which in-solution is the classic silent
+  no-op (prime suspect for the original "does not transmit").
+- **Keyed once-per-change**: signals by `#sequence`, everything else by value. The link's `Changed`
+  callback clears the key, or a freshly linked target would sit empty forever.
+- Delivered-but-overridden (the target has a wire into it) warns rather than fails — internalized
+  data loses to a wire, so the text would vanish with no explanation. Warnings reach the node via a
+  one-shot `ExpireSolution` from the Idle handler, guarded on the message actually changing.
+- No icon yet — falls back to `brain.png`.
 
 ## Presets are stock .gh files
 

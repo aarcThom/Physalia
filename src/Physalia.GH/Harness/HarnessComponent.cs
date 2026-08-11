@@ -305,27 +305,24 @@ public sealed class HarnessComponent : PhyBase
         document is not null && Owners.TryGetValue(document, out HarnessComponent? owner) ? owner : null;
 
     /// <summary>
-    /// Finds the single transmitter inside this harness whose drag arrow the proxy should host.
+    /// Gets the transmitters inside this harness, in the order the proxy stacks their grips down its
+    /// right edge — one grip per transmitter, since a harness with two of them (say a node and a
+    /// Python transmitter) has two distinct reaches onto the user's canvas.
+    ///
+    /// <para>Ordered by where the transmitters sit INSIDE the harness, top to bottom then left to
+    /// right, so the grips read in the same order as the pipeline they belong to and stay put across
+    /// sessions without anything being serialized. Moving a transmitter inside re-orders the grips,
+    /// which is the only way a user can control that order — and the only ordering that survives a
+    /// document being re-read, since instance ids are re-issued when a preset is loaded.</para>
     /// </summary>
-    /// <param name="arrow">The sole transmitter, when there is exactly one.</param>
-    /// <returns>True when exactly one transmitter is present.</returns>
-    internal bool TryGetSoleArrow(out IHarnessArrow? arrow)
-    {
-        arrow = null;
-        if (_inner is null)
-        {
-            return false;
-        }
-
-        List<IHarnessArrow> found = _inner.Objects.OfType<IHarnessArrow>().Take(2).ToList();
-        if (found.Count != 1)
-        {
-            return false; // none to host, or several with no way to choose between them
-        }
-
-        arrow = found[0];
-        return true;
-    }
+    internal IReadOnlyList<IHarnessOutlet> Outlets =>
+        _inner is null
+            ? Array.Empty<IHarnessOutlet>()
+            : _inner.Objects
+                .OfType<IHarnessOutlet>()
+                .OrderBy(outlet => ((IGH_DocumentObject)outlet).Attributes.Pivot.Y)
+                .ThenBy(outlet => ((IGH_DocumentObject)outlet).Attributes.Pivot.X)
+                .ToList();
 
     /// <summary>
     /// Finds the Chat driving this harness's pipeline, so the proxy can open the chat window.
@@ -401,8 +398,21 @@ public sealed class HarnessComponent : PhyBase
         Owners.Remove(document);
         Owners.Add(document, this);
 
+        // The proxy grows one grip per transmitter INSIDE this document (see Outlets), so its layout
+        // depends on contents Grasshopper has no idea are connected to it. Watch the object list, or a
+        // transmitter added in here gets its grip only after some unrelated relayout happens to run.
+        document.ObjectsAdded += (_, _) => ExpireProxyLayout();
+        document.ObjectsDeleted += (_, _) => ExpireProxyLayout();
+
         document.Enabled = true;
         _inner = document;
+    }
+
+    // Re-lays the proxy out and repaints, after the harness contents changed underneath it.
+    private void ExpireProxyLayout()
+    {
+        Attributes?.ExpireLayout();
+        Instances.RedrawCanvas();
     }
 
     // Re-asserts the inner document's enabled state unless it is the one currently on the canvas,

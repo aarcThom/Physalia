@@ -325,10 +325,25 @@ public sealed class HarnessComponent : PhyBase
                 .ToList();
 
     /// <summary>
+    /// Gets the Chats inside this harness, in the order the chat window's switcher row shows them —
+    /// by pivot, left to right then top to bottom. The proxy wears their emoji as its icon, so the
+    /// node on the canvas and the row of circles in the window read as the same list; matching
+    /// <c>ChatWindow.CompareChats</c> is what keeps them in step.
+    /// </summary>
+    internal IReadOnlyList<Chat> Chats =>
+        _inner is null
+            ? Array.Empty<Chat>()
+            : _inner.Objects
+                .OfType<Chat>()
+                .OrderBy(chat => chat.Attributes?.Pivot.X ?? 0f)
+                .ThenBy(chat => chat.Attributes?.Pivot.Y ?? 0f)
+                .ToList();
+
+    /// <summary>
     /// Finds the Chat driving this harness's pipeline, so the proxy can open the chat window.
     /// </summary>
     /// <returns>The first Chat inside the harness, or null when it holds none.</returns>
-    internal Chat? FindChat() => _inner?.Objects.OfType<Chat>().FirstOrDefault();
+    internal Chat? FindChat() => Chats.FirstOrDefault();
 
     /// <inheritdoc/>
     public override bool Write(GH_IWriter writer)

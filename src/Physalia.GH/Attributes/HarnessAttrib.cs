@@ -47,6 +47,11 @@ public class HarnessAttrib : BottomGripAttributes
     // enough apart to aim at and to read their labels between.
     private const float RowHeight = 20f;
 
+    // Size of one Chat's emoji, and the space between two of them. The bundled emoji bitmaps are
+    // 24x24, so drawing them at that size keeps them crisp.
+    private const float EmojiSize = 24f;
+    private const float EmojiGap = 4f;
+
     // Gap between the labels and the capsule's right edge, so a tag never crowds its grip.
     private const float LabelInset = 7f;
 
@@ -65,6 +70,11 @@ public class HarnessAttrib : BottomGripAttributes
     // One handle per outlet, rebuilt only when the harness's transmitters actually change so an
     // in-flight drag (and each arrow's cached wire geometry) survives a relayout.
     private readonly List<OutletHandle> _handles = new();
+
+    // The Chats inside the harness, in switcher-row order — the proxy wears their emoji. Held as
+    // components rather than as bitmaps so a Chat that re-rolls its emoji is picked up on the next
+    // paint; each Chat caches its own icon, so asking per frame costs nothing.
+    private readonly List<Chat> _chats = new();
 
     private OutletHandle? _dragging;
 
@@ -95,6 +105,17 @@ public class HarnessAttrib : BottomGripAttributes
     /// <see cref="PositionHandles"/>, which is what the proxy actually draws and hit-tests against.
     /// </remarks>
     protected override PointF GripOrigin => RightCentre;
+
+    // The capsule width the contents actually need: the row of Chat emoji, the outlet labels beside
+    // it, and the insets either side. Only wider than the default proxy width once a harness holds
+    // enough Chats to fill it.
+    private float ContentWidth => EmojiStripWidth + _labelColumn + (ContentInset * 4f);
+
+    // The row of emoji, or nothing at all when the harness holds no Chat — an empty harness keeps the
+    // plug-in's own mark and needs no room reserved for a row that is not there.
+    private float EmojiStripWidth => _chats.Count == 0
+        ? 0f
+        : (_chats.Count * EmojiSize) + ((_chats.Count - 1) * EmojiGap);
 
     /// <summary>
     /// Opens the chat window on double-click, on the Chat inside the harness. The proxy stands in
@@ -160,13 +181,14 @@ public class HarnessAttrib : BottomGripAttributes
     /// <remarks>
     /// Widens the capsule, keeping its left edge where Grasshopper put it — so the node reaches
     /// rightwards from the spot it was placed at rather than jumping — and grows it downward when the
-    /// outlets need more height than one node-row.
+    /// outlets need more height than one node-row. A harness with several Chats in it stretches
+    /// further right still, enough to show every emoji beside the outlet labels.
     /// </remarks>
     protected override RectangleF AdjustVisualBounds(RectangleF bounds) =>
         new(
             bounds.X,
             bounds.Y,
-            bounds.Width * WidthFactor,
+            Math.Max(bounds.Width * WidthFactor, ContentWidth),
             Math.Max(bounds.Height, _handles.Count * RowHeight));
 
     /// <inheritdoc/>
@@ -178,16 +200,17 @@ public class HarnessAttrib : BottomGripAttributes
     /// <remarks>Only expands the pick region for the grips when there are outlets to host.</remarks>
     protected override void Layout()
     {
-        // Before base.Layout(), because AdjustVisualBounds sizes the capsule from the outlet count.
+        // All before base.Layout(), because AdjustVisualBounds sizes the capsule from the outlet
+        // count, the emoji count and the width the labels need.
         RefreshHandles();
+        RefreshChats();
+        _labelColumn = MeasureLabelColumn();
 
         base.Layout();
 
         // Grasshopper sized the inner region for the small capsule it thought it was laying out, so the
         // icon (or the nickname) would sit in a corner of the grown one. Re-centre it on the capsule,
         // less the strip the outlet labels occupy.
-        _labelColumn = MeasureLabelColumn();
-
         RectangleF inner = RectangleF.Inflate(VisualBounds, -ContentInset, -ContentInset);
         m_innerBounds = _handles.Count == 0
             ? inner
@@ -285,6 +308,14 @@ public class HarnessAttrib : BottomGripAttributes
         {
             _handles.Add(new OutletHandle(outlet));
         }
+    }
+
+    // Re-reads the Chats inside the harness. Cheap enough at layout, and it keeps the per-frame
+    // render off the sub-document's object list.
+    private void RefreshChats()
+    {
+        _chats.Clear();
+        _chats.AddRange(_harness.Chats);
     }
 
     // Spreads the grips evenly down the right edge of the capsule. With one outlet this lands exactly
@@ -412,10 +443,17 @@ public class HarnessAttrib : BottomGripAttributes
 
             if (iconMode)
             {
-                Image? icon = _harness.Locked ? _harness.Icon_24x24_Locked : _harness.Icon_24x24;
-                if (icon is not null)
+                if (_chats.Count > 0)
                 {
-                    capsule.RenderEngine.RenderIcon(graphics, icon, m_innerBounds);
+                    RenderChatEmoji(capsule, graphics);
+                }
+                else
+                {
+                    Image? icon = _harness.Locked ? _harness.Icon_24x24_Locked : _harness.Icon_24x24;
+                    if (icon is not null)
+                    {
+                        capsule.RenderEngine.RenderIcon(graphics, icon, m_innerBounds);
+                    }
                 }
             }
             else
@@ -430,6 +468,33 @@ public class HarnessAttrib : BottomGripAttributes
         finally
         {
             capsule.Dispose();
+        }
+    }
+
+    // The harness's face: one emoji per Chat inside it, in the order the chat window's switcher row
+    // shows them, so the node on the canvas and the row of circles in the window are plainly the same
+    // list. A harness IS its conversations — the plug-in's own mark says nothing a user needs once
+    // there is a Chat in there, and it is what an empty harness falls back to.
+    //
+    // Each Chat's icon is asked for at paint time rather than cached here, so a Chat that re-rolls its
+    // emoji (the dedupe on placement) is right on the next frame.
+    private void RenderChatEmoji(GH_Capsule capsule, Graphics graphics)
+    {
+        float size = Math.Min(EmojiSize, m_innerBounds.Height);
+        float strip = (_chats.Count * size) + ((_chats.Count - 1) * EmojiGap);
+
+        float x = m_innerBounds.X + ((m_innerBounds.Width - strip) / 2f);
+        float y = m_innerBounds.Y + ((m_innerBounds.Height - size) / 2f);
+
+        foreach (Chat chat in _chats)
+        {
+            Image? icon = _harness.Locked ? chat.Icon_24x24_Locked : chat.Icon_24x24;
+            if (icon is not null)
+            {
+                capsule.RenderEngine.RenderIcon(graphics, icon, new RectangleF(x, y, size, size));
+            }
+
+            x += size + EmojiGap;
         }
     }
 

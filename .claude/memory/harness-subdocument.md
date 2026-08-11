@@ -135,6 +135,14 @@ bakes in exactly one. Grips spread evenly down the right edge; the capsule grows
 `n * RowHeight(20)`; labels are right-aligned against the edge and dropped below zoom 0.6.
 `ArrowStyles.Proxy` is deleted — colour now comes from each outlet.
 
+**The proxy's icon is its Chats' emoji (2026-08-10).** `HarnessComponent.Chats` lists them in the
+chat window's switcher-row order — pivot X then Y, matching `ChatWindow.CompareChats`, NOT the Y-then-X
+order `Outlets` uses — so the node and the row of circles are visibly the same list; `FindChat` now
+takes the first of these. `HarnessAttrib` holds the Chats (not their bitmaps) and asks each for
+`Icon_24x24` at paint time, so a Chat that re-rolls its emoji is right on the next frame. The capsule
+widens via `ContentWidth` (emoji strip + label column + insets) as a FLOOR under the 3× default width,
+so it only grows once the Chats need it. No Chat inside → the plug-in's own mark, as before.
+
 **Labels are drawn from a measured POINT, never into a rectangle** — a rect clips, which is what
 rendered "node" as "nod". Measure with the same `StandardAdjusted` font at draw time (it follows the
 canvas zoom, and Layout does not re-run on zoom), same `GenericTypographic` format for measure and

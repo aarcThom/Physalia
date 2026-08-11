@@ -130,6 +130,11 @@ pipeline never exchanges *dataflow* with the canvas, it only scans it and writes
   `PhyDocuments.OnHostCanvas(...)` and its reads replaced by `GhJsonBridge.SerializeByGuids`.
 - **Ownership is ours, not `GH_Document.Owner`** (a `ConditionalWeakTable` in `HarnessComponent`).
   Setting `Owner` makes Grasshopper paint its own cluster icon whose menu disposes the document.
+- **The proxy wears its Chats' emoji as its icon** — one per Chat inside, in the same order as the
+  chat window's switcher row (by pivot, left-to-right then top-to-bottom, matching
+  `ChatWindow.CompareChats`), so the node and the row of circles read as the same list. The capsule
+  widens to fit the row (`HarnessComponent.Chats` → `HarnessAttrib.ContentWidth`). A harness holding
+  no Chat keeps the plug-in's own mark; nickname display mode is untouched.
 - **A harness has one OUTLET per transmitter inside it** — its only kind of output, since no dataflow
   crosses. `IHarnessOutlet` (implemented by `TransmitterComponentBase`) is that type: a short label
   drawn beside the grip (`"node"`, `"py"`), its own wire gradient, settled endpoints, and the drop.

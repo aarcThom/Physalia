@@ -37,7 +37,7 @@ public class HarnessAttrib : BottomGripAttributes
     // whole pipeline, and with no parameters at all GH's own layout would make it one of the smallest
     // nodes on the canvas. The base height is left alone — a node-height bar reads as a node — until
     // outlets need more room than that.
-    private const float WidthFactor = 3f;
+    private const float WidthFactor = 2.35f;
 
     // Inset from the capsule to the region the icon (or the nickname) is drawn in, keeping it clear of
     // the gradient rim.
@@ -55,11 +55,15 @@ public class HarnessAttrib : BottomGripAttributes
     // Gap between the labels and the capsule's right edge, so a tag never crowds its grip.
     private const float LabelInset = 7f;
 
-    // Bounds on the strip reserved along the right edge for the outlet labels. The strip is measured
-    // from the labels themselves — a fixed width cropped "node" to "nod" — but never so wide that a
-    // long tag would crowd the mark out of its own capsule.
-    private const float MinLabelColumn = 24f;
-    private const float MaxLabelColumn = 72f;
+    // Strip reserved along the right edge for the outlet labels — room for a short tag at 1:1 zoom,
+    // which is what a canvas unit means.
+    //
+    // Fixed, NOT measured. Measuring looks tempting but cannot work here: layout runs in canvas units
+    // while GH_FontServer's adjusted font follows the canvas zoom, and layout does not re-run when you
+    // zoom — so a measured column reserved a third of the node at high zoom and left a hole between
+    // the emoji and a four-letter tag. Nothing depends on it being exact, either: the labels are drawn
+    // from their own measurement at paint time, so they cannot clip whatever this says.
+    private const float LabelColumn = 30f;
 
     // Below this canvas zoom the labels are dropped, the way Grasshopper drops parameter names: the
     // adjusted font would render them as unreadable smears over the node.
@@ -77,9 +81,6 @@ public class HarnessAttrib : BottomGripAttributes
     private readonly List<Chat> _chats = new();
 
     private OutletHandle? _dragging;
-
-    // Width of the label strip, measured at layout from the labels actually present.
-    private float _labelColumn;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HarnessAttrib"/> class.
@@ -109,7 +110,7 @@ public class HarnessAttrib : BottomGripAttributes
     // The capsule width the contents actually need: the row of Chat emoji, the outlet labels beside
     // it, and the insets either side. Only wider than the default proxy width once a harness holds
     // enough Chats to fill it.
-    private float ContentWidth => EmojiStripWidth + _labelColumn + (ContentInset * 4f);
+    private float ContentWidth => EmojiStripWidth + LabelColumn + (ContentInset * 4f);
 
     // The row of emoji, or nothing at all when the harness holds no Chat — an empty harness keeps the
     // plug-in's own mark and needs no room reserved for a row that is not there.
@@ -200,11 +201,10 @@ public class HarnessAttrib : BottomGripAttributes
     /// <remarks>Only expands the pick region for the grips when there are outlets to host.</remarks>
     protected override void Layout()
     {
-        // All before base.Layout(), because AdjustVisualBounds sizes the capsule from the outlet
-        // count, the emoji count and the width the labels need.
+        // Both before base.Layout(), because AdjustVisualBounds sizes the capsule from the outlet
+        // count and the emoji count.
         RefreshHandles();
         RefreshChats();
-        _labelColumn = MeasureLabelColumn();
 
         base.Layout();
 
@@ -214,7 +214,7 @@ public class HarnessAttrib : BottomGripAttributes
         RectangleF inner = RectangleF.Inflate(VisualBounds, -ContentInset, -ContentInset);
         m_innerBounds = _handles.Count == 0
             ? inner
-            : new RectangleF(inner.X, inner.Y, Math.Max(1f, inner.Width - _labelColumn), inner.Height);
+            : new RectangleF(inner.X, inner.Y, Math.Max(1f, inner.Width - LabelColumn), inner.Height);
 
         PositionHandles();
 
@@ -390,28 +390,6 @@ public class HarnessAttrib : BottomGripAttributes
         }
     }
 
-    // The strip the labels need along the right edge, measured off-screen because Layout has no
-    // Graphics of its own. Only the icon's region depends on this — the labels themselves are placed
-    // from their own measurement at draw time — so the unadjusted font is close enough here.
-    private float MeasureLabelColumn()
-    {
-        if (_handles.Count == 0)
-        {
-            return 0f;
-        }
-
-        using var surface = new Bitmap(1, 1);
-        using Graphics graphics = Graphics.FromImage(surface);
-
-        float widest = 0f;
-        foreach (OutletHandle handle in _handles)
-        {
-            widest = Math.Max(widest, graphics.MeasureString(handle.Outlet.OutletLabel, GH_FontServer.Standard).Width);
-        }
-
-        return Math.Clamp(widest + LabelInset, MinLabelColumn, MaxLabelColumn);
-    }
-
     // Mirrors GH_ComponentAttributes.RenderComponentCapsule but rounds both edges and drives
     // fill/edge/text from our own palette style: the harness has no parameters at all, so GH would
     // otherwise force a jagged "no inputs" left edge and, because the node is not preview-capable,
@@ -483,7 +461,10 @@ public class HarnessAttrib : BottomGripAttributes
         float size = Math.Min(EmojiSize, m_innerBounds.Height);
         float strip = (_chats.Count * size) + ((_chats.Count - 1) * EmojiGap);
 
-        float x = m_innerBounds.X + ((m_innerBounds.Width - strip) / 2f);
+        // Centred in the content region, but never starting left of it: the capsule is sized to hold
+        // the row, and if that ever fails the emoji must run out over the labels rather than out of
+        // the node altogether.
+        float x = Math.Max(m_innerBounds.X, m_innerBounds.X + ((m_innerBounds.Width - strip) / 2f));
         float y = m_innerBounds.Y + ((m_innerBounds.Height - size) / 2f);
 
         foreach (Chat chat in _chats)

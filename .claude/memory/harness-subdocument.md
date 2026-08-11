@@ -146,8 +146,11 @@ so it only grows once the Chats need it. No Chat inside → the plug-in's own ma
 **Labels are drawn from a measured POINT, never into a rectangle** — a rect clips, which is what
 rendered "node" as "nod". Measure with the same `StandardAdjusted` font at draw time (it follows the
 canvas zoom, and Layout does not re-run on zoom), same `GenericTypographic` format for measure and
-draw. Layout only measures the column it carves out of `m_innerBounds` for the icon, where the
-unadjusted font is close enough.
+draw. The column Layout carves out of `m_innerBounds` for them is a FIXED 30 units — measuring it
+with the unadjusted font reserved a third of the node at high zoom and left a visible hole between
+the emoji and a four-letter tag. Nothing needs it exact: the labels place themselves at paint time
+and cannot clip against it. `WidthFactor` is 2.35 (was 3) — trimmed once the emoji row gave the node
+a reason to be as wide as it is.
 
 Because the proxy's layout depends on the CONTENTS of a document GH doesn't know is connected to it,
 `Adopt` subscribes to the inner document's `ObjectsAdded`/`ObjectsDeleted` and expires the proxy

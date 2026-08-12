@@ -330,9 +330,9 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
 }
 
 /// <summary>
-/// One parameter on a locked Python script component interface: the variable name, the Physalia
+/// One parameter on a locked script component interface: the variable name, the Physalia
 /// type-hint name (empty for untyped inputs, and always empty for outputs — they never carry a
-/// hint), and the access mode as its PythonComponent JSON string (<c>item</c>, <c>list</c>, or
+/// hint), and the access mode as its submission-JSON string (<c>item</c>, <c>list</c>, or
 /// <c>tree</c>).
 /// </summary>
 /// <param name="Name">Variable name used inside the script.</param>
@@ -341,21 +341,55 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
 public sealed record ScriptInterfacePort(string Name, string TypeHint, string Access);
 
 /// <summary>
-/// Grounds the model with the fixed input/output interface of the Python script component a
-/// Py Transmitter drives, and declares that interface locked: existing wires on the canvas depend
-/// on these parameters, so every PythonComponent JSON the model emits for the component must
-/// declare exactly these inputs and outputs — same names, types, and access. Emitted by the
-/// Interface Lock grounder, whose link also makes the transmitter enforce the contract (it pushes
-/// code only, and rejects a submission that declares unknown parameters). Each parameter renders
-/// as the exact JSON entry the model should copy into its <c>inputs</c>/<c>outputs</c> arrays.
+/// What a locked interface has to be SAID differently for, one script language to the next: what to
+/// call the component, which submission schema the model is answering with, and what "honour this
+/// interface" means in that language's code.
+///
+/// <para>The parameter list itself is language-neutral — a name, a type hint, an access — so only
+/// this prose varies. Keeping the variance in one small record is what stops the grounding (and the
+/// transmitter's rejection feedback that reuses it) from growing a language branch.</para>
+/// </summary>
+/// <param name="ComponentKind">What to call the component, e.g. "Python script component".</param>
+/// <param name="SchemaName">The submission schema the model emits, e.g. "PythonComponent".</param>
+/// <param name="CodeRule">The sentence telling the model how its code must honour the interface.</param>
+public sealed record ScriptInterfaceDialect(string ComponentKind, string SchemaName, string CodeRule)
+{
+    /// <summary>Gets the dialect of the GH Python 3 Script component.</summary>
+    public static ScriptInterfaceDialect Python { get; } = new(
+        "Python script component",
+        "PythonComponent",
+        "Write the code against exactly these variable names.");
+
+    /// <summary>
+    /// Gets the dialect of the Rhino 8 C# Script component, where the interface is declared a
+    /// second time in the code itself and both declarations have to match the lock.
+    /// </summary>
+    public static ScriptInterfaceDialect CSharp { get; } = new(
+        "C# script component",
+        "CSharpComponent",
+        "Write the RunScript signature to take exactly these parameters and no others — every input "
+        + "by value in the order listed, then every output as an `out` argument — and write the code "
+        + "against those names.");
+}
+
+/// <summary>
+/// Grounds the model with the fixed input/output interface of the script component a transmitter
+/// drives, and declares that interface locked: existing wires on the canvas depend on these
+/// parameters, so every submission the model emits for the component must declare exactly these
+/// inputs and outputs — same names, types, and access. Emitted by the Script I/O grounder,
+/// whose link also makes the transmitter enforce the contract (it pushes code only, and rejects a
+/// submission that declares any other parameter set). Each parameter renders as the exact JSON
+/// entry the model should copy into its <c>inputs</c>/<c>outputs</c> arrays.
 /// </summary>
 /// <param name="ComponentName">The target script component's display (nick) name.</param>
 /// <param name="Inputs">The locked input parameters, in interface order.</param>
 /// <param name="Outputs">The locked output parameters, in interface order.</param>
+/// <param name="Dialect">What the target's language calls things, and what its code must do to honour the lock.</param>
 public sealed record ScriptInterfaceGrounding(
     string ComponentName,
     IReadOnlyList<ScriptInterfacePort> Inputs,
-    IReadOnlyList<ScriptInterfacePort> Outputs) : Grounding
+    IReadOnlyList<ScriptInterfacePort> Outputs,
+    ScriptInterfaceDialect Dialect) : Grounding
 {
     /// <inheritdoc/>
     public override string ToSystemPromptSection()
@@ -366,13 +400,14 @@ public sealed record ScriptInterfaceGrounding(
         }
 
         var section = new System.Text.StringBuilder();
-        section.Append("The Python script component \"").Append(ComponentName.Trim())
+        section.Append("The ").Append(Dialect.ComponentKind).Append(" \"").Append(ComponentName.Trim())
             .Append("\" has a LOCKED interface: existing wires depend on its inputs and outputs, ")
-            .Append("so they must be preserved exactly. In every PythonComponent JSON you emit for ")
+            .Append("so they must be preserved exactly. In every ").Append(Dialect.SchemaName)
+            .Append(" JSON you emit for ")
             .Append("this component, declare EXACTLY the parameters below — copy these entries ")
             .Append("verbatim into your inputs/outputs arrays. Never add, remove, or rename a ")
-            .Append("parameter, and never change a type or access. Write the code against exactly ")
-            .Append("these variable names. A submission declaring any other parameter set is ")
+            .Append("parameter, and never change a type or access. ").Append(Dialect.CodeRule)
+            .Append(" A submission declaring any other parameter set is ")
             .Append("rejected without being applied.\n");
         section.Append("\"inputs\": ").Append(FormatPorts(Inputs)).Append('\n');
         section.Append("\"outputs\": ").Append(FormatPorts(Outputs));

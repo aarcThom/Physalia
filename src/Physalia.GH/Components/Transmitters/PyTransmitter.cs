@@ -5,10 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using Grasshopper.Kernel;
-using Physalia.Core.Common;
 using Physalia.Core.Grounding;
 using Physalia.Core.Python;
 using Physalia.GH.Attributes.UiElements;
@@ -25,7 +23,7 @@ namespace Physalia.GH.Components;
 /// routes the messages back on the Fail Signal. Errors caused purely by unconnected
 /// inputs are ignored. Link to the target by dragging the harness proxy's "py" grip onto it,
 /// or from this node's right-click picker.
-/// When an enabled <see cref="InterfaceLock"/> is linked to this transmitter, the target's
+/// When an enabled <see cref="ScriptIO"/> is linked to this transmitter, the target's
 /// interface is frozen: pushes carry code only (parameters are never restructured, so existing
 /// wires survive), and a submission declaring parameters outside the locked set is rejected with
 /// corrective feedback on the Fail Signal.
@@ -62,11 +60,19 @@ public class PyTransmitter : ScriptTransmitterBase
     public override WireGradient OutletGradient => ArrowStyles.PyTransmitter;
 
     /// <inheritdoc/>
+    public override ScriptInterfaceDialect Dialect => ScriptInterfaceDialect.Python;
+
+    /// <inheritdoc/>
     protected override string TargetKind => "Python Script";
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Python 3 only. Every Rhino 8 script component wears the same interface, so without the
+    /// language test this would happily link to the C# component next door and push Python into it
+    /// — and <see cref="CsTransmitter"/> would do the reverse.
+    /// </remarks>
     protected override bool IsLinkTarget(IGH_DocumentObject candidate) =>
-        GhPythonBridge.IsScriptComponent(candidate);
+        GhPythonBridge.IsPython3Component(candidate);
 
     /// <inheritdoc/>
     /// <remarks>
@@ -82,11 +88,15 @@ public class PyTransmitter : ScriptTransmitterBase
         _inputs = new List<GhParamSpec>();
         _outputs = new List<GhParamSpec>();
 
-        if (!TryParse(data, out string code, out List<GhParamSpec> inputs, out List<GhParamSpec> outputs, out string parseError))
+        if (!ScriptComponentJson.TryParse(data, out string code, out List<GhParamSpec> inputs, out List<GhParamSpec> outputs, out string parseError))
         {
             _pushError = $"Could not parse PythonComponent JSON: {parseError}";
             return;
         }
+
+        // Python declares its parameters only in the submission — nothing in the code says what
+        // access an output has — so the access is corrected against the code here, before the push.
+        outputs = PromoteListOutputs(code, outputs);
 
         IGH_DocumentObject? target = ResolveTarget(out string? linkError);
         if (target is null)
@@ -95,17 +105,17 @@ public class PyTransmitter : ScriptTransmitterBase
             return;
         }
 
-        // An enabled Interface Lock linked to this transmitter freezes the target's interface:
+        // An enabled Script I/O linked to this transmitter freezes the target's interface:
         // push the code only — never restructure parameters, re-hint outputs, or touch the
         // marshalling flag, so the target keeps exactly the params (and wires) it already has.
         // A submission declaring names outside the locked set is rejected before anything is
         // pushed, and the contract is routed back as corrective feedback. _inputs/_outputs stay
         // empty so the access re-apply pass in IsReadReady never runs.
-        if (FindInterfaceLock() is not null)
+        if (ActiveScriptIO is not null)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, "Interface locked — pushing code only; the target's inputs/outputs are preserved.");
 
-            if (!ValidateAgainstLockedInterface(target, inputs, outputs, out string lockFeedback))
+            if (!RespectsLockedInterface(target, inputs, outputs, out string lockFeedback))
             {
                 _lockFeedback = lockFeedback;
                 return;
@@ -231,175 +241,6 @@ public class PyTransmitter : ScriptTransmitterBase
     }
 
     /// <summary>
-    /// Finds the Interface Lock actively constraining this transmitter: an enabled
-    /// <see cref="InterfaceLock"/> anywhere in the document whose grip link points at this
-    /// component. Null when the interface is free to restructure.
-    /// </summary>
-    /// <returns>The constraining lock, or null.</returns>
-    private InterfaceLock? FindInterfaceLock()
-        => OnPingDocument()?.Objects.OfType<InterfaceLock>().FirstOrDefault(l => l.Constrains(InstanceGuid));
-
-    /// <summary>
-    /// Validates a submission against the target's live (locked) interface: every declared input
-    /// and output name must already exist on the target. Declaring fewer parameters than exist is
-    /// fine — the params are never rebuilt, so nothing is removed — but an unknown name means the
-    /// model tried to add or rename a parameter, which would break existing wires.
-    /// </summary>
-    /// <param name="target">The linked Python Script component.</param>
-    /// <param name="inputs">The submission's declared input specs.</param>
-    /// <param name="outputs">The submission's declared output specs.</param>
-    /// <param name="feedback">Corrective feedback for the model when validation fails.</param>
-    /// <returns>true when the submission respects the locked interface.</returns>
-    private static bool ValidateAgainstLockedInterface(
-        IGH_DocumentObject target,
-        IReadOnlyList<GhParamSpec> inputs,
-        IReadOnlyList<GhParamSpec> outputs,
-        out string feedback)
-    {
-        feedback = string.Empty;
-
-        IReadOnlyList<GhParamSpec> lockedInputs = GhPythonBridge.GetInputSpecs(target);
-        IReadOnlyList<GhParamSpec> lockedOutputs = GhPythonBridge.GetOutputSpecs(target);
-
-        var inputNames = new HashSet<string>(lockedInputs.Select(p => p.Name), StringComparer.Ordinal);
-        var outputNames = new HashSet<string>(lockedOutputs.Select(p => p.Name), StringComparer.Ordinal);
-
-        List<string> unknownInputs = inputs.Select(i => i.Name).Where(n => !inputNames.Contains(n)).ToList();
-        List<string> unknownOutputs = outputs.Select(o => o.Name).Where(n => !outputNames.Contains(n)).ToList();
-
-        if (unknownInputs.Count == 0 && unknownOutputs.Count == 0)
-            return true;
-
-        feedback = BuildLockFeedback(target.NickName, lockedInputs, lockedOutputs, unknownInputs, unknownOutputs);
-        return false;
-    }
-
-    /// <summary>
-    /// Builds the corrective feedback for a locked-interface violation: what was rejected and why,
-    /// then the locked contract rendered exactly as the grounding renders it, so the model sees the
-    /// same JSON entries it must copy on the resubmission.
-    /// </summary>
-    /// <param name="componentName">The target script component's display name.</param>
-    /// <param name="lockedInputs">The target's live input specs.</param>
-    /// <param name="lockedOutputs">The target's live output specs.</param>
-    /// <param name="unknownInputs">Declared input names not on the target.</param>
-    /// <param name="unknownOutputs">Declared output names not on the target.</param>
-    /// <returns>The feedback text.</returns>
-    private static string BuildLockFeedback(
-        string componentName,
-        IReadOnlyList<GhParamSpec> lockedInputs,
-        IReadOnlyList<GhParamSpec> lockedOutputs,
-        IReadOnlyList<string> unknownInputs,
-        IReadOnlyList<string> unknownOutputs)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("Your submission was REJECTED and nothing was applied: it declares parameters that do not exist on the locked component.");
-        if (unknownInputs.Count > 0)
-            sb.AppendLine($"Unknown inputs: {string.Join(", ", unknownInputs)}");
-        if (unknownOutputs.Count > 0)
-            sb.AppendLine($"Unknown outputs: {string.Join(", ", unknownOutputs)}");
-        sb.AppendLine();
-
-        var contract = new ScriptInterfaceGrounding(
-            componentName,
-            InterfaceLock.ToPorts(lockedInputs),
-            InterfaceLock.ToPorts(lockedOutputs));
-        sb.AppendLine(contract.ToSystemPromptSection());
-        sb.AppendLine();
-        sb.Append("Resubmit the full PythonComponent JSON declaring exactly these parameters, with the code written against these variable names.");
-
-        return sb.ToString();
-    }
-
-    /// <summary>
-    /// Parses a PythonComponent JSON object into code plus typed input/output specs.
-    /// </summary>
-    /// <param name="json">The JSON string from the Data input.</param>
-    /// <param name="code">The parsed Python source.</param>
-    /// <param name="inputs">The parsed input parameter specs.</param>
-    /// <param name="outputs">The parsed output parameter specs.</param>
-    /// <param name="error">A parse error message when the result is false.</param>
-    /// <returns>true if the JSON parsed and contained non-empty code; otherwise false.</returns>
-    private static bool TryParse(string json, out string code, out List<GhParamSpec> inputs, out List<GhParamSpec> outputs, out string error)
-    {
-        code = string.Empty;
-        inputs = new List<GhParamSpec>();
-        outputs = new List<GhParamSpec>();
-        error = string.Empty;
-
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            JsonElement root = doc.RootElement;
-
-            if (root.ValueKind != JsonValueKind.Object)
-            {
-                error = "Root JSON value must be an object.";
-                return false;
-            }
-
-            if (root.TryGetProperty("code", out JsonElement codeEl) && codeEl.ValueKind == JsonValueKind.String)
-                code = codeEl.GetString() ?? string.Empty;
-
-            inputs = ParseParams(root, "inputs");
-            outputs = PromoteListOutputs(code, ParseParams(root, "outputs"));
-
-            if (!StringHelpers.IsNonBlank(code))
-            {
-                error = "Missing or empty 'code' field.";
-                return false;
-            }
-
-            return true;
-        }
-        catch (JsonException ex)
-        {
-            error = ex.Message;
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Reads a JSON array of <c>{ name, type, access }</c> parameter objects into specs.
-    /// Entries missing a non-blank name are skipped; type defaults to untyped and access to item.
-    /// </summary>
-    /// <param name="root">The root JSON object.</param>
-    /// <param name="propertyName">The array property to read (e.g. "inputs").</param>
-    /// <returns>The parsed parameter specs.</returns>
-    private static List<GhParamSpec> ParseParams(JsonElement root, string propertyName)
-    {
-        var specs = new List<GhParamSpec>();
-
-        if (!root.TryGetProperty(propertyName, out JsonElement arr) || arr.ValueKind != JsonValueKind.Array)
-            return specs;
-
-        foreach (JsonElement el in arr.EnumerateArray())
-        {
-            if (el.ValueKind != JsonValueKind.Object)
-                continue;
-
-            if (!el.TryGetProperty("name", out JsonElement nameEl) || nameEl.ValueKind != JsonValueKind.String)
-                continue;
-
-            string name = nameEl.GetString() ?? string.Empty;
-            if (!StringHelpers.IsNonBlank(name))
-                continue;
-
-            string typeHint = el.TryGetProperty("type", out JsonElement typeEl) && typeEl.ValueKind == JsonValueKind.String
-                ? typeEl.GetString() ?? string.Empty
-                : string.Empty;
-
-            string access = el.TryGetProperty("access", out JsonElement accessEl) && accessEl.ValueKind == JsonValueKind.String
-                ? accessEl.GetString() ?? "item"
-                : "item";
-
-            specs.Add(new GhParamSpec(name, typeHint, MapAccess(access)));
-        }
-
-        return specs;
-    }
-
-    /// <summary>
     /// Corrects output access against the code: any output the script assigns a Python list but that
     /// was declared (or defaulted) to <c>item</c> access is promoted to <c>list</c>. An item-access
     /// output handed a list wraps the whole list as one opaque object on the canvas, unreadable by
@@ -433,18 +274,6 @@ public class PyTransmitter : ScriptTransmitterBase
 
         return outputs;
     }
-
-    /// <summary>
-    /// Maps a JSON access string (<c>item</c>, <c>list</c>, <c>tree</c>) to the access enum.
-    /// </summary>
-    /// <param name="access">The access string; unknown values default to item.</param>
-    /// <returns>The mapped access mode.</returns>
-    private static GhScriptParamAccess MapAccess(string access) => access.ToLowerInvariant() switch
-    {
-        "list" => GhScriptParamAccess.List,
-        "tree" => GhScriptParamAccess.Tree,
-        _ => GhScriptParamAccess.Item,
-    };
 
     /// <summary>
     /// Determines whether a runtime message is an unconnected-input complaint rather than

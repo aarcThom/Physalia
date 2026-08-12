@@ -15,16 +15,21 @@ using Physalia.GH.Parameters;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Grounds the model with the exact input/output interface of the Python script component a
-/// linked <see cref="PyTransmitter"/> drives — every input's name, type hint, and item/list/tree
-/// access, and every output's name and access — and declares that interface locked. While this
-/// lock is linked (and not disabled), the transmitter enforces the contract: it pushes code only,
-/// never restructures the target's parameters (so existing wires survive every push), and rejects
-/// a submission that declares parameters outside the locked set, routing corrective feedback back
-/// to the model. Drag the bottom grip onto a Py Transmitter; wire the Grounding output into a
-/// Conversation Log's Grounding input so the model knows the contract before it generates.
+/// Grounds the model with the exact input/output interface of the script component a linked
+/// transmitter drives — every input's name, type hint, and item/list/tree access, and every
+/// output's name and access — and declares that interface locked. While this component is linked
+/// (and not disabled), the transmitter enforces the contract: it pushes code only, never restructures
+/// the target's parameters (so existing wires survive every push), and rejects a submission that
+/// departs from the locked set, routing corrective feedback back to the model. Drag the bottom grip
+/// onto any script transmitter — <see cref="PyTransmitter"/> or <see cref="CsTransmitter"/> — and
+/// wire the Grounding output into a Conversation Log's Grounding input so the model knows the
+/// contract before it generates.
+///
+/// <para>The lock itself is language-neutral: a parameter set is a parameter set. What the model is
+/// TOLD about it is not, so the wording comes from the linked transmitter's
+/// <see cref="ScriptTransmitterBase.Dialect"/> rather than from anything here.</para>
 /// </summary>
-public class InterfaceLock : PhyBase, IGuidLinked
+public class ScriptIO : PhyBase, IGuidLinked
 {
     private const int OutGrounding = 0;
 
@@ -32,36 +37,40 @@ public class InterfaceLock : PhyBase, IGuidLinked
     private string _lastSignature = string.Empty;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="InterfaceLock"/> class.
+    /// Initializes a new instance of the <see cref="ScriptIO"/> class.
     /// </summary>
-    public InterfaceLock()
+    public ScriptIO()
         : base(
-            "Interface Lock",
-            "IntLock",
-            "Grounds the model with the linked Py Transmitter's target inputs/outputs and locks them: the transmitter pushes code only and rejects submissions that change the interface. Drag the bottom grip to a Py Transmitter; wire the output into a Conversation Log's Grounding input.",
+            "Script I/O",
+            "Script I/O",
+            "Grounds the model with the linked transmitter's target inputs/outputs and locks them: the transmitter pushes code only and rejects submissions that change the interface. Drag the bottom grip to a Py or C# Transmitter; wire the output into a Conversation Log's Grounding input.",
             "Grounding")
     {
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Pinned across the 2026-08-11 rename from "Interface Lock" — Grasshopper serializes by
+    /// ComponentGuid, so changing it would orphan the component in every saved file.
+    /// </remarks>
     public override Guid ComponentGuid => new Guid("B7D2F4A9-6C1E-4E8B-9A3D-2F5C8E7B0A46");
 
     /// <summary>
-    /// Gets the InstanceGuid of the linked Py Transmitter, or <see cref="Guid.Empty"/> if unlinked.
+    /// Gets the InstanceGuid of the linked script transmitter, or <see cref="Guid.Empty"/> if unlinked.
     /// </summary>
     public Guid LinkedGuid => _linkedGuid;
 
     /// <inheritdoc/>
     public override void CreateAttributes()
     {
-        m_attributes = new InterfaceLockAttrib(this);
+        m_attributes = new ScriptIOAttrib(this);
     }
 
     /// <summary>
-    /// Links this lock to a Py Transmitter.
-    /// Called by <see cref="InterfaceLockAttrib"/> when the user drops the wire.
+    /// Links this lock to a script transmitter.
+    /// Called by <see cref="ScriptIOAttrib"/> when the user drops the wire.
     /// </summary>
-    /// <param name="guid">The InstanceGuid of the Py Transmitter to link.</param>
+    /// <param name="guid">The InstanceGuid of the transmitter to link.</param>
     public void LinkTo(Guid guid)
     {
         _linkedGuid = guid;
@@ -69,7 +78,7 @@ public class InterfaceLock : PhyBase, IGuidLinked
 
     /// <summary>
     /// Removes the current link, releasing the transmitter from the interface contract.
-    /// Called by <see cref="InterfaceLockAttrib"/> when the user Ctrl+drops the wire.
+    /// Called by <see cref="ScriptIOAttrib"/> when the user Ctrl+drops the wire.
     /// </summary>
     public void Unlink()
     {
@@ -89,7 +98,7 @@ public class InterfaceLock : PhyBase, IGuidLinked
     /// <summary>
     /// Maps push-shaped parameter specs to the locked-interface ports the grounding (and the
     /// transmitter's rejection feedback) renders, converting the access enum to its
-    /// PythonComponent JSON string.
+    /// submission-JSON string.
     /// </summary>
     /// <param name="specs">The parameter specs read off the target script component.</param>
     /// <returns>The locked-interface ports, in interface order.</returns>
@@ -124,7 +133,7 @@ public class InterfaceLock : PhyBase, IGuidLinked
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Locked-interface grounding for the linked Py Transmitter's target. Wire into the Conversation Log's Grounding input.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Locked-interface grounding for the linked transmitter's target. Wire into the Conversation Log's Grounding input.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -132,7 +141,7 @@ public class InterfaceLock : PhyBase, IGuidLinked
     {
         _lastSignature = CurrentSignature();
 
-        if (!TryResolveTargetScript(out IGH_DocumentObject? target, out string problem))
+        if (!TryResolveTargetScript(out IGH_DocumentObject? target, out ScriptTransmitterBase? transmitter, out string problem))
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, problem);
             return;
@@ -141,7 +150,8 @@ public class InterfaceLock : PhyBase, IGuidLinked
         var grounding = new ScriptInterfaceGrounding(
             target!.NickName,
             ToPorts(GhPythonBridge.GetInputSpecs(target)),
-            ToPorts(GhPythonBridge.GetOutputSpecs(target)));
+            ToPorts(GhPythonBridge.GetOutputSpecs(target)),
+            transmitter!.Dialect);
 
         DA.SetData(OutGrounding, new GH_Grounding(grounding));
     }
@@ -176,40 +186,47 @@ public class InterfaceLock : PhyBase, IGuidLinked
 
     /// <summary>
     /// Resolves the target script component through the linked transmitter, or explains why it
-    /// cannot: no transmitter linked, the transmitter itself unlinked, or its target gone.
+    /// cannot: no transmitter linked, the transmitter itself unlinked, or its target gone. The
+    /// transmitter comes back too — it owns the dialect the grounding is worded in.
     /// </summary>
     /// <param name="target">The target script component, or null.</param>
+    /// <param name="transmitter">The linked transmitter, or null.</param>
     /// <param name="problem">A human-readable reason when resolution fails; otherwise empty.</param>
     /// <returns>true when a valid target script component was found.</returns>
-    private bool TryResolveTargetScript(out IGH_DocumentObject? target, out string problem)
+    private bool TryResolveTargetScript(
+        out IGH_DocumentObject? target,
+        out ScriptTransmitterBase? transmitter,
+        out string problem)
     {
         target = null;
+        transmitter = null;
         problem = string.Empty;
 
         if (_linkedGuid == Guid.Empty)
         {
-            problem = "No Py Transmitter linked. Drag from the bottom grip onto a Py Transmitter.";
+            problem = "No transmitter linked. Drag from the bottom grip onto a Py or C# Transmitter.";
             return false;
         }
 
-        if (OnPingDocument()?.FindObject(_linkedGuid, false) is not PyTransmitter transmitter)
+        if (OnPingDocument()?.FindObject(_linkedGuid, false) is not ScriptTransmitterBase linked)
         {
-            problem = "Linked component not found or is not a Py Transmitter.";
+            problem = "Linked component not found or is not a script transmitter.";
             return false;
         }
 
         // The transmitter is a Physalia node and shares this document; its target script component
         // is an ordinary component on the user's canvas, so it is resolved against the host.
-        IGH_DocumentObject? script = transmitter.LinkedGuid == Guid.Empty
+        IGH_DocumentObject? script = linked.LinkedGuid == Guid.Empty
             ? null
-            : Harness.PhyDocuments.Host(this)?.FindObject(transmitter.LinkedGuid, false);
+            : Harness.PhyDocuments.Host(this)?.FindObject(linked.LinkedGuid, false);
         if (script is null || !GhPythonBridge.IsScriptComponent(script))
         {
-            problem = "The linked Py Transmitter has no target Python component — link the transmitter to a script component first.";
+            problem = $"The linked {linked.NickName} has no target script component — link the transmitter to one first.";
             return false;
         }
 
         target = script;
+        transmitter = linked;
         return true;
     }
 
@@ -221,7 +238,7 @@ public class InterfaceLock : PhyBase, IGuidLinked
     /// <returns>A signature string.</returns>
     private string CurrentSignature()
     {
-        if (!TryResolveTargetScript(out IGH_DocumentObject? target, out _))
+        if (!TryResolveTargetScript(out IGH_DocumentObject? target, out _, out _))
             return $"unresolved:{_linkedGuid:N}";
 
         string inputs = string.Join("|", GhPythonBridge.GetInputSpecs(target!).Select(SpecKey));

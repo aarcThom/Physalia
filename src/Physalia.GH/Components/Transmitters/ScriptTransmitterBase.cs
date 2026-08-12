@@ -4,9 +4,13 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
+using System.Text;
 using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Physalia.Core.Grounding;
+using Physalia.GH.Generation;
 
 namespace Physalia.GH.Components;
 
@@ -43,10 +47,32 @@ public abstract class ScriptTransmitterBase : TransmitterComponentBase, IGuidLin
     public Guid LinkedGuid => Link.Guid;
 
     /// <summary>
+    /// Gets how a locked interface is described to the model for this transmitter's language — read
+    /// by the <see cref="ScriptIO"/> that links to it as well as by its own rejection feedback,
+    /// so both speak of the same schema and the same code rule.
+    /// </summary>
+    public abstract ScriptInterfaceDialect Dialect { get; }
+
+    /// <summary>
     /// Gets what this transmitter's target is called in messages to the user and the model —
     /// "Python Script", "C# Script", and so on.
     /// </summary>
     protected abstract string TargetKind { get; }
+
+    /// <summary>
+    /// Gets whether a locked submission may declare FEWER parameters than the target actually has.
+    /// True where the code only reads the names it declares (Python), false where the code restates
+    /// the whole interface and an undeclared parameter has nothing to bind to (C#).
+    /// </summary>
+    protected virtual bool AllowsPartialInterface => true;
+
+    /// <summary>
+    /// Gets the <see cref="ScriptIO"/> actively locking this transmitter's interface: an enabled one
+    /// anywhere in this document whose grip link points here. Null when the interface is free to
+    /// restructure.
+    /// </summary>
+    protected ScriptIO? ActiveScriptIO
+        => OnPingDocument()?.Objects.OfType<ScriptIO>().FirstOrDefault(l => l.Constrains(InstanceGuid));
 
     // Built on first use rather than in the constructor: it is wired from TargetKind and
     // IsLinkTarget, which a subclass overrides.
@@ -141,5 +167,114 @@ public abstract class ScriptTransmitterBase : TransmitterComponentBase, IGuidLin
     /// </summary>
     protected virtual void OnLinkChanged()
     {
+    }
+
+    /// <summary>
+    /// Validates a submission against the target's live (locked) interface: every declared input and
+    /// output name must already exist on the target, and — where the language restates the interface
+    /// in its code (<see cref="AllowsPartialInterface"/>) — every existing name must be declared.
+    /// An unknown name means the model tried to add or rename a parameter, which would break the
+    /// wires the lock exists to protect.
+    /// </summary>
+    /// <param name="target">The linked script component.</param>
+    /// <param name="inputs">The submission's declared input specs.</param>
+    /// <param name="outputs">The submission's declared output specs.</param>
+    /// <param name="feedback">Corrective feedback for the model when validation fails.</param>
+    /// <returns>true when the submission respects the locked interface.</returns>
+    protected bool RespectsLockedInterface(
+        IGH_DocumentObject target,
+        IReadOnlyList<GhParamSpec> inputs,
+        IReadOnlyList<GhParamSpec> outputs,
+        out string feedback)
+    {
+        feedback = string.Empty;
+
+        IReadOnlyList<GhParamSpec> lockedInputs = GhPythonBridge.GetInputSpecs(target);
+        IReadOnlyList<GhParamSpec> lockedOutputs = GhPythonBridge.GetOutputSpecs(target);
+
+        var problems = new List<string>();
+        CompareToLock(problems, "input", lockedInputs, inputs);
+        CompareToLock(problems, "output", lockedOutputs, outputs);
+
+        if (problems.Count == 0)
+        {
+            return true;
+        }
+
+        feedback = BuildLockFeedback(target.NickName, lockedInputs, lockedOutputs, problems);
+        return false;
+    }
+
+    /// <summary>
+    /// Records how one side of a submission departs from the locked set: names the target does not
+    /// have, and — only where the language forbids a partial declaration — locked names the
+    /// submission left out.
+    /// </summary>
+    /// <param name="problems">The running list of problems.</param>
+    /// <param name="kind">"input" or "output", for the message.</param>
+    /// <param name="locked">The target's live specs.</param>
+    /// <param name="declared">The submission's declared specs.</param>
+    private void CompareToLock(
+        List<string> problems,
+        string kind,
+        IReadOnlyList<GhParamSpec> locked,
+        IReadOnlyList<GhParamSpec> declared)
+    {
+        var lockedNames = new HashSet<string>(locked.Select(p => p.Name), StringComparer.Ordinal);
+        var declaredNames = new HashSet<string>(declared.Select(p => p.Name), StringComparer.Ordinal);
+
+        List<string> unknown = declaredNames.Where(n => !lockedNames.Contains(n)).ToList();
+        if (unknown.Count > 0)
+        {
+            problems.Add($"{kind}s the component does not have: {string.Join(", ", unknown)}");
+        }
+
+        if (AllowsPartialInterface)
+        {
+            return;
+        }
+
+        List<string> undeclared = lockedNames.Where(n => !declaredNames.Contains(n)).ToList();
+        if (undeclared.Count > 0)
+        {
+            problems.Add($"locked {kind}s you left out: {string.Join(", ", undeclared)}");
+        }
+    }
+
+    /// <summary>
+    /// Builds the corrective feedback for a locked-interface violation: what was rejected and why,
+    /// then the locked contract rendered exactly as the grounding renders it, so the model sees the
+    /// same JSON entries it must copy on the resubmission.
+    /// </summary>
+    /// <param name="componentName">The target script component's display name.</param>
+    /// <param name="lockedInputs">The target's live input specs.</param>
+    /// <param name="lockedOutputs">The target's live output specs.</param>
+    /// <param name="problems">How the submission departed from the locked set.</param>
+    /// <returns>The feedback text.</returns>
+    private string BuildLockFeedback(
+        string componentName,
+        IReadOnlyList<GhParamSpec> lockedInputs,
+        IReadOnlyList<GhParamSpec> lockedOutputs,
+        IReadOnlyList<string> problems)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Your submission was REJECTED and nothing was applied: it does not declare the locked component's parameters.");
+        foreach (string problem in problems)
+        {
+            sb.AppendLine($"  - {problem}");
+        }
+
+        sb.AppendLine();
+
+        var contract = new ScriptInterfaceGrounding(
+            componentName,
+            ScriptIO.ToPorts(lockedInputs),
+            ScriptIO.ToPorts(lockedOutputs),
+            Dialect);
+        sb.AppendLine(contract.ToSystemPromptSection());
+        sb.AppendLine();
+        sb.Append($"Resubmit the full {Dialect.SchemaName} JSON declaring exactly these parameters. {Dialect.CodeRule}");
+
+        return sb.ToString();
     }
 }

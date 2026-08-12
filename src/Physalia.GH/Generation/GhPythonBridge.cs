@@ -7,14 +7,21 @@ using System.Linq;
 using System.Reflection;
 using Grasshopper.Kernel;
 using Rhino.Runtime.Code;
+using Rhino.Runtime.Code.Languages;
 using RhinoCodePlatform.GH;
 
 namespace Physalia.GH.Generation;
 
 /// <summary>
 /// Facade over the McNeel <c>RhinoCodePlatform.GH</c> API.
-/// All access to the GH Python Script component goes through here so that
+/// All access to the Rhino 8 script components goes through here so that
 /// API changes between Rhino versions require edits in one place only.
+/// <para>Every Rhino 8 script component — Python 3, IronPython 2, C# — implements the same
+/// <c>IScriptComponent</c> and is driven through the same calls; only its <c>LanguageSpec</c> tells
+/// them apart, which is what the per-language predicates below are for. Some members here are
+/// nonetheless Python-only fixes (<see cref="EnableOutputMarshalling"/>,
+/// <see cref="SetOutputsNoTypeHint"/>, the access re-apply pass) — they say so, and a C# push must
+/// not call them.</para>
 /// </summary>
 public static class GhPythonBridge
 {
@@ -53,6 +60,35 @@ public static class GhPythonBridge
     /// <returns>true if the object implements <c>IScriptComponent</c>.</returns>
     public static bool IsScriptComponent(IGH_DocumentObject obj)
         => obj is IScriptComponent;
+
+    /// <summary>
+    /// Returns true if <paramref name="obj"/> is a GH Python 3 Script component — the CPython
+    /// component, not IronPython 2, which reports the same interface under a python@2 spec.
+    /// </summary>
+    /// <param name="obj">Any document object.</param>
+    /// <returns>true if the object is a script component running Python 3.</returns>
+    public static bool IsPython3Component(IGH_DocumentObject obj)
+        => SpeaksLanguage(obj, LanguageSpec.Python3);
+
+    /// <summary>
+    /// Returns true if <paramref name="obj"/> is a Rhino 8 C# Script component, any C# version.
+    /// The legacy Grasshopper "C# Script" component is a different type entirely and never matches.
+    /// </summary>
+    /// <param name="obj">Any document object.</param>
+    /// <returns>true if the object is a script component running C#.</returns>
+    public static bool IsCSharpComponent(IGH_DocumentObject obj)
+        => SpeaksLanguage(obj, LanguageSpec.CSharp);
+
+    /// <summary>
+    /// Whether a document object is a script component whose language falls within the given
+    /// (possibly wildcarded) spec. <c>Matches</c> reads scope-first — the wildcard-holding spec is
+    /// the receiver — so <c>LanguageSpec.CSharp</c> ("*.*.csharp@*.*") matches any C# version.
+    /// </summary>
+    /// <param name="obj">Any document object.</param>
+    /// <param name="language">The language scope to test against.</param>
+    /// <returns>true when the object is a script component speaking that language.</returns>
+    private static bool SpeaksLanguage(IGH_DocumentObject obj, LanguageSpec language)
+        => obj is IScriptComponent sc && sc.LanguageSpec is { } spec && language.Matches(spec);
 
     /// <summary>
     /// Sets the Python source code on the target component.

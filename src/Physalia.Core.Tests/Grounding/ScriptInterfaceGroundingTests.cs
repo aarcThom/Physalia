@@ -8,7 +8,7 @@ namespace Physalia.Core.Tests.Grounding;
 
 public class ScriptInterfaceGroundingTests
 {
-    private static ScriptInterfaceGrounding Sample() => new(
+    private static ScriptInterfaceGrounding Sample(ScriptInterfaceDialect? dialect = null) => new(
         "Panelize",
         new[]
         {
@@ -18,7 +18,8 @@ public class ScriptInterfaceGroundingTests
         new[]
         {
             new ScriptInterfacePort("spheres", string.Empty, "list"),
-        });
+        },
+        dialect ?? ScriptInterfaceDialect.Python);
 
     [Fact]
     public void ToSystemPromptSection_RendersComponentNameAndLockRule()
@@ -28,6 +29,29 @@ public class ScriptInterfaceGroundingTests
         Assert.Contains("\"Panelize\"", section);
         Assert.Contains("LOCKED interface", section);
         Assert.Contains("Never add, remove, or rename a parameter", section);
+    }
+
+    // The lock is language-neutral; what the model is TOLD about it is not. Each dialect must name
+    // its own component kind and submission schema, or the model answers with the wrong shape.
+    [Fact]
+    public void ToSystemPromptSection_PythonDialect_NamesThePythonSchema()
+    {
+        string section = Sample(ScriptInterfaceDialect.Python).ToSystemPromptSection();
+
+        Assert.Contains("Python script component", section);
+        Assert.Contains("PythonComponent JSON", section);
+        Assert.DoesNotContain("CSharpComponent", section);
+    }
+
+    [Fact]
+    public void ToSystemPromptSection_CSharpDialect_NamesTheCSharpSchemaAndTheSignatureRule()
+    {
+        string section = Sample(ScriptInterfaceDialect.CSharp).ToSystemPromptSection();
+
+        Assert.Contains("C# script component", section);
+        Assert.Contains("CSharpComponent JSON", section);
+        Assert.Contains("RunScript signature", section);
+        Assert.DoesNotContain("PythonComponent", section);
     }
 
     [Fact]
@@ -55,7 +79,8 @@ public class ScriptInterfaceGroundingTests
         var grounding = new ScriptInterfaceGrounding(
             name,
             System.Array.Empty<ScriptInterfacePort>(),
-            System.Array.Empty<ScriptInterfacePort>());
+            System.Array.Empty<ScriptInterfacePort>(),
+            ScriptInterfaceDialect.Python);
 
         Assert.Equal(string.Empty, grounding.ToSystemPromptSection());
     }
@@ -66,7 +91,8 @@ public class ScriptInterfaceGroundingTests
         var grounding = new ScriptInterfaceGrounding(
             "Bare",
             System.Array.Empty<ScriptInterfacePort>(),
-            System.Array.Empty<ScriptInterfacePort>());
+            System.Array.Empty<ScriptInterfacePort>(),
+            ScriptInterfaceDialect.Python);
         string section = grounding.ToSystemPromptSection();
 
         Assert.Contains("\"inputs\": []", section);

@@ -16,7 +16,7 @@ metadata:
 - `ChatAttrib`'s old `_wires`/`WireAt`/`DrawArrowWires` are gone (folded into `ArrowGrip`); its harness tint/glow (`RenderSmoothCapsule`/`DrawHarnessGlow`/`LinearGradientBrush`) is untouched — not arrow code.
 - **Two bugs fixed 2026-08-10, both in the shared layer, so every grip component was affected:**
   - **`TryStartDrag` tested `GripBounds`** — the whole node — so a press ANYWHERE on a Feedback /
-    InterfaceLock / ZoomGuid / PyTransmitter / harness pulled out a wire and the component could not be
+    ScriptIO (was InterfaceLock) / ZoomGuid / PyTransmitter / harness pulled out a wire and the component could not be
     dragged around the canvas at all. Now tests `GripHitRegion`: a `GripExpansion`-radius square on
     `GripOrigin`. Keep the two distinct — `GripBounds` is the PICK region and must stay node-sized or GH
     won't route the mouse-down to the component in the first place.

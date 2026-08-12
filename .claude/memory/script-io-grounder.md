@@ -1,16 +1,16 @@
 ---
-name: interface-lock-grounder
-description: "Interface Lock grounder (2026-07-31) — grip-links to a PyTransmitter, grounds + freezes the target script component's inputs/outputs; transmitter pushes code only under lock"
+name: script-io-grounder
+description: "Script I/O grounder (was Interface Lock) — grip-links to a script transmitter, grounds + freezes the target script component's inputs/outputs; transmitter pushes code only under lock"
 metadata: 
   node_type: memory
   type: project
   originSessionId: cf831060-3a67-43bd-8678-20534cb08dc2
-  modified: 2026-08-01T05:16:37.459Z
+  modified: 2026-08-12T05:08:50.412Z
 ---
 
-# Interface Lock grounder (built 2026-07-31, not yet run live in Rhino)
+# Script I/O grounder (built 2026-07-31 as "Interface Lock", renamed 2026-08-11; not yet run live in Rhino)
 
-New Grounding-section component that freezes a Python script component's I/O so LLM pushes can't break existing wires.
+Grounding-section component that freezes a script component's I/O so LLM pushes can't break existing wires. **The old name "Interface Lock" is gone** — display name AND nickname are now `Script I/O`, class/file `ScriptIO` (`Components/Grounding/ScriptIO.cs`), attrib `ScriptIOAttrib`, gradient `ArrowStyles.ScriptIO`, transmitter-side accessor `ScriptTransmitterBase.ActiveScriptIO`. **ComponentGuid pinned** (`B7D2F4A9-…0A46`), per the [[component-rename-plainspoken]] precedent, so saved `.gh` files round-trip. Behaviour words ("locked interface", `RespectsLockedInterface`, the grounding's "LOCKED interface" prose) were deliberately KEPT — locking is still what it does; only the component's name changed. Read the rest of this file with the old name mentally substituted.
 
 **Shape:** `InterfaceLock : PhyBase` (`Components/Grounding/InterfaceLock.cs`, GUID `B7D2F4A9-…0A46`) — no inputs, one `Param_Grounding` output, grip-links to a **PyTransmitter** (not the script component) via `InterfaceLockAttrib : GripLinkAttrib` with new `ArrowStyles.InterfaceLock` gradient (LimeGreen→Teal), anchor top-centre−6 of the transmitter. Link persisted as `LinkedGuid`. SolutionEnd signature watch (ToolsInUse pattern) re-solves when the target's interface changes.
 
@@ -22,4 +22,6 @@ New Grounding-section component that freezes a Python script component's I/O so 
 
 **Why:** [[dead-wire-lint-projected-graph]] and friends guard the graph the LLM produces; this guards a HUMAN-owned component the LLM merely scripts. Related: [[human-tools-taxonomy-moves-2026-07]] (grounding taxonomy), [[python-output-list-access]] (why the push path mutates access at all).
 
-Core tests: `ScriptInterfaceGroundingTests` (7 pass). Build clean. Live Rhino test pending — especially the Converter read-back (first time reading, not setting, the hint) and the lock-feedback loop end-to-end.
+**SUPERSEDED IN PART, 2026-08-11 — the lock is no longer Python-only.** See [[csharp-transmitter]]. What changed: `IsValidTarget` / `TryResolveTargetScript` widened `PyTransmitter` → `ScriptTransmitterBase`; `FindInterfaceLock`/`ValidateAgainstLockedInterface`/`BuildLockFeedback` moved OFF PyTransmitter onto that base as `ActiveScriptIO`/`RespectsLockedInterface`; `ScriptInterfaceGrounding` gained a required 4th param, `ScriptInterfaceDialect` (Core — `ComponentKind`/`SchemaName`/`CodeRule`, `.Python` and `.CSharp`), read off `ScriptTransmitterBase.Dialect` so no language branch lives in the lock. The **subset** rule above is now Python-specific: `AllowsPartialInterface` is false for C#, where the RunScript signature restates the interface and an omitted param has nothing to bind to.
+
+Core tests: `ScriptInterfaceGroundingTests` (7 pass; 9 after the dialect pair). Build clean. Live Rhino test pending — especially the Converter read-back (first time reading, not setting, the hint) and the lock-feedback loop end-to-end.

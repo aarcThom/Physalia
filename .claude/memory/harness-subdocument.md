@@ -42,7 +42,7 @@ document plus the harnesses in it; `IsHarnessDocument(doc)`.
   Every endpoint of those moves into the harness together.
 - **Becomes `PhyDocuments.Host(this)`:** CanvasStateGrounder, ComponentTransmitter, GeometryReport,
   RuntimeHealthCheck, FidelityCheck, GeometryObservation, RhinoGeometryTool, MemoryTool,
-  ConversationLog's canvas export, Chat's generated-geometry bounds, InterfaceLock's *script* lookup
+  ConversationLog's canvas export, Chat's generated-geometry bounds, ScriptIO's *script* lookup
   (its PyTransmitter lookup stays local).
 - **Becomes `PhyDocuments.ActiveHost()`:** the 13 `Instances.ActiveCanvas?.Document` sites in
   `GhJsonBridge*`. **The dangerous ones** — while the user edits *inside* a harness the active canvas
@@ -219,7 +219,7 @@ transmitter that is not signal-driven implements the interface directly.
   Order matters: `DestroyProxySources()` first, which is `MutateAllIds`'s documented prerequisite.
   **Wires need no help** (sources are object references, not ids) and groups are GH's own problem, but a
   guid in one of OUR fields is opaque to it — those components implement **`IGuidLinked.RemapLinks`**:
-  `Feedback` (collector list), `InterfaceLock` (its transmitter), `ZoomGuid`, and `PyTransmitter` —
+  `Feedback` (collector list), `ScriptIO` (its transmitter), `ZoomGuid`, and `PyTransmitter` —
   whose target script component lives on the HOST canvas, so its id is absent from the map and the link
   is correctly left alone. The rule for any new implementer: **only replace a guid the map contains.**
   `HarnessComponent.Read` deliberately does NOT re-issue — a file load must round-trip its own ids.

@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: cf7dd6e5-8085-42a5-a51e-70a684ca7cc0
-  modified: 2026-08-01T05:25:01.814Z
+  modified: 2026-08-12T04:23:53.521Z
 ---
 
 System Prompt (`Components/Core/SystemPrompt.cs`) assembles a system prompt from a **preamble** + a **schema**, each resolved from `Files/SYSTEM_PROMPTS/{PREAMBLE,SCHEMA}/` (canonical repo-root `Files/`, build-copied). Assembly = `{preamble}` + `"Your response must be valid JSON that conforms exactly to the following schema:"` + `{schema}`. The Picker dropdowns list files in those folders.
@@ -13,6 +13,8 @@ System Prompt (`Components/Core/SystemPrompt.cs`) assembles a system prompt from
 **Gotcha:** `System Prompt.IsTextFile` resolves only `.txt`/`.json`/`.yaml`/`.yml` — **`.md` is NOT picked up**. Preambles must be `.txt` (prose); schemas are `.json`.
 
 **2026-07-31: a fourth preamble with NO schema of its own** — `PREAMBLE/Python3 Script (Small Model).txt`, for small models (Qwen 14b class): mandates `search_rhinocommon` lookups before writing/fixing code, caps planning at ~3 sentences (anti-spiral), pushes commit-fast-and-let-interpreter-feedback-fix. Pairs with the existing `SCHEMA/Python3 Script.json` (Preamble and Schema are independent Picker inputs, so an unpaired preamble is fine).
+
+**2026-08-11: a fourth symmetric pair** — **`PREAMBLE/C# Script.txt` ↔ `SCHEMA/C# Script.json`** (title `CSharpComponent`), for the Rhino 8 C# Script component driven by [[csharp-transmitter]]. Same `{code, inputs, outputs}` shape as the Python pair, but it also pins the `Script_Instance` / `RunScript` boilerplate and the hint→C# type table, because the signature is a second declaration of the interface that must agree with the JSON. Added to `PromptSchemaAssetTests`.
 
 **THREE symmetric pairs as of 2026-07-27** (a third was added for staged generation — see [[incremental-staged-building]]):
 - **`PREAMBLE/Incremental Node Graph.txt` ↔ `SCHEMA/Incremental Node Graph.json`** — one stage per response, plan block ahead of the JSON.

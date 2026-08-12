@@ -388,13 +388,31 @@ public class ScriptIO : PhyBase, IGuidLinked
 
     /// <summary>
     /// Re-checks the contract when something about the target or one of its parameters changed.
-    /// Only naming events matter here — everything else that alters the interface (adding a
-    /// parameter, changing access or a type hint) goes through a solution and is already covered.
+    ///
+    /// <para><c>Layout</c> is where a REBUILT parameter set shows up, and re-arming the
+    /// subscription there is what keeps this watch alive across a push: a transmitter push calls
+    /// <c>UpdateInputParameters</c> / <c>UpdateOutputParameters</c>, which do not rename the
+    /// existing parameters — they REPLACE the objects. Every handler below is then attached to a
+    /// discarded parameter and the new ones carry none, so renames stop being seen from the first
+    /// push onward. The component itself survives that rebuild, which is what makes it a safe
+    /// anchor to re-arm from.</para>
+    ///
+    /// <para>Layout deliberately does NOT trigger a contract check. It fires WHILE the parameter
+    /// set is being rebuilt, so sampling the interface there would record a half-built one as the
+    /// last-emitted signature — and every later comparison would be against that, which is worse
+    /// than not looking at all. The rebuild itself expires the component, so a solution follows and
+    /// the settled interface is picked up through the ordinary path.</para>
     /// </summary>
     /// <param name="sender">The target component or one of its parameters.</param>
     /// <param name="e">What changed.</param>
     private void OnTargetObjectChanged(IGH_DocumentObject sender, GH_ObjectChangedEventArgs e)
     {
+        if (e.Type == GH_ObjectEventType.Layout)
+        {
+            WatchTarget();
+            return;
+        }
+
         if (e.Type is GH_ObjectEventType.NickName or GH_ObjectEventType.NickNameAccepted)
         {
             RefreshIfContractChanged();
@@ -424,6 +442,12 @@ public class ScriptIO : PhyBase, IGuidLinked
             // Scheduling stays on the LOCAL document: this component and the Conversation Log it
             // feeds both live in the harness, even though the change that triggered it happened out
             // on the user's canvas.
+            //
+            // ExpireSolution(FALSE) is deliberate and must stay false. Grasshopper flushes a
+            // document's scheduled delegates at the START of the next solution, so marking expired
+            // here is exactly enough — the solution now beginning picks the component up. Passing
+            // true asks for ANOTHER solution from inside that one, which is re-entrant: it was
+            // tried, and it stopped the refresh working at all.
             OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(false));
         }
     }

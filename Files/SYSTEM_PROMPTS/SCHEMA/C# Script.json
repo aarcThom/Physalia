@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CSharpComponent",
+  "description": "A Grasshopper C# Script component definition. Output exactly this structure — no prose, no markdown fences, no explanation. Only the raw JSON object.",
+  "type": "object",
+  "required": ["code"],
+  "additionalProperties": false,
+
+  "rules": [
+    "code is the complete C# source for the Rhino 8 C# Script component, as a single JSON string with escaped newlines. It must contain the using directives, then 'public class Script_Instance : GH_ScriptInstance' written verbatim, then a 'private void RunScript(...)' method holding the logic. Grasshopper finds both by pattern: keep one space either side of the colon and none before the opening parenthesis.",
+    "The RunScript signature IS the interface and must match the declared parameters exactly: every declared input as a by-value argument in declaration order, then every declared output as an 'out' argument in declaration order. No other arguments, and no argument that is not a declared parameter. A submission whose signature disagrees is rejected before it is applied.",
+    "An input's declared type fixes its C# type in the signature — see csharpTypes. An input with no declared type is 'object'. Access shapes it: item is the bare type, list is List<T>, tree is DataTree<T>.",
+    "Outputs take no type — declare only name and access, and write them as 'out object name' (item) or 'out List<object> name' (list). An output's Grasshopper type is taken from whatever value the code assigns it.",
+    "Assign every out argument on every code path; C# will not compile otherwise, and an unassigned output is null on the canvas.",
+    "Use RhinoCommon for geometry (Rhino.Geometry). Do not use Print to return results — it writes only to the component's separate 'out' text channel. Every result must be assigned to a declared output.",
+    "Every input/output name must be a valid C# identifier, must not be a C# keyword, and must be unique within its own list.",
+    "No NuGet packages and no '#r' directives — the .NET base class library plus the Rhino/Grasshopper runtime only.",
+    "Inputs left unconnected on the canvas are not errors: a reference-typed input arrives null and a value-typed one arrives at its default. Write code that tolerates that for the parameters you declare."
+  ],
+
+  "typeHints": [
+    "Number", "Integer", "Boolean", "Text",
+    "Point", "Vector", "Plane", "Line", "Circle", "Arc",
+    "Curve", "Surface", "Brep", "Mesh", "Geometry", "Box",
+    "Transform", "Interval", "Colour"
+  ],
+
+  "csharpTypes": {
+    "Number": "double",
+    "Integer": "int",
+    "Boolean": "bool",
+    "Text": "string",
+    "Point": "Point3d",
+    "Vector": "Vector3d",
+    "Plane": "Plane",
+    "Line": "Line",
+    "Circle": "Circle",
+    "Arc": "Arc",
+    "Curve": "Curve",
+    "Surface": "Surface",
+    "Brep": "Brep",
+    "Mesh": "Mesh",
+    "Geometry": "GeometryBase",
+    "Box": "Box",
+    "Transform": "Transform",
+    "Interval": "Interval",
+    "Colour": "System.Drawing.Color"
+  },
+
+  "properties": {
+    "code": {
+      "type": "string",
+      "description": "Full C# source for the component: usings, 'public class Script_Instance : GH_ScriptInstance', and a 'private void RunScript(...)' method."
+    },
+    "inputs": {
+      "type": "array",
+      "description": "Input parameters to create on the component. One entry per by-value argument of RunScript, in signature order.",
+      "default": [],
+      "items": { "$ref": "#/$defs/inputParam" }
+    },
+    "outputs": {
+      "type": "array",
+      "description": "Output parameters to create on the component. One entry per 'out' argument of RunScript, in signature order. Outputs are untyped — name and access only.",
+      "default": [],
+      "items": { "$ref": "#/$defs/outputParam" }
+    }
+  },
+
+  "$defs": {
+    "inputParam": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Argument name used inside RunScript. Must be a valid C# identifier.",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "type": {
+          "type": "string",
+          "description": "Physalia type hint for the input. Fixes the C# type written in the signature — see csharpTypes.",
+          "enum": [
+            "Number", "Integer", "Boolean", "Text",
+            "Point", "Vector", "Plane", "Line", "Circle", "Arc",
+            "Curve", "Surface", "Brep", "Mesh", "Geometry", "Box",
+            "Transform", "Interval", "Colour"
+          ]
+        },
+        "access": {
+          "type": "string",
+          "description": "Data access mode. item is the bare C# type, list is List<T>, tree is DataTree<T>.",
+          "enum": ["item", "list", "tree"],
+          "default": "item"
+        }
+      }
+    },
+    "outputParam": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Argument name used inside RunScript. Must be a valid C# identifier.",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "access": {
+          "type": "string",
+          "description": "Data access mode. Must match the out argument: item is 'out object name', list is 'out List<object> name'.",
+          "enum": ["item", "list", "tree"],
+          "default": "item"
+        }
+      }
+    }
+  },
+
+  "examples": [
+    {
+      "code": "using System;\nusing System.Collections.Generic;\n\nusing Rhino;\nusing Rhino.Geometry;\n\nusing Grasshopper;\nusing Grasshopper.Kernel;\nusing Grasshopper.Kernel.Data;\nusing Grasshopper.Kernel.Types;\n\npublic class Script_Instance : GH_ScriptInstance\n{\n    private void RunScript(List<Point3d> pts, double radius, out List<object> spheres)\n    {\n        spheres = new List<object>();\n        if (pts == null || radius <= 0.0)\n            return;\n\n        foreach (Point3d pt in pts)\n            spheres.Add(new Sphere(pt, radius));\n    }\n}",
+      "inputs": [
+        { "name": "pts",    "type": "Point",  "access": "list" },
+        { "name": "radius", "type": "Number", "access": "item" }
+      ],
+      "outputs": [
+        { "name": "spheres", "access": "list" }
+      ]
+    }
+  ]
+}

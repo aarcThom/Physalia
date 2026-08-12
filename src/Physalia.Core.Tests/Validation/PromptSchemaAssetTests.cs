@@ -51,6 +51,7 @@ public class PromptSchemaAssetTests
     [InlineData("Node Graph.json")]
     [InlineData("Incremental Node Graph.json")]
     [InlineData("Python3 Script.json")]
+    [InlineData("C# Script.json")]
     public void SchemaAsset_OwnExamples_Validate(string fileName)
     {
         string schema = LoadSchema(fileName);

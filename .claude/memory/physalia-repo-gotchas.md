@@ -5,6 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: bfb2ff92-c812-4e27-89de-9675e357c091
+  modified: 2026-08-12T05:45:19.596Z
 ---
 
 CLAUDE.md has stale paths:
@@ -36,6 +37,19 @@ There is also NO `src/Physalia.GH/Files` folder; it was a committed duplicate, r
   `$(TargetDir)` correctly points at bin). Diagnose empty TargetDir with
   `dotnet msbuild <proj> -getProperty:TargetDir` (returns "" on a `TargetFrameworks` project).
   Related: [[trigger-state-machine-status]].
+
+**Rhino holding the `.gha` fails the BUILD, not the COMPILE (seen 2026-08-11).** With Rhino 8 (or
+VS) running with the plug-in loaded, `dotnet build` ends in
+`error MSB3027/MSB3021: Could not copy obj\...\Physalia.GH.gha to bin\... locked by "Rhino 8"`.
+The compile already SUCCEEDED — only the obj→bin copy failed. Don't read those two errors as a
+broken change: filter for real diagnostics with
+`dotnet build src\Physalia.GH\Physalia.GH.csproj -c Debug -f net7.0-windows -p:BuildUI=false -p:RepackGha=false 2>&1 | Select-String "error CS|warning CS|warning SA"`
+and treat an empty result as clean. Close Rhino when the output in `bin` is actually needed.
+- **Do NOT reach for `-t:CoreCompile` to dodge the copy.** On this project it detaches from
+  reference resolution and fails with `CS0400: The type or namespace name 'System' could not be
+  found` — a phantom error, nothing to do with the code. (It also needs an explicit `-f
+  net7.0-windows`, since `TargetFrameworks` plural means the outer dispatch build has no
+  `CoreCompile` target at all: `MSB4057`.)
 
 **Chat UI bundle is EMBEDDED in the assembly (changed 2026-06-29).** `src/Physalia.UI` is a
 no-assembly MSBuild wrapper around Vite; `BuildPhysaliaUI` runs `npm run build` → one

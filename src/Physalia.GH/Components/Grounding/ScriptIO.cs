@@ -36,6 +36,17 @@ public class ScriptIO : PhyBase, IGuidLinked
     private Guid _linkedGuid = Guid.Empty;
     private string _lastSignature = string.Empty;
 
+    // The host document this component currently has a SolutionEnd handler on, so the handler can
+    // be moved when the host changes and removed when the component goes. Null when the host is
+    // not resolvable yet, or when it IS the local document (no harness) and the local
+    // subscription already covers it.
+    private GH_Document? _watchedHost;
+
+    // The target's own objects (the script component and each of its parameters) that currently
+    // carry an ObjectChanged handler. Renaming a parameter never reaches a SolutionEnd, so this is
+    // the only way the rename is seen at all — see WatchTarget.
+    private readonly List<IGH_DocumentObject> _watchedTargetObjects = new();
+
     /// <summary>
     /// Initializes a new instance of the <see cref="ScriptIO"/> class.
     /// </summary>
@@ -107,20 +118,34 @@ public class ScriptIO : PhyBase, IGuidLinked
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Watches the document so the grounding refreshes when the target's interface changes out
-    /// from under it — the user edits the script component's parameters, or relinks the
-    /// transmitter — since none of those re-solve this (source) component.
+    /// Watches BOTH documents, because the two ways the contract goes stale happen on different
+    /// ones and this component — no inputs, so never expired by dataflow — would otherwise keep
+    /// serving its first answer forever.
+    ///
+    /// <para>The LOCAL document covers the link changing: the transmitter is a peer in this
+    /// harness, and re-pointing it re-solves here. The HOST document covers most of the interface
+    /// changing: the target script component sits on the user's canvas, so adding a parameter or
+    /// changing its access solves the HOST and leaves the harness untouched. Before the harness
+    /// rework the two were the same document and one subscription did; they are not, and a user
+    /// edit after the transmitter was linked went unnoticed.</para>
+    ///
+    /// <para>Neither is enough for a RENAME, which raises no solution at all on an unwired output —
+    /// see <see cref="WatchTarget"/> for why, and for the third subscription that catches it.</para>
     /// </remarks>
     public override void AddedToDocument(GH_Document document)
     {
         base.AddedToDocument(document);
         document.SolutionEnd += OnDocumentSolutionEnd;
+        WatchHost();
+        WatchTarget();
     }
 
     /// <inheritdoc/>
     public override void RemovedFromDocument(GH_Document document)
     {
         document.SolutionEnd -= OnDocumentSolutionEnd;
+        UnwatchHost();
+        UnwatchTarget();
         base.RemovedFromDocument(document);
     }
 
@@ -139,6 +164,12 @@ public class ScriptIO : PhyBase, IGuidLinked
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
+        // Cheapest place to notice that the host has become resolvable (or changed), and that the
+        // link now points at a different target — a solve happens whenever anything about this
+        // component moves.
+        WatchHost();
+        WatchTarget();
+
         _lastSignature = CurrentSignature();
 
         if (!TryResolveTargetScript(out IGH_DocumentObject? target, out ScriptTransmitterBase? transmitter, out string problem))
@@ -255,14 +286,144 @@ public class ScriptIO : PhyBase, IGuidLinked
         _ => "item",
     };
 
+    /// <summary>
+    /// Points the host-document watch at the current host, moving it if the host has changed.
+    ///
+    /// <para>Re-checked rather than set once, because the host is not always knowable when this
+    /// component is added: dropping it into a harness that is itself still being placed, or reading
+    /// a file, resolves no owner yet. Doing nothing in that case would leave the watch permanently
+    /// off. When there is no harness the host IS the local document, and the local subscription
+    /// already covers it — subscribing twice would only double every callback.</para>
+    /// </summary>
+    private void WatchHost()
+    {
+        GH_Document? host = Harness.PhyDocuments.Host(this);
+        if (ReferenceEquals(host, OnPingDocument()))
+        {
+            host = null;
+        }
+
+        if (ReferenceEquals(host, _watchedHost))
+        {
+            return;
+        }
+
+        UnwatchHost();
+
+        if (host is not null)
+        {
+            host.SolutionEnd += OnDocumentSolutionEnd;
+            _watchedHost = host;
+        }
+    }
+
+    /// <summary>
+    /// Drops the host-document watch, if one is held.
+    /// </summary>
+    private void UnwatchHost()
+    {
+        if (_watchedHost is not null)
+        {
+            _watchedHost.SolutionEnd -= OnDocumentSolutionEnd;
+            _watchedHost = null;
+        }
+    }
+
+    /// <summary>
+    /// Puts an <c>ObjectChanged</c> handler on the target script component and every one of its
+    /// parameters, so a RENAME is noticed. A solution watch cannot see one.
+    ///
+    /// <para>Grasshopper expires along the data graph, and a parameter's recipients are downstream
+    /// of it. Renaming an INPUT therefore expires the component (the input's recipient IS the
+    /// component), a solution runs, and the host watch catches it. Renaming an OUTPUT expires only
+    /// whatever is wired below it — the component sits UPSTREAM of its own output and is left
+    /// alone — so an unwired output rename expires nothing, runs no solution, and raises no
+    /// SolutionEnd anywhere. It is a real change to the contract all the same: on a script
+    /// component the parameter name IS the variable name.</para>
+    ///
+    /// <para>Re-synced rather than subscribed once, since the parameter set itself changes. Adding
+    /// or removing a parameter DOES expire the component, so a solution runs and brings us back
+    /// here to pick up the new list.</para>
+    /// </summary>
+    private void WatchTarget()
+    {
+        var current = new List<IGH_DocumentObject>();
+        if (TryResolveTargetScript(out IGH_DocumentObject? target, out _, out _))
+        {
+            current.Add(target!);
+            if (target is IGH_Component component)
+            {
+                current.AddRange(component.Params.Input);
+                current.AddRange(component.Params.Output);
+            }
+        }
+
+        if (current.Count == _watchedTargetObjects.Count
+            && !current.Where((obj, i) => !ReferenceEquals(obj, _watchedTargetObjects[i])).Any())
+        {
+            return;
+        }
+
+        UnwatchTarget();
+
+        foreach (IGH_DocumentObject obj in current)
+        {
+            obj.ObjectChanged += OnTargetObjectChanged;
+            _watchedTargetObjects.Add(obj);
+        }
+    }
+
+    /// <summary>
+    /// Drops every target-side ObjectChanged handler currently held.
+    /// </summary>
+    private void UnwatchTarget()
+    {
+        foreach (IGH_DocumentObject obj in _watchedTargetObjects)
+        {
+            obj.ObjectChanged -= OnTargetObjectChanged;
+        }
+
+        _watchedTargetObjects.Clear();
+    }
+
+    /// <summary>
+    /// Re-checks the contract when something about the target or one of its parameters changed.
+    /// Only naming events matter here — everything else that alters the interface (adding a
+    /// parameter, changing access or a type hint) goes through a solution and is already covered.
+    /// </summary>
+    /// <param name="sender">The target component or one of its parameters.</param>
+    /// <param name="e">What changed.</param>
+    private void OnTargetObjectChanged(IGH_DocumentObject sender, GH_ObjectChangedEventArgs e)
+    {
+        if (e.Type is GH_ObjectEventType.NickName or GH_ObjectEventType.NickNameAccepted)
+        {
+            RefreshIfContractChanged();
+        }
+    }
+
     private void OnDocumentSolutionEnd(object sender, GH_SolutionEventArgs e)
     {
-        // A transmitter push or a manual param edit changes the target's interface without
-        // re-solving this source component. Re-solve only when the emitted contract actually
-        // changed, so the refreshed grounding reaches the Conversation Log and the comparison
-        // breaks any solve loop once it converges.
+        // The harness may have been placed (or moved) and the target's parameter set may have grown
+        // or shrunk since the last pass, so re-point both watches before trusting either to fire
+        // next time.
+        WatchHost();
+        WatchTarget();
+
+        RefreshIfContractChanged();
+    }
+
+    /// <summary>
+    /// Re-solves this component when the contract it last emitted no longer matches the target, and
+    /// not otherwise. The comparison is what makes every caller safe to over-call: it costs a string
+    /// build, and it breaks the solve loop as soon as the emitted grounding has caught up.
+    /// </summary>
+    private void RefreshIfContractChanged()
+    {
         if (CurrentSignature() != _lastSignature)
         {
+            // Scheduling stays on the LOCAL document: this component and the Conversation Log it
+            // feeds both live in the harness, even though the change that triggered it happened out
+            // on the user's canvas.
             OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(false));
         }
     }

@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 5eabf66c-d38d-414b-8bbf-e50f65864dd1
-  modified: 2026-08-12T05:08:23.264Z
+  modified: 2026-08-12T05:46:13.849Z
 ---
 
 **2026-08-11: added `CsTransmitter`** (`src/Physalia.GH/Components/Transmitters/CsTransmitter.cs`) — a `ScriptTransmitterBase` sibling of PyTransmitter that pushes LLM-generated C# into a linked **Rhino 8 C# Script** component. Harness outlet label is `"C#"`; gradient `ArrowStyles.CsTransmitter` (BlueViolet → Turquoise). System prompt pair: `Files/SYSTEM_PROMPTS/PREAMBLE/C# Script.txt` + `SCHEMA/C# Script.json` (title `CSharpComponent`).
@@ -17,7 +17,7 @@ private\s+(async\s+)?void\s+RunScript\((?<params>[^)]*)\)
 (ref|out)\s                                   ← by-ref params are the OUTPUTS
 (IEnumerable|IList|List|DataTree)\<(?<type>.+)\>   ← how it reads list/tree access back
 ```
-(strings live in `RhinoCodePlatform.Rhino3D.dll`, UTF-16). `CsTransmitter.TryCheckSignature` copies those two regexes **verbatim, whitespace classes and all** — a guard looser than the thing it guards passes source that then dies on the canvas. It rejects a disagreeing submission BEFORE the push and puts the expected signature in the Fail feedback, so the model fixes it by copying rather than guessing.
+(strings live in `RhinoCodePlatform.Rhino3D.dll`, UTF-16 — how to dig them out: [[inspecting-rhino-assemblies]]). `CsTransmitter.TryCheckSignature` copies those two regexes **verbatim, whitespace classes and all** — a guard looser than the thing it guards passes source that then dies on the canvas. It rejects a disagreeing submission BEFORE the push and puts the expected signature in the Fail feedback, so the model fixes it by copying rather than guessing.
 
 **Language predicates are now mandatory.** Every Rhino 8 script component (Python 3, IronPython 2, C#) implements the same `IScriptComponent`; only `LanguageSpec` separates them. `GhPythonBridge` gained `IsPython3Component` / `IsCSharpComponent` over a private `SpeaksLanguage`. Note `Matches` reads **scope-first** — the wildcard-holding spec is the RECEIVER: `LanguageSpec.CSharp` (`*.*.csharp@*.*`) `.Matches(actual)`. PyTransmitter's `IsLinkTarget` was narrowed from "any script component" to Python 3 at the same time; before this it would happily have linked to a C# node.
 
@@ -26,7 +26,8 @@ Other decisions:
 - **No unconnected-input filter.** Python's filter keys off `name 'x' is not defined`; C# just receives null/default. Instead the Fail feedback NAMES the unconnected inputs so the model isn't sent chasing a bug that is really a missing wire.
 - **No icon** — falls back to `brain.png`, like TextTransmitter/Harness/ScriptIO.
 - DRY: the shared `{code, inputs, outputs}` parse moved out of PyTransmitter into `Generation/ScriptComponentJson.cs`; PyTransmitter now calls `PromoteListOutputs` itself in `PushSolve`.
-- `PromptSchemaAssetTests.SchemaAsset_OwnExamples_Validate` gained a `C# Script.json` row — 437 Core tests pass.
+- `PromptSchemaAssetTests.SchemaAsset_OwnExamples_Validate` gained a `C# Script.json` row, and `ScriptInterfaceGroundingTests` a dialect pair — 439 Core tests pass.
+- Landed in three commits on `main` (`2cb1529` prompts, `e73d15a` code, `b01b2b6` docs); the code one bundles the transmitter, the Script I/O widening and the rename because all three edit the same files.
 
 **Script I/O now covers both languages** (same session; the component was called Interface Lock until it was renamed later the same day — see [[script-io-grounder]]). `ScriptIOAttrib.IsValidTarget` and `ScriptIO.TryResolveTargetScript` widened from `PyTransmitter` to `ScriptTransmitterBase`; enforcement (`ActiveScriptIO`, `RespectsLockedInterface`, the rejection feedback) moved OFF PyTransmitter and ONTO that base, so a new script transmitter is lockable for free.
 

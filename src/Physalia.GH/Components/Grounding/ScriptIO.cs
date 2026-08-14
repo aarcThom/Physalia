@@ -146,12 +146,16 @@ public class ScriptIO : PhyBase, IGuidLinked
     /// <returns>The locked-interface ports, in interface order.</returns>
     public static IReadOnlyList<ScriptInterfacePort> ToPorts(
         IEnumerable<GhParamSpec> specs,
-        IReadOnlyDictionary<string, IReadOnlyList<string>>? downstream = null)
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? downstream = null,
+        IReadOnlyDictionary<string, GhIncomingData>? incoming = null)
         => specs.Select(s => new ScriptInterfacePort(s.Name, s.TypeHint, AccessString(s.Access))
         {
             DownstreamTypes = downstream is not null && downstream.TryGetValue(s.Name, out IReadOnlyList<string>? types)
                 ? types
                 : Array.Empty<string>(),
+            Incoming = incoming is not null && incoming.TryGetValue(s.Name, out GhIncomingData? data)
+                ? new ScriptPortIncoming(data.Count, data.Branches, data.TypeName)
+                : null,
         }).ToList();
 
     /// <inheritdoc/>
@@ -222,7 +226,7 @@ public class ScriptIO : PhyBase, IGuidLinked
 
         var grounding = new ScriptInterfaceGrounding(
             target!.NickName,
-            ToPorts(inputSpecs),
+            ToPorts(inputSpecs, downstream: null, incoming: GhPythonBridge.GetInputIncoming(target)),
             ToPorts(outputSpecs, GhPythonBridge.GetOutputRecipientTypes(target)),
             transmitter!.Dialect);
 
@@ -334,7 +338,24 @@ public class ScriptIO : PhyBase, IGuidLinked
             .OrderBy(pair => pair.Key, StringComparer.Ordinal)
             .Select(pair => $"{pair.Key}>{string.Join(",", pair.Value)}"));
 
-        return $"{_linkedGuid:N}:{target!.InstanceGuid:N}:{target.NickName}:{inputs}>{outputs}#{wired}";
+        // Incoming data enters the signature by SHAPE, not by exact count. Keying on the count
+        // would re-solve this component (and expire the Conversation Log behind it) on every
+        // slider tick that changes how many items flow — constant churn for no gain, since going
+        // from 2 curves to 5 changes nothing the model must do differently. What does change its
+        // job is the type, whether one item arrives or many (the item-vs-list decision), and
+        // whether the data is flat or branched. Those three are what is compared.
+        //
+        // Consequence, accepted deliberately: the exact count in the rendered text can lag until
+        // something else re-solves this. The count is illustrative; the advice derived from it is
+        // what matters, and that only moves when the shape does.
+        IReadOnlyDictionary<string, GhIncomingData> incoming = GhPythonBridge.GetInputIncoming(target!);
+        string flowing = string.Join("|", incoming
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair => string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"{pair.Key}<{pair.Value.TypeName}:{(pair.Value.Count > 1 ? "many" : "one")}:{(pair.Value.Branches > 1 ? "tree" : "flat")}")));
+
+        return $"{_linkedGuid:N}:{target!.InstanceGuid:N}:{target.NickName}:{inputs}>{outputs}#{wired}@{flowing}";
     }
 
     private static string SpecKey(GhParamSpec spec) => $"{spec.Name}:{spec.TypeHint}:{spec.Access}";

@@ -183,7 +183,13 @@ public class CsTransmitter : ScriptTransmitterBase
 
         GhPythonBridge.SetScript(target, code);
 
-        if (!locked)
+        if (locked)
+        {
+            // Parameter set frozen, but a hint or access correction still lands — applied in place
+            // so the wires the lock exists to protect are untouched.
+            ApplyLockedInterfaceAdjustments(target, inputs, outputs);
+        }
+        else
         {
             if (inputs.Count > 0)
                 GhPythonBridge.SetInputs(target, inputs);

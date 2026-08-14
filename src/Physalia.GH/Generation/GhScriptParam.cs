@@ -46,3 +46,13 @@ public record GhParamSpec(
     string Name,
     string TypeHint,
     GhScriptParamAccess Access);
+
+/// <summary>
+/// What is actually arriving on a connected input of a script component, read off its volatile
+/// data rather than its declaration — the two disagree whenever the user has left the type hint
+/// or access unset, which is the common case.
+/// </summary>
+/// <param name="Count">How many items arrive in total.</param>
+/// <param name="Branches">How many data-tree branches they arrive in.</param>
+/// <param name="TypeName">What they are (e.g. <c>Curve</c>), or empty when nothing has flowed yet.</param>
+public record GhIncomingData(int Count, int Branches, string TypeName);

@@ -122,6 +122,11 @@ public class PyTransmitter : ScriptTransmitterBase
             }
 
             GhPythonBridge.SetScript(target, code);
+
+            // The parameter SET is frozen, but a hint or access correction is applied in place —
+            // the whole point of telling the model what is actually arriving on the wires.
+            ApplyLockedInterfaceAdjustments(target, inputs, outputs);
+
             GhPythonBridge.Expire(target);
             return;
         }

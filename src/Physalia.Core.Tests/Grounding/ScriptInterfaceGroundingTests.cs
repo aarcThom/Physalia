@@ -28,7 +28,18 @@ public class ScriptInterfaceGroundingTests
 
         Assert.Contains("\"Panelize\"", section);
         Assert.Contains("LOCKED interface", section);
-        Assert.Contains("Never add, remove, or rename a parameter", section);
+        Assert.Contains("never add, remove, or rename", section);
+    }
+
+    // The lock freezes the parameter NAMES, not their declarations. Hint and access are applied in
+    // place on a push, so the model must be told it may correct them — otherwise the live-data
+    // section below tells it two curves arrive on an item input and forbids it from fixing that.
+    [Fact]
+    public void ToSystemPromptSection_PermitsChangingTypeHintAndAccess()
+    {
+        string section = Sample().ToSystemPromptSection();
+
+        Assert.Contains("MAY change a parameter's type hint or access", section);
     }
 
     // The lock is language-neutral; what the model is TOLD about it is not. Each dialect must name
@@ -103,6 +114,80 @@ public class ScriptInterfaceGroundingTests
     public void FormatPorts_NullPorts_RendersEmptyArray()
     {
         Assert.Equal("[]", ScriptInterfaceGrounding.FormatPorts(null));
+    }
+
+    // ---- Live data: what is actually arriving on the connected inputs.
+
+    private static ScriptInterfaceGrounding WithIncoming(string access, ScriptPortIncoming incoming) => new(
+        "Panelize",
+        new[]
+        {
+            new ScriptInterfacePort("crvs", string.Empty, access) { Incoming = incoming },
+            new ScriptInterfacePort("unwired", string.Empty, "item"),
+        },
+        System.Array.Empty<ScriptInterfacePort>(),
+        ScriptInterfaceDialect.Python);
+
+    [Fact]
+    public void ToSystemPromptSection_ReportsWhatIsArrivingOnAnInput()
+    {
+        string section = WithIncoming("list", new ScriptPortIncoming(2, 1, "Curve")).ToSystemPromptSection();
+
+        Assert.Contains("LIVE DATA", section);
+        Assert.Contains("crvs ← 2 Curves", section);
+    }
+
+    // The motivating case: two curves landing on an item-access input. Nothing in the declaration
+    // reveals it and the script silently sees only the first, so the mismatch must be spelled out.
+    [Fact]
+    public void ToSystemPromptSection_ManyItemsOnItemAccess_TellsTheModelToUseList()
+    {
+        string section = WithIncoming("item", new ScriptPortIncoming(2, 1, "Curve")).ToSystemPromptSection();
+
+        Assert.Contains("2 items arrive", section);
+        Assert.Contains("only the first", section);
+        Assert.Contains("\"list\"", section);
+    }
+
+    [Fact]
+    public void ToSystemPromptSection_BranchedDataOnFlatAccess_SuggestsTree()
+    {
+        string section = WithIncoming("list", new ScriptPortIncoming(12, 3, "Point")).ToSystemPromptSection();
+
+        Assert.Contains("across 3 branches", section);
+        Assert.Contains("\"tree\"", section);
+    }
+
+    [Fact]
+    public void ToSystemPromptSection_DeclarationMatchesData_GivesNoAdvice()
+    {
+        string section = WithIncoming("list", new ScriptPortIncoming(2, 1, "Curve")).ToSystemPromptSection();
+
+        Assert.DoesNotContain("only the first", section);
+        Assert.DoesNotContain("branches", section);
+    }
+
+    [Fact]
+    public void ToSystemPromptSection_SingleItemOnItemAccess_GivesNoAdvice()
+    {
+        string section = WithIncoming("item", new ScriptPortIncoming(1, 1, "Curve")).ToSystemPromptSection();
+
+        Assert.Contains("crvs ← 1 Curve", section);
+        Assert.DoesNotContain("only the first", section);
+    }
+
+    [Fact]
+    public void ToSystemPromptSection_UnwiredInput_IsNotListedAsLive()
+    {
+        string section = WithIncoming("item", new ScriptPortIncoming(1, 1, "Curve")).ToSystemPromptSection();
+
+        Assert.DoesNotContain("unwired ←", section);
+    }
+
+    [Fact]
+    public void ToSystemPromptSection_NothingWired_OmitsTheLiveDataSection()
+    {
+        Assert.DoesNotContain("LIVE DATA", Sample().ToSystemPromptSection());
     }
 
     // ---- Downstream expectations: what the canvas already demands of an output.

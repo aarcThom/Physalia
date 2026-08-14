@@ -211,6 +211,55 @@ public abstract class ScriptTransmitterBase : TransmitterComponentBase, IGuidLin
     }
 
     /// <summary>
+    /// Applies the type hints and access modes a locked submission declared, IN PLACE, to the
+    /// parameters that already exist. Names are never added, removed, or renamed — that is what
+    /// the lock forbids and what would break the wires.
+    ///
+    /// <para>Without this a lock is a one-way ratchet: the grounding can tell the model that two
+    /// curves are arriving on an item-access input, the model can correctly declare
+    /// <c>access: "list"</c>, and the push would then throw that correction away and leave the
+    /// component reading one curve forever. The in-place path (<c>UpdateConverter</c> for the
+    /// hint, the access re-stamp for the mode) keeps the parameter objects — and therefore the
+    /// connections — while letting the declaration move.</para>
+    /// </summary>
+    /// <param name="target">The linked script component.</param>
+    /// <param name="inputs">The submission's declared input specs.</param>
+    /// <param name="outputs">The submission's declared output specs.</param>
+    protected static void ApplyLockedInterfaceAdjustments(
+        IGH_DocumentObject target,
+        IReadOnlyList<GhParamSpec> inputs,
+        IReadOnlyList<GhParamSpec> outputs)
+    {
+        if (inputs.Count > 0)
+        {
+            GhPythonBridge.ApplyInputTypeHints(target, inputs);
+            GhPythonBridge.ApplyInputAccess(target, AccessMap(inputs));
+        }
+
+        if (outputs.Count > 0)
+        {
+            // Outputs carry no type hint by design, so only the access mode can move.
+            GhPythonBridge.ApplyOutputAccess(target, AccessMap(outputs));
+        }
+    }
+
+    /// <summary>
+    /// Builds the variable-name to access map the in-place access re-stamp takes.
+    /// </summary>
+    /// <param name="specs">The declared specs.</param>
+    /// <returns>A map of name to access.</returns>
+    private static Dictionary<string, GhScriptParamAccess> AccessMap(IReadOnlyList<GhParamSpec> specs)
+    {
+        var map = new Dictionary<string, GhScriptParamAccess>(StringComparer.Ordinal);
+        foreach (GhParamSpec spec in specs)
+        {
+            map[spec.Name] = spec.Access;
+        }
+
+        return map;
+    }
+
+    /// <summary>
     /// Records how one side of a submission departs from the locked set: names the target does not
     /// have, and — only where the language forbids a partial declaration — locked names the
     /// submission left out.

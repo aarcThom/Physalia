@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Special;
+using Grasshopper.Kernel.Types;
 using Rhino.Runtime.Code;
 using Rhino.Runtime.Code.Languages;
 using RhinoCodePlatform.GH;
@@ -150,6 +151,98 @@ public static class GhPythonBridge
         => Cast(obj).Outputs
             .Select(p => new GhParamSpec(p.VariableName, string.Empty, MapAccess(p.Access)))
             .ToList();
+
+    /// <summary>
+    /// Reads what is actually FLOWING IN to each connected input: how many items arrive, across
+    /// how many branches, and what they are. Inputs with nothing wired are absent from the map.
+    ///
+    /// <para>This is the input-side counterpart of <see cref="GetOutputRecipientTypes"/>, and it
+    /// reports the live data rather than the declaration precisely because the two disagree so
+    /// often: a user wires two curves into a parameter still declared untyped and item-access, and
+    /// only the data says so. Type hint and access are the script component's most commonly
+    /// unset fields, so the declaration alone is the least reliable thing to ground the model on.</para>
+    /// </summary>
+    /// <param name="obj">The script component.</param>
+    /// <returns>Input variable name to a description of what is arriving.</returns>
+    public static IReadOnlyDictionary<string, GhIncomingData> GetInputIncoming(IGH_DocumentObject obj)
+    {
+        var result = new Dictionary<string, GhIncomingData>(StringComparer.Ordinal);
+
+        if (obj is not IGH_Component component)
+        {
+            return result;
+        }
+
+        foreach (IGH_Param param in component.Params.Input)
+        {
+            if (param is not IScriptParameter scriptParam || param.SourceCount == 0)
+            {
+                continue;
+            }
+
+            int count = param.VolatileData.DataCount;
+            int branches = param.VolatileData.PathCount;
+
+            // The goo's own TypeName is what actually arrived, which beats the upstream parameter's
+            // declared type: a Generic param carrying curves reports "Generic Data" but yields
+            // GH_Curve goo. Fall back to the source parameter only when no data has flowed yet.
+            string typeName = FirstGooTypeName(param) ?? FirstSourceTypeName(param) ?? string.Empty;
+
+            result[scriptParam.VariableName] = new GhIncomingData(count, branches, typeName);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// The type name of the first non-null item in a parameter's volatile data, or null when it
+    /// carries none (unsolved, or genuinely empty).
+    /// </summary>
+    /// <param name="param">The input parameter.</param>
+    /// <returns>The goo type name, or null.</returns>
+    private static string? FirstGooTypeName(IGH_Param param)
+    {
+        foreach (IGH_Goo? goo in param.VolatileData.AllData(true))
+        {
+            if (goo is not null)
+            {
+                return NormaliseTypeName(goo.TypeName);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The declared type name of the first source feeding a parameter, used when no data has
+    /// flowed yet. Reports null for sources that constrain nothing.
+    /// </summary>
+    /// <param name="param">The input parameter.</param>
+    /// <returns>The source type name, or null.</returns>
+    private static string? FirstSourceTypeName(IGH_Param param)
+    {
+        foreach (IGH_Param source in param.Sources)
+        {
+            string name = NormaliseTypeName(source.TypeName);
+            if (TypeHintMap.ContainsKey(name))
+            {
+                return name;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Grasshopper's own name for a type, mapped onto the Physalia vocabulary where the two differ.
+    /// </summary>
+    /// <param name="typeName">The Grasshopper type name.</param>
+    /// <returns>The normalised name.</returns>
+    private static string NormaliseTypeName(string? typeName)
+    {
+        string name = typeName ?? string.Empty;
+        return string.Equals(name, "Domain", StringComparison.OrdinalIgnoreCase) ? "Interval" : name;
+    }
 
     /// <summary>
     /// Reads what the canvas DOWNSTREAM of each output already expects: for every output that is
@@ -366,6 +459,86 @@ public static class GhPythonBridge
     /// <param name="accessByName">Map of output variable name to the access to apply.</param>
     public static void ApplyOutputAccess(IGH_DocumentObject obj, IReadOnlyDictionary<string, GhScriptParamAccess> accessByName)
         => ApplyParamAccess(obj, input: false, accessByName);
+
+    /// <summary>
+    /// Re-hints existing input parameters IN PLACE, without rebuilding the parameter set.
+    ///
+    /// <para>This is what lets a locked interface still accept a corrected type hint. The
+    /// restructuring path (<see cref="SetInputs(IGH_DocumentObject, IEnumerable{GhParamSpec})"/>)
+    /// replaces the parameter objects, which drops every wire into them — unacceptable under a
+    /// lock whose whole purpose is that those wires survive. <c>UpdateConverter</c> is the
+    /// component's own in-place re-hint (the same call its right-click type-hint menu makes), so
+    /// the parameter object, its id, and its connections are all preserved.</para>
+    ///
+    /// <para>Named parameters that do not exist on the target are ignored rather than created —
+    /// adding a parameter is exactly what the lock forbids.</para>
+    /// </summary>
+    /// <param name="obj">The script component.</param>
+    /// <param name="specs">Specs whose type hints should be applied to matching inputs.</param>
+    public static void ApplyInputTypeHints(IGH_DocumentObject obj, IEnumerable<GhParamSpec> specs)
+    {
+        if (obj is not IGH_Component component)
+        {
+            return;
+        }
+
+        var wanted = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (GhParamSpec spec in specs)
+        {
+            wanted[spec.Name] = spec.TypeHint;
+        }
+
+        object languageSpec = Cast(obj).LanguageSpec;
+        bool changed = false;
+
+        foreach (IGH_Param param in component.Params.Input)
+        {
+            if (param is not IScriptParameter scriptParam
+                || !wanted.TryGetValue(scriptParam.VariableName, out string? hint))
+            {
+                continue;
+            }
+
+            // Only move a hint that actually differs — UpdateConverter re-stamps the script
+            // signature, and a no-op re-stamp on every push is churn the target does not need.
+            if (string.Equals(ReadTypeHintName(scriptParam), hint, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // Declaring type is in RhinoCodePluginGH, which is not referenced at compile time, so
+            // the public method is reached by name; its argument types are both compile-time
+            // available from Rhino.Runtime.Code.
+            //
+            // Selected by arity rather than through the usual FindMethod helper: UpdateConverter is
+            // OVERLOADED (LanguageSpec) and (LanguageSpec, ParamType), and GetMethod(name, flags)
+            // throws AmbiguousMatchException when a name resolves to more than one method.
+            MethodInfo? update = param.GetType()
+                .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .FirstOrDefault(m => m.Name == "UpdateConverter" && m.GetParameters().Length == 2);
+
+            if (update is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                update.Invoke(param, new[] { languageSpec, (object)MapParamType(hint) });
+                changed = true;
+            }
+            catch (TargetInvocationException)
+            {
+                // A hint the engine will not accept for this language leaves the parameter as it
+                // was; the push still applies the code, and the model sees the unchanged contract.
+            }
+        }
+
+        if (changed)
+        {
+            InvokeParamsApply(obj);
+        }
+    }
 
     /// <summary>
     /// In-place access re-apply for input parameters; see <see cref="ApplyOutputAccess"/>.

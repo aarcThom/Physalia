@@ -348,7 +348,23 @@ public sealed record ScriptInterfacePort(string Name, string TypeHint, string Ac
     /// parameter, and code that assigns anything else silently breaks a wire that already exists.
     /// </summary>
     public IReadOnlyList<string> DownstreamTypes { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Gets what is actually arriving on this port when it is a connected INPUT — read off the live
+    /// data, not the declaration. Null when nothing is wired. The two routinely disagree: type hint
+    /// and access are the fields users most often leave unset, so a port declared untyped and
+    /// item-access may be receiving two curves.
+    /// </summary>
+    public ScriptPortIncoming? Incoming { get; init; }
 }
+
+/// <summary>
+/// What is flowing into a connected input at the moment the contract was read.
+/// </summary>
+/// <param name="Count">How many items arrive.</param>
+/// <param name="Branches">How many data-tree branches they arrive in.</param>
+/// <param name="TypeName">What they are, or empty when nothing has flowed yet.</param>
+public sealed record ScriptPortIncoming(int Count, int Branches, string TypeName);
 
 /// <summary>
 /// What a locked interface has to be SAID differently for, one script language to the next: what to
@@ -414,13 +430,20 @@ public sealed record ScriptInterfaceGrounding(
             .Append("\" has a LOCKED interface: existing wires depend on its inputs and outputs, ")
             .Append("so they must be preserved exactly. In every ").Append(Dialect.SchemaName)
             .Append(" JSON you emit for ")
-            .Append("this component, declare EXACTLY the parameters below — copy these entries ")
-            .Append("verbatim into your inputs/outputs arrays. Never add, remove, or rename a ")
-            .Append("parameter, and never change a type or access. ").Append(Dialect.CodeRule)
-            .Append(" A submission declaring any other parameter set is ")
-            .Append("rejected without being applied.\n");
+            .Append("this component, declare EXACTLY these parameter NAMES — never add, remove, ")
+            .Append("or rename one, because the wires already on the canvas are attached to them ")
+            .Append("and a submission naming anything else is rejected without being applied. ")
+            .Append("You MAY change a parameter's type hint or access: those are applied in place, ")
+            .Append("the wires survive, and where the live data below contradicts the declaration ")
+            .Append("you are expected to. ").Append(Dialect.CodeRule).Append('\n');
         section.Append("\"inputs\": ").Append(FormatPorts(Inputs)).Append('\n');
         section.Append("\"outputs\": ").Append(FormatPorts(Outputs));
+
+        string incoming = FormatIncoming(Inputs);
+        if (incoming.Length > 0)
+        {
+            section.Append('\n').Append(incoming);
+        }
 
         string downstream = FormatDownstream(Outputs);
         if (downstream.Length > 0)
@@ -429,6 +452,82 @@ public sealed record ScriptInterfaceGrounding(
         }
 
         return section.ToString();
+    }
+
+    /// <summary>
+    /// Renders what is actually arriving on the connected inputs, and — where the declaration does
+    /// not match the data — says so directly. Two curves landing on an item-access input is the
+    /// motivating case: nothing in the declaration reveals it, the script silently sees only the
+    /// first curve, and the fix is a declaration change the model is allowed to make.
+    /// </summary>
+    /// <param name="inputs">The locked input ports.</param>
+    /// <returns>The incoming-data section, or empty when nothing is wired.</returns>
+    private static string FormatIncoming(IReadOnlyList<ScriptInterfacePort>? inputs)
+    {
+        var wired = (inputs ?? Array.Empty<ScriptInterfacePort>())
+            .Where(p => p.Incoming is not null)
+            .ToList();
+
+        if (wired.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var section = new System.Text.StringBuilder();
+        section.Append("LIVE DATA on the connected inputs, as it is right now. Where this ")
+            .Append("disagrees with the declaration, the declaration is what is wrong — correct ")
+            .Append("it in your submission:\n");
+
+        foreach (ScriptInterfacePort port in wired)
+        {
+            ScriptPortIncoming data = port.Incoming!;
+            string what = data.TypeName.Length > 0 ? data.TypeName : "unknown type";
+
+            section.Append("  ").Append(port.Name.Trim()).Append(" ← ")
+                .Append(data.Count).Append(' ').Append(what)
+                .Append(data.Count == 1 ? string.Empty : "s");
+
+            if (data.Branches > 1)
+            {
+                section.Append(" across ").Append(data.Branches).Append(" branches");
+            }
+
+            string advice = AccessAdvice(port.Access, data);
+            if (advice.Length > 0)
+            {
+                section.Append("  — ").Append(advice);
+            }
+
+            section.Append('\n');
+        }
+
+        return section.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// The mismatch between a port's declared access and what is actually arriving, phrased as the
+    /// correction to make. Empty when the declaration already fits.
+    /// </summary>
+    /// <param name="access">The declared access (<c>item</c>, <c>list</c>, or <c>tree</c>).</param>
+    /// <param name="data">What is arriving.</param>
+    /// <returns>The advice, or empty.</returns>
+    private static string AccessAdvice(string access, ScriptPortIncoming data)
+    {
+        string declared = (access ?? string.Empty).Trim().ToLowerInvariant();
+
+        if (data.Branches > 1 && declared != "tree")
+        {
+            return $"declared \"{declared}\" but the data arrives in {data.Branches} branches; "
+                + "use \"tree\" to see all of it, or accept that only one branch is processed per solve";
+        }
+
+        if (data.Count > 1 && declared == "item")
+        {
+            return $"declared \"item\" but {data.Count} items arrive, so the script would see only "
+                + "the first — change this input's access to \"list\" and write the code to iterate";
+        }
+
+        return string.Empty;
     }
 
     /// <summary>

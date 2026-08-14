@@ -105,15 +105,13 @@ public class PyTransmitter : ScriptTransmitterBase
             return;
         }
 
-        // An enabled Script I/O linked to this transmitter freezes the target's interface:
-        // push the code only — never restructure parameters, re-hint outputs, or touch the
-        // marshalling flag, so the target keeps exactly the params (and wires) it already has.
-        // A submission declaring names outside the locked set is rejected before anything is
-        // pushed, and the contract is routed back as corrective feedback. _inputs/_outputs stay
-        // empty so the access re-apply pass in IsReadReady never runs.
+        // An enabled Script I/O linked to this transmitter freezes the target's PARAMETER SET:
+        // never add, remove, or rename, so the target keeps exactly the params (and wires) it
+        // already has. A submission naming anything outside the locked set is rejected before
+        // anything is pushed, and the contract is routed back as corrective feedback.
         if (ActiveScriptIO is not null)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, "Interface locked — pushing code only; the target's inputs/outputs are preserved.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, "Interface locked — the target's inputs/outputs are preserved.");
 
             if (!RespectsLockedInterface(target, inputs, outputs, out string lockFeedback))
             {
@@ -127,6 +125,28 @@ public class PyTransmitter : ScriptTransmitterBase
             // the whole point of telling the model what is actually arriving on the wires.
             ApplyLockedInterfaceAdjustments(target, inputs, outputs);
 
+            // The Python marshalling repairs run under lock TOO. This branch used to skip them,
+            // on the reasoning that a lock should "not re-hint outputs or touch the marshalling
+            // flag" — which sounds conservative and is wrong: neither is part of the interface.
+            // Neither adds, removes, or renames a parameter, so no wire is at risk, and an output
+            // type hint is not in the contract at all (the submission schemas forbid a type on an
+            // output, and GetOutputSpecs always reports it empty).
+            //
+            // Skipping them produced the "Data conversion failed from Goo to Mesh" a locked push
+            // hit on any list output: SetScript can land the component with MarshOutputs OFF, and
+            // with it off the engine stores the raw Python object, which GH wraps as a single
+            // opaque GH_ObjectWrapper<PyObject> — regardless of access or type hint — so a
+            // downstream Mesh parameter is handed one Goo instead of N meshes. The generated code
+            // is correct in that situation; the component's configuration is not.
+            ApplyPythonOutputMarshalling(target, outputs);
+
+            // Retained so the post-solve access re-apply in IsReadReady still runs: the engine
+            // auto-declares every parameter item-access while no compiled instance exists, which
+            // is the case on the first push of any freshly generated script, and that silently
+            // overrides list access on a locked component exactly as it does on an unlocked one.
+            _inputs = inputs;
+            _outputs = outputs;
+
             GhPythonBridge.Expire(target);
             return;
         }
@@ -138,19 +158,9 @@ public class PyTransmitter : ScriptTransmitterBase
         if (inputs.Count > 0)
             GhPythonBridge.SetInputs(target, inputs);
         if (outputs.Count > 0)
-        {
             GhPythonBridge.SetOutputs(target, outputs);
 
-            // Pin outputs to No Type Hint: SetOutputs leaves them on the engine's Default Python Hint
-            // (often "ghdoc Object"), which wraps any Python value — a list especially — as one opaque
-            // goo even under List access. No Type Hint lets a list flatten under List access.
-            GhPythonBridge.SetOutputsNoTypeHint(target, outputs.Select(o => o.Name));
-        }
-
-        // Turn marshalling on so Python list outputs are converted to a .NET list and the engine
-        // expands them into individual items. With marshalling off (which a pushed script can land in)
-        // the raw Python object is wrapped as one opaque goo, the core symptom of this whole fix.
-        GhPythonBridge.EnableOutputMarshalling(target);
+        ApplyPythonOutputMarshalling(target, outputs);
 
         GhPythonBridge.Expire(target);
     }
@@ -192,6 +202,34 @@ public class PyTransmitter : ScriptTransmitterBase
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// The two repairs a Python output needs before a list can reach the canvas as N items rather
+    /// than one opaque object. Both run on EVERY push, locked or not — neither is an interface
+    /// change, and skipping them is what produces "Data conversion failed from Goo to &lt;type&gt;"
+    /// downstream.
+    ///
+    /// <para>They are specific to the Python engine's value wrapping and must not migrate to
+    /// <see cref="ScriptTransmitterBase"/>: the C# engine hands Grasshopper typed values already,
+    /// and applying these there would be meaningless at best.</para>
+    /// </summary>
+    /// <param name="target">The linked Python Script component.</param>
+    /// <param name="outputs">The submission's declared output specs.</param>
+    private static void ApplyPythonOutputMarshalling(IGH_DocumentObject target, IReadOnlyList<GhParamSpec> outputs)
+    {
+        if (outputs.Count > 0)
+        {
+            // Pin outputs to No Type Hint. The engine's Default Python Hint (often "ghdoc Object")
+            // wraps any Python value — a list especially — as one opaque goo even under List
+            // access; No Type Hint is what lets a list flatten.
+            GhPythonBridge.SetOutputsNoTypeHint(target, outputs.Select(o => o.Name));
+        }
+
+        // Turn marshalling on so a Python list is converted to a .NET list and the engine expands
+        // it into individual items. The flag defaults on for a hand-made component but is copied
+        // from the script when code is set, so any push can land with it off.
+        GhPythonBridge.EnableOutputMarshalling(target);
     }
 
     /// <summary>

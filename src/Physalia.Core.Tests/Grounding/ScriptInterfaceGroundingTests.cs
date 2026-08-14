@@ -104,4 +104,61 @@ public class ScriptInterfaceGroundingTests
     {
         Assert.Equal("[]", ScriptInterfaceGrounding.FormatPorts(null));
     }
+
+    // ---- Downstream expectations: what the canvas already demands of an output.
+
+    private static ScriptInterfaceGrounding WithDownstream(params string[] types) => new(
+        "Panelize",
+        System.Array.Empty<ScriptInterfacePort>(),
+        new[]
+        {
+            new ScriptInterfacePort("wall_out", string.Empty, "item") { DownstreamTypes = types },
+            new ScriptInterfacePort("spare", string.Empty, "item"),
+        },
+        ScriptInterfaceDialect.Python);
+
+    [Fact]
+    public void ToSystemPromptSection_WiredOutput_StatesTheDownstreamType()
+    {
+        string section = WithDownstream("Mesh").ToSystemPromptSection();
+
+        Assert.Contains("ALREADY WIRED", section);
+        Assert.Contains("wall_out → Mesh", section);
+    }
+
+    // The submission schemas set additionalProperties:false on an output entry, so a downstream
+    // expectation must never be rendered as a "type" field — a copied entry would fail validation.
+    [Fact]
+    public void ToSystemPromptSection_WiredOutput_DoesNotAddTypeToTheJsonEntry()
+    {
+        string section = WithDownstream("Mesh").ToSystemPromptSection();
+
+        Assert.Contains("{ \"name\": \"wall_out\", \"access\": \"item\" }", section);
+    }
+
+    [Fact]
+    public void ToSystemPromptSection_OutputWiredToSeveralTypes_ListsThemAll()
+    {
+        string section = WithDownstream("Mesh", "Brep").ToSystemPromptSection();
+
+        Assert.Contains("wall_out → Mesh, Brep", section);
+        Assert.Contains("assign something every one of them accepts", section);
+    }
+
+    [Fact]
+    public void ToSystemPromptSection_UnwiredOutput_IsNotListedAsWired()
+    {
+        string section = WithDownstream("Mesh").ToSystemPromptSection();
+
+        Assert.DoesNotContain("spare →", section);
+    }
+
+    [Fact]
+    public void ToSystemPromptSection_NothingWired_OmitsTheDownstreamSectionEntirely()
+    {
+        string section = Sample().ToSystemPromptSection();
+
+        Assert.DoesNotContain("ALREADY WIRED", section);
+        Assert.DoesNotContain("→", section);
+    }
 }

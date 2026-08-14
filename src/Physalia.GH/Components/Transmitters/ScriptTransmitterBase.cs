@@ -201,7 +201,12 @@ public abstract class ScriptTransmitterBase : TransmitterComponentBase, IGuidLin
             return true;
         }
 
-        feedback = BuildLockFeedback(target.NickName, lockedInputs, lockedOutputs, problems);
+        feedback = BuildLockFeedback(
+            target.NickName,
+            lockedInputs,
+            lockedOutputs,
+            GhPythonBridge.GetOutputRecipientTypes(target),
+            problems);
         return false;
     }
 
@@ -249,12 +254,14 @@ public abstract class ScriptTransmitterBase : TransmitterComponentBase, IGuidLin
     /// <param name="componentName">The target script component's display name.</param>
     /// <param name="lockedInputs">The target's live input specs.</param>
     /// <param name="lockedOutputs">The target's live output specs.</param>
+    /// <param name="downstream">The types the canvas downstream of each output already demands.</param>
     /// <param name="problems">How the submission departed from the locked set.</param>
     /// <returns>The feedback text.</returns>
     private string BuildLockFeedback(
         string componentName,
         IReadOnlyList<GhParamSpec> lockedInputs,
         IReadOnlyList<GhParamSpec> lockedOutputs,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> downstream,
         IReadOnlyList<string> problems)
     {
         var sb = new StringBuilder();
@@ -269,7 +276,7 @@ public abstract class ScriptTransmitterBase : TransmitterComponentBase, IGuidLin
         var contract = new ScriptInterfaceGrounding(
             componentName,
             ScriptIO.ToPorts(lockedInputs),
-            ScriptIO.ToPorts(lockedOutputs),
+            ScriptIO.ToPorts(lockedOutputs, downstream),
             Dialect);
         sb.AppendLine(contract.ToSystemPromptSection());
         sb.AppendLine();

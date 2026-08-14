@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Grasshopper.Kernel;
+using Grasshopper.Kernel.Special;
 using Rhino.Runtime.Code;
 using Rhino.Runtime.Code.Languages;
 using RhinoCodePlatform.GH;
@@ -149,6 +150,84 @@ public static class GhPythonBridge
         => Cast(obj).Outputs
             .Select(p => new GhParamSpec(p.VariableName, string.Empty, MapAccess(p.Access)))
             .ToList();
+
+    /// <summary>
+    /// Reads what the canvas DOWNSTREAM of each output already expects: for every output that is
+    /// wired into one or more typed parameters, the Physalia type-hint names those parameters
+    /// accept. Outputs with no wire — or none carrying a real constraint — are absent from the map.
+    ///
+    /// <para>This is the one piece of interface knowledge that lives on the canvas rather than on
+    /// the script component: an output declared untyped can still be obliged to produce a Mesh
+    /// because the user has already plugged it into a Mesh parameter. Telling the model that is
+    /// the difference between code that wires up and code that breaks the graph it was dropped
+    /// into.</para>
+    /// </summary>
+    /// <param name="obj">The script component.</param>
+    /// <returns>Output variable name to the distinct type names its recipients accept.</returns>
+    public static IReadOnlyDictionary<string, IReadOnlyList<string>> GetOutputRecipientTypes(IGH_DocumentObject obj)
+    {
+        var result = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+
+        if (obj is not IGH_Component component)
+        {
+            return result;
+        }
+
+        foreach (IGH_Param param in component.Params.Output)
+        {
+            if (param is not IScriptParameter scriptParam)
+            {
+                continue;
+            }
+
+            var types = new List<string>();
+            foreach (IGH_Param recipient in param.Recipients)
+            {
+                string? hint = RecipientTypeHint(recipient);
+                if (hint is not null && !types.Contains(hint, StringComparer.Ordinal))
+                {
+                    types.Add(hint);
+                }
+            }
+
+            if (types.Count > 0)
+            {
+                result[scriptParam.VariableName] = types;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// The Physalia type-hint name a downstream parameter actually constrains its input to, or
+    /// null when it constrains nothing.
+    /// </summary>
+    /// <param name="recipient">A parameter the output is wired into.</param>
+    /// <returns>The hint name, or null when the recipient imposes no usable constraint.</returns>
+    private static string? RecipientTypeHint(IGH_Param recipient)
+    {
+        // A Panel reports TypeName "Text" but accepts anything and stringifies it. Reporting that
+        // as a Text requirement would tell the model to stringify real geometry — and a panel on
+        // an output is the commonest debugging wire there is, so this would misfire constantly.
+        if (recipient is GH_Panel)
+        {
+            return null;
+        }
+
+        string name = recipient.TypeName ?? string.Empty;
+
+        // Grasshopper calls it "Domain"; the Physalia vocabulary and the submission schemas both
+        // call it "Interval". Every other GH TypeName already matches the hint name exactly.
+        if (string.Equals(name, "Domain", StringComparison.OrdinalIgnoreCase))
+        {
+            name = "Interval";
+        }
+
+        // Anything outside the known vocabulary — "Generic Data", "Goo", a third-party param —
+        // carries no constraint we can state, so it is reported as none rather than guessed at.
+        return TypeHintMap.ContainsKey(name) ? name : null;
+    }
 
     /// <summary>
     /// Returns all runtime error messages produced by the last solve.

@@ -50,6 +50,15 @@ Fix: **mark expired, do not schedule.** `ExpireSolution(false)` directly (fallin
 
 Two diagnostics were added and are worth keeping: a canvas caption showing the contract last emitted (`2 in / 3 out`, or `unlinked`), and a right-click **Trace Interface Watch** (session-only, off by default) that logs each watch/check decision to the Rhino command line. The caption is what makes "did this component even see the change" answerable at a glance instead of inferred from model behaviour.
 
+**Downstream type sensing, added 2026-08-14.** The interface the script component declares is only half the contract — the other half is on the canvas. An output declared untyped is still obliged to produce a Mesh once the user plugs it into a Mesh parameter. `GhPythonBridge.GetOutputRecipientTypes` walks each output param's `Recipients` and collects their `TypeName`s; `ScriptInterfacePort.DownstreamTypes` carries them; the grounding renders them as a trailing prose block.
+
+Three things that are easy to get wrong, all verified by reflecting over Grasshopper.dll rather than assumed:
+- **`GH_Panel.TypeName` is `"Text"`.** A panel accepts anything and stringifies it, and a panel hung off an output is the commonest debugging wire there is — reporting it would tell the model to stringify real geometry on most canvases. Panels are excluded by type.
+- **`Param_Interval.TypeName` is `"Domain"`.** Every other GH `TypeName` matches the Physalia hint vocabulary exactly (Mesh, Curve, Brep, Surface, Point, Vector, Plane, Line, Circle, Arc, Box, Number, Integer, Boolean, Text, Colour, Transform, Geometry); Domain→Interval is the sole rename.
+- **It must NOT be rendered as a `type` on the output JSON entry.** Both submission schemas set `additionalProperties:false` on an output, so an entry carrying a type fails validation — and the model is told to copy those entries verbatim. It is a constraint on the assigned VALUE, stated as prose. Pinned by `ToSystemPromptSection_WiredOutput_DoesNotAddTypeToTheJsonEntry`.
+
+`Generic Data` / `Goo` / third-party params map to nothing and are reported as no constraint rather than guessed at. **Real-time sensing needed no new watch**: connecting or removing a wire expires the downstream component and runs a HOST solution, which watch (2) already sees — but only because the wiring is folded into `CurrentSignature` (`#name>Type,Type`). Leave it out of the signature and the grounding silently keeps serving the pre-wiring answer.
+
 ENFORCEMENT was never stale — `RespectsLockedInterface` reads the live specs off the target at push time. Only the GROUNDING (a cached output) went stale. Still open: after a user edits a locked C# component's params, the code already pushed no longer matches the signature and the target errors until the model resubmits — the refreshed grounding makes the NEXT submission right, but nothing forces one.
 
 Core tests: `ScriptInterfaceGroundingTests` (7 pass; 9 after the dialect pair). Build clean. Live Rhino test pending — especially the Converter read-back (first time reading, not setting, the hint) and the lock-feedback loop end-to-end.

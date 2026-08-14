@@ -138,9 +138,21 @@ public class ScriptIO : PhyBase, IGuidLinked
     /// submission-JSON string.
     /// </summary>
     /// <param name="specs">The parameter specs read off the target script component.</param>
+    /// <param name="downstream">
+    /// For outputs, the types the canvas downstream already demands (see
+    /// <see cref="GhPythonBridge.GetOutputRecipientTypes"/>). Null for inputs, which have no
+    /// downstream side.
+    /// </param>
     /// <returns>The locked-interface ports, in interface order.</returns>
-    public static IReadOnlyList<ScriptInterfacePort> ToPorts(IEnumerable<GhParamSpec> specs)
-        => specs.Select(s => new ScriptInterfacePort(s.Name, s.TypeHint, AccessString(s.Access))).ToList();
+    public static IReadOnlyList<ScriptInterfacePort> ToPorts(
+        IEnumerable<GhParamSpec> specs,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? downstream = null)
+        => specs.Select(s => new ScriptInterfacePort(s.Name, s.TypeHint, AccessString(s.Access))
+        {
+            DownstreamTypes = downstream is not null && downstream.TryGetValue(s.Name, out IReadOnlyList<string>? types)
+                ? types
+                : Array.Empty<string>(),
+        }).ToList();
 
     /// <inheritdoc/>
     /// <remarks>
@@ -211,7 +223,7 @@ public class ScriptIO : PhyBase, IGuidLinked
         var grounding = new ScriptInterfaceGrounding(
             target!.NickName,
             ToPorts(inputSpecs),
-            ToPorts(outputSpecs),
+            ToPorts(outputSpecs, GhPythonBridge.GetOutputRecipientTypes(target)),
             transmitter!.Dialect);
 
         DA.SetData(OutGrounding, new GH_Grounding(grounding));
@@ -310,7 +322,19 @@ public class ScriptIO : PhyBase, IGuidLinked
 
         string inputs = string.Join("|", GhPythonBridge.GetInputSpecs(target!).Select(SpecKey));
         string outputs = string.Join("|", GhPythonBridge.GetOutputSpecs(target!).Select(SpecKey));
-        return $"{_linkedGuid:N}:{target!.InstanceGuid:N}:{target.NickName}:{inputs}>{outputs}";
+
+        // Downstream wiring is part of the emitted contract, so it has to be part of the change
+        // detection too — otherwise plugging an output into a Mesh parameter changes what the
+        // model must produce while this component goes on serving the previous answer. Connecting
+        // or removing a wire expires the downstream component and runs a HOST solution, which the
+        // host SolutionEnd watch already sees; this line is what makes that solve mean something.
+        IReadOnlyDictionary<string, IReadOnlyList<string>> downstream =
+            GhPythonBridge.GetOutputRecipientTypes(target!);
+        string wired = string.Join("|", downstream
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair => $"{pair.Key}>{string.Join(",", pair.Value)}"));
+
+        return $"{_linkedGuid:N}:{target!.InstanceGuid:N}:{target.NickName}:{inputs}>{outputs}#{wired}";
     }
 
     private static string SpecKey(GhParamSpec spec) => $"{spec.Name}:{spec.TypeHint}:{spec.Access}";

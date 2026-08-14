@@ -338,7 +338,17 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
 /// <param name="Name">Variable name used inside the script.</param>
 /// <param name="TypeHint">Physalia type-hint name (e.g. <c>Number</c>), or empty when untyped.</param>
 /// <param name="Access">Access mode string: <c>item</c>, <c>list</c>, or <c>tree</c>.</param>
-public sealed record ScriptInterfacePort(string Name, string TypeHint, string Access);
+public sealed record ScriptInterfacePort(string Name, string TypeHint, string Access)
+{
+    /// <summary>
+    /// Gets the type names the canvas downstream of this port already demands — the parameters an
+    /// OUTPUT is wired into. Empty when nothing is wired, or when the recipients impose no real
+    /// constraint. This is a constraint the script component itself cannot express: an untyped
+    /// output is still obliged to produce a Mesh once the user has plugged it into a Mesh
+    /// parameter, and code that assigns anything else silently breaks a wire that already exists.
+    /// </summary>
+    public IReadOnlyList<string> DownstreamTypes { get; init; } = Array.Empty<string>();
+}
 
 /// <summary>
 /// What a locked interface has to be SAID differently for, one script language to the next: what to
@@ -411,7 +421,51 @@ public sealed record ScriptInterfaceGrounding(
             .Append("rejected without being applied.\n");
         section.Append("\"inputs\": ").Append(FormatPorts(Inputs)).Append('\n');
         section.Append("\"outputs\": ").Append(FormatPorts(Outputs));
+
+        string downstream = FormatDownstream(Outputs);
+        if (downstream.Length > 0)
+        {
+            section.Append('\n').Append(downstream);
+        }
+
         return section.ToString();
+    }
+
+    /// <summary>
+    /// Renders what the canvas downstream of the outputs already demands, as prose rather than as
+    /// JSON entries: the submission schemas forbid a <c>type</c> on an output
+    /// (<c>additionalProperties: false</c>), so a wired-up expectation cannot ride inside the
+    /// copyable array without producing a submission that fails validation. It is a constraint on
+    /// the VALUE the code assigns, not on the declaration, and is stated as such.
+    /// </summary>
+    /// <param name="outputs">The locked output ports.</param>
+    /// <returns>The downstream section, or empty when nothing is wired.</returns>
+    private static string FormatDownstream(IReadOnlyList<ScriptInterfacePort>? outputs)
+    {
+        var wired = (outputs ?? Array.Empty<ScriptInterfacePort>())
+            .Where(p => p.DownstreamTypes.Count > 0)
+            .ToList();
+
+        if (wired.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var section = new System.Text.StringBuilder();
+        section.Append("These outputs are ALREADY WIRED into typed inputs on the canvas. Do not ")
+            .Append("declare a type for them — the schema forbids it — but the value your code ")
+            .Append("assigns must be readable as the type listed, because a value Grasshopper ")
+            .Append("cannot convert breaks a connection the user has already made:\n");
+
+        foreach (ScriptInterfacePort port in wired)
+        {
+            section.Append("  ").Append(port.Name.Trim()).Append(" → ")
+                .Append(string.Join(", ", port.DownstreamTypes))
+                .Append(port.DownstreamTypes.Count > 1 ? "  (wired to several — assign something every one of them accepts)" : string.Empty)
+                .Append('\n');
+        }
+
+        return section.ToString().TrimEnd();
     }
 
     /// <summary>

@@ -85,7 +85,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Tool calling Phase 4](tool-calling-phase4.md) — provider contract SENDS tool definitions (`StreamAsync` gained a tools list).
 - [GH tool-calling loop](tool-calling-gh-loop.md) — Router aggregates results per round; tool nodes inherit the multi-call contract (one result per call).
 - [ClaudeCode warm process](claudecode-warm-process.md) — ONE warm `claude` CLI per LLM Call (stream-json); the SDK is a dead end (no .NET, needs an API key).
-- [ClaudeCode provider perf](claudecode-provider-perf.md) — the freeze was extended thinking (`MAX_THINKING_TOKENS=0`); `--safe-mode` keeps OAuth, `--bare` breaks it; pipes pinned no-BOM UTF-8.
+- [ClaudeCode provider perf](claudecode-provider-perf.md) — **2026-08-14: visible thinking needs the UNDOCUMENTED `--thinking enabled --thinking-display summarized`** (non-interactive runs are force-set to `display:"omitted"`, so deltas arrive empty); `MAX_THINKING_TOKENS` is the WRONG lever and stays unset. Parser also had to stop dropping `thinking_delta`. `--safe-mode` keeps OAuth, `--bare` breaks it; pipes pinned no-BOM UTF-8.
 
 ## Platform / Build
 - [Inspecting Rhino assemblies](inspecting-rhino-assemblies.md) — reflect over Rhino 8's shipped DLLs from PowerShell (incl. the GH_IO resolver), and read templates/regexes straight out of the metadata strings.

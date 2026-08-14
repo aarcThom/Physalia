@@ -33,6 +33,16 @@ internal sealed class ClaudeCodeSession : IDisposable
     /// </summary>
     internal static readonly Version MinSafeModeVersion = new(2, 1, 169);
 
+    /// <summary>
+    /// The lowest Claude Code CLI version verified to accept <c>--thinking</c> and
+    /// <c>--thinking-display</c>. Both are undocumented (absent from <c>--help</c>), and an older
+    /// install rejects an unknown flag and exits immediately, so they are gated exactly like
+    /// <see cref="MinSafeModeVersion"/>. Below this, the flags are dropped and thinking stays
+    /// invisible — the CLI's own non-interactive default. Lower this once an earlier version is
+    /// actually verified; it is set to the version it was confirmed on, not to a guess.
+    /// </summary>
+    internal static readonly Version MinThinkingFlagsVersion = new(2, 1, 232);
+
     // A dedicated empty directory the CLI runs in, so its workspace / CLAUDE.md auto-discovery finds
     // nothing to load. Created once and reused across every session's process.
     private static readonly Lazy<string> _isolatedWorkingDir = new(CreateIsolatedWorkingDirectory);
@@ -122,6 +132,13 @@ internal sealed class ClaudeCodeSession : IDisposable
             await process.StandardInput.FlushAsync();
 
             bool emittedText = false;
+
+            // Thinking is re-emitted inline as <think>…</think>, exactly as the Anthropic API
+            // provider does, so the chat UI renders it and ThinkingTags strips it from resent
+            // history. The tag opens lazily on the first non-empty delta, so a thinking block
+            // that streams no text emits no tags at all.
+            bool thinkingTagOpen = false;
+
             while (true)
             {
                 string? raw = await process.StandardOutput.ReadLineAsync(ct);
@@ -143,6 +160,33 @@ internal sealed class ClaudeCodeSession : IDisposable
                             new LlmResponseChunk(parsed.Text, IsLast: false, Usage: null));
                         break;
 
+                    case LineKind.ThinkingDelta:
+                    {
+                        string thinkingText = parsed.Text ?? string.Empty;
+                        if (thinkingText.Length > 0)
+                        {
+                            // Deliberately does NOT set emittedText: a turn that streamed only
+                            // thinking still has no answer, so the result-text fallback below
+                            // must still fire.
+                            string prefix = thinkingTagOpen ? string.Empty : ThinkingTags.Open;
+                            thinkingTagOpen = true;
+                            yield return new Result<LlmResponseChunk, LlmError>.Ok(
+                                new LlmResponseChunk(prefix + thinkingText, IsLast: false, Usage: null));
+                        }
+
+                        break;
+                    }
+
+                    case LineKind.BlockStop:
+                        if (thinkingTagOpen)
+                        {
+                            thinkingTagOpen = false;
+                            yield return new Result<LlmResponseChunk, LlmError>.Ok(
+                                new LlmResponseChunk(ThinkingTags.CloseAndSeparate, IsLast: false, Usage: null));
+                        }
+
+                        break;
+
                     case LineKind.ResultError:
                         yield return Fail(LlmErrorKind.InvalidRequest, parsed.Text ?? "The Claude Code CLI returned a non-success result.");
                         yield break;
@@ -154,6 +198,18 @@ internal sealed class ClaudeCodeSession : IDisposable
                         // If no streamed text arrived (e.g. a very short reply slipped through),
                         // fall back to the full result text so the turn is never empty.
                         string? finalDelta = emittedText ? null : parsed.Text;
+
+                        // A thinking block still open here never got its content_block_stop —
+                        // close it on the final chunk rather than leaving the UI (and the
+                        // history stripper) with an unterminated tag.
+                        if (thinkingTagOpen)
+                        {
+                            thinkingTagOpen = false;
+                            finalDelta = string.IsNullOrEmpty(finalDelta)
+                                ? ThinkingTags.Close
+                                : ThinkingTags.CloseAndSeparate + finalDelta;
+                        }
+
                         yield return new Result<LlmResponseChunk, LlmError>.Ok(
                             new LlmResponseChunk(finalDelta, IsLast: true, parsed.Usage));
                         yield break;
@@ -258,9 +314,10 @@ internal sealed class ClaudeCodeSession : IDisposable
         // flagged stale, so its errors stay generic rather than claiming a specific mismatch.
         Version? cliVersion = _cliVersion.Value;
         bool safeModeSupported = cliVersion is not null && cliVersion >= MinSafeModeVersion;
+        bool thinkingFlagsSupported = cliVersion is not null && cliVersion >= MinThinkingFlagsVersion;
         _staleCliFallback = cliVersion is not null && cliVersion < MinSafeModeVersion;
 
-        var process = new Process { StartInfo = BuildStartInfo(_systemPromptFile, ModelId, safeModeSupported) };
+        var process = new Process { StartInfo = BuildStartInfo(_systemPromptFile, ModelId, safeModeSupported, thinkingFlagsSupported) };
         try
         {
             if (!process.Start())
@@ -294,7 +351,11 @@ internal sealed class ClaudeCodeSession : IDisposable
         });
     }
 
-    private static ProcessStartInfo BuildStartInfo(string? systemPromptFile, string modelId, bool safeModeSupported)
+    private static ProcessStartInfo BuildStartInfo(
+        string? systemPromptFile,
+        string modelId,
+        bool safeModeSupported,
+        bool thinkingFlagsSupported)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -318,11 +379,16 @@ internal sealed class ClaudeCodeSession : IDisposable
         startInfo.Environment["DISABLE_TELEMETRY"] = "1";
         startInfo.Environment["DISABLE_ERROR_REPORTING"] = "1";
 
-        // Match the Anthropic API provider, which sends no thinking config at all: disable extended
-        // thinking. Left on, a real generation prompt makes the CLI spend 50–90s emitting only
-        // thinking deltas — which this provider filters out — before the first token of the answer,
-        // so the LLM Call sits dead with no output. That invisible stall is the apparent "freeze".
-        startInfo.Environment["MAX_THINKING_TOKENS"] = "0";
+        // MAX_THINKING_TOKENS is deliberately NOT set. It used to be "0" (thinking off) to cure an
+        // apparent freeze; the real defect was that this provider dropped thinking deltas on the
+        // floor, so ~85s of genuine progress was invisible. SendTurnAsync now streams them, and
+        // thinking is requested by flag below.
+        //
+        // It is not set to a positive budget either: the CLI maps the env var to the DEPRECATED
+        // manual form (thinking:{type:"enabled", budgetTokens:N} — its own --max-thinking-tokens
+        // help says "[DEPRECATED. Use --thinking instead for newer models]"), and that form is
+        // 400-rejected on Opus 5 / Sonnet 5 / Fable. Leaving it unset lets the CLI default to
+        // {type:"adaptive"}, which is exactly what AnthropicModelDefaults sends on the API path.
 
         // Streaming both ways keeps the process alive between turns; --include-partial-messages
         // gives token-level deltas; --verbose is required for -p stream-json output.
@@ -358,6 +424,28 @@ internal sealed class ClaudeCodeSession : IDisposable
         else
         {
             startInfo.Environment["CLAUDE_CONFIG_DIR"] = _isolatedConfigDir.Value;
+        }
+
+        // Ask for thinking, and ask for it to be READABLE. Both flags are undocumented (neither
+        // appears in --help) but are real options on current builds; verified against 2.1.232.
+        //
+        // --thinking enabled maps to {type:"adaptive"} — the form the newest models want, and the
+        // same one the API path sends. --thinking-display summarized is the load-bearing half: a
+        // NON-INTERACTIVE run is otherwise forced to display "omitted" by the CLI itself, which
+        // streams thinking blocks whose text is an empty string. That is not a subtle default —
+        // the CLI computes display from (explicitDisplay, isNonInteractive, outputFormat, verbose)
+        // and, with no explicit value, a -p/stream-json session lands on omitted every time. The
+        // deltas still arrive, still bill, and carry nothing; setting the flag also marks the
+        // display "explicit", which is what stops the later force-to-omitted pass overriding it.
+        //
+        // Without this, thinking cannot be shown no matter what the parser does — measured on
+        // 2.1.232: thinking_delta payloads len=0 without the flags, real text with them.
+        if (thinkingFlagsSupported)
+        {
+            startInfo.ArgumentList.Add("--thinking");
+            startInfo.ArgumentList.Add("enabled");
+            startInfo.ArgumentList.Add("--thinking-display");
+            startInfo.ArgumentList.Add("summarized");
         }
 
         // --no-session-persistence drops the per-turn session disk write; Physalia owns the history.
@@ -643,15 +731,37 @@ internal sealed class ClaudeCodeSession : IDisposable
 
             if (type == "stream_event"
                 && root.TryGetProperty("event", out JsonElement ev)
-                && ev.TryGetProperty("type", out JsonElement evType)
-                && evType.GetString() == "content_block_delta"
-                && ev.TryGetProperty("delta", out JsonElement delta)
-                && delta.TryGetProperty("type", out JsonElement deltaType)
-                && deltaType.GetString() == "text_delta"
-                && delta.TryGetProperty("text", out JsonElement textEl))
+                && ev.TryGetProperty("type", out JsonElement evType))
             {
-                // Only true text deltas carry response content; thinking/signature deltas are skipped.
-                return new ParsedLine(LineKind.TextDelta, textEl.GetString(), null);
+                string? eventType = evType.GetString();
+
+                if (eventType == "content_block_delta"
+                    && ev.TryGetProperty("delta", out JsonElement delta)
+                    && delta.TryGetProperty("type", out JsonElement deltaType))
+                {
+                    string? kind = deltaType.GetString();
+
+                    if (kind == "text_delta" && delta.TryGetProperty("text", out JsonElement textEl))
+                    {
+                        return new ParsedLine(LineKind.TextDelta, textEl.GetString(), null);
+                    }
+
+                    // Thinking rides back to the caller as its own kind rather than as text: the
+                    // inline <think> tags are opened lazily across lines, which needs state this
+                    // per-line parse does not have.
+                    if (kind == "thinking_delta" && delta.TryGetProperty("thinking", out JsonElement thinkingEl))
+                    {
+                        return new ParsedLine(LineKind.ThinkingDelta, thinkingEl.GetString(), null);
+                    }
+
+                    // signature_delta is the opaque replay signature for a thinking block —
+                    // inline tags cannot carry it, so it is skipped (matching the API provider).
+                }
+
+                if (eventType == "content_block_stop")
+                {
+                    return new ParsedLine(LineKind.BlockStop, null, null);
+                }
             }
 
             if (type == "result")
@@ -704,6 +814,8 @@ internal sealed class ClaudeCodeSession : IDisposable
     {
         Other,
         TextDelta,
+        ThinkingDelta,
+        BlockStop,
         Result,
         ResultError,
     }

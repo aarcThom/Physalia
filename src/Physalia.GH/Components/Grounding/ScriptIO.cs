@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Grounding;
@@ -47,6 +48,9 @@ public class ScriptIO : PhyBase, IGuidLinked
     // the only way the rename is seen at all — see WatchTarget.
     private readonly List<IGH_DocumentObject> _watchedTargetObjects = new();
 
+    // Session-only diagnostic, off by default (see the right-click menu). Never serialized.
+    private bool _traceWatch;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="ScriptIO"/> class.
     /// </summary>
@@ -75,6 +79,28 @@ public class ScriptIO : PhyBase, IGuidLinked
     public override void CreateAttributes()
     {
         m_attributes = new ScriptIOAttrib(this);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Carries the interface-watch trace: a diagnostic for the one question this component cannot
+    /// otherwise answer on a live canvas — whether a change to the target was seen at all, and if
+    /// so what the contract looked like before and after. Session-only and off by default.
+    /// </remarks>
+    public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
+    {
+        base.AppendAdditionalMenuItems(menu);
+        Menu_AppendSeparator(menu);
+        Menu_AppendItem(
+            menu,
+            "Trace Interface Watch",
+            (_, _) =>
+            {
+                _traceWatch = !_traceWatch;
+                Rhino.RhinoApp.WriteLine($"Script I/O interface-watch trace {(_traceWatch ? "ON" : "off")}.");
+            },
+            enabled: true,
+            @checked: _traceWatch);
     }
 
     /// <summary>
@@ -175,16 +201,26 @@ public class ScriptIO : PhyBase, IGuidLinked
         if (!TryResolveTargetScript(out IGH_DocumentObject? target, out ScriptTransmitterBase? transmitter, out string problem))
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, problem);
+            ShowContract("unlinked");
             return;
         }
 
+        IReadOnlyList<GhParamSpec> inputSpecs = GhPythonBridge.GetInputSpecs(target!);
+        IReadOnlyList<GhParamSpec> outputSpecs = GhPythonBridge.GetOutputSpecs(target!);
+
         var grounding = new ScriptInterfaceGrounding(
             target!.NickName,
-            ToPorts(GhPythonBridge.GetInputSpecs(target)),
-            ToPorts(GhPythonBridge.GetOutputSpecs(target)),
+            ToPorts(inputSpecs),
+            ToPorts(outputSpecs),
             transmitter!.Dialect);
 
         DA.SetData(OutGrounding, new GH_Grounding(grounding));
+
+        // The contract just emitted, on the canvas. This is the one bit of state that matters and
+        // was previously invisible: when the model turns out not to know about a parameter, this
+        // says immediately whether this component ever saw it — a stale caption means the refresh
+        // never happened, a current one means the staleness is further down the pipeline.
+        ShowContract($"{inputSpecs.Count} in / {outputSpecs.Count} out");
     }
 
     /// <inheritdoc/>
@@ -315,6 +351,10 @@ public class ScriptIO : PhyBase, IGuidLinked
             host.SolutionEnd += OnDocumentSolutionEnd;
             _watchedHost = host;
         }
+
+        Trace(_watchedHost is null
+            ? "host watch DROPPED (host unresolvable, or same as local)"
+            : "host watch attached");
     }
 
     /// <summary>
@@ -371,6 +411,8 @@ public class ScriptIO : PhyBase, IGuidLinked
             obj.ObjectChanged += OnTargetObjectChanged;
             _watchedTargetObjects.Add(obj);
         }
+
+        Trace($"target watch re-armed on {_watchedTargetObjects.Count} object(s)");
     }
 
     /// <summary>
@@ -419,6 +461,36 @@ public class ScriptIO : PhyBase, IGuidLinked
         }
     }
 
+    /// <summary>
+    /// Puts the contract just emitted under the node, so whether this component is up to date is
+    /// readable at a glance instead of inferred from the model's behaviour.
+    /// </summary>
+    /// <param name="text">The caption, e.g. "2 in / 3 out".</param>
+    private void ShowContract(string text)
+    {
+        if (Message == text)
+        {
+            return;
+        }
+
+        Message = text;
+        OnDisplayExpired(true);
+    }
+
+    /// <summary>
+    /// Writes one line of watch activity to the Rhino command line when tracing is on. Off by
+    /// default and never persisted — this exists to answer "did the refresh fire, and did it see
+    /// the change" on a live canvas, which nothing else in the pipeline can report.
+    /// </summary>
+    /// <param name="message">What happened.</param>
+    private void Trace(string message)
+    {
+        if (_traceWatch)
+        {
+            Rhino.RhinoApp.WriteLine($"[Script I/O {InstanceGuid.ToString()[..8]}] {message}");
+        }
+    }
+
     private void OnDocumentSolutionEnd(object sender, GH_SolutionEventArgs e)
     {
         // The harness may have been placed (or moved) and the target's parameter set may have grown
@@ -437,18 +509,46 @@ public class ScriptIO : PhyBase, IGuidLinked
     /// </summary>
     private void RefreshIfContractChanged()
     {
-        if (CurrentSignature() != _lastSignature)
+        string now = CurrentSignature();
+        Trace(now == _lastSignature
+            ? "checked — contract unchanged"
+            : $"checked — CHANGED, scheduling refresh\n    was: {_lastSignature}\n    now: {now}");
+
+        if (now == _lastSignature)
         {
-            // Scheduling stays on the LOCAL document: this component and the Conversation Log it
-            // feeds both live in the harness, even though the change that triggered it happened out
-            // on the user's canvas.
-            //
-            // ExpireSolution(FALSE) is deliberate and must stay false. Grasshopper flushes a
-            // document's scheduled delegates at the START of the next solution, so marking expired
-            // here is exactly enough — the solution now beginning picks the component up. Passing
-            // true asks for ANOTHER solution from inside that one, which is re-entrant: it was
-            // tried, and it stopped the refresh working at all.
-            OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(false));
+            return;
+        }
+
+        GH_Document? local = OnPingDocument();
+        if (local is null)
+        {
+            return;
+        }
+
+        // MARK expired, do not ask for a solution — and above all do not depend on the harness
+        // sub-document's scheduler to do it.
+        //
+        // The change that brings us here happens on the USER'S CANVAS: they add or rename a
+        // parameter, the host solves, and the harness does not. A harness sub-document is only
+        // re-enabled when its proxy solves (HarnessComponent.ReviveInner), and a disabled document
+        // ignores scheduled solutions outright — so a ScheduleSolution posted here can be dropped
+        // on the floor, which is exactly what happened: the expire never ran, this component kept
+        // serving its previous contract, and the model was told about an interface one parameter
+        // out of date. Enforcement still read the target live at push time and rejected the
+        // submission, which is why the loop recovered on the following turn instead of failing.
+        //
+        // Expiring is enough on its own. Nothing needs to recompute at this instant; it needs to be
+        // recomputed BEFORE the next inference. This component sits upstream of the Conversation
+        // Log, so the next pipeline solve — the one the user's next prompt causes — re-solves it
+        // first and the fresh grounding is on the wire before the latch reads it.
+        if (local.SolutionState == GH_ProcessStep.Process)
+        {
+            // Mid-solve on our own document is the one case where expiring now is illegal.
+            local.ScheduleSolution(1, _ => ExpireSolution(false));
+        }
+        else
+        {
+            ExpireSolution(false);
         }
     }
 }

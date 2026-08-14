@@ -27,7 +27,7 @@ internal static class HarnessCanvasTint
 {
     // How strongly the wash covers the canvas, out of 255. Every stop is pale, so this is high enough
     // to read as colour at a glance while leaving Grasshopper's grid visible through it.
-    private const int WashAlpha = 130;
+    private const int WashAlpha = 65;
 
     // The pink end. HarnessTheme.Glow lightened towards white: the rim's magenta at full strength would
     // fight the components sitting on top of it.

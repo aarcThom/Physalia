@@ -50,6 +50,13 @@ public abstract class TransmitterComponentBase : RoutingComponentBase<string>, I
     /// <inheritdoc/>
     public abstract WireGradient OutletGradient { get; }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Horizontal by default — a transmitter whose wire ends where data would go arrives there the
+    /// way a wire does. One that only points at a whole component overrides it.
+    /// </remarks>
+    public virtual bool HorizontalArrowEnd => true;
+
     /// <summary>
     /// Gets the canvas point this transmitter's arrow geometry is measured from: the harness
     /// proxy's pivot, because that is the node the arrow is drawn from and it shares a coordinate

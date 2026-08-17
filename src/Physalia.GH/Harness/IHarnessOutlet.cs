@@ -42,6 +42,19 @@ public interface IHarnessOutlet
     WireGradient OutletGradient { get; }
 
     /// <summary>
+    /// Gets whether this outlet's wire arrives at its endpoint from the LEFT with a rightward tip,
+    /// as a Grasshopper wire enters an input grip — rather than curving up from below the endpoint
+    /// with an upward tip.
+    ///
+    /// <para>The outlet decides, because it is the one that says where its endpoints are: a wire that
+    /// feeds an input arrives at that input, while a wire that only points AT a whole component turns
+    /// up underneath it, so the tip reads as naming the node above it. The departure is not the
+    /// outlet's business — every grip sits on the proxy's right edge, so every wire sets off
+    /// rightwards.</para>
+    /// </summary>
+    bool HorizontalArrowEnd { get; }
+
+    /// <summary>
     /// Returns the canvas points where the settled (non-drag) wires currently land, resolved
     /// against the host document. Empty when nothing is connected or placed yet.
     /// </summary>

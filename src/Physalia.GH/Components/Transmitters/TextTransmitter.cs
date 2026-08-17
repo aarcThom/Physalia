@@ -88,6 +88,13 @@ public class TextTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
     /// <inheritdoc/>
     public WireGradient OutletGradient => ArrowStyles.TextTx;
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Horizontal: this wire ends on the input grip it feeds, so it enters exactly as a Grasshopper
+    /// wire carrying the same value would.
+    /// </remarks>
+    public bool HorizontalArrowEnd => true;
+
     /// <summary>
     /// Gets the InstanceGuid of the linked target, or <see cref="Guid.Empty"/> when unlinked.
     /// </summary>

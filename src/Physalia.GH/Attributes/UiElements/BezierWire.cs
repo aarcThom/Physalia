@@ -23,6 +23,11 @@ public class BezierWire
 {
     private static readonly float _controlOffset = 80f;
 
+    // The least a turning wire may push past its own endpoint. Only floors the elbow: it keeps a
+    // wire that leaves rightwards and arrives from below from having to turn in no room at all when
+    // its two ends are nearly level.
+    private static readonly float _elbowMinimum = 30f;
+
     private PointF _start;
     private PointF _end;
     private WireGradient _gradient;
@@ -163,17 +168,54 @@ public class BezierWire
         return _horizontalEnd ? new PointF(1f, 0f) : new PointF(0f, -1f);
     }
 
+    /// <summary>
+    /// The two control points, which decide the whole shape of the wire. Each one pushes the curve
+    /// out perpendicular to the edge its endpoint sits on, so the wire leaves and arrives square to
+    /// the node rather than cutting across it.
+    ///
+    /// <para>When the two ends AGREE — both horizontal or both vertical — a fixed push either side
+    /// gives the usual slack S-curve. When they disagree, the wire has to TURN, and a fixed push is
+    /// wrong: pushing 80 below an endpoint that is only 40 above the grip drags the wire down before
+    /// it climbs, which reads as a sag rather than a turn. So both control points go to the ELBOW
+    /// between the ends instead — the corner that is level with the start and plumb with the end.
+    /// The wire then runs flat out of the grip, turns once, and rises into its target, and the shape
+    /// scales with the gap on its own: a distant target gets a long flat run and a late turn, a near
+    /// one a rounder corner.</para>
+    ///
+    /// <para>The elbow is clamped away from the start on both axes so the turn always has room to
+    /// happen: a target to the LEFT still leaves rightwards (the grip is on a right edge, and a wire
+    /// setting off left would cross its own node), and a target BELOW still arrives from underneath,
+    /// which is what keeps the tip pointing up at it.</para>
+    /// </summary>
+    /// <returns>The first and second cubic control points.</returns>
+    private (PointF Cp1, PointF Cp2) ControlPoints()
+    {
+        if (_horizontalStart && !_horizontalEnd)
+        {
+            return (
+                new PointF(Math.Max(_end.X, _start.X + _elbowMinimum), _start.Y),
+                new PointF(_end.X, Math.Max(_start.Y, _end.Y + _elbowMinimum)));
+        }
+
+        if (!_horizontalStart && _horizontalEnd)
+        {
+            return (
+                new PointF(_start.X, Math.Max(_end.Y, _start.Y + _elbowMinimum)),
+                new PointF(Math.Min(_start.X, _end.X - _elbowMinimum), _end.Y));
+        }
+
+        return (
+            _horizontalStart
+                ? new PointF(_start.X + _controlOffset, _start.Y)
+                : new PointF(_start.X, _start.Y + _controlOffset),
+            _horizontalEnd
+                ? new PointF(_end.X - _controlOffset, _end.Y)
+                : new PointF(_end.X, _end.Y + _controlOffset));
+    }
+
     private void Recompute()
     {
-        // Each control point pushes the curve out perpendicular to the edge its endpoint sits on, so
-        // the wire leaves and arrives square to the node rather than cutting across it.
-        var cp1 = _horizontalStart
-            ? new PointF(_start.X + _controlOffset, _start.Y)
-            : new PointF(_start.X, _start.Y + _controlOffset);
-
-        var cp2 = _horizontalEnd
-            ? new PointF(_end.X - _controlOffset, _end.Y)
-            : new PointF(_end.X, _end.Y + _controlOffset);
+        (PointF cp1, PointF cp2) = ControlPoints();
 
         int steps = _gradient.Steps;
         _segments = new PointF[steps + 1];

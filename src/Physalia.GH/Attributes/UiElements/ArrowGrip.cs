@@ -27,15 +27,23 @@ public interface IArrowHost
     IArrowHead ArrowHead { get; }
 
     /// <summary>
-    /// Gets a value indicating whether the arrow runs HORIZONTALLY: leaving its origin rightwards and
-    /// approaching its end from the left with a rightward tip, rather than the default of dropping
-    /// downward out of the origin and arriving with an upward tip.
-    ///
-    /// <para>Governs both ends together, because the two go with the grip's position: a host whose grip
-    /// sits on the right edge wants a wire that sets off rightwards, not one that dives under the node
-    /// first.</para>
+    /// Gets a value indicating whether the arrow LEAVES its origin rightwards rather than dropping
+    /// downward out of it. Goes with the grip's position: a host whose grip sits on the right edge
+    /// wants a wire that sets off rightwards, not one that dives under the node first.
     /// </summary>
     bool HorizontalArrow { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether the arrow ARRIVES from the left with a rightward tip, rather
+    /// than curving up from below with an upward tip.
+    ///
+    /// <para>Separate from <see cref="HorizontalArrow"/>, because the two ends answer to different
+    /// things: the departure goes with the grip's edge, while the arrival goes with what the endpoint
+    /// means. A wire landing on an input grip enters it the way a Grasshopper wire does, from the
+    /// left; a wire that merely points AT a whole node turns up underneath it, so the tip reads as
+    /// naming the node above it rather than as feeding something to its right.</para>
+    /// </summary>
+    bool HorizontalArrowEnd { get; }
 
     /// <summary>
     /// Returns the canvas points where the settled (non-drag) wires currently land. Empty when
@@ -186,7 +194,7 @@ public sealed class ArrowGrip
         new(from, to, host.ArrowGradient)
         {
             HorizontalStart = host.HorizontalArrow,
-            HorizontalEnd = host.HorizontalArrow,
+            HorizontalEnd = host.HorizontalArrowEnd,
             ArrowHead = host.ArrowHead,
         };
 }

@@ -111,6 +111,14 @@ public abstract class ScriptTransmitterBase : TransmitterComponentBase, IGuidLin
     public void Unlink() => Link.Assign(Guid.Empty);
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The wire turns UP at its end. A script transmitter feeds no input — it rewrites the whole
+    /// component — so the tip belongs directly under the node it names, pointing at it, rather than
+    /// running past its side the way a wire carrying data into something would.
+    /// </remarks>
+    public override bool HorizontalArrowEnd => false;
+
+    /// <inheritdoc/>
     /// <remarks>The wire lands just under the linked component.</remarks>
     public override IEnumerable<PointF> GetArrowEndpoints(GH_Document hostDocument) =>
         Link.Endpoints(hostDocument);

@@ -45,6 +45,13 @@ public abstract class ArrowAttributeBase : BottomGripAttributes, IArrowHost
     /// <inheritdoc/>
     public virtual bool HorizontalArrow => false;
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Follows the departure unless a subclass says otherwise: a single-arrow component's two ends
+    /// normally agree, and this keeps the common case one override rather than two.
+    /// </remarks>
+    public virtual bool HorizontalArrowEnd => HorizontalArrow;
+
     /// <summary>Gets the shared arrow controller, for subclass hit tests that start a drag.</summary>
     protected ArrowGrip Arrow => _arrow;
 

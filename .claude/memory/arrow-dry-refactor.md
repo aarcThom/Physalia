@@ -5,6 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: ece7868a-c4be-4a7f-985e-b67c2bce2933
+  modified: 2026-08-17T04:11:48.592Z
 ---
 
 2026-06-25 refactor (builds clean `-c Debug`, **live Rhino test pending**).
@@ -22,8 +23,24 @@ metadata:
     won't route the mouse-down to the component in the first place.
   - **`BezierWire` always departed DOWNWARD** (`cp1 = start + (0, offset)`), written when every grip was
     bottom-centre. Now `HorizontalStart` mirrors `HorizontalEnd`, and `IArrowHost.HorizontalArrow`
-    governs BOTH ends — a right-edge grip must set off rightwards, not dive under its own node first.
+    governs the departure — a right-edge grip must set off rightwards, not dive under its own node first.
     Only `HarnessAttrib` sets it true, so no other wire changed shape.
+- **2026-08-16: the two ends were SPLIT.** `IArrowHost` gained `HorizontalArrowEnd` (arrival) beside
+  `HorizontalArrow` (departure); `ArrowAttributeBase` defaults it to the departure so single-arrow
+  components stay one override. `IHarnessOutlet` carries the same member — the outlet owns its endpoints,
+  so it owns how the wire lands, while the departure stays the proxy's (always rightwards, right-edge grips).
+  **Script transmitters (Py, C#) override it false**: they feed no input, they REWRITE a component, so
+  the wire turns up under the target and points at it. TextTx/CompTx keep true (they end where data goes).
+  `TransmitterLink`'s tip drop is now `TriangleArrowHead.Default.Height`, not a number: the head is drawn
+  FORWARD of the wire end (the end is the triangle's base centre), so the drop must EQUAL the head height
+  for the tip to meet the node's bottom edge — 6f bit into the capsule, 15f left a visible gap under it.
+  **Same day, follow-up — the mixed case needed a new CURVE, not just a new tip.** With the fixed 80f
+  control offsets a turning wire SAGGED: `cp2 = end + (0,80)` sits below the grip whenever the target is
+  under 80 above it, so the wire dived before it climbed. `BezierWire.ControlPoints()` now splits the two
+  cases — ends that AGREE keep the fixed push (the usual slack S), ends that DISAGREE put BOTH control
+  points on the ELBOW (level with the start, plumb with the end), which gives a flat run out of the grip,
+  one turn, and a vertical rise into the target, scaling with the gap by itself. Clamped by `_elbowMinimum`
+  (30f) so a target to the left still departs rightwards and one below still arrives from underneath.
 - `GripLinkAttrib` stays as the thin base for the three link attributes; its abstract surface is unchanged, so `FeedbackAttrib`/`PyTransmitterAttrib`/`ZoomGuidAttrib` only changed their gradient line.
 - **Pluggable heads:** new `IArrowHead` + `TriangleArrowHead` (default, current 8f/4f geometry). `BezierWire` gained an `ArrowHead` property and derives tip orientation from its own end tangent (the old `horizontal` bool inside `DrawArrow` is gone; `HorizontalEnd` still shapes the *curve*).
 - **Central gradients:** new `ArrowStyles` static class holds every wire `WireGradient` (`Feedback`, `PyTransmitter`, `CompTx`, `ZoomGuid`, `Proxy`); per-class gradient constants removed.

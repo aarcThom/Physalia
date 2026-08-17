@@ -514,10 +514,14 @@ public class HarnessAttrib : BottomGripAttributes
 
         /// <inheritdoc/>
         /// <remarks>
-        /// The grips sit on the right edge, so the wire sets off rightwards and arrives with a
-        /// rightward tip rather than diving under the node first.
+        /// The grips sit on the right edge, so every outlet's wire sets off rightwards rather than
+        /// diving under the proxy first.
         /// </remarks>
         public bool HorizontalArrow => true;
+
+        /// <inheritdoc/>
+        /// <remarks>The arrival is the outlet's own call — see <see cref="IHarnessOutlet"/>.</remarks>
+        public bool HorizontalArrowEnd => Outlet.HorizontalArrowEnd;
 
         /// <inheritdoc/>
         public IEnumerable<PointF> SettledEndpoints(GH_Document doc) => Outlet.GetArrowEndpoints(doc);

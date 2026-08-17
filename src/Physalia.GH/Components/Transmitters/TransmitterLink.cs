@@ -8,6 +8,7 @@ using System.Linq;
 using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Physalia.GH.Attributes.UiElements;
 using Physalia.GH.Harness;
 
 namespace Physalia.GH.Components;
@@ -24,8 +25,12 @@ namespace Physalia.GH.Components;
 /// </summary>
 internal sealed class TransmitterLink
 {
-    // Distance below the target the settled wire tip lands at, when it has no input grip of its own.
-    private const float WireTipDrop = 6f;
+    // Distance below the target the settled wire ends at, when it has no input grip of its own. It is
+    // exactly the arrowhead's height because the head is drawn FORWARD of the wire end — the end is
+    // the base centre, not the tip — so dropping the wire by that much lands the tip on the node's
+    // bottom edge with no gap under it. Taken from the head rather than typed as a number, or
+    // resizing the head would silently open one.
+    private static readonly float _wireTipDrop = TriangleArrowHead.Default.Height;
 
     // How far outside a node's bounds a drop still counts as landing on it. Grasshopper draws a
     // param's grip just off the capsule edge, so an exact bounds test misses the very spot the user
@@ -116,7 +121,7 @@ internal sealed class TransmitterLink
         }
 
         RectangleF b = target.Attributes.Bounds;
-        yield return new PointF(b.Left + (b.Width / 2f), b.Bottom + WireTipDrop);
+        yield return new PointF(b.Left + (b.Width / 2f), b.Bottom + _wireTipDrop);
     }
 
     /// <summary>

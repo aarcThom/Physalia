@@ -81,8 +81,9 @@ internal static partial class GhJsonBridge
     /// <param name="doc">The Grasshopper document to export; null falls back to the active canvas.</param>
     /// <param name="groupScope">
     /// True to export only the master group's contents (nested groups expanded) — the frame the
-    /// group-scoped grounder shows the model. The master group itself is excluded from BOTH frames:
-    /// it is Physalia infrastructure, not part of the model's or the user's graph. Both frames use
+    /// group-scoped grounder shows the model. The master group itself — and the hint panel inviting
+    /// the user to drop components into it — is excluded from BOTH frames: that is Physalia
+    /// infrastructure, not part of the model's or the user's graph. Both frames use
     /// the same plain <c>sha256-…</c> checksum form (the GhJSON library's patch schema regex-rejects
     /// anything else); the patch path tells frames apart by matching the carried checksum against
     /// each frame's export (<see cref="ResolveBaseSnapshot"/>), never by the string's shape.
@@ -103,6 +104,7 @@ internal static partial class GhJsonBridge
             .Where(o => o is not null
                 && o.GetType().Assembly != typeof(PhyBase).Assembly
                 && !IsMasterGroup(o)
+                && !IsHintPanel(o)
                 && (scope is null || scope.Contains(o.InstanceGuid)))
             .Select(o => o.InstanceGuid)
             .ToList();

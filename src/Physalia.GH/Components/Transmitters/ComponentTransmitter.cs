@@ -109,10 +109,23 @@ public class ComponentTransmitter : TransmitterComponentBase
     }
 
     /// <inheritdoc/>
-    /// <remarks>The drop lands anywhere on the canvas — there is no target object to validate.</remarks>
+    /// <remarks>
+    /// The drop lands anywhere on the canvas — there is no target object to validate. When the
+    /// pipeline grounds the model on the master group's contents, this gesture also OPENS that group:
+    /// in the group-scoped frame the group is the model's whole view of the canvas, and until it
+    /// exists the view is empty, so the moment the user says where placements go is the moment to
+    /// create the shared workspace and drop the note explaining it.
+    /// </remarks>
     public override void HandleDrop(GH_Document hostDocument, PointF dropPoint, bool ctrl)
     {
         SetPlacementTarget(dropPoint);
+
+        if (UsesGroupScopedGrounding()
+            && GhJsonBridge.TryCreateMasterGroupWithHint(hostDocument, dropPoint))
+        {
+            Grasshopper.Instances.RedrawCanvas();
+        }
+
         ExpireSolution(true);
     }
 
@@ -232,9 +245,23 @@ public class ComponentTransmitter : TransmitterComponentBase
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Starts the watch that carries this pipeline's harness proxy along when the user drags the
+    /// master group it writes into (see <see cref="MasterGroupFollower"/>). Asked for here rather
+    /// than at the drop, because a saved file reopens with both the group and the placement point
+    /// already in place and no gesture to hang the watch off.
+    /// </remarks>
+    public override void AddedToDocument(GH_Document document)
+    {
+        base.AddedToDocument(document);
+        MasterGroupFollower.Follow(this);
+    }
+
+    /// <inheritdoc/>
     public override void RemovedFromDocument(GH_Document document)
     {
         Rhino.RhinoApp.Idle -= OnIdlePlace;
+        MasterGroupFollower.Unfollow(this);
         base.RemovedFromDocument(document);
     }
 
@@ -354,6 +381,27 @@ public class ComponentTransmitter : TransmitterComponentBase
         }
 
         RequestReadPass();
+    }
+
+    /// <summary>
+    /// True when this transmitter's pipeline reads the canvas through the master group: a wired,
+    /// enabled Physalia Group Components grounder in the same harness. Scoped to the harness because
+    /// that is one line of work — a scoped grounder in a DIFFERENT harness grounds a different
+    /// pipeline, whose transmitter owns its own placement point. Read live off the document rather
+    /// than remembered, so wiring or deleting the grounder needs no bookkeeping here.
+    ///
+    /// <para>Answers two questions: whether the arrow's drop opens the master group, and whether
+    /// this harness's proxy travels with that group when it is dragged.</para>
+    /// </summary>
+    /// <returns>True when the group-scoped frame is in use.</returns>
+    internal bool UsesGroupScopedGrounding()
+    {
+        GH_Document? local = OnPingDocument();
+        return local is not null
+            && local.Objects.OfType<PhysaliaGroupGrounder>().Any(
+                g => !g.Locked
+                    && g.Params.Output.Count > 0
+                    && g.Params.Output[0].Recipients.Count > 0);
     }
 
     /// <summary>

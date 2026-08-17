@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 using Grasshopper.Kernel;
 using Physalia.GH.Harness;
 using GHGroupObject = Grasshopper.Kernel.Special.GH_Group;
+using GHPanel = Grasshopper.Kernel.Special.GH_Panel;
 
 namespace Physalia.GH.Generation;
 
@@ -40,9 +41,28 @@ internal static partial class GhJsonBridge
     /// </summary>
     internal const string MasterGroupName = "Physalia";
 
+    /// <summary>
+    /// Nickname identifying the hint panel — the note dropped inside the master group when the group
+    /// is created up front, saying what the group is for. Like the group's own name it IS the
+    /// contract: a panel carrying it is Physalia infrastructure and stays out of every canvas
+    /// export, so the model never sees a note addressed to the user; renaming it hands it to the
+    /// user's graph, which is exactly what a rename should mean.
+    /// </summary>
+    internal const string HintPanelName = "Physalia";
+
+    // What the hint panel says, and how big it is drawn.
+    private const string HintPanelText = "you can add your own components to the Physalia group";
+    private const float HintPanelWidth = 250f;
+    private const float HintPanelHeight = 58f;
+    private const float HintPanelGap = 20f;
+
     // Faint translucent teal, distinct from Grasshopper's default group colour so the shared
     // workspace reads as Physalia's at a glance without shouting over the model's own group colours.
     private static readonly Color MasterGroupColour = Color.FromArgb(45, 105, 155, 170);
+
+    // Light robin egg blue — the hint panel is an invitation, not a warning, and it is the one thing
+    // in the group that is neither the model's work nor the user's.
+    private static readonly Color HintPanelColour = Color.FromArgb(255, 168, 226, 219);
 
     // Which reference frame the Conversation Log last folded for each document: true = the model is
     // reading the group-scoped canvas state. Session-only, weak-keyed, like the stable-id registry.
@@ -57,6 +77,16 @@ internal static partial class GhJsonBridge
     internal static bool IsMasterGroup(IGH_DocumentObject? obj)
         => obj is GHGroupObject group
            && string.Equals(group.NickName, MasterGroupName, StringComparison.Ordinal);
+
+    /// <summary>
+    /// True when the object is the master group's hint panel. Treated like the group itself —
+    /// infrastructure, excluded from every canvas export.
+    /// </summary>
+    /// <param name="obj">The document object to test.</param>
+    /// <returns>True for a panel nicknamed <see cref="HintPanelName"/>.</returns>
+    internal static bool IsHintPanel(IGH_DocumentObject? obj)
+        => obj is GHPanel panel
+           && string.Equals(panel.NickName, HintPanelName, StringComparison.Ordinal);
 
     /// <summary>
     /// Finds the master group on the document, or null when none exists yet.
@@ -238,6 +268,57 @@ internal static partial class GhJsonBridge
             master.ExpireCaches();
             master.Attributes?.ExpireLayout();
         }
+    }
+
+    /// <summary>
+    /// Brings the master group into existence BEFORE anything has been placed, with the hint panel
+    /// as its only member. Called when the Component Transmitter's arrow is dropped while the
+    /// pipeline grounds the model on the group's contents: in that frame the group IS the model's
+    /// whole view of the canvas, and until it exists the view is empty, so the gesture that decides
+    /// where placements land is also the moment to open the shared workspace and say what it is for.
+    /// A group needs at least one member to have bounds at all, which the panel supplies.
+    ///
+    /// <para>Does nothing when a master group already exists — it then holds whatever the user and
+    /// the model have arranged in it, and a second note would be noise. That also means a hint panel
+    /// the user deletes stays deleted.</para>
+    /// </summary>
+    /// <param name="doc">The user's canvas; null is a no-op.</param>
+    /// <param name="origin">
+    /// The placement origin the arrow was dropped on. The panel sits just above it, so the graph the
+    /// model places later lands on clear canvas rather than on top of the note.
+    /// </param>
+    /// <returns>True when the group and its panel were created.</returns>
+    internal static bool TryCreateMasterGroupWithHint(GH_Document? doc, PointF origin)
+    {
+        if (doc is null || FindMasterGroup(doc) is not null)
+        {
+            return false;
+        }
+
+        var panel = new GHPanel { NickName = HintPanelName };
+        panel.CreateAttributes();
+        panel.Properties.Colour = HintPanelColour;
+        panel.Properties.Multiline = true;
+        panel.Properties.Wrap = true;
+        panel.SetUserText(HintPanelText);
+
+        var bounds = new RectangleF(
+            origin.X,
+            origin.Y - HintPanelHeight - HintPanelGap,
+            HintPanelWidth,
+            HintPanelHeight);
+        panel.Attributes.Pivot = new PointF(bounds.X, bounds.Y);
+        panel.Attributes.Bounds = bounds;
+
+        doc.AddObject(panel, false);
+        panel.Attributes.ExpireLayout();
+
+        GHGroupObject master = EnsureMasterGroup(doc);
+        master.AddObject(panel.InstanceGuid);
+        master.ExpireCaches();
+        master.Attributes?.ExpireLayout();
+        doc.DestroyAttributeCache();
+        return true;
     }
 
     // Finds or creates the master group. Creation happens at the first LLM placement, so the group

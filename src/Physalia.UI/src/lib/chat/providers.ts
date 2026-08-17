@@ -4,7 +4,7 @@
 // The LLM providers offered on the first-run setup screen, plus the setup guide rendered for
 // each. Guides are data so Setup.svelte can render them uniformly. Providers with needsKey=true
 // are configured by pasting an API key into the prompt box (saved to API_KEY_CONFIG.YAML by the
-// host); the others (Claude Code, local llama.cpp) need no stored key and are detected
+// host); the others (Claude Code, Codex, local llama.cpp) need no stored key and are detected
 // automatically once installed/running. URLs open in the system browser via the bridge.
 
 export interface GuideLink {
@@ -59,6 +59,31 @@ export const PROVIDERS: Provider[] = [
 		links: [
 			{ label: 'Install & setup guide', url: 'https://code.claude.com/docs/en/setup' },
 			{ label: 'Troubleshoot install & login', url: 'https://code.claude.com/docs/en/troubleshoot-install' }
+		],
+		note: 'Detected automatically — no key needed. Keep this window open while you install.'
+	},
+	{
+		id: 'codex',
+		label: 'Codex (subscription)',
+		needsKey: false,
+		blurb:
+			'Use your ChatGPT plan through the OpenAI Codex CLI — no API key is stored in Physalia.',
+		steps: [
+			'Install the Codex CLI with the command for your platform below.',
+			'Open a new terminal, run `codex`, and choose "Sign in with ChatGPT". Codex is included with Plus, Pro, Business, Edu, and Enterprise plans (an API-key login also works).',
+			'Verify with `codex --version`. Physalia detects the CLI automatically once it is on your PATH — this screen moves on by itself.'
+		],
+		commands: [
+			{
+				label: 'Windows (PowerShell)',
+				code: 'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"'
+			},
+			{ label: 'macOS / Linux', code: 'curl -fsSL https://chatgpt.com/codex/install.sh | sh' },
+			{ label: 'Or via npm (needs Node.js 18+)', code: 'npm install -g @openai/codex' }
+		],
+		links: [
+			{ label: 'Codex CLI docs', url: 'https://developers.openai.com/codex/cli' },
+			{ label: "What's included in your ChatGPT plan", url: 'https://help.openai.com/en/articles/11369540-codex-in-chatgpt' }
 		],
 		note: 'Detected automatically — no key needed. Keep this window open while you install.'
 	},

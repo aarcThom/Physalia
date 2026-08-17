@@ -14,6 +14,7 @@ using Physalia.Core.Config;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Models;
 using Physalia.Core.Providers.ClaudeCode;
+using Physalia.Core.Providers.Codex;
 using Physalia.Core.Signals;
 using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
@@ -489,13 +490,15 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Tears down any warm Claude Code CLI session this component owns so its subprocess does not
-    /// outlive the component on the canvas.
+    /// Tears down any warm CLI session this component owns (Claude Code, Codex) so its subprocess
+    /// does not outlive the component on the canvas. Both pools are keyed on this instance GUID,
+    /// and ending a key the pool never held is a no-op, so both are ended unconditionally.
     /// </remarks>
     public override void RemovedFromDocument(GH_Document document)
     {
         _cts?.Cancel();
         ClaudeCodeProvider.EndSession(InstanceGuid);
+        CodexProvider.EndSession(InstanceGuid);
         base.RemovedFromDocument(document);
     }
 }

@@ -120,7 +120,7 @@ public static class ConversationLogBuilder
                     // blocks but a blank payload, so check blocks first.
                     if (signal.ContentBlocks.Count > 0)
                     {
-                        RecordUserBlocks(signal.ContentBlocks, signal.Payload);
+                        RecordUserBlocks(WithPayloadText(signal), signal.Payload);
                         break;
                     }
 
@@ -139,7 +139,7 @@ public static class ConversationLogBuilder
                     // An image-only feedback turn has blocks but a blank payload, so check blocks first.
                     if (signal.ContentBlocks.Count > 0)
                     {
-                        RecordUserBlocks(signal.ContentBlocks, signal.Payload, isFeedback: true);
+                        RecordUserBlocks(WithPayloadText(signal), signal.Payload, isFeedback: true);
                         break;
                     }
 
@@ -241,6 +241,34 @@ public static class ConversationLogBuilder
             {
                 Warnings.Add(ex.Message);
             }
+        }
+
+        /// <summary>
+        /// The blocks to record for a user-side signal that carries some, with its payload text
+        /// restored as a leading text block if the blocks do not represent it.
+        ///
+        /// <para>Blocks are normally the WHOLE turn and the payload only their text trace, so this
+        /// changes nothing for a well-formed signal (a Chat prompt's blocks already open with the
+        /// typed text; an image-only Geometry Observation has a blank payload). It is a guard for the
+        /// aggregating case: combine a text-only signal with a block-carrying one and the text can end
+        /// up in the payload and in no block, which would otherwise be dropped here without trace.
+        /// <c>SignalAggregation</c> prevents that at the source; this is the last place it can be
+        /// caught, and losing a whole report silently is far worse than a duplicated line.</para>
+        ///
+        /// <para>Not applied to tool turns: a tool_result block must lead its user message.</para>
+        /// </summary>
+        /// <param name="signal">The user-side signal being recorded.</param>
+        /// <returns>The signal's blocks, possibly with a leading text block.</returns>
+        private static IReadOnlyList<MessageContent> WithPayloadText(PhySignal signal)
+        {
+            if (!StringHelpers.IsNonBlank(signal.Payload) || signal.ContentBlocks.Any(b => b is TextContent))
+            {
+                return signal.ContentBlocks;
+            }
+
+            var blocks = new List<MessageContent>(signal.ContentBlocks.Count + 1) { new TextContent(signal.Payload) };
+            blocks.AddRange(signal.ContentBlocks);
+            return blocks;
         }
 
         private void RecordUserText(string text, bool isFeedback = false) =>

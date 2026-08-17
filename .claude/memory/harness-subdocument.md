@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 8ba6eaa2-c1c1-4bb2-9487-ac5379251e1f
-  modified: 2026-08-09T06:19:21.849Z
+  modified: 2026-08-17T08:20:59.732Z
 ---
 
 Built 2026-08-08 (replaces the in-place "collapsible harness" entirely). Related: [[chat-window]],
@@ -328,8 +328,8 @@ no reason to cap it at one, and the two single-harness mechanisms are gone:
   Chat would leave the earlier harness with nothing driving it.
 - `PlaceHarness` + `MoveTo` + `Overlaps` replace the fixed anchor: lay out, then step down a row at a
   time (`PlacementGap`, capped at `MaxPlacementRows`) until the proxy clears everything on the host.
-  `GH_Group`s are skipped as obstacles — they are containers drawn behind their members, so the master
-  "Physalia" group would otherwise push every harness far down the canvas.
+  `GH_Group`s are skipped as obstacles — they are containers drawn behind their members, so a master
+  "Physalia &lt;harness id&gt;" group would otherwise push every harness far down the canvas.
 - `HostForPlacement` resolves through `PhyDocuments.Host`, so placing while *inside* a harness lands on
   the user's canvas rather than nesting.
 - The `harnessPlaced` wire field is **gone** from `UiState`/`App.svelte`/`ConnectOptions`; it survives

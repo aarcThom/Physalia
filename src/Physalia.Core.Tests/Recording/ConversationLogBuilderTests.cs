@@ -129,6 +129,56 @@ public class ConversationLogBuilderTests
     }
 
     [Fact]
+    public void FeedbackWithImageBlock_AndUnrepresentedPayloadText_KeepsTheText()
+    {
+        // Last-line guard: an aggregate that carried a text report in its payload but only an image
+        // in its blocks must not lose the report. SignalAggregation prevents that shape at the
+        // source; this proves the Conversation Log no longer drops it if one ever reaches it.
+        Conversation start = Conversation.Empty.Append(new ConversationMessage(Role.User, "q"))
+            .Append(new ConversationMessage(Role.Assistant, "a"));
+        PhySignal aggregate = Blocks("GEOMETRY REPORT", new ImageContent(new UrlImage("https://example.com/a.png")));
+
+        RecordResult result = Record(start, new RecordEvent(RecordedTurnKind.Feedback, aggregate));
+
+        IReadOnlyList<MessageContent> recorded = result.Conversation.Messages[^1].Content;
+        Assert.Collection(
+            recorded,
+            b => Assert.Equal("GEOMETRY REPORT", Assert.IsType<TextContent>(b).Text),
+            b => Assert.IsType<ImageContent>(b));
+    }
+
+    [Fact]
+    public void FeedbackWithTextAndImageBlocks_IsNotDuplicated()
+    {
+        // The well-formed shape (a Geometry Observation with a Message): the payload is the trace of
+        // the text block already present, so nothing is prepended.
+        Conversation start = Conversation.Empty.Append(new ConversationMessage(Role.User, "q"))
+            .Append(new ConversationMessage(Role.Assistant, "a"));
+        PhySignal wellFormed = Blocks(
+            "look at this",
+            new TextContent("look at this"),
+            new ImageContent(new UrlImage("https://example.com/a.png")));
+
+        RecordResult result = Record(start, new RecordEvent(RecordedTurnKind.Feedback, wellFormed));
+
+        Assert.Equal(2, result.Conversation.Messages[^1].Content.Count);
+    }
+
+    [Fact]
+    public void ToolResultTurn_IsNeverPrefixedWithPayloadText()
+    {
+        // A tool_result block must lead its user message, so the payload-text guard must not apply
+        // to tool turns even though their payload is non-blank.
+        Conversation start = Conversation.Empty.Append(new ConversationMessage(Role.User, "q"))
+            .Append(new ConversationMessage(Role.Assistant, "a"));
+        PhySignal toolResult = Blocks("tool ran", new ToolResultContent("id1", "result"));
+
+        RecordResult result = Record(start, new RecordEvent(RecordedTurnKind.Tool, toolResult));
+
+        Assert.IsType<ToolResultContent>(result.Conversation.Messages[^1].Content[0]);
+    }
+
+    [Fact]
     public void EmptyBatch_RecordsNothing()
     {
         RecordResult result = Record(Conversation.Empty);

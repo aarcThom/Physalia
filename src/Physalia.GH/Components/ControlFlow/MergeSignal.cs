@@ -7,7 +7,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Grasshopper.Kernel;
-using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Signals;
 using Physalia.GH.Parameters;
@@ -29,8 +28,13 @@ namespace Physalia.GH.Components;
 /// component parked, and its caption says so (<c>1 / 2</c>). Wire only branches that fire together,
 /// and use <c>Clear Outputs</c> to abandon a parked round. Merging is by global sequence order —
 /// causal order — never by arrival timing: payloads are joined oldest-first (blank line between,
-/// blank payloads skipped), content blocks are concatenated in the same order, the newest
+/// blank payloads skipped), content blocks are combined in the same order, the newest
 /// Instructions win, and the outcome is Failure if any merged signal failed.</para>
+///
+/// <para>Combining blocks is not plain concatenation, and the difference is what makes a text report
+/// merged with an image reach the model as one message rather than as the image alone: a branch
+/// carrying no blocks of its own contributes its payload AS a text block, because a signal's blocks
+/// are read downstream as the whole turn. <c>SignalAggregation</c> holds that policy and says why.</para>
 ///
 /// <para>Inputs are added and removed at the END only (the zoomable +/- icons on the last slot).
 /// Consume-once bookkeeping and the per-input hold are keyed by parameter index, so allowing an
@@ -73,7 +77,7 @@ public class MergeSignal : StatefulComponentBase, IGH_VariableParameterComponent
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Signal", "S", "One signal carrying the merged content of the whole input set: payloads joined in sequence order, content blocks concatenated, newest Instructions kept. Latched until the next round.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Signal", "S", "One signal carrying the merged content of the whole input set: payloads joined in sequence order, content blocks combined in the same order (a text-only branch contributing its text as a block), newest Instructions kept. Latched until the next round.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -172,12 +176,13 @@ public class MergeSignal : StatefulComponentBase, IGH_VariableParameterComponent
     {
         List<PhySignal> parts = wired.Select(i => _held[i]).OrderBy(s => s.Sequence).ToList();
 
-        string payload = string.Join(
-            Environment.NewLine + Environment.NewLine,
-            parts.Select(s => s.Payload).Where(StringHelpers.IsNonBlank));
-
-        // Content blocks survive the merge in the same order (a tool_result's id, an inline image).
-        List<MessageContent> blocks = parts.SelectMany(s => s.ContentBlocks).ToList();
+        // Payloads joined and blocks combined in the one pass, because the two cannot be decided
+        // independently: a text-only branch merged with a block-carrying one must contribute its
+        // text AS a block, or the Conversation Log — which reads non-empty blocks as the whole turn
+        // — records the blocks and drops that text. See SignalAggregation.
+        AggregatedContent combined = SignalAggregation.Combine(parts, Environment.NewLine + Environment.NewLine);
+        string payload = combined.Payload;
+        IReadOnlyList<MessageContent> blocks = combined.ContentBlocks;
 
         // Instructions are a whole inference context, not something that concatenates: the newest
         // one wins, which is the one built from the most complete conversation.

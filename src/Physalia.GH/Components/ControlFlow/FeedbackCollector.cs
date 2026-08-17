@@ -5,7 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Grasshopper.Kernel;
-using Physalia.Core.Common;
+using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Signals;
 using Physalia.GH.Attributes;
 using Physalia.GH.Parameters;
@@ -88,7 +88,6 @@ public class FeedbackCollector : StatefulComponentBase
             // LATCH PASS — after the visible delay. Mint one outgoing signal for the batch;
             // its fresh sequence is greater than every injected cause, preserving order.
             _doLatch = false;
-            string joined = string.Join(Environment.NewLine, _batch.Select(s => s.Payload).Where(StringHelpers.IsNonBlank));
 
             SignalOutcome outcome = _batch.Any(s => s.Outcome == SignalOutcome.Failure)
                 ? SignalOutcome.Failure
@@ -96,10 +95,13 @@ public class FeedbackCollector : StatefulComponentBase
 
             // Preserve structured content across the batch: tool results ride ContentBlocks as
             // ToolResultContent, and each block's tool_use_id must survive aggregation — joining
-            // payload strings alone would lose it. Concatenate every injected signal's blocks.
-            var blocks = _batch.SelectMany(s => s.ContentBlocks).ToList();
+            // payload strings alone would lose it. Equally, a text-only injection batched with a
+            // block-carrying one must contribute its text AS a block, or the Conversation Log —
+            // which reads non-empty blocks as the whole turn — drops it. See SignalAggregation.
+            AggregatedContent combined = SignalAggregation.Combine(_batch, Environment.NewLine);
+            IReadOnlyList<MessageContent> blocks = combined.ContentBlocks;
 
-            LatchSuccess(joined, emitSignal: true, outcome: outcome, contentBlocks: blocks.Count > 0 ? blocks : null);
+            LatchSuccess(combined.Payload, emitSignal: true, outcome: outcome, contentBlocks: blocks.Count > 0 ? blocks : null);
             _batch = new List<PhySignal>();
 
             bool more;

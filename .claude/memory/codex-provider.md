@@ -5,11 +5,15 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 4b03585f-0a85-4efa-88ff-01df7c93a74e
-  modified: 2026-08-17T05:31:48.565Z
+  modified: 2026-08-17T06:23:29.877Z
 ---
 
 Built 2026-08-16, modelled on [[claudecode-warm-process]]: inference through the locally-installed
 `codex` CLI using the user's own `codex login` session, no API key stored or sent.
+
+It can also **call Physalia's LLM Tools** — added the same day, detail in [[codex-dynamic-tools]].
+That makes it the only local-CLI provider that can, and it is why the "a CLI cannot surface tool
+calls back" assumption recorded against Claude Code is wrong as a general claim.
 
 **Files:** `Physalia.Core/Providers/Codex/{CodexProvider,CodexSession}.cs`,
 `Physalia.Core/Models/Named/CodexConfig.cs`, `Physalia.GH/Components/Models/CodexModel.cs`.
@@ -52,9 +56,11 @@ at `turn/completed`. The protocol is self-describing — regenerate it any time 
   into `InvalidRequest` + "HTTP 400 BadRequest: invalid_request_error — …".
 
 **Verified end-to-end against the live CLI** through a throwaway console harness referencing
-Physalia.Core (seed 3.1s → warm delta 1.5s, inline `<think>`, cache-read usage, live model list,
-bad-model error, 186k-char system prompt, mid-turn cancellation, no orphaned processes).
-**NOT yet run inside Rhino** — the build's copy into `bin` was blocked by a running Rhino 8.
+Physalia.Core — see [[core-console-harness]] for the technique (seed 3.1s → warm delta 1.5s, inline
+`<think>`, cache-read usage, live model list, bad-model error, 186k-char system prompt, mid-turn
+cancellation, no orphaned processes).
+**NOT yet run inside Rhino** — the build's copy into `bin` was blocked by a running Rhino 8
+([[physalia-repo-gotchas]] has the filter for reading past that lock error).
 
 **Known duplication:** `CodexProvider` is ~120 lines that mirror `ClaudeCodeProvider` almost exactly
 (pool, reaper, seed-vs-delta, error wrapping). A shared `CliSessionProviderBase` is the obvious

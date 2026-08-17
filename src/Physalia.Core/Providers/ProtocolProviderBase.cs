@@ -287,26 +287,12 @@ public abstract class ProtocolProviderBase<TConfig> : ILlmProvider
     /// </summary>
     /// <param name="schemaJson">The tool's input JSON Schema, as a string.</param>
     /// <returns>A JSON node ready to embed as the tool's parameter schema.</returns>
-    protected static JsonNode ParseToolSchema(string? schemaJson)
-    {
-        if (!string.IsNullOrWhiteSpace(schemaJson))
-        {
-            try
-            {
-                JsonNode? parsed = JsonNode.Parse(schemaJson);
-                if (parsed is not null)
-                {
-                    return parsed;
-                }
-            }
-            catch (JsonException)
-            {
-                // Fall through to the minimal object schema below.
-            }
-        }
-
-        return new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() };
-    }
+    /// <remarks>
+    /// The reading itself lives in <see cref="ToolSchema.Parse"/>, because the Codex CLI provider
+    /// declares the same schemas outside this hierarchy and the fallback must not drift between
+    /// the two.
+    /// </remarks>
+    protected static JsonNode ParseToolSchema(string? schemaJson) => ToolSchema.Parse(schemaJson);
 
     /// <summary>
     /// Parses a tool call's accumulated input arguments for replay in a request body. A zero-argument

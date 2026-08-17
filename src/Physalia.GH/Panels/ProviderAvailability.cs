@@ -10,6 +10,7 @@ using Physalia.Core.Common;
 using Physalia.Core.Config;
 using Physalia.Core.Models.Named;
 using Physalia.Core.Providers.ClaudeCode;
+using Physalia.Core.Providers.Codex;
 using Physalia.Core.Tokens;
 
 namespace Physalia.GH.Panels;
@@ -18,7 +19,8 @@ namespace Physalia.GH.Panels;
 /// Detects which usable LLM providers the user has configured, so the chat window can show its
 /// first-run setup state when none is and list the ready ones otherwise. A provider counts as
 /// available when an API key is resolvable from <c>API_KEY_CONFIG.YAML</c> (or its env vars), the
-/// Claude Code CLI is installed on PATH, or a local llama-server answers at its default endpoint.
+/// Claude Code or Codex CLI is installed on PATH, or a local llama-server answers at its default
+/// endpoint.
 /// The llama-server probe is a network call, so the whole check is async and runs off the UI thread.
 /// </summary>
 internal static class ProviderAvailability
@@ -45,7 +47,7 @@ internal static class ProviderAvailability
     /// <summary>
     /// Returns the setup-screen ids of every configured provider — empty when none is, which is
     /// the signal for the window to show first-run setup. Key providers are read from the config
-    /// first (cheap), then the Claude CLI, then the llama-server network probe last. Order follows
+    /// first (cheap), then the CLI providers, then the llama-server network probe last. Order follows
     /// that discovery order; the UI re-sorts into its own canonical order for display.
     /// </summary>
     /// <param name="apiKeyConfigPath">Absolute path to <c>API_KEY_CONFIG.YAML</c>.</param>
@@ -70,6 +72,11 @@ internal static class ProviderAvailability
         if (ClaudeCodeProvider.IsCliAvailable())
         {
             ids.Add("claude-code");
+        }
+
+        if (CodexProvider.IsCliAvailable())
+        {
+            ids.Add("codex");
         }
 
         if (await HasLlamaServerAsync(client, ct).ConfigureAwait(false))

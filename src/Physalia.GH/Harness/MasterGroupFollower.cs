@@ -14,30 +14,33 @@ using GHGroupObject = Grasshopper.Kernel.Special.GH_Group;
 namespace Physalia.GH.Harness;
 
 /// <summary>
-/// Keeps a harness proxy and the master "Physalia" group its pipeline writes into moving as one
-/// thing on the canvas, in BOTH directions: drag the group and the proxy follows, drag the proxy and
-/// the group follows. The proxy never becomes a member of that group — membership is the obvious way
-/// to get this and the wrong one, because the group is the model's frame: its members are what the
-/// group-scoped grounding exports and what the model may target with a group op, so the pipeline has
-/// to stay outside it while still reading as attached. The proxy's outlet wires and the placement
-/// point they end on need no work of their own: the point is stored as an offset from the proxy.
+/// Keeps a harness proxy and the master "Physalia &lt;id&gt;" group its pipeline writes into moving as
+/// one thing on the canvas, in BOTH directions: drag the group and the proxy follows, drag the proxy
+/// and the group follows. Each harness is paired with ITS OWN group — that is what the id in the name
+/// is for — so a canvas carrying several group-grounded pipelines moves each pair independently.
+///
+/// <para>The proxy never becomes a member of the group. Membership is the obvious way to get this and
+/// the wrong one, because the group is the model's frame: its members are what the group-scoped
+/// grounding exports and what the model may target with a group op, so the pipeline has to stay
+/// outside it while still reading as attached. The proxy's outlet wires and the placement point they
+/// end on need no work of their own: the point is stored as an offset from the proxy.</para>
 ///
 /// <para>Grasshopper raises no event for an object being moved — <see cref="GH_Document"/> announces
 /// added, deleted and solved, never moved — and a group is moved by moving its MEMBERS, since a
 /// group's own bounds are merely their union. So movement is noticed by re-measuring pivots on a
-/// throttled idle pass. The group counts as having moved only when EVERY member still present moved
-/// by the SAME non-zero delta: that is a rigid drag, where one member moving on its own (or a
-/// placement landing, which adds members without moving any) is not.</para>
+/// throttled idle pass. A group counts as having moved only when EVERY member still present moved by
+/// the SAME non-zero delta: that is a rigid drag, where one member moving on its own (or a placement
+/// landing, which adds members without moving any) is not.</para>
 ///
 /// <para>Each direction skips anything that has already travelled the same delta, and anything that is
 /// <see cref="IGH_Attributes.Selected"/> — Grasshopper is dragging the whole selection, so following as
 /// well would double the delta and send the object twice as far as the thing it is following.</para>
 ///
-/// <para><b>What stops the two directions feeding each other</b> is that a pass which carried
-/// something re-measures before storing its anchors. Anchors left as measured BEFORE the carry would
-/// make the side just moved look like a fresh user drag on the next pass, the opposite direction would
-/// answer it, and the pair would accelerate off the canvas together. Selection alone does not save it:
-/// the loop closes as soon as the user deselects.</para>
+/// <para><b>What stops the two directions feeding each other</b> is that a pair which was carried is
+/// re-measured before its anchors are stored. Anchors left as measured BEFORE the carry would make the
+/// side just moved look like a fresh user drag on the next pass, the opposite direction would answer
+/// it, and the pair would accelerate off the canvas together. Selection alone does not save it: the
+/// loop closes as soon as the user deselects.</para>
 ///
 /// <para>Undo needs no special handling, for the same reason: Grasshopper's record covers only the side
 /// the user dragged, but restoring it IS a rigid move, so the pass after the undo carries the other side
@@ -54,7 +57,7 @@ internal static class MasterGroupFollower
     // progress: one frame at 60Hz, which is as fine as the canvas can show. Anything longer reads as
     // the followed side lagging behind the cursor; anything shorter is work between two paints of the
     // same picture. It is a ceiling on the poll rate, not a timer — one pass is a single sweep of the
-    // document (see <see cref="Measure"/>) and idle can fire far more often than this.
+    // document plus a walk of each group's members, and idle can fire far more often than this.
     private static readonly TimeSpan CheckInterval = TimeSpan.FromMilliseconds(16);
 
     // Transmitters that want the watch, by InstanceGuid. Held by id rather than by reference so
@@ -62,10 +65,10 @@ internal static class MasterGroupFollower
     // being handed around, a harness re-opened) cannot count twice.
     private static readonly HashSet<Guid> Followers = new();
 
-    // Where the group's members, and the document's harness proxies, were when they were last
-    // measured. Session only; nothing about following is persisted.
-    private static readonly Dictionary<Guid, PointF> MemberAnchors = new();
-    private static readonly Dictionary<Guid, PointF> ProxyAnchors = new();
+    // Where each attached pair was when it was last measured, keyed by the harness's instance id:
+    // every harness has its OWN master group ("Physalia <id>"), so anchors cannot be shared across a
+    // document. Session only; nothing about following is persisted.
+    private static readonly Dictionary<Guid, Anchors> PairAnchors = new();
 
     // Which document the anchors were measured on. Weak, so a document the user closed mid-gesture is
     // collected normally rather than pinned by this watch.
@@ -75,9 +78,9 @@ internal static class MasterGroupFollower
     private static bool _hooked;
 
     /// <summary>
-    /// Starts watching for the master group or an attached proxy being dragged, on behalf of a
-    /// transmitter that could be attached to the group. Idempotent — the watch is one process-wide
-    /// idle handler however many transmitters ask for it.
+    /// Starts watching for a master group or an attached proxy being dragged, on behalf of a
+    /// transmitter that could be attached to one. Idempotent — the watch is one process-wide idle
+    /// handler however many transmitters ask for it.
     /// </summary>
     /// <param name="transmitter">The transmitter that wants the watch.</param>
     internal static void Follow(ComponentTransmitter transmitter)
@@ -108,10 +111,10 @@ internal static class MasterGroupFollower
         }
     }
 
-    // Re-measures both sides and carries whichever one did not move. Cheap in the common case: no
-    // master group on the canvas the user is looking at costs one type-filtered scan and nothing else,
-    // and the attachment test (which reads the pipeline inside a harness) runs only once something has
-    // actually moved.
+    // Re-measures every harness-and-group pair on the canvas and carries whichever side of a pair did
+    // not move. Cheap in the common case: a canvas with no harness costs one type-filtered sweep, and
+    // the attachment test (which reads the pipeline inside a harness) runs only once something in that
+    // pair has actually moved.
     private static void OnIdle(object? sender, EventArgs e)
     {
         DateTime now = DateTime.UtcNow;
@@ -123,44 +126,18 @@ internal static class MasterGroupFollower
         _lastCheckUtc = now;
 
         GH_Document? host = PhyDocuments.ActiveHost();
-        if (host is null || GhJsonBridge.FindMasterGroup(host) is not { } master)
+        if (host is null)
         {
             Forget();
             return;
         }
 
-        Snapshot snapshot = Measure(host, master);
-
-        bool carried = false;
-        if (IsAnchorDocument(host))
-        {
-            if (RigidDelta(snapshot.Members, MemberAnchors) is { } groupDelta)
-            {
-                carried = CarryProxies(snapshot, groupDelta);
-            }
-            else if (DraggedProxyDelta(snapshot) is { } proxyDelta)
-            {
-                carried = CarryGroup(snapshot, proxyDelta);
-            }
-        }
-
-        // Re-measure after carrying, so the anchors describe where everything ACTUALLY ended up. Left
-        // as measured, the side this pass just moved would look like a fresh user drag on the next one,
-        // each direction would feed the other, and the pair would accelerate off the canvas.
-        Rebase(host, carried ? Measure(host, master) : snapshot);
-    }
-
-    // One sweep of the canvas, measuring both sides at once.
-    //
-    // Nothing here calls GH_Document.FindObject: resolving a guid that way walks the document's object
-    // list, so doing it per group member on every pass is quadratic in the size of the canvas — which
-    // is what made a fine-grained poll look too expensive to run. The sweep indexes the objects once
-    // instead, and the group's membership is expanded against that index.
-    private static Snapshot Measure(GH_Document host, GHGroupObject master)
-    {
+        // One sweep of the canvas: resolving a guid through GH_Document.FindObject walks the object
+        // list, so doing that per group member per pass would be quadratic in canvas size — which is
+        // what made a per-frame poll look too expensive. Group membership is expanded against this
+        // index instead.
         var index = new Dictionary<Guid, IGH_DocumentObject>();
-        var proxies = new Dictionary<Guid, PointF>();
-
+        var harnesses = new List<HarnessComponent>();
         foreach (IGH_DocumentObject obj in host.Objects)
         {
             if (obj is null)
@@ -169,19 +146,125 @@ internal static class MasterGroupFollower
             }
 
             index[obj.InstanceGuid] = obj;
-
-            if (obj is HarnessComponent && obj.Attributes is { } proxyAttributes)
+            if (obj is HarnessComponent harness)
             {
-                // Every proxy, not just the attached ones: the attachment test reads the pipeline
-                // inside the harness, and that is not work for a per-frame pass. It is applied later,
-                // once something has moved.
-                proxies[obj.InstanceGuid] = proxyAttributes.Pivot;
+                harnesses.Add(harness);
             }
         }
 
-        // Members, nested groups expanded. The group objects themselves are collected separately
-        // rather than measured: a group's pivot is derived from its contents, so it would report
-        // movement its members did not make.
+        bool sameDocument = IsAnchorDocument(host);
+        var live = new HashSet<Guid>();
+
+        foreach (HarnessComponent harness in harnesses)
+        {
+            // Each harness answers only to the group carrying its own id; a harness with none is not
+            // a pair at all, and its stale anchors go with it.
+            if (GhJsonBridge.FindMasterGroup(host, harness) is not { } master)
+            {
+                continue;
+            }
+
+            live.Add(harness.InstanceGuid);
+            Pair pair = Measure(harness, master, index);
+
+            if (sameDocument && PairAnchors.TryGetValue(harness.InstanceGuid, out Anchors? anchors))
+            {
+                if (Carry(pair, anchors, index))
+                {
+                    pair = Measure(harness, master, index);
+                }
+            }
+
+            PairAnchors[harness.InstanceGuid] = new Anchors(pair.Members, pair.Proxy);
+        }
+
+        // Anchors for pairs that are gone (harness deleted, group deleted or renamed away) would
+        // otherwise sit here for the session and, worse, be compared against if one came back.
+        foreach (Guid stale in PairAnchors.Keys.Where(id => !live.Contains(id)).ToList())
+        {
+            PairAnchors.Remove(stale);
+        }
+
+        _anchorDocument = new WeakReference<GH_Document>(host);
+    }
+
+    // Carries one side of a pair, and says whether anything was moved.
+    private static bool Carry(Pair pair, Anchors anchors, Dictionary<Guid, IGH_DocumentObject> index)
+    {
+        if (RigidDelta(pair.Members, anchors.Members) is { } groupDelta)
+        {
+            return CarryProxy(pair, anchors, groupDelta);
+        }
+
+        var proxyDelta = new SizeF(pair.Proxy.X - anchors.Proxy.X, pair.Proxy.Y - anchors.Proxy.Y);
+        return HasMoved(proxyDelta) && CarryGroup(pair, anchors, index, proxyDelta);
+    }
+
+    // Moves the proxy by the delta its group just travelled.
+    private static bool CarryProxy(Pair pair, Anchors anchors, SizeF delta)
+    {
+        // Already travelled this delta = it moved with the same gesture; Selected = Grasshopper is
+        // dragging it as part of the selection. Following either would double the move.
+        if (SameDelta(new SizeF(pair.Proxy.X - anchors.Proxy.X, pair.Proxy.Y - anchors.Proxy.Y), delta)
+            || pair.Harness.Attributes is not { Selected: false } attributes
+            || !WritesIntoGroup(pair.Harness))
+        {
+            return false;
+        }
+
+        Translate(attributes, delta);
+        Redraw();
+        return true;
+    }
+
+    // Moves the group by moving its members, which is the only way a group moves — its box is their
+    // union. The group objects themselves (the master and any nested group) are re-laid out rather
+    // than moved, so the boxes close back around the members in their new place.
+    private static bool CarryGroup(
+        Pair pair, Anchors anchors, Dictionary<Guid, IGH_DocumentObject> index, SizeF delta)
+    {
+        if (!WritesIntoGroup(pair.Harness))
+        {
+            return false;
+        }
+
+        bool moved = false;
+        foreach (KeyValuePair<Guid, PointF> member in pair.Members)
+        {
+            if (AlreadyMoved(member.Key, pair.Members, anchors.Members, delta)
+                || !index.TryGetValue(member.Key, out IGH_DocumentObject? obj)
+                || obj.Attributes is not { Selected: false } attributes)
+            {
+                continue;
+            }
+
+            Translate(attributes, delta);
+            moved = true;
+        }
+
+        if (!moved)
+        {
+            return false;
+        }
+
+        foreach (GHGroupObject group in pair.Groups)
+        {
+            group.ExpireCaches();
+            group.Attributes?.ExpireLayout();
+        }
+
+        Redraw();
+        return true;
+    }
+
+    // Measures one pair: the pivots of the group's members (nested groups expanded), the group objects
+    // whose boxes have to be re-laid out when those members move, and the proxy's own pivot.
+    //
+    // The group objects are collected rather than measured, because a group's pivot is derived from its
+    // contents and would report movement its members never made.
+    private static Pair Measure(
+        HarnessComponent harness, GHGroupObject master, Dictionary<Guid, IGH_DocumentObject> index)
+    {
         var members = new Dictionary<Guid, PointF>();
         var groups = new List<GHGroupObject> { master };
         var queue = new Queue<Guid>(master.ObjectIDs ?? Enumerable.Empty<Guid>());
@@ -212,7 +295,7 @@ internal static class MasterGroupFollower
             }
         }
 
-        return new Snapshot(index, members, proxies, groups);
+        return new Pair(harness, harness.Attributes?.Pivot ?? default, members, groups);
     }
 
     // The one delta every measured object moved by since the last pass, or null when this was not a
@@ -247,86 +330,6 @@ internal static class MasterGroupFollower
         return shared is { } moved && HasMoved(moved) ? moved : null;
     }
 
-    // How far an attached harness proxy has just been dragged, or null when none has. The first one
-    // found wins: two proxies moving different ways in one pass is not a gesture a user can make, and
-    // the group can only follow one of them.
-    private static SizeF? DraggedProxyDelta(Snapshot snapshot)
-    {
-        foreach (KeyValuePair<Guid, PointF> proxy in snapshot.Proxies)
-        {
-            if (!ProxyAnchors.TryGetValue(proxy.Key, out PointF was))
-            {
-                continue;
-            }
-
-            var delta = new SizeF(proxy.Value.X - was.X, proxy.Value.Y - was.Y);
-            if (HasMoved(delta)
-                && snapshot.Index.TryGetValue(proxy.Key, out IGH_DocumentObject? obj)
-                && obj is HarnessComponent harness
-                && WritesIntoGroup(harness))
-            {
-                return delta;
-            }
-        }
-
-        return null;
-    }
-
-    // Translates every harness proxy attached to the group by the group's own delta.
-    private static bool CarryProxies(Snapshot snapshot, SizeF delta)
-    {
-        bool moved = false;
-        foreach (Guid guid in snapshot.Proxies.Keys)
-        {
-            if (AlreadyMoved(guid, snapshot.Proxies, ProxyAnchors, delta)
-                || !snapshot.Index.TryGetValue(guid, out IGH_DocumentObject? obj)
-                || obj is not HarnessComponent harness
-                || harness.Attributes is not { Selected: false } attributes
-                || !WritesIntoGroup(harness))
-            {
-                continue;
-            }
-
-            Translate(attributes, delta);
-            moved = true;
-        }
-
-        Redraw(moved);
-        return moved;
-    }
-
-    // Translates the group by translating its members, which is the only way a group moves — its box
-    // is their union. The group objects themselves (the master and any nested group) are re-laid out
-    // rather than moved, so the boxes close back around the members in their new place.
-    private static bool CarryGroup(Snapshot snapshot, SizeF delta)
-    {
-        bool moved = false;
-        foreach (Guid guid in snapshot.Members.Keys)
-        {
-            // Same two guards as the other direction: a member that has already travelled this delta
-            // moved with the gesture, and a selected one is being dragged by Grasshopper along with the
-            // proxy — moving either again would double its delta.
-            if (AlreadyMoved(guid, snapshot.Members, MemberAnchors, delta)
-                || !snapshot.Index.TryGetValue(guid, out IGH_DocumentObject? member)
-                || member.Attributes is not { Selected: false } attributes)
-            {
-                continue;
-            }
-
-            Translate(attributes, delta);
-            moved = true;
-        }
-
-        foreach (GHGroupObject group in snapshot.Groups)
-        {
-            group.ExpireCaches();
-            group.Attributes?.ExpireLayout();
-        }
-
-        Redraw(moved);
-        return moved;
-    }
-
     // True when this object has itself moved by the delta being followed — it travelled with the same
     // gesture (the user dragged it as part of the selection), so carrying it would double the move.
     private static bool AlreadyMoved(
@@ -338,10 +341,10 @@ internal static class MasterGroupFollower
         && anchors.TryGetValue(guid, out PointF was)
         && SameDelta(new SizeF(now.X - was.X, now.Y - was.Y), delta);
 
-    // True when the harness holds a Component Transmitter whose pipeline reads the canvas through
-    // the master group — the same condition that creates the group when the transmitter's arrow is
-    // dropped. A harness grounded on the whole canvas has no particular relationship to the group and
-    // neither moves it nor follows it.
+    // True when the harness holds a Component Transmitter whose pipeline reads the canvas through its
+    // master group — the same condition that creates the group when the transmitter's arrow is
+    // dropped. A harness grounded on the whole canvas has no particular relationship to any group and
+    // neither moves one nor follows one.
     private static bool WritesIntoGroup(HarnessComponent harness) =>
         harness.Outlets.OfType<ComponentTransmitter>().Any(t => t.UsesGroupScopedGrounding());
 
@@ -352,16 +355,12 @@ internal static class MasterGroupFollower
         attributes.PerformLayout();
     }
 
-    private static void Redraw(bool moved)
-    {
-        if (moved)
-        {
-            // A repaint, and nothing else: the SET of attributes has not changed, so the document's
-            // attribute cache is still valid — dropping it mid-drag would only make Grasshopper
-            // rebuild the hit-test list on every one of these passes.
-            Instances.ActiveCanvas?.Refresh();
-        }
-    }
+    private static void Redraw() =>
+
+        // A repaint, and nothing else: the SET of attributes has not changed, so the document's
+        // attribute cache is still valid — dropping it mid-drag would only make Grasshopper rebuild
+        // the hit-test list on every one of these passes.
+        Instances.ActiveCanvas?.Refresh();
 
     private static bool SameDelta(SizeF a, SizeF b) =>
         Math.Abs(a.Width - b.Width) <= MoveEpsilon && Math.Abs(a.Height - b.Height) <= MoveEpsilon;
@@ -375,41 +374,29 @@ internal static class MasterGroupFollower
         && weak.TryGetTarget(out GH_Document? anchored)
         && ReferenceEquals(anchored, host);
 
-    private static void Rebase(GH_Document host, Snapshot snapshot)
-    {
-        _anchorDocument = new WeakReference<GH_Document>(host);
-        Replace(MemberAnchors, snapshot.Members);
-        Replace(ProxyAnchors, snapshot.Proxies);
-    }
-
-    private static void Replace(Dictionary<Guid, PointF> anchors, Dictionary<Guid, PointF> measured)
-    {
-        anchors.Clear();
-        foreach (KeyValuePair<Guid, PointF> pivot in measured)
-        {
-            anchors[pivot.Key] = pivot.Value;
-        }
-    }
-
     private static void Forget()
     {
-        MemberAnchors.Clear();
-        ProxyAnchors.Clear();
+        PairAnchors.Clear();
         _anchorDocument = null;
     }
 
     /// <summary>
-    /// One pass's view of the canvas: every object by id (so nothing has to be looked up again), the
-    /// pivots of the group's members and of the harness proxies, and the group objects whose boxes
-    /// have to be re-laid out when their members move.
+    /// One pass's measurement of a harness and its group.
     /// </summary>
-    /// <param name="Index">Every object on the canvas, by instance id.</param>
-    /// <param name="Members">Pivots of the master group's members, nested groups expanded.</param>
-    /// <param name="Proxies">Pivots of every harness proxy on the canvas.</param>
+    /// <param name="Harness">The harness proxy, one half of the pair.</param>
+    /// <param name="Proxy">The proxy's pivot.</param>
+    /// <param name="Members">Pivots of the group's members, nested groups expanded.</param>
     /// <param name="Groups">The master group and any group nested inside it.</param>
-    private sealed record Snapshot(
-        Dictionary<Guid, IGH_DocumentObject> Index,
+    private sealed record Pair(
+        HarnessComponent Harness,
+        PointF Proxy,
         Dictionary<Guid, PointF> Members,
-        Dictionary<Guid, PointF> Proxies,
         List<GHGroupObject> Groups);
+
+    /// <summary>
+    /// Where a pair was when it was last measured.
+    /// </summary>
+    /// <param name="Members">Member pivots at that point.</param>
+    /// <param name="Proxy">The proxy's pivot at that point.</param>
+    private sealed record Anchors(Dictionary<Guid, PointF> Members, PointF Proxy);
 }

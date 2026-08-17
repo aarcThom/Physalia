@@ -141,7 +141,7 @@ public class FidelityCheck : RoutingComponentBase<string>
                 level: GH_RuntimeMessageLevel.Remark);
         }
 
-        GhJsonBridge.FidelityReport report = GhJsonBridge.VerifyPlacementFidelity(definition, placed, PhyDocuments.Host(this));
+        GhJsonBridge.FidelityReport report = GhJsonBridge.VerifyPlacementFidelity(definition, placed, PhyDocuments.Host(this), PhyDocuments.Harness(this));
 
         if (report.Misconfiguration is not null && fallbackNote is null
             && GhJsonBridge.TryGetAuthoredDefinition(PhyDocuments.Host(this), placed) is { } recorded)
@@ -151,7 +151,8 @@ public class FidelityCheck : RoutingComponentBase<string>
             // and keep the mis-wire visible as a warning instead of skipping the check.
             fallbackNote = report.Misconfiguration
                 + " Verified against the definition recorded at placement instead.";
-            report = GhJsonBridge.VerifyPlacementFidelity(recorded, placed, PhyDocuments.Host(this));
+            report = GhJsonBridge.VerifyPlacementFidelity(
+                recorded, placed, PhyDocuments.Host(this), PhyDocuments.Harness(this));
         }
 
         if (report.Misconfiguration is not null)

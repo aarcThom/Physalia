@@ -399,8 +399,12 @@ internal static partial class GhJsonBridge
     /// </summary>
     /// <param name="json">The GhJSON document as a string.</param>
     /// <param name="targetOrigin">Canvas position for the top-left corner of the placed content.</param>
+    /// <param name="harness">
+    /// The harness whose pipeline is placing this, so the components are enrolled into ITS master
+    /// group rather than into whichever one happens to be on the canvas first.
+    /// </param>
     /// <returns>A <see cref="PlaceResult"/> describing the outcome.</returns>
-    internal static PlaceResult LoadAndPlaceJson(string json, PointF targetOrigin)
+    internal static PlaceResult LoadAndPlaceJson(string json, PointF targetOrigin, HarnessComponent? harness)
     {
         // A ghpatch parsed as a full document has no top-level components, which would surface as
         // the misleading "contains no components to place". Name the real problem instead: a patch
@@ -438,7 +442,7 @@ internal static partial class GhJsonBridge
 
             // Everything the model placed lands in the master "Physalia" group — the shared
             // workspace the group-scoped grounding exports and the user can add their own work to.
-            EnrollPlaced(PhyDocuments.ActiveHost(), placed.PlacedGuids);
+            EnrollPlaced(PhyDocuments.ActiveHost(), harness, placed.PlacedGuids);
         }
 
         return placed;

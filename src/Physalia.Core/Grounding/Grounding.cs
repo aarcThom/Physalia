@@ -255,8 +255,8 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
     public string? NumberingNote { get; init; }
 
     /// <summary>
-    /// Gets a value indicating whether this state covers only the contents of the master
-    /// "Physalia" group — the shared model/user workspace — instead of the whole canvas. The
+    /// Gets a value indicating whether this state covers only the contents of the pipeline's own
+    /// master "Physalia &lt;id&gt;" group — the shared model/user workspace — instead of the whole canvas. The
     /// rendered section explains the visibility contract so the model neither reasons about the
     /// hidden canvas nor wonders where its placed components went.
     /// </summary>
@@ -308,7 +308,7 @@ public sealed record CanvasStateGrounding(string GhJsonText, string Checksum, in
         // the group mechanically (no group op needed for that), the hidden canvas is not its
         // business, and the user widens its view by moving components INTO the group.
         string intro = GroupScoped
-            ? "This is the CURRENT contents of the 'Physalia' group, serialized as GhJSON — the shared "
+            ? "This is the CURRENT contents of your Physalia group, serialized as GhJSON — the shared "
               + "workspace between you and the user, and your whole view of the canvas. Everything you "
               + "place is added to this group automatically. The rest of the canvas is hidden: never "
               + "reference or reason about components not shown here. The user can move their own "

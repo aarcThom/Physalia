@@ -121,7 +121,7 @@ public class ComponentTransmitter : TransmitterComponentBase
         SetPlacementTarget(dropPoint);
 
         if (UsesGroupScopedGrounding()
-            && GhJsonBridge.TryCreateMasterGroupWithHint(hostDocument, dropPoint))
+            && GhJsonBridge.TryCreateMasterGroupWithHint(hostDocument, PhyDocuments.Harness(this), dropPoint))
         {
             Grasshopper.Instances.RedrawCanvas();
         }
@@ -348,7 +348,8 @@ public class ComponentTransmitter : TransmitterComponentBase
                 // exists. A successful patch also retires the previous-placement list: those
                 // components have been adopted into the user's definition, so a later full-graph
                 // run must place alongside them, not delete them.
-                _patchOutcome = GhJsonBridge.ApplyPatchToCanvas(_pendingJson, targetOrigin, verifyBase: !_lenientBase);
+                _patchOutcome = GhJsonBridge.ApplyPatchToCanvas(
+                    _pendingJson, targetOrigin, verifyBase: !_lenientBase, PhyDocuments.Harness(this));
                 if (_patchOutcome.Success)
                 {
                     _placedGuids.Clear();
@@ -360,7 +361,8 @@ public class ComponentTransmitter : TransmitterComponentBase
                 _placeWarnings = Array.Empty<string>();
                 _unfixedIssues = Array.Empty<string>();
 
-                PlaceResult result = GhJsonBridge.LoadAndPlaceJson(_pendingJson, targetOrigin);
+                PlaceResult result = GhJsonBridge.LoadAndPlaceJson(
+                    _pendingJson, targetOrigin, PhyDocuments.Harness(this));
                 _unfixedIssues = result.UnfixedIssues;
 
                 if (!result.Success)

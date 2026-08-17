@@ -102,7 +102,7 @@ public class CanvasStateGrounder : PhyBase
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(PhyDocuments.Host(this), GroupScope);
+        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(PhyDocuments.Host(this), GroupScope, PhyDocuments.Harness(this));
         _lastChecksum = snapshot?.Checksum ?? string.Empty;
         _lastScanUtc = DateTime.UtcNow;
 
@@ -155,7 +155,7 @@ public class CanvasStateGrounder : PhyBase
     {
         _lastScanUtc = DateTime.UtcNow;
 
-        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(PhyDocuments.Host(this), GroupScope);
+        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(PhyDocuments.Host(this), GroupScope, PhyDocuments.Harness(this));
         if ((snapshot?.Checksum ?? string.Empty) != _lastChecksum)
         {
             OnPingDocument()?.ScheduleSolution(1, _ => ExpireSolution(false));

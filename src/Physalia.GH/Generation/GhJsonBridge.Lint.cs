@@ -11,6 +11,7 @@ using GhJSON.Core.PatchModels;
 using GhJSON.Core.SchemaModels;
 using Physalia.Core.Grounding.Components;
 using Physalia.Core.Validation;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Generation;
 
@@ -38,12 +39,16 @@ internal static partial class GhJsonBridge
     /// report, so it passes through with no violations.
     /// </summary>
     /// <param name="json">The payload as a string — a full GhJSON graph or a ghpatch.</param>
+    /// <param name="harness">
+    /// The harness whose pipeline produced the payload. A patch is projected onto the frame that
+    /// pipeline authored in, and the group-scoped frame is its own master group's contents.
+    /// </param>
     /// <returns>One violation line per defect; empty when clean or not applicable.</returns>
-    internal static IReadOnlyList<string> LintRequiredInputsJson(string json)
+    internal static IReadOnlyList<string> LintRequiredInputsJson(string json, HarnessComponent? harness)
     {
         if (GhPatchDetector.IsGhPatch(json))
         {
-            return LintPatch(json);
+            return LintPatch(json, harness);
         }
 
         GhJsonDocument doc;
@@ -85,8 +90,9 @@ internal static partial class GhJsonBridge
     /// reported back at it.
     /// </summary>
     /// <param name="json">The ghpatch document as a string.</param>
+    /// <param name="harness">The harness whose pipeline authored the patch; scopes the base frame.</param>
     /// <returns>One violation line per defect the patch would introduce; empty when clean.</returns>
-    private static IReadOnlyList<string> LintPatch(string json)
+    private static IReadOnlyList<string> LintPatch(string json, HarnessComponent? harness)
     {
         GhPatchDocument patch;
         try
@@ -113,7 +119,7 @@ internal static partial class GhJsonBridge
         // Project against the frame the model authored in (same matching rule as the apply): a
         // checksum matching the group-scoped export means it saw only the master group's contents,
         // and linting the full canvas would name components it cannot see.
-        GhJsonDocument? canvas = ResolveBaseSnapshot(null, patch.Patch?.Base?.Checksum?.Trim())?.Document;
+        GhJsonDocument? canvas = ResolveBaseSnapshot(null, harness, patch.Patch?.Base?.Checksum?.Trim())?.Document;
         if (canvas?.Components is null || canvas.Components.Count == 0)
         {
             // Nothing to project onto (no document, or an empty canvas the model should not have

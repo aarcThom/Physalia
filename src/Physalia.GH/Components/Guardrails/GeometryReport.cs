@@ -186,7 +186,7 @@ public class GeometryReport : RoutingComponentBase<string>
         // The report is the turn where the model may emit a corrective patch, and the placement
         // that triggered this report changed the canvas — carry the fresh checksum so that patch
         // cannot mismatch. IsReadReady settled the graph, so the export is stable here.
-        string? checksum = GhJsonBridge.CurrentBaseChecksum(doc);
+        string? checksum = GhJsonBridge.CurrentBaseChecksum(doc, PhyDocuments.Harness(this));
         var currentLines = new Dictionary<string, string>(StringComparer.Ordinal);
         string report = BuildReport(
             message ?? string.Empty, items, UnitsLabel(), checksum, _pendingAppliedOps, _previousLines, currentLines);

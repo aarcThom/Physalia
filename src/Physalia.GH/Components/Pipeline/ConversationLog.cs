@@ -950,9 +950,11 @@ public class ConversationLog : StatefulComponentBase
 
         // Record which frame the model is being shown, so every guardrail that hands it a fresh
         // base checksum (GhJsonBridge.CurrentBaseChecksum) reports the same frame.
-        GhJsonBridge.RecordActiveFrame(doc, _groupScopedCanvasGrounding);
+        HarnessComponent? harness = PhyDocuments.Harness(this);
+        GhJsonBridge.RecordActiveFrame(doc, harness, _groupScopedCanvasGrounding);
 
-        GhJsonBridge.CanvasStateSnapshot? snapshot = GhJsonBridge.TryExportCanvasState(doc, _groupScopedCanvasGrounding);
+        GhJsonBridge.CanvasStateSnapshot? snapshot =
+            GhJsonBridge.TryExportCanvasState(doc, _groupScopedCanvasGrounding, harness);
         if (snapshot is null)
         {
             return new CanvasStateGrounding(string.Empty, string.Empty, 0);

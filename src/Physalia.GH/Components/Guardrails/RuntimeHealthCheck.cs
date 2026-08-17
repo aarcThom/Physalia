@@ -296,7 +296,7 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
         // The last patch APPLIED, so the model's remembered base checksum is stale; carry the fresh
         // one in the feedback so the corrective patch cannot mismatch. Payload text only — carrier
         // discipline holds. IsReadReady settled the graph, so the export is stable here.
-        string? checksum = GhJsonBridge.CurrentBaseChecksum(doc);
+        string? checksum = GhJsonBridge.CurrentBaseChecksum(doc, PhyDocuments.Harness(this));
         return RoutingResult.Fail(BuildFeedback(errors, warnings, dead, nullProducers, signatures, dataFlow, scopedScan, checksum), $"{hard + warnings.Count} problem(s) found in the scanned graph.", GH_RuntimeMessageLevel.Warning);
     }
 

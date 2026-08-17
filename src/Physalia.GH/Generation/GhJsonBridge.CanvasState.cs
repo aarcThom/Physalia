@@ -88,8 +88,13 @@ internal static partial class GhJsonBridge
     /// anything else); the patch path tells frames apart by matching the carried checksum against
     /// each frame's export (<see cref="ResolveBaseSnapshot"/>), never by the string's shape.
     /// </param>
+    /// <param name="harness">
+    /// The harness whose pipeline is asking, which is what a group-scoped export is scoped BY — each
+    /// harness has its own master group. Ignored for the full frame.
+    /// </param>
     /// <returns>The snapshot, or null when no document is available.</returns>
-    internal static CanvasStateSnapshot? TryExportCanvasState(GH_Document? doc = null, bool groupScope = false)
+    internal static CanvasStateSnapshot? TryExportCanvasState(
+        GH_Document? doc = null, bool groupScope = false, HarnessComponent? harness = null)
     {
         // Host-resolve whatever was handed in: a pipeline component inside a harness pings its own
         // sub-document, and grounding the model on the pipeline itself would be nonsense.
@@ -99,7 +104,7 @@ internal static partial class GhJsonBridge
             return null;
         }
 
-        HashSet<Guid>? scope = groupScope ? MasterGroupScope(doc) : null;
+        HashSet<Guid>? scope = groupScope ? MasterGroupScope(doc, harness) : null;
         var guids = doc.Objects
             .Where(o => o is not null
                 && o.GetType().Assembly != typeof(PhyBase).Assembly

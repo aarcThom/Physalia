@@ -194,7 +194,8 @@ internal static partial class GhJsonBridge
     internal static FidelityReport VerifyPlacementFidelity(
         string authoredJson,
         IReadOnlyCollection<Guid> placedGuids,
-        GH_Document? doc = null)
+        GH_Document? doc,
+        HarnessComponent? harness)
     {
         doc = PhyDocuments.Host(doc) ?? PhyDocuments.ActiveHost();
         if (doc is null)
@@ -362,7 +363,7 @@ internal static partial class GhJsonBridge
 
         return violations.Count == 0
             ? new FidelityReport(Array.Empty<string>(), null)
-            : Report(doc, violations);
+            : Report(doc, harness, violations);
     }
 
     // Partitions authored components into reference nodes (resolved to their live canvas params,
@@ -448,6 +449,7 @@ internal static partial class GhJsonBridge
         return $"'{name}' (id {endpoint.Id}, guid {obj.InstanceGuid}) {side} '{param}' (paramIndex {index})";
     }
 
-    private static FidelityReport Report(GH_Document doc, IReadOnlyList<string> violations) =>
-        new FidelityReport(violations, CurrentBaseChecksum(doc));
+    private static FidelityReport Report(
+        GH_Document doc, HarnessComponent? harness, IReadOnlyList<string> violations) =>
+        new FidelityReport(violations, CurrentBaseChecksum(doc, harness));
 }

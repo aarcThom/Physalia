@@ -7,6 +7,7 @@ using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Signals;
 using Physalia.Core.Validation;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Components;
 
@@ -192,7 +193,8 @@ public class SchemaValidator : RoutingComponentBase<string>
     private void AppendFreshChecksum(StringBuilder sb)
     {
         if (OnPingDocument() is { } doc
-            && Generation.GhJsonBridge.CurrentBaseChecksum(doc) is { Length: > 0 } checksum)
+            && Generation.GhJsonBridge.CurrentBaseChecksum(doc, PhyDocuments.Harness(this))
+                is { Length: > 0 } checksum)
         {
             sb.AppendLine();
             sb.AppendLine("Current base checksum — copy this verbatim into patch.base.checksum: " + checksum);

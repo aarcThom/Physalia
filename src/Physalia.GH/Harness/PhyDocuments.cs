@@ -74,6 +74,17 @@ internal static class PhyDocuments
         obj is null ? null : Host(obj.OnPingDocument());
 
     /// <summary>
+    /// Resolves the harness a pipeline component lives in — its identity as one line of work, which is
+    /// what per-pipeline state is filed under (the master group it writes into, the canvas frame the
+    /// model is reading). Null for a component that is not inside a harness, which the residency guard
+    /// makes a transient state rather than a supported one.
+    /// </summary>
+    /// <param name="obj">The document object, typically the calling component.</param>
+    /// <returns>The owning harness, or null.</returns>
+    internal static HarnessComponent? Harness(IGH_DocumentObject? obj) =>
+        obj is null ? null : HarnessComponent.OwnerOf(obj.OnPingDocument());
+
+    /// <summary>
     /// Resolves the host document behind whatever the canvas is currently showing. Use this in
     /// place of <c>Instances.ActiveCanvas?.Document</c> for canvas-facing work: while the user is
     /// editing inside a harness the canvas document IS the pipeline, and acting on it would place

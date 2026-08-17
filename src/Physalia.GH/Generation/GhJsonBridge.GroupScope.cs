@@ -15,7 +15,9 @@ namespace Physalia.GH.Generation;
 
 /// <summary>
 /// Master-group half of the façade: every component the model places is enrolled into one canvas
-/// group named "Physalia" — the shared workspace between the model and the user. The group comes
+/// group named "Physalia &lt;harness id&gt;" — the shared workspace between the model and ONE pipeline.
+/// The id is what keeps two harnesses grounded this way apart; without it they locked onto the same
+/// group and each exported the other's work as its own canvas. The group comes
 /// into existence at the transmitter's placement tip (its bounds are its members'), the user can
 /// drop their own components into it to bring them into the model's view, and the group-scoped
 /// canvas grounding exports ONLY its contents, so a busy canvas of unrelated user work never
@@ -35,11 +37,18 @@ namespace Physalia.GH.Generation;
 internal static partial class GhJsonBridge
 {
     /// <summary>
-    /// Nickname identifying the master group on the canvas. A user renaming the group detaches it
-    /// from Physalia (a fresh one is created on the next placement); naming their own group this
-    /// way adopts it — both are deliberate, the name IS the contract.
+    /// Stem of every master group's nickname. On its own — with no id after it — it is the LEGACY
+    /// name, from when a document could hold only one master group; a harness with no group of its
+    /// own adopts such a group and stamps its id onto it (see <see cref="EnsureMasterGroup"/>).
     /// </summary>
-    internal const string MasterGroupName = "Physalia";
+    internal const string MasterGroupBaseName = "Physalia";
+
+    // Digits of the harness's instance id appended to the stem. The name has to be unique per HARNESS
+    // (two harnesses grounded on their group used to lock onto the same one and export each other's
+    // work) and stable across saves — the harness's own id is both, for free: no new persisted field,
+    // and a COPIED harness, which Grasshopper gives a fresh id, correctly reads as a new pipeline
+    // needing its own group instead of fighting the original for one.
+    private const int MasterGroupTokenLength = 8;
 
     /// <summary>
     /// Nickname identifying the hint panel — the note dropped inside the master group when the group
@@ -64,19 +73,32 @@ internal static partial class GhJsonBridge
     // in the group that is neither the model's work nor the user's.
     private static readonly Color HintPanelColour = Color.FromArgb(255, 168, 226, 219);
 
-    // Which reference frame the Conversation Log last folded for each document: true = the model is
-    // reading the group-scoped canvas state. Session-only, weak-keyed, like the stable-id registry.
-    private static readonly ConditionalWeakTable<GH_Document, StrongBox<bool>> ActiveFrames = new();
+    // Which reference frame the Conversation Log last folded, per PIPELINE: true = the model is
+    // reading the group-scoped canvas state. Keyed by harness where there is one (each harness reads
+    // its own frame) and by document otherwise. Session-only, weak-keyed, like the stable-id registry.
+    private static readonly ConditionalWeakTable<object, StrongBox<bool>> ActiveFrames = new();
 
     /// <summary>
-    /// True when the object is the master group. Used by exports and layout to treat it as
-    /// invisible infrastructure rather than a model-authored functional area.
+    /// The nickname of a harness's master group: the stem plus the harness's id. A user renaming the
+    /// group detaches it from that harness (a fresh one is created on the next placement); naming
+    /// their own group exactly this way adopts it — both are deliberate, the name IS the contract.
+    /// </summary>
+    /// <param name="harness">The harness owning the pipeline; null gives the legacy stem alone.</param>
+    /// <returns>The group nickname to look for or create.</returns>
+    internal static string MasterGroupName(HarnessComponent? harness)
+        => harness is null
+            ? MasterGroupBaseName
+            : MasterGroupBaseName + " " + harness.InstanceGuid.ToString("N")[..MasterGroupTokenLength];
+
+    /// <summary>
+    /// True when the object is A master group — any harness's, or a legacy un-suffixed one. Used by
+    /// exports and layout to treat it as invisible infrastructure rather than a model-authored
+    /// functional area, which is a judgement about the KIND of group, not about whose it is.
     /// </summary>
     /// <param name="obj">The document object to test.</param>
-    /// <returns>True for a group nicknamed <see cref="MasterGroupName"/>.</returns>
+    /// <returns>True for a group whose nickname is the stem, with or without an id after it.</returns>
     internal static bool IsMasterGroup(IGH_DocumentObject? obj)
-        => obj is GHGroupObject group
-           && string.Equals(group.NickName, MasterGroupName, StringComparison.Ordinal);
+        => obj is GHGroupObject group && IsMasterGroupName(group.NickName);
 
     /// <summary>
     /// True when the object is the master group's hint panel. Treated like the group itself —
@@ -89,12 +111,41 @@ internal static partial class GhJsonBridge
            && string.Equals(panel.NickName, HintPanelName, StringComparison.Ordinal);
 
     /// <summary>
-    /// Finds the master group on the document, or null when none exists yet.
+    /// Finds a harness's master group on the document, or null when it has none yet. Another
+    /// harness's group is never returned: that separation is the whole point of the id in the name.
+    /// A legacy un-suffixed group is returned to any harness that has no group of its own, so an
+    /// older file keeps grounding the model on what is already in it — the first harness to PLACE
+    /// through it claims it by stamping its id on (see <see cref="EnsureMasterGroup"/>), and from
+    /// then on the others are back to having none.
     /// </summary>
     /// <param name="doc">The document to search; null returns null.</param>
+    /// <param name="harness">The harness whose group is wanted; null matches the legacy name.</param>
     /// <returns>The master group, or null.</returns>
-    internal static GHGroupObject? FindMasterGroup(GH_Document? doc)
-        => doc?.Objects.OfType<GHGroupObject>().FirstOrDefault(IsMasterGroup);
+    internal static GHGroupObject? FindMasterGroup(GH_Document? doc, HarnessComponent? harness)
+    {
+        if (doc is null)
+        {
+            return null;
+        }
+
+        string name = MasterGroupName(harness);
+        GHGroupObject? legacy = null;
+
+        foreach (GHGroupObject group in doc.Objects.OfType<GHGroupObject>())
+        {
+            if (string.Equals(group.NickName, name, StringComparison.Ordinal))
+            {
+                return group;
+            }
+
+            if (legacy is null && string.Equals(group.NickName, MasterGroupBaseName, StringComparison.Ordinal))
+            {
+                legacy = group;
+            }
+        }
+
+        return legacy;
+    }
 
     /// <summary>
     /// Records which canvas frame the Conversation Log folded into the prompt, so guardrails
@@ -102,12 +153,13 @@ internal static partial class GhJsonBridge
     /// model is actually reasoning in.
     /// </summary>
     /// <param name="doc">The document the pipeline lives on; null is a no-op.</param>
+    /// <param name="harness">The harness holding the pipeline, which is what the frame belongs to.</param>
     /// <param name="groupScoped">True when the folded canvas state was group-scoped.</param>
-    internal static void RecordActiveFrame(GH_Document? doc, bool groupScoped)
+    internal static void RecordActiveFrame(GH_Document? doc, HarnessComponent? harness, bool groupScoped)
     {
-        if (doc is not null)
+        if (FrameKey(doc, harness) is { } key)
         {
-            ActiveFrames.GetOrCreateValue(doc).Value = groupScoped;
+            ActiveFrames.GetOrCreateValue(key).Value = groupScoped;
         }
     }
 
@@ -116,10 +168,11 @@ internal static partial class GhJsonBridge
     /// the full frame until a Conversation Log folds a canvas state.
     /// </summary>
     /// <param name="doc">The document to check; null returns false.</param>
+    /// <param name="harness">The harness whose frame is wanted.</param>
     /// <returns>True for the group-scoped frame.</returns>
-    internal static bool ActiveFrameIsGroupScoped(GH_Document? doc)
-        => doc is not null
-           && ActiveFrames.TryGetValue(doc, out StrongBox<bool>? frame)
+    internal static bool ActiveFrameIsGroupScoped(GH_Document? doc, HarnessComponent? harness)
+        => FrameKey(doc, harness) is { } key
+           && ActiveFrames.TryGetValue(key, out StrongBox<bool>? frame)
            && frame.Value;
 
     /// <summary>
@@ -128,9 +181,12 @@ internal static partial class GhJsonBridge
     /// copies always matches the frame its next patch will be verified against.
     /// </summary>
     /// <param name="doc">The document to export; null returns null.</param>
+    /// <param name="harness">The harness whose pipeline is reporting, and whose group scopes the frame.</param>
     /// <returns>The checksum, or null when no document is available.</returns>
-    internal static string? CurrentBaseChecksum(GH_Document? doc)
-        => doc is null ? null : TryExportCanvasState(doc, ActiveFrameIsGroupScoped(doc))?.Checksum;
+    internal static string? CurrentBaseChecksum(GH_Document? doc, HarnessComponent? harness)
+        => doc is null
+            ? null
+            : TryExportCanvasState(doc, ActiveFrameIsGroupScoped(doc, harness), harness)?.Checksum;
 
     /// <summary>
     /// Resolves the reference frame a patch was authored against by MATCHING its carried base
@@ -141,9 +197,11 @@ internal static partial class GhJsonBridge
     /// and the choice is immaterial.
     /// </summary>
     /// <param name="doc">The document to export; null falls back to the active canvas.</param>
+    /// <param name="harness">The harness whose pipeline authored the patch, and whose group scopes it.</param>
     /// <param name="carriedChecksum">The checksum the patch carried in <c>patch.base.checksum</c>.</param>
     /// <returns>The snapshot of the matching frame, or null when no document is available.</returns>
-    internal static CanvasStateSnapshot? ResolveBaseSnapshot(GH_Document? doc, string? carriedChecksum)
+    internal static CanvasStateSnapshot? ResolveBaseSnapshot(
+        GH_Document? doc, HarnessComponent? harness, string? carriedChecksum)
     {
         doc = PhyDocuments.Host(doc) ?? PhyDocuments.ActiveHost();
         if (doc is null)
@@ -151,8 +209,8 @@ internal static partial class GhJsonBridge
             return null;
         }
 
-        bool activeFrame = ActiveFrameIsGroupScoped(doc);
-        CanvasStateSnapshot? primary = TryExportCanvasState(doc, activeFrame);
+        bool activeFrame = ActiveFrameIsGroupScoped(doc, harness);
+        CanvasStateSnapshot? primary = TryExportCanvasState(doc, activeFrame, harness);
         if (primary is null
             || string.IsNullOrEmpty(carriedChecksum)
             || string.Equals(carriedChecksum, primary.Checksum, StringComparison.OrdinalIgnoreCase))
@@ -160,7 +218,7 @@ internal static partial class GhJsonBridge
             return primary;
         }
 
-        CanvasStateSnapshot? other = TryExportCanvasState(doc, !activeFrame);
+        CanvasStateSnapshot? other = TryExportCanvasState(doc, !activeFrame, harness);
         return other is not null
             && string.Equals(carriedChecksum, other.Checksum, StringComparison.OrdinalIgnoreCase)
             ? other
@@ -174,11 +232,12 @@ internal static partial class GhJsonBridge
     /// document, whose placement creates the group.
     /// </summary>
     /// <param name="doc">The document to resolve against.</param>
+    /// <param name="harness">The harness whose group defines the scope.</param>
     /// <returns>The live instanceGuids inside the master group.</returns>
-    internal static HashSet<Guid> MasterGroupScope(GH_Document doc)
+    internal static HashSet<Guid> MasterGroupScope(GH_Document doc, HarnessComponent? harness)
     {
         var scope = new HashSet<Guid>();
-        if (FindMasterGroup(doc) is not { } master)
+        if (FindMasterGroup(doc, harness) is not { } master)
         {
             return scope;
         }
@@ -213,6 +272,7 @@ internal static partial class GhJsonBridge
     /// group survives later placements.
     /// </summary>
     /// <param name="doc">The document the placement landed on; null is a no-op.</param>
+    /// <param name="harness">The harness whose pipeline placed this, and whose group it belongs in.</param>
     /// <param name="placedComponents">InstanceGuids of the components this placement created.</param>
     /// <param name="modelGroups">
     /// InstanceGuids of the groups this placement created, when the caller knows them (the patch
@@ -221,6 +281,7 @@ internal static partial class GhJsonBridge
     /// </param>
     internal static void EnrollPlaced(
         GH_Document? doc,
+        HarnessComponent? harness,
         IReadOnlyCollection<Guid> placedComponents,
         IReadOnlyCollection<Guid>? modelGroups = null)
     {
@@ -229,8 +290,8 @@ internal static partial class GhJsonBridge
             return;
         }
 
-        GHGroupObject master = EnsureMasterGroup(doc);
-        HashSet<Guid> covered = MasterGroupScope(doc);
+        GHGroupObject master = EnsureMasterGroup(doc, harness);
+        HashSet<Guid> covered = MasterGroupScope(doc, harness);
 
         var placedSet = new HashSet<Guid>(placedComponents);
         IEnumerable<Guid> groups = modelGroups ?? doc.Objects
@@ -283,14 +344,16 @@ internal static partial class GhJsonBridge
     /// the user deletes stays deleted.</para>
     /// </summary>
     /// <param name="doc">The user's canvas; null is a no-op.</param>
+    /// <param name="harness">The harness whose pipeline will place into this group.</param>
     /// <param name="origin">
     /// The placement origin the arrow was dropped on. The panel sits just above it, so the graph the
     /// model places later lands on clear canvas rather than on top of the note.
     /// </param>
     /// <returns>True when the group and its panel were created.</returns>
-    internal static bool TryCreateMasterGroupWithHint(GH_Document? doc, PointF origin)
+    internal static bool TryCreateMasterGroupWithHint(
+        GH_Document? doc, HarnessComponent? harness, PointF origin)
     {
-        if (doc is null || FindMasterGroup(doc) is not null)
+        if (doc is null || FindMasterGroup(doc, harness) is not null)
         {
             return false;
         }
@@ -313,7 +376,7 @@ internal static partial class GhJsonBridge
         doc.AddObject(panel, false);
         panel.Attributes.ExpireLayout();
 
-        GHGroupObject master = EnsureMasterGroup(doc);
+        GHGroupObject master = EnsureMasterGroup(doc, harness);
         master.AddObject(panel.InstanceGuid);
         master.ExpireCaches();
         master.Attributes?.ExpireLayout();
@@ -321,19 +384,32 @@ internal static partial class GhJsonBridge
         return true;
     }
 
-    // Finds or creates the master group. Creation happens at the first LLM placement, so the group
-    // materializes exactly where the transmitter's tip put the components — its bounds are its
-    // members', it needs no pivot of its own.
-    private static GHGroupObject EnsureMasterGroup(GH_Document doc)
+    // Finds or creates this harness's master group. Creation happens at the first LLM placement (or at
+    // the transmitter's drop), so the group materializes exactly where the tip put the components —
+    // its bounds are its members', it needs no pivot of its own.
+    //
+    // A legacy un-suffixed group found here is CLAIMED rather than shared: its nickname gains this
+    // harness's id, so it stops answering to every other harness on the canvas. Claiming on the way
+    // into a placement, not on a mere read, means an older file still grounds every pipeline on it
+    // until one of them actually writes.
+    private static GHGroupObject EnsureMasterGroup(GH_Document doc, HarnessComponent? harness)
     {
-        if (FindMasterGroup(doc) is { } existing)
+        string name = MasterGroupName(harness);
+
+        if (FindMasterGroup(doc, harness) is { } existing)
         {
+            if (!string.Equals(existing.NickName, name, StringComparison.Ordinal))
+            {
+                existing.NickName = name;
+                existing.Attributes?.ExpireLayout();
+            }
+
             return existing;
         }
 
         var group = new GHGroupObject
         {
-            NickName = MasterGroupName,
+            NickName = name,
             Colour = MasterGroupColour,
         };
 
@@ -345,6 +421,43 @@ internal static partial class GhJsonBridge
 
         return group;
     }
+
+    // True for the stem alone (the legacy name) or the stem followed by an id of the right shape.
+    // The id check is what keeps a user's own "Physalia tower" group out of this: that is their work,
+    // not infrastructure, and it must keep reaching the model.
+    private static bool IsMasterGroupName(string? nickname)
+    {
+        if (string.IsNullOrEmpty(nickname))
+        {
+            return false;
+        }
+
+        if (string.Equals(nickname, MasterGroupBaseName, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (nickname.Length != MasterGroupBaseName.Length + 1 + MasterGroupTokenLength
+            || !nickname.StartsWith(MasterGroupBaseName + " ", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        for (int i = MasterGroupBaseName.Length + 1; i < nickname.Length; i++)
+        {
+            if (!Uri.IsHexDigit(nickname[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // What the active-frame flag is filed under: the harness, since each pipeline reads its own frame,
+    // falling back to the document for a component that somehow has no harness around it.
+    private static object? FrameKey(GH_Document? doc, HarnessComponent? harness)
+        => (object?)harness ?? doc;
 
     // Marks a group and everything nested under it as covered by the master group.
     private static void CoverRecursive(GH_Document doc, Guid groupGuid, HashSet<Guid> covered)

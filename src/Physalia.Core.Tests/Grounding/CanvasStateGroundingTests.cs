@@ -81,7 +81,8 @@ public class CanvasStateGroundingTests
         // wonders where its placed graph went.
         string section = new CanvasStateGrounding(Json, Checksum, 1) { GroupScoped = true }.ToSystemPromptSection();
 
-        Assert.Contains("'Physalia' group", section);
+        // "your Physalia group", not "the 'Physalia' group": a canvas can carry one per pipeline.
+        Assert.Contains("your Physalia group", section);
         Assert.Contains("added to this group automatically", section);
         Assert.Contains("hidden", section);
         Assert.DoesNotContain("CURRENT state of the Grasshopper canvas", section);

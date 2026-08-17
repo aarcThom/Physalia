@@ -66,8 +66,13 @@ internal static partial class GhJsonBridge
     /// True to refuse the patch when its <c>patch.base.checksum</c> no longer matches a fresh
     /// export (the canvas changed since the model last saw it); false applies regardless.
     /// </param>
+    /// <param name="harness">
+    /// The harness whose pipeline authored the patch: its master group is the group-scoped reference
+    /// frame the patch is resolved against, and where anything the patch adds is enrolled.
+    /// </param>
     /// <returns>A <see cref="CanvasPatchOutcome"/> describing the outcome.</returns>
-    internal static CanvasPatchOutcome ApplyPatchToCanvas(string patchJson, PointF fallbackOrigin, bool verifyBase)
+    internal static CanvasPatchOutcome ApplyPatchToCanvas(
+        string patchJson, PointF fallbackOrigin, bool verifyBase, HarnessComponent? harness)
     {
         GH_Document? doc = PhyDocuments.ActiveHost();
         if (doc is null)
@@ -107,7 +112,7 @@ internal static partial class GhJsonBridge
         // a checksum prefix: the GhJSON library's patch schema regex-rejects any non-standard
         // checksum shape, so the string itself cannot carry the frame.
         string? carried = patch.Patch?.Base?.Checksum?.Trim();
-        CanvasStateSnapshot? snapshot = ResolveBaseSnapshot(doc, carried);
+        CanvasStateSnapshot? snapshot = ResolveBaseSnapshot(doc, harness, carried);
         if (snapshot is null)
         {
             return PatchFailure("The canvas state could not be exported.");
@@ -223,7 +228,7 @@ internal static partial class GhJsonBridge
 
             // Everything this patch added — components and the groups it organized them into —
             // lands in the master "Physalia" group, keeping the shared workspace complete.
-            EnrollPlaced(doc, addedGuids, createdGroups);
+            EnrollPlaced(doc, harness, addedGuids, createdGroups);
 
             // Group membership is final here, so every area the patch touched can be rebuilt around
             // its new members — inserting them into the data flow and pushing the existing downstream
@@ -249,7 +254,7 @@ internal static partial class GhJsonBridge
         // A partial apply means the model must resubmit — and the operations that DID land changed
         // the canvas, so its old base checksum is guaranteed stale. Hand the fresh one back in the
         // outcome so the feedback can carry it and the retry cannot mismatch.
-        string? postApplyChecksum = conflicts.Count > 0 ? TryExportCanvasState(doc, groupFrame)?.Checksum : null;
+        string? postApplyChecksum = conflicts.Count > 0 ? TryExportCanvasState(doc, groupFrame, harness)?.Checksum : null;
 
         return new CanvasPatchOutcome(
             conflicts.Count == 0,

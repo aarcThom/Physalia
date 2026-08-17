@@ -9,6 +9,7 @@ using Physalia.Core.Common;
 using Physalia.Core.Signals;
 using Physalia.Core.Validation;
 using Physalia.GH.Generation;
+using Physalia.GH.Harness;
 
 namespace Physalia.GH.Components;
 
@@ -60,7 +61,7 @@ public class RequiredInputCheck : RoutingComponentBase<string>
     /// <inheritdoc/>
     protected override RoutingResult ReadSolve(string data, IGH_DataAccess da)
     {
-        IReadOnlyList<string> violations = GhJsonBridge.LintRequiredInputsJson(data);
+        IReadOnlyList<string> violations = GhJsonBridge.LintRequiredInputsJson(data, PhyDocuments.Harness(this));
 
         return violations.Count == 0
             ? RoutingResult.Ok(data)

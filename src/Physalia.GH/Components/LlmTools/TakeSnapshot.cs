@@ -120,6 +120,9 @@ public class TakeSnapshot : LlmToolComponentBase
     // The directions snapped, after the base Tool and Result outputs.
     private static int OutDirections => FirstAdditionalOutputIndex;
 
+    // The latest aim on its own, so nothing downstream has to reach into the last branch of the tree.
+    private static int OutCurrentView => FirstAdditionalOutputIndex + 1;
+
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
@@ -130,6 +133,7 @@ public class TakeSnapshot : LlmToolComponentBase
     protected override void RegisterAdditionalOutputs(GH_OutputParamManager pManager)
     {
         pManager.AddVectorParameter("Snapshot Directions", "SD", "Unit view direction of every snapshot taken, as a tree: one branch per visit to a Current Location, in visit order, each branch holding that visit's looks in the order they were taken. Session-only.", GH_ParamAccess.tree);
+        pManager.AddVectorParameter("Current View", "CV", "Unit view direction of the MOST RECENT snapshot — where the model is looking now. The last item of the last branch of Snapshot Directions, published on its own. Empty until the first snapshot is taken.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -212,6 +216,7 @@ public class TakeSnapshot : LlmToolComponentBase
     protected override void OnSolveEnd(IGH_DataAccess da)
     {
         var tree = new GH_Structure<GH_Vector>();
+        Vector3d? latest = null;
 
         lock (_gate)
         {
@@ -225,11 +230,19 @@ public class TakeSnapshot : LlmToolComponentBase
                 foreach (Vector3d direction in _visits[branch].Directions)
                 {
                     tree.Append(new GH_Vector(direction), path);
+                    latest = direction;
                 }
             }
         }
 
         da.SetDataTree(OutDirections, tree);
+
+        // Left EMPTY rather than defaulted before the first look: a zero or unset vector would read
+        // downstream as a real aim, and there is no honest direction to publish yet.
+        if (latest is { } view)
+        {
+            da.SetData(OutCurrentView, view);
+        }
     }
 
     /// <inheritdoc/>

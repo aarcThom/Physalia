@@ -52,5 +52,16 @@ to GH-project code that only needs `Rhino.Geometry`. **Not yet run in Rhino.** N
 (`MoveInSpace.png` absent → graceful `brain.png` fallback); the set is sprite-sheet generated, see
 [[component-icon-generation]].
 
+**2026-08-18 additions:** a `Current Position` output (where it stands now, on its own — this is what
+feeds Take Snapshot's `Current Location`, see [[tool-image-attachments]]), and an optional
+`Position Notes` text input describing what is at each position, reported to the model whenever it
+stands there. The note describes the POSITION, so it is reported on arrival AND on a look-without-moving,
+not only on the move. Pairing is Grasshopper's longest-list rule, extracted to the pure
+`Core/Common/ListPairing.MatchLongest` so the specified behaviour is unit-tested rather than an inline
+`Math.Min` — equal lengths 1:1, a shorter list reuses its LAST note, surplus notes ignored. It has to be
+done in code, not by component-level data matching, because the component reads both as whole lists in
+one solve and must not iterate. Both the input and the output are APPENDED last, so no saved document's
+param layout shifts.
+
 Related: [[tool-calling-gh-loop]], [[tools-in-use-component]] (picks the node up automatically — no
 registration anywhere).

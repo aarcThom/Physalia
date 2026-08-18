@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -41,6 +41,7 @@ public class MoveInSpace : LlmToolComponentBase
 {
     private const int InStartPoint = 1;
     private const int InPositions = 2;
+    private const int InPositionNotes = 3;
 
     // Fallback for the same-level / coincidence threshold when no Rhino document is reachable.
     private const double FallbackTolerance = 1e-6;
@@ -56,8 +57,9 @@ public class MoveInSpace : LlmToolComponentBase
         + "directions, not relative to any facing: forward is +Y, back is -Y, right is +X, left is -X, "
         + "up is +Z. A token combines an optional level change with an in-plane direction: \"forward\" "
         + "stays on the current level, \"up_forward\" goes one level up and forwards, \"down\" goes one "
-        + "level straight down. Use this to explore or route through a space — every position you "
-        + "visit is recorded in order and handed back to the definition as geometry.",
+        + "level straight down. Some positions carry a note describing what is there; when one does, it "
+        + "is reported with the position. Use this to explore or route through a space — every "
+        + "position you visit is recorded in order and handed back to the definition as geometry.",
         BuildSchema());
 
     // Session state: where the model stands, and every position it has stood on in order. Never
@@ -68,6 +70,7 @@ public class MoveInSpace : LlmToolComponentBase
     private Point3d _start = Point3d.Origin;
     private bool _startRead;
     private List<Point3d> _positions = new();
+    private List<string> _notes = new();
     private double _tolerance = FallbackTolerance;
 
     /// <summary>
@@ -87,6 +90,9 @@ public class MoveInSpace : LlmToolComponentBase
     // The walk, after the base Tool and Result outputs.
     private static int OutTraversed => FirstAdditionalOutputIndex;
 
+    // Where the model stands, published on its own so nothing downstream has to index into the walk.
+    private static int OutCurrentPosition => FirstAdditionalOutputIndex + 1;
+
     /// <summary>
     /// Gets the position the model currently occupies — the last position walked to, or the Start
     /// Point when nothing has moved yet.
@@ -99,12 +105,15 @@ public class MoveInSpace : LlmToolComponentBase
         pManager.AddPointParameter("Start Point", "SP", "The position the model starts from. It is the first entry of Traversed Points, and need not be one of the Positions. Moving it restarts the walk.", GH_ParamAccess.item, Point3d.Origin);
         pManager.AddPointParameter("Positions", "P", "Every position the model is allowed to occupy — the lattice it walks through. One call moves it to an adjacent position in this set; a position further along the same direction is reached by a later step.", GH_ParamAccess.list);
         pManager[InPositions].Optional = true;
+        pManager.AddTextParameter("Position Notes", "PN", "Optional note per position, describing what is at it — reported to the model whenever it stands there. Paired with Positions by LONGEST-LIST matching: one note per position pairs 1:1, and a shorter list has its last note reused for the remaining positions. Leave unwired for no notes at all.", GH_ParamAccess.list);
+        pManager[InPositionNotes].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterAdditionalOutputs(GH_OutputParamManager pManager)
     {
         pManager.AddPointParameter("Traversed Points", "TP", "Every position the model has occupied, in visiting order, starting with the Start Point. Session-only: cleared when the walk restarts.", GH_ParamAccess.list);
+        pManager.AddPointParameter("Current Position", "CP", "Where the model stands right now — the last position walked to, or the Start Point before it has moved. The same as the last of Traversed Points, published on its own so a camera or a report can be wired straight to it.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -121,6 +130,10 @@ public class MoveInSpace : LlmToolComponentBase
         var positions = new List<Point3d>();
         da.GetDataList(InPositions, positions);
         _positions = positions;
+
+        var notes = new List<string>();
+        da.GetDataList(InPositionNotes, notes);
+        _notes = notes;
 
         _tolerance = RhinoDoc.ActiveDoc is { } doc && doc.ModelAbsoluteTolerance > 0
             ? doc.ModelAbsoluteTolerance
@@ -211,6 +224,7 @@ public class MoveInSpace : LlmToolComponentBase
     protected override void OnSolveEnd(IGH_DataAccess da)
     {
         da.SetDataList(OutTraversed, _traversed);
+        da.SetData(OutCurrentPosition, Current);
     }
 
     /// <inheritdoc/>
@@ -237,6 +251,14 @@ public class MoveInSpace : LlmToolComponentBase
 
         sb.AppendLine($"You are at {SpaceNavigator.Format(Current)}.");
 
+        // The note describes the POSITION, so it is reported whenever the model is standing there —
+        // on arrival and on a look alike. It is the user's text, passed through verbatim.
+        string note = NoteFor(Current);
+        if (StringHelpers.IsNonBlank(note))
+        {
+            sb.AppendLine($"What is here: {note.Trim()}");
+        }
+
         sb.AppendLine(
             $"Walk so far: {_traversed.Count} position(s) recorded, {DistinctVisited()} of them distinct, "
             + $"out of {_positions.Count} position(s) in the space.");
@@ -252,6 +274,29 @@ public class MoveInSpace : LlmToolComponentBase
         }
 
         return sb.ToString().TrimEnd();
+    }
+
+    // The note for a position, or blank when there are none or this position is not in the set (the
+    // Start Point need not be). Notes pair with Positions by LONGEST-LIST matching, Grasshopper's own
+    // rule: a note per position pairs 1:1, and a shorter note list has its LAST entry reused for every
+    // remaining position. Done here rather than by component-level data matching, because this
+    // component reads both as whole lists within one solve and must not iterate.
+    private string NoteFor(Point3d position)
+    {
+        if (_notes.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        for (int i = 0; i < _positions.Count; i++)
+        {
+            if (_positions[i].DistanceTo(position) <= _tolerance)
+            {
+                return ListPairing.MatchLongest(_notes, i) ?? string.Empty;
+            }
+        }
+
+        return string.Empty;
     }
 
     // How many of the walked positions are distinct, so a revisit reads as a revisit. Compared by

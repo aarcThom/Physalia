@@ -49,14 +49,18 @@ answering user turn as a sibling block.
 - **`Snapshot Directions` is a TREE, one branch per VISIT** (a revisit opens a new branch), so branch
   order equals walk order. Downstream can always collapse branches by point; it could never re-split
   them if merged here.
+- **`Current View`** publishes the latest aim on its own, and is left EMPTY before the first look: a
+  zero or unset vector would read downstream as a real direction. Its sibling on the movement tool is
+  `Current Position`, which is what wires into `Current Location` here.
 - **One compass across both tools, structurally:** azimuth lives in `SpaceNavigator.Aim` /
   `BearingLabel` beside the cone table it inverts, so azimuth 90 aims exactly where [[move-in-space-tool]]
   walks `right`. Round-tripped in the harness for all 8 bearings. Azimuth is WRAPPED (450→90, a
   readable intent) but elevation is CLAMPED (past vertical the camera is upside down, not aimed
   elsewhere).
 
-**Verification:** 476 Core tests green (7 new: attachment ordering in the runner sync+async, in
+**Verification:** 482 Core tests green (13 new: attachment ordering in the runner sync+async, in
 `CombineResults`, the recorder's results+image turn, and a regression test that a tool_use-bearing
-signal still puts non-result blocks on the ASSISTANT turn). 61 checks green in the console harness
+signal still puts non-result blocks on the ASSISTANT turn; plus 6 for `ListPairing`'s longest-list
+rule). 61 checks green in the console harness
 including the aim/cone round-trip. **Not yet run in Rhino** — the Idle capture, the camera restore, and
 the tree output are unexercised live. No icon (`TakeSnapshot.png` absent → `brain.png` fallback).

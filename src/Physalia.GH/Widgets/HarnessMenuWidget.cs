@@ -16,9 +16,9 @@ namespace Physalia.GH.Widgets;
 /// document — the second pill in the harness column (see <see cref="HarnessPill"/>).
 ///
 /// <para>It carries the actions that apply to the harness you are standing in, so they are to hand
-/// without leaving it to right-click the proxy on the host canvas. Right now that is saving the
-/// pipeline to the preset library; the widget is a menu rather than a button so the next one costs a
-/// line.</para>
+/// without leaving it to right-click the proxy on the host canvas: saving the pipeline to the preset
+/// library, and loading one in from a Grasshopper file. The widget is a menu rather than a button so
+/// the next one costs a line.</para>
 /// </summary>
 public sealed class HarnessMenuWidget : GH_Widget
 {
@@ -36,7 +36,7 @@ public sealed class HarnessMenuWidget : GH_Widget
     public override string Name => "Physalia Harness Menu";
 
     /// <inheritdoc/>
-    public override string Description => "Actions for the harness you are inside — saving it as a preset.";
+    public override string Description => "Actions for the harness you are inside — saving it as a preset, or loading one in.";
 
     /// <inheritdoc/>
     public override string TooltipText => "Harness actions.";
@@ -107,6 +107,7 @@ public sealed class HarnessMenuWidget : GH_Widget
         // WinForms, not Eto: an Eto.ContextMenu does not show on the Grasshopper canvas.
         var menu = new ContextMenuStrip();
         menu.Items.Add(HarnessComponent.SavePresetLabel, null, (_, _) => harness.SaveAsPreset());
+        menu.Items.Add(HarnessComponent.LoadFileLabel, null, (_, _) => harness.LoadFromFile());
 
         // Anchored under the pill rather than at the cursor, so it reads as this pill's menu. The
         // item's handler runs after the menu closes, which is why it is safe for it to show dialogs.

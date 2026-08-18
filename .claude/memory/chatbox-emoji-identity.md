@@ -24,7 +24,10 @@ Rhino test of the colour icons pending.
   `EmbeddedResource Include="Resources\emoji\*.png"` glob (resource name
   `Physalia.GH.Resources.emoji.emoji_u<hex>.png`). `Icon` getter resolves the resource from the
   emoji at runtime: `char.ConvertToUtf32(emoji,0):x` → resource name, load, scale to 24×24
-  (HighQualityBicubic). Ribbon proxy (no document) shows `OceanEmoji[0]` (🌊); brain fallback if
+  (HighQualityBicubic). **The ribbon/palette proxy (no document) wears `Resources/Chat.png` — the
+  bead-style lips mark — since 2026-08-17** (`BuildRibbonIcon`); it is one shared proxy with no
+  identity of its own, so an arbitrary palette emoji there was misleading. Placed components are
+  unaffected and still change per instance. Brain fallback if
   a resource is missing. `ResetEmojiIcon` nulls the cache + `DestroyIconCache()` (real
   GH_DocumentObject method); called on emoji change and in `AddedToDocument`.
 - `ChatWindow.MaybePushChats` adds `emoji = cb.Emoji` to the pushed JSON; `bridge.ts`

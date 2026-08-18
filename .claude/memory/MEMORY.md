@@ -7,6 +7,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - Record progress in MEMORY.md + topic files whenever meaningful progress is made; don't wait to be asked.
 - Make code changes only when explicitly prompted ("make this change", "edit this", "fix this"). Otherwise advice only.
 - [Commit/PR messages output-only](commit-and-pr-messages-output-only.md) — print them in chat by default; `git commit` only on an explicit instruction, never `push`/`gh`.
+- [Design fork, then build through](design-fork-then-build-through.md) — investigate the whole path, ask the ONE question the code can't settle, then finish the entire vertical slice (Core→GH→UI, tests, docs) and say what hasn't run live. Confirmed good 2026-08-17.
 
 ## Latest
 - [Feedback turn attribution](feedback-turn-attribution.md) — 2026-08-17: pink feedback turns are now **collapsed by default** behind a header wearing the producing component's icon + nickname. Needed new `PhySignal.Origins` **provenance** (not a carrier field) because every aggregator re-mints under its own identity and erased the producer; `MergeIntoLastUserMessage` also stopped silently dropping `IsFeedback`.
@@ -56,7 +57,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [GhJsonBridge façade](ghjsonbridge-facade.md) — location + nickName round-trip, Put-mutates-live-doc deferral, canvas HUD transform trick.
 - [Iterative canvas editing](iterative-canvas-editing.md) — canvas-state grounding + ghpatch dual-mode CompTx; patch mode edits in place. CanvasInputGrounding retired.
 - [Component Transmitter](component-transmitter.md) — places an LLM GhJSON graph, routes placement errors + orphan wiring back on Fail.
-- [System-prompt preambles](system-prompt-preambles.md) — PREAMBLE + SCHEMA from `Files/SYSTEM_PROMPTS` (.txt/.json/.yaml only, NOT .md); exactly two pairs.
+- [System-prompt preambles](system-prompt-preambles.md) — PREAMBLE + SCHEMA from `Files/SYSTEM_PROMPTS` (.txt/.json/.yaml only, NOT .md); plus the 2026-08-17 `Additional Prompt` input (verbatim, never file-resolved, registered LAST).
 - [Obsolete component GUID validation](obsolete-component-guid-validation.md) — `StampComponentGuids` stamps non-obsolete GUIDs at placement (library's `Put` falls back to unfiltered `CreateByName`).
 - [Slider nicknames](slider-nicknames.md) — LLM-placed sliders get real labels; `ApplyNickNameDisplay` no longer clobbers floating-param nicknames.
 - [GhJSON feedback links + comment](ghjson-feedback-links.md) — Feedback→Collector wireless links round-trip via component-id extensions + IdToGuidMapping remap.
@@ -96,7 +97,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Core console harness](core-console-harness.md) — test a provider against the live CLI/API from a throwaway net7.0 console app referencing Physalia.Core; no Rhino, no `.gha` copy.
 - [Inspecting Rhino assemblies](inspecting-rhino-assemblies.md) — reflect over Rhino 8's shipped DLLs from PowerShell (incl. the GH_IO resolver), and read templates/regexes straight out of the metadata strings.
 - [SVG → transparent PNG](svg-rasterization-headless-chrome.md) — no magick/inkscape/rsvg on this box; rasterize icons with headless Chrome + `--default-background-color=00000000`.
-- [Component icon generation](component-icon-generation.md) — all 56 icons came from ONE sprite sheet, split programmatically; drop `<ClassName>.png` in `Resources\` and no code changes are needed.
+- [Component icon generation](component-icon-generation.md) — sprite sheets split programmatically; splitter now lives in `tools/icons/`. **2026-08-17: whole set replaced** by flat bead-line symbols on the 4-colour palette, all 75 components covered.
 - [Physalia repo gotchas](physalia-repo-gotchas.md) — slnx in `src/`; the `Files` → bin pipeline + its two MSBuild gotchas (stray `src/Physalia.GH/Files`, VS one-build UI lag needing `DisableFastUpToDateCheck` on BOTH projects).
 - [ILRepack Release double-merge](ilrepack-release-double-merge.md) — the package ships its own Release-ONLY merge target that fails; the empty `src/Physalia.GH/ILRepack.targets` exists solely to suppress it. Don't delete it.
 - [Mac todo](mac-todo.md) — Windows-only / unverified-on-Mac surfaces: PrompterAttrib WinForms, the Serializer `#if WINDOWS` split, GhPythonBridge DLL HintPaths.

@@ -42,3 +42,11 @@ plain and feedback turns cannot drift.
 
 **Not yet run in Rhino** — builds clean (`dotnet build src/Physalia.slnx -c Debug`, UI embedded) and
 469 Core tests pass, 7 of them new (`Physalia.Core.Tests/Signals/SignalOriginTests.cs`).
+
+**Open watch-items for the first live session** (raised 2026-08-17, untested):
+
+- The icon lookup is `doc.FindObject(origin.Id, false)` — **non-recursive**. Right for a flat harness;
+  a producer nested inside a cluster would resolve to nothing and fall back to the recorded name with
+  no icon.
+- A Merge Signal turn puts one chip per branch in a single pill. Three chips' worth of nicknames may
+  not fit the width; `truncate` saves the layout but may leave the names unreadable.

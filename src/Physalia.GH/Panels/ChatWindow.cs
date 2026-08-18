@@ -1641,6 +1641,14 @@ public class ChatWindow : Form
         ResetPushedState();
     }
 
+    /// <summary>
+    /// Tells whether this window is showing a given Chat's conversation. Home is not showing any
+    /// Chat, even though one is still the window's backing component.
+    /// </summary>
+    /// <param name="chat">The Chat to test.</param>
+    /// <returns>true when that Chat's conversation is what the window is displaying.</returns>
+    internal bool IsViewing(Chat chat) => !_home && ReferenceEquals(chat, _component);
+
     // The user's document to work from — the file whose Chats fill the switcher row and whose
     // components "Clear all" sweeps.
     //
@@ -1692,7 +1700,8 @@ public class ChatWindow : Form
 
     // Called when any Chat is removed from the document. If the viewed one was deleted, switch to
     // another Chat still on the canvas, or fall back to Home when none remain — the window stays
-    // open, because Home is where a new harness is placed from. An unrelated removal needs nothing
+    // open, because Home is where a new harness is placed from. On Home the switch is silent: the
+    // backing component is replaced and the screen stays put. An unrelated removal needs nothing
     // here: the switcher row drops its circle on the next tick. Runs on the UI thread.
     public void OnComponentRemoved(Chat removed)
     {
@@ -1713,14 +1722,24 @@ public class ChatWindow : Form
             }
         }
 
-        if (next is not null)
-        {
-            SetActiveComponent(next);
-        }
-        else
+        if (next is null)
         {
             ShowHome();
+            return;
         }
+
+        // Home is a window state rather than a Chat, and the Chat backing it is only whichever one
+        // was last viewed. Losing that one — deleted, or replaced wholesale when a harness loads a
+        // pipeline in — is no reason to drop the user into somebody else's conversation, so re-back
+        // Home and stay on it.
+        if (_home)
+        {
+            _component = next;
+            ResetPushedState();
+            return;
+        }
+
+        SetActiveComponent(next);
     }
 
     // Resolves a switcher-circle click (?id=<InstanceGuid>, or the Home sentinel) and views it. Runs

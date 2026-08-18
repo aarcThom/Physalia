@@ -39,6 +39,13 @@ public class Chat : StatefulComponentBase
     // spawning another. Session-only — nothing here serializes.
     private static ChatWindow? _activeWindow;
 
+    /// <summary>
+    /// Gets the one open chat window, or null when none is open. Lets a caller re-point the window
+    /// it is about to invalidate — replacing a harness's contents destroys the Chat being viewed —
+    /// without opening one that the user had closed.
+    /// </summary>
+    internal static ChatWindow? ActiveWindow => _activeWindow;
+
     // This Chat's assigned ocean emoji (its identity). Always non-empty — seeded randomly
     // in the constructor, deduped against canvas siblings on first placement, and persisted.
     private string _emoji;
@@ -77,11 +84,11 @@ public class Chat : StatefulComponentBase
     /// <summary>
     /// Gets the component icon — this Chat's assigned ocean emoji as a bundled colour bitmap
     /// (Noto Emoji), so each Chat reads as a distinct node. GDI cannot colour-render an emoji
-    /// font, so a pre-made image is used rather than drawn glyphs. The ribbon/palette proxy (no
-    /// document) shows the palette's first emoji as a stable, recognisable button.
+    /// font, so a pre-made image is used rather than drawn glyphs. The ribbon/palette proxy has no
+    /// document and so no identity of its own: it wears the plug-in's lips mark instead.
     /// </summary>
     protected override Bitmap Icon =>
-        _iconBitmap ??= BuildEmojiIcon(OnPingDocument() is null ? OceanEmoji[0] : _emoji);
+        _iconBitmap ??= OnPingDocument() is null ? BuildRibbonIcon() : BuildEmojiIcon(_emoji);
 
     // Loads the bundled colour PNG for an emoji (Resources/emoji/emoji_u<codepoint>.png) and scales
     // it to a 24x24 icon. Falls back to the shared brain icon if the resource is missing.
@@ -105,6 +112,15 @@ public class Chat : StatefulComponentBase
         graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
         graphics.DrawImage(source, new Rectangle(0, 0, 24, 24));
         return icon;
+    }
+
+    // The ribbon button is one shared proxy with no document, so it cannot carry a Chat's
+    // per-instance emoji. It gets the lips mark instead — the one Chat icon that never changes.
+    // Placed components never use this: they gain a document, and AddedToDocument drops the cache.
+    private Bitmap BuildRibbonIcon()
+    {
+        using System.IO.Stream? stream = GHAssembly.GetManifestResourceStream("Physalia.GH.Resources.Chat.png");
+        return stream != null ? new Bitmap(stream) : BuildEmojiIcon(OceanEmoji[0]);
     }
 
     // Drops the cached emoji icon and clears GH's icon cache so the next paint rebuilds it — used

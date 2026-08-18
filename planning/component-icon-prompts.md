@@ -61,7 +61,9 @@ filename mapping, so do not reorder the lists.
   now carries `Exclude="Resources\sprite_*.png"`, but split to a scratch folder anyway.
 
 ### Not in this pass
-- **`Chat`** — it overrides `Icon` with a per-instance Noto ocean emoji. Never gets a file icon.
+- **`Chat`** — it overrides `Icon` with a per-instance Noto ocean emoji, so no sheet cell. It did
+  later get a `Chat.png` (the lips mark) for the ribbon proxy alone — cut from `Images/scratch/lips.png`
+  through the same splitter.
 - **`brain.png`** — the fallback for any component with no icon. Sheet 2 cell 12 replaces it.
 
 ---
@@ -231,4 +233,43 @@ it — draw the glass identically.*
 4. Fit each sprite centred into 24×24, preserving aspect.
 5. Name `<ClassName>.png` exactly as tabulated, copy into `src/Physalia.GH/Resources/`,
    `dotnet build src/Physalia.slnx -c Debug`, restart Rhino.
-6. Sanity check before building: 75 component icons + `brain.png`. `Chat.png` must **not** exist.
+6. Sanity check before building: 75 component icons + `brain.png`, plus `Chat.png` — the lips
+   mark, which is the RIBBON button only (a placed Chat still wears its own ocean emoji).
+
+---
+
+## What actually happened (2026-08-17)
+
+All seven sheets came back usable and every one of the 76 icons was generated. Three things did
+**not** match what the prompts asked for, and each one matters for the next pass:
+
+- **The returned files are numbered in REVERSE of the sheets above.** `Images/scratch/sheet1.png`
+  is this doc's Sheet 7 (LLM & Human Tools); `sheet7.png` is Sheet 1 (Pipeline & Transmitters).
+  Map sheets by CONTENT, never by filename.
+- **No sheet is on an even grid.** Actual row layouts were 4/3/5, 4/4/4, 4/3/2/3, 5/5, 3/3/3,
+  4/4/5, 3/3/3 — the "strict even grid" instruction was ignored. Row-major reading order *was*
+  respected throughout, so the name lists mapped straight across.
+- **Sheet 2 (Models) came back with a 13th icon** — a blank chip with no mark inside, in row 2
+  position 4. Discarded.
+
+Everything else held: pure black background, the bead language, the palette, and the shared base
+shapes (chip, slider, ground line, five-bar row, magnifying glass, mirrored compositor pairs).
+
+### The splitter lives in `tools/icons/`
+`Split.ps1` (one sheet → named 24×24 PNGs), `Run.ps1` (the sheet → layout → names table for this
+pass), `Contact.ps1` (magnified contact sheet for eyeballing the result on canvas grey). Run
+`Run.ps1 -ReportOnly` first to check the segmentation before writing anything.
+
+Two techniques in there worth keeping:
+
+- **Segment by projection gaps, not by grid and not by connected components.** An icon is often
+  several disconnected blobs — a grounder's body and its cyan ground line, a transmitter's arrow
+  and its box — so "keep the largest blob per cell" tears icons apart. `Split.ps1` takes the ink
+  profile, then merges across the smallest gap until the segment count equals the layout read off
+  the image. That is self-verifying: a wrong layout throws instead of silently mis-slicing.
+- **Downscale first, key second.** The sheet is already premultiplied against black, and
+  downscaling premultiplied is correct; keying first makes GDI+ interpolate RGB and alpha
+  independently and fringes every edge. Alpha is then recovered by matching each pixel's
+  chromaticity to the nearest palette entry and dividing by *that* entry's peak channel — navy
+  peaks at 99 and cyan at 222, so a single luminance threshold would render every navy icon at
+  39% opacity.

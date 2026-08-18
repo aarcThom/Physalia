@@ -235,6 +235,22 @@ transmitter that is not signal-driven implements the interface directly.
   leaves no stamped FilePath and no recent-files entry on the live sub-document, the same reason
   `ReadDocumentFile` avoids `GH_DocumentIO.Open`. **Refuses a harness with no Chat**, because
   `HandlePlacePreset` rejects such a preset at LOAD time — better to explain while a user is present.
+- **`HarnessComponent.LoadFromFile()` (2026-08-17)** — its reverse, on the same two menus. Browses to
+  ANY `.gh`/`.ghx` (`Rhino.UI.OpenFileDialog`, starting in the host file's folder — cross-platform, unlike
+  the WinForms one) and REPLACES this harness's contents. Same read as a preset (`ReadDocumentFile` →
+  fresh ids + `ClearHostTargets`), same no-Chat refusal, plus a confirm on a non-empty harness because the
+  outgoing pipeline takes its conversation and solve state with it and nothing is on the undo stack.
+  `Replace()` order is load-bearing: **Adopt first** (so anything reacting to the teardown already sees the
+  replacement), re-point the canvas via `OpenInCanvas` when the user is standing inside (never empty the
+  document being drawn), then `Retire()` the old one — `Enabled=false` + `RemoveObjects` + `Dispose`, so
+  every `RemovedFromDocument` actually runs and warm CLI sessions / host-doc subscriptions are released;
+  dropping the reference alone would leak all of that. Two supporting seams: `Chat.ActiveWindow` (reach the
+  one open window without opening one) + `ChatWindow.IsViewing(chat)`, captured BEFORE the teardown so the
+  window can be put back on this harness — `OnComponentRemoved` otherwise settles on the first Chat in the
+  FILE, possibly another harness's. Same visit: `OnComponentRemoved` now PRESERVES Home (re-backs
+  `_component`, stays on the screen) instead of dropping the user into a stranger's conversation. `Adopt`
+  also swapped its `ObjectsAdded/Deleted` lambdas for a named handler, so a replaced document can be
+  unsubscribed. **Not yet run in Rhino.**
 - The gallery groups by folder off the host's order (`UiPreset.folder`/`.name`) — no sorting in the UI,
   or page and library would disagree on precedence. `MaybePushPresets`'s tick signature means a
   just-saved harness appears within 0.15 s, no refresh action needed.

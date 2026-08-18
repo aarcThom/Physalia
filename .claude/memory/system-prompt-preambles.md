@@ -1,14 +1,18 @@
 ---
 name: system-prompt-preambles
-description: System Prompt system-prompt assembly (PREAMBLE + SCHEMA folders) and the two preamble files
+description: System Prompt assembly (PREAMBLE + SCHEMA folders + the Additional Prompt input) and the preamble/schema file pairs
 metadata: 
   node_type: memory
   type: project
   originSessionId: cf7dd6e5-8085-42a5-a51e-70a684ca7cc0
-  modified: 2026-08-12T04:23:53.521Z
+  modified: 2026-08-17T00:00:00.000Z
 ---
 
-System Prompt (`Components/Core/SystemPrompt.cs`) assembles a system prompt from a **preamble** + a **schema**, each resolved from `Files/SYSTEM_PROMPTS/{PREAMBLE,SCHEMA}/` (canonical repo-root `Files/`, build-copied). Assembly = `{preamble}` + `"Your response must be valid JSON that conforms exactly to the following schema:"` + `{schema}`. The Picker dropdowns list files in those folders.
+System Prompt (`Components/Pipeline/SystemPrompt.cs`) assembles a system prompt from a **preamble** + a **schema**, each resolved from `Files/SYSTEM_PROMPTS/{PREAMBLE,SCHEMA}/` (canonical repo-root `Files/`, build-copied). Assembly = `{preamble}` + `"Your response must be valid JSON that conforms exactly to the following schema:"` + `{schema}`. The Picker dropdowns list files in those folders.
+
+**2026-08-17: a THIRD input — `Additional Prompt` ("AP").** Optional plain text, appended VERBATIM as the last section of the assembled prompt (after the schema block) — for per-canvas instructions that don't deserve their own file in `PREAMBLE/`. Three deliberate non-features, each one a trap avoided: it does **not** go through `Resolve`, so text that happens to match a filename in `PREAMBLE`/`SCHEMA` is still sent as typed; it is **not** in `IPickableValuesSource.Inputs`, so `AddedToDocument` places no third Picker; and it is registered **LAST (index 2)**, because inserting it anywhere else would shift the param layout of every saved `.gh` and every preset (the same rule CLAUDE.md states for the base-appended Signal on a `RoutingComponentBase`). Blank/whitespace-only text is dropped like the other two sections.
+
+**Where it lands in the cache:** the component's output is one flat string, which the Conversation Log folds in as a single **Stable** `SystemPromptSegment` — so additional text sits inside the cacheable prefix (see `Core/ConvoInstruct/SystemPrompt.cs`). Fine while it is authored once, but wiring anything that rewrites it per turn would invalidate the whole cached prefix.
 
 **Gotcha:** `System Prompt.IsTextFile` resolves only `.txt`/`.json`/`.yaml`/`.yml` — **`.md` is NOT picked up**. Preambles must be `.txt` (prose); schemas are `.json`.
 

@@ -156,7 +156,17 @@ pipeline never exchanges *dataflow* with the canvas, it only scans it and writes
   are library-relative (`User/mine.gh`) and resolved by MATCH against the enumerated library, never by
   composing a path. **Save Harness as Preset…** writes to `User/` — on the proxy's right-click menu and
   on the **Harness** widget pill (second in the top-left column inside a harness, under "Back to
-  document"); it refuses a harness with no Chat, since the loader would reject it.
+  document"); it refuses a harness with no Chat, since the loader would reject it. The same two menus
+  carry its reverse, **Load Harness from .gh File…** (`HarnessComponent.LoadFromFile`), which reads ANY
+  `.gh` — not just one in the library — and REPLACES this harness's contents with it: the file is read
+  exactly as a preset is (fresh ids, host targets cleared), one carrying no Chat is refused, and a
+  non-empty harness asks first, because the pipeline going out takes its conversation and solve state
+  with it and none of that is on the undo stack. The swap adopts the new document FIRST (so anything
+  reacting to the old one being dismantled already sees the replacement), re-points the canvas when you
+  are standing inside, and then RETIRES the old document — `RemoveObjects` + `Dispose`, so every
+  `RemovedFromDocument` runs and warm CLI sessions and host-document subscriptions are actually
+  released. The chat window is put back on this harness only if it was watching it (`ChatWindow.IsViewing`,
+  reached through `Chat.ActiveWindow`); on Home it stays on Home.
 - **Reading a preset re-issues every instance id** (`DocumentIds.MutateAll`): an archive carries the ids
   it was saved with, so the same preset placed twice would otherwise put duplicate `InstanceGuid`s in one
   file. Wires and groups are Grasshopper's own problem; a guid held in one of OUR fields is not — any

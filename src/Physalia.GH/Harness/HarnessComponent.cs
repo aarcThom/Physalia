@@ -96,6 +96,12 @@ public sealed class HarnessComponent : PhyBase
     /// </summary>
     internal static string SavePresetLabel => "Save Harness as Preset…";
 
+    /// <summary>
+    /// Gets the menu label for loading a harness pipeline in from a file. Shared with the canvas
+    /// widget inside the harness, for the same reason the save label is.
+    /// </summary>
+    internal static string LoadFileLabel => "Load Harness from .gh File…";
+
     /// <inheritdoc/>
     /// <remarks>
     /// Editing the harness is the right-click action, because double-click is spent on the chat
@@ -108,6 +114,7 @@ public sealed class HarnessComponent : PhyBase
         Menu_AppendSeparator(menu);
         Menu_AppendItem(menu, "Edit Harness", (_, _) => OpenInCanvas());
         Menu_AppendItem(menu, SavePresetLabel, (_, _) => SaveAsPreset());
+        Menu_AppendItem(menu, LoadFileLabel, (_, _) => LoadFromFile());
     }
 
     /// <summary>
@@ -167,6 +174,186 @@ public sealed class HarnessComponent : PhyBase
         }
 
         Rhino.RhinoApp.WriteLine($"[Physalia] Saved harness preset: {path}");
+    }
+
+    /// <summary>
+    /// Replaces this harness's pipeline with one read from a Grasshopper file — the reverse of
+    /// <see cref="SaveAsPreset"/>, and the way a harness someone sent you (or one saved outside the
+    /// preset library) gets in.
+    ///
+    /// <para>A harness file is an ordinary <c>.gh</c> holding one harness's worth of pipeline, so
+    /// anything the preset gallery can place can be loaded here — and anything saved from here can be
+    /// loaded there. The file is read exactly as a preset is (fresh instance ids, host targets
+    /// cleared), so loading the same file into two harnesses is safe.</para>
+    ///
+    /// <para>This DISCARDS what is in the harness now: its conversation, its solve state and any warm
+    /// provider session go with it, and none of it is on the undo stack — hence the confirmation. A
+    /// file carrying no Chat is refused before anything is touched, because the pipeline would have
+    /// nothing to drive it and the chat window nothing to land on.</para>
+    ///
+    /// <para>Shows dialogs, so it must run on the UI thread. Reachable from this component's
+    /// right-click menu and from the harness widget shown while you are inside the harness.</para>
+    /// </summary>
+    public void LoadFromFile()
+    {
+        if (PromptForHarnessFile() is not { } path)
+        {
+            return; // cancelled
+        }
+
+        GH_Document? contents;
+        try
+        {
+            contents = ReadDocumentFile(path);
+        }
+        catch (Exception ex)
+        {
+            Rhino.UI.Dialogs.ShowMessage($"The file could not be read: {ex.Message}", LoadFileLabel);
+            return;
+        }
+
+        if (contents is null)
+        {
+            Rhino.UI.Dialogs.ShowMessage(
+                $"\"{Path.GetFileName(path)}\" is not a Grasshopper definition, or could not be read.",
+                LoadFileLabel);
+            return;
+        }
+
+        // Same rule as the preset gallery applies, for the same reason: a harness with no Chat has
+        // nothing driving it, and the chat window would be left with nothing to view.
+        if (!contents.Objects.OfType<Chat>().Any())
+        {
+            Rhino.UI.Dialogs.ShowMessage(
+                $"\"{Path.GetFileName(path)}\" contains no Chat component, so it is not a harness "
+                + "pipeline. Save one from inside a harness that has a Chat, then load that.",
+                LoadFileLabel);
+            return;
+        }
+
+        // Only an empty harness is replaced without asking — there is nothing there to lose.
+        if (_inner is { ObjectCount: > 0 }
+            && Rhino.UI.Dialogs.ShowMessage(
+                $"Loading \"{Path.GetFileName(path)}\" replaces the pipeline in this harness, "
+                + "including its conversation. This cannot be undone. Continue?",
+                LoadFileLabel,
+                Rhino.UI.ShowMessageButton.YesNo,
+                Rhino.UI.ShowMessageIcon.Warning) != Rhino.UI.ShowMessageResult.Yes)
+        {
+            return;
+        }
+
+        Replace(contents);
+        Rhino.RhinoApp.WriteLine($"[Physalia] Loaded harness pipeline from: {path}");
+    }
+
+    /// <summary>
+    /// Asks for the Grasshopper file to load, starting in the folder the host file lives in.
+    /// </summary>
+    /// <returns>The chosen path, or null when the user cancelled.</returns>
+    private string? PromptForHarnessFile()
+    {
+        var dialog = new Rhino.UI.OpenFileDialog
+        {
+            Title = LoadFileLabel,
+            Filter = "Grasshopper files (*.gh;*.ghx)|*.gh;*.ghx|All files (*.*)|*.*",
+            DefaultExt = "gh",
+        };
+
+        // The host file's folder is the likeliest place a harness sent to you was saved next to.
+        // Anything else (an unsaved document) leaves the dialog on its own last-used folder.
+        string? hostFile = OnPingDocument()?.FilePath;
+        if (!string.IsNullOrEmpty(hostFile) && Path.GetDirectoryName(hostFile) is { Length: > 0 } dir)
+        {
+            dialog.InitialDirectory = dir;
+        }
+
+        return dialog.ShowOpenDialog() ? dialog.FileName : null;
+    }
+
+    /// <summary>
+    /// Swaps in a new set of contents and tears the old ones down.
+    ///
+    /// <para>Order is load-bearing. The new document is adopted FIRST, so anything that reacts to the
+    /// old pipeline being dismantled — the chat window, above all — already sees this harness holding
+    /// the replacement. If the canvas is standing inside the harness it is re-pointed before the old
+    /// document is touched, because emptying the document being drawn is not something to ask
+    /// Grasshopper to survive.</para>
+    /// </summary>
+    /// <param name="contents">The freshly read document to hold.</param>
+    private void Replace(GH_Document contents)
+    {
+        GH_Document? previous = _inner;
+        GH_Canvas? canvas = Instances.ActiveCanvas;
+        bool inside = previous is not null && ReferenceEquals(canvas?.Document, previous);
+
+        // Captured BEFORE the teardown: removing the old Chats makes the window re-point itself, and
+        // it settles on the first Chat it finds anywhere in the file — which may belong to another
+        // harness entirely. Knowing it was watching THIS harness is what lets it be brought back.
+        bool windowWasHere = Chat.ActiveWindow is { } window && Chats.Any(window.IsViewing);
+
+        Adopt(contents);
+
+        if (inside)
+        {
+            OpenInCanvas();
+        }
+
+        Retire(previous);
+
+        // The loaded Chats carry the emoji they were saved with, so they can collide with one already
+        // in the file. They could not see their siblings until the harness holding them was adopted.
+        foreach (Chat chat in Chats)
+        {
+            chat.EnsureDistinctEmoji();
+        }
+
+        ExpireProxyLayout();
+        ExpireSolution(true);
+
+        if (windowWasHere && FindChat() is { } loaded)
+        {
+            Chat.ActiveWindow?.SetActiveComponent(loaded);
+        }
+
+        canvas?.Refresh();
+    }
+
+    /// <summary>
+    /// Shuts a discarded harness document down.
+    ///
+    /// <para>Dropping the reference is not enough: a pipeline holds things the garbage collector
+    /// knows nothing about — a warm CLI session on an LLM Call, host-document subscriptions on a
+    /// Script I/O, an idle poll on a group follower. Every one of those is released from
+    /// <c>RemovedFromDocument</c>, which is why the objects are removed rather than abandoned.</para>
+    /// </summary>
+    /// <param name="previous">The document being discarded, or null when the harness was empty.</param>
+    private static void Retire(GH_Document? previous)
+    {
+        if (previous is null)
+        {
+            return;
+        }
+
+        try
+        {
+            previous.Enabled = false;
+
+            List<IGH_DocumentObject> objects = previous.Objects.ToList();
+            if (objects.Count > 0)
+            {
+                previous.RemoveObjects(objects, false);
+            }
+
+            previous.Dispose();
+        }
+        catch (Exception ex)
+        {
+            // A pipeline that will not shut down cleanly is not a reason to leave the harness holding
+            // two documents; the new one is already in place, so say so and carry on.
+            Rhino.RhinoApp.WriteLine(
+                $"[Physalia] The replaced harness pipeline did not shut down cleanly: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -434,6 +621,12 @@ public sealed class HarnessComponent : PhyBase
         if (_inner is not null)
         {
             Owners.Remove(_inner);
+
+            // Named handlers rather than lambdas so a REPLACED document can be let go of properly:
+            // its objects are removed on the way out, and a document still wired to this proxy would
+            // expire the layout on the way past.
+            _inner.ObjectsAdded -= OnInnerObjectsChanged;
+            _inner.ObjectsDeleted -= OnInnerObjectsChanged;
         }
 
         Owners.Remove(document);
@@ -442,12 +635,15 @@ public sealed class HarnessComponent : PhyBase
         // The proxy grows one grip per transmitter INSIDE this document (see Outlets), so its layout
         // depends on contents Grasshopper has no idea are connected to it. Watch the object list, or a
         // transmitter added in here gets its grip only after some unrelated relayout happens to run.
-        document.ObjectsAdded += (_, _) => ExpireProxyLayout();
-        document.ObjectsDeleted += (_, _) => ExpireProxyLayout();
+        document.ObjectsAdded += OnInnerObjectsChanged;
+        document.ObjectsDeleted += OnInnerObjectsChanged;
 
         document.Enabled = true;
         _inner = document;
     }
+
+    // Re-lays the proxy out and repaints when the harness contents change underneath it.
+    private void OnInnerObjectsChanged(object sender, GH_DocObjectEventArgs e) => ExpireProxyLayout();
 
     // Re-lays the proxy out and repaints, after the harness contents changed underneath it.
     private void ExpireProxyLayout()

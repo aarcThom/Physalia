@@ -113,6 +113,18 @@ public class TextTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
         _link.HandleDrop(hostDocument, dropPoint, ctrl, RefineDropTarget);
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Drops the linked input along with the delivery bookkeeping about it — the last-written key and
+    /// any warning are statements about a target this outlet no longer has.
+    /// </remarks>
+    public void ClearHostTarget()
+    {
+        _link.Assign(Guid.Empty);
+        _lastKey = null;
+        _warning = null;
+    }
+
+    /// <inheritdoc/>
     /// <remarks>Offers the link as a menu too, for a target a drag cannot conveniently reach.</remarks>
     public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
     {

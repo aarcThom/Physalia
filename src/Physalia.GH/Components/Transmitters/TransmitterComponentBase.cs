@@ -85,6 +85,15 @@ public abstract class TransmitterComponentBase : RoutingComponentBase<string>, I
 
     /// <inheritdoc/>
     /// <remarks>
+    /// Abstract alongside the two above, and for the same reason: what a transmitter aims at is its
+    /// own business, so only it knows what forgetting that means. A new transmitter kind has to
+    /// answer this — an unanswered one would smuggle its author's canvas into every preset made
+    /// from it.
+    /// </remarks>
+    public abstract void ClearHostTarget();
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// Every transmitter takes its payload straight off the consumed signal — the generated
     /// document, script, or text to write out.
     /// </remarks>

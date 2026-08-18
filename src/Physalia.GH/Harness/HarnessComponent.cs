@@ -201,7 +201,33 @@ public sealed class HarnessComponent : PhyBase
         // would strand it, which is why MutateAllIds documents this as a prerequisite.
         document.DestroyProxySources();
         DocumentIds.MutateAll(document);
+        ClearHostTargets(document);
         return document;
+    }
+
+    /// <summary>
+    /// Forgets what every outlet in a just-loaded preset was aiming at on its author's canvas.
+    ///
+    /// <para>Ids and pivots are the same problem seen twice. <see cref="DocumentIds.MutateAll"/>
+    /// handles the half that lives INSIDE the harness, where a duplicate id is the hazard; this is the
+    /// half that points OUT of it, where the hazard is a target that means nothing here. A linked
+    /// script component is at least self-cancelling — the id resolves to nothing on this canvas, so
+    /// the wire simply never draws — but a Component Transmitter's placement point is stored as an
+    /// offset from the proxy's own pivot, so it resolves perfectly well against the wrong document and
+    /// the preset lands with a wire already stretched out to wherever its author dropped one.
+    /// (<c>Files/PRESETS/Physalia/Codex - Incremental Nodes.gh</c> ships carrying exactly that.)</para>
+    ///
+    /// <para>Only outlets are swept. Links BETWEEN components in the harness — a Feedback Collector's,
+    /// a Script I/O's — are part of the pipeline being loaded and are re-pointed by
+    /// <see cref="IGuidLinked.RemapLinks"/>, not dropped.</para>
+    /// </summary>
+    /// <param name="document">The freshly loaded preset document.</param>
+    private static void ClearHostTargets(GH_Document document)
+    {
+        foreach (IHarnessOutlet outlet in document.Objects.OfType<IHarnessOutlet>())
+        {
+            outlet.ClearHostTarget();
+        }
     }
 
     /// <summary>

@@ -69,4 +69,20 @@ public interface IHarnessOutlet
     /// <param name="dropPoint">The drop point in canvas coordinates.</param>
     /// <param name="ctrl">Whether the drag carried the disconnect (Ctrl) intent.</param>
     void HandleDrop(GH_Document hostDocument, PointF dropPoint, bool ctrl);
+
+    /// <summary>
+    /// Forgets whatever this outlet was aiming at on the host canvas — the linked target, the stored
+    /// placement point — putting it back the way a freshly placed one starts.
+    ///
+    /// <para>Every outlet persists its reach so a saved definition reopens still pointing where the
+    /// user put it. That reach is meaningful only on the canvas it was aimed at, so a PRESET must not
+    /// carry it: the archive is loaded onto some other document entirely, where a linked id resolves
+    /// to nothing and a placement offset — measured from the proxy's pivot, so it needs no resolving
+    /// at all — silently reproduces the author's own drop as a wire hanging off the new node.
+    /// <see cref="HarnessComponent.ReadDocumentFile"/> calls this on every outlet it loads.</para>
+    ///
+    /// <para>Quiet: no undo record and no re-solve. It runs while the document is still being read,
+    /// before anything is on a canvas to solve.</para>
+    /// </summary>
+    void ClearHostTarget();
 }

@@ -140,6 +140,14 @@ public class ComponentTransmitter : TransmitterComponentBase
 
     /// <inheritdoc/>
     /// <remarks>
+    /// The stored drop point is the whole of this transmitter's reach onto the canvas. It is an
+    /// offset from the proxy's pivot rather than an id, so nothing about it fails to resolve on a
+    /// foreign document — it would simply draw, and place, wherever the preset's author dropped it.
+    /// </remarks>
+    public override void ClearHostTarget() => ResetPlacementTarget();
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// Placement is deferred to <c>RhinoApp.Idle</c> (it mutates the document and triggers its
     /// own solution, so it cannot run inside <c>SolveInstance</c>), so the read pass is
     /// scheduled by this component rather than auto-scheduled by the base.

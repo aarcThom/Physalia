@@ -112,6 +112,13 @@ public abstract class ScriptTransmitterBase : TransmitterComponentBase, IGuidLin
 
     /// <inheritdoc/>
     /// <remarks>
+    /// The link is an id on the user's canvas, which a preset is never loaded back onto — so it is
+    /// dropped rather than carried across as a link to nothing.
+    /// </remarks>
+    public override void ClearHostTarget() => Unlink();
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// The wire turns UP at its end. A script transmitter feeds no input — it rewrites the whole
     /// component — so the tip belongs directly under the node it names, pointing at it, rather than
     /// running past its side the way a wire carrying data into something would.

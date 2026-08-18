@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -45,6 +45,13 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
 
     private const int OutTool = 0;
     private const int OutResult = 1;
+
+    /// <summary>
+    /// Gets the index of the first output registered by <see cref="RegisterAdditionalOutputs"/> —
+    /// 2, after the fixed Tool(0)/Result(1) pair. Compute a subclass's own output indices from this
+    /// rather than hard-coding them.
+    /// </summary>
+    protected static int FirstAdditionalOutputIndex => 2;
 
     private PhySignal? _resultSignal;
 
@@ -97,6 +104,27 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
     }
 
     /// <summary>
+    /// Registers the tool's own outputs after the base-owned Tool and Result outputs
+    /// (<see cref="FirstAdditionalOutputIndex"/> onward). Default implementation adds nothing.
+    /// </summary>
+    /// <param name="pManager">The output parameter manager.</param>
+    protected virtual void RegisterAdditionalOutputs(GH_OutputParamManager pManager)
+    {
+    }
+
+    /// <summary>
+    /// Hook called once at the very end of every solve, after any dispatched calls have run.
+    /// Override to publish outputs registered by <see cref="RegisterAdditionalOutputs"/> that the
+    /// calls themselves mutate — <see cref="OnSolveTick"/> runs too early for those and would leave
+    /// the wire one solve behind. Re-publish unconditionally, including on idle solves, so the value
+    /// stays on the wire rather than blanking between solves. Default implementation does nothing.
+    /// </summary>
+    /// <param name="da">The data access for the current solve.</param>
+    protected virtual void OnSolveEnd(IGH_DataAccess da)
+    {
+    }
+
+    /// <summary>
     /// Hook called once per solve, before any dispatched calls run. Override to read per-solve
     /// context inputs (e.g. a wired catalog, or a resolved API key) into fields that the call logic
     /// then uses, so the context is read once rather than per call. Default implementation does nothing.
@@ -141,6 +169,7 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
     {
         pManager.AddParameter(new Param_LlmToolDefinition(), "Tool", "T", "The tool definition advertised to the model. The Tools Present grounder collects this automatically once a Router dispatches to this node — no wire needed.", GH_ParamAccess.item);
         pManager.AddParameter(new Param_Signal(), "Result", "R", "Tool result signal. Wire through a Feedback component into a Feedback Collector, then into the Router's Results input.", GH_ParamAccess.item);
+        RegisterAdditionalOutputs(pManager);
     }
 
     /// <inheritdoc/>
@@ -155,16 +184,20 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
         if (RunsAsync)
         {
             SolveAsyncPath(DA);
-            return;
         }
-
-        // SYNCHRONOUS path: compute and emit within this solve.
-        foreach (ConsumedSignal item in ConsumeAllSignals(InSignal))
+        else
         {
-            ExecuteDispatched(item.Signal);
+            // SYNCHRONOUS path: compute and emit within this solve.
+            foreach (ConsumedSignal item in ConsumeAllSignals(InSignal))
+            {
+                ExecuteDispatched(item.Signal);
+            }
+
+            EmitSignal(DA, OutResult, _resultSignal);
         }
 
-        EmitSignal(DA, OutResult, _resultSignal);
+        // After the calls, so a subclass output the calls mutate is published in the same solve.
+        OnSolveEnd(DA);
     }
 
     /// <inheritdoc/>

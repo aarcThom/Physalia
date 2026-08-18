@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Reflection;
 using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
@@ -40,10 +39,6 @@ public class TextTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
 {
     private const int InData = 0;
     private const int OutData = 0;
-
-    // How close a drop must land to an input's grip to claim it, before falling back to the row under
-    // the cursor. Matches the reach Grasshopper gives its own wire ends.
-    private const float GripSnap = 12f;
 
     private readonly TransmitterLink _link;
 
@@ -120,7 +115,11 @@ public class TextTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
     /// the node's first input. A drop on empty canvas does nothing.
     /// </remarks>
     public void HandleDrop(GH_Document hostDocument, PointF dropPoint, bool ctrl) =>
-        _link.HandleDrop(hostDocument, dropPoint, ctrl, RefineDropTarget);
+        _link.HandleDrop(
+            hostDocument,
+            dropPoint,
+            ctrl,
+            (hit, point) => ParamTargets.RefineDropTarget(hit, point, CanReceive));
 
     /// <inheritdoc/>
     /// <remarks>
@@ -228,13 +227,7 @@ public class TextTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
     /// <param name="candidate">An object on the user's canvas.</param>
     /// <returns>true when a value can be delivered into it.</returns>
     private static bool CanReceive(IGH_DocumentObject candidate) =>
-        candidate is GHPanel || (candidate is IGH_Param param && PersistentSetter(param) is not null);
-
-    // A param holds its own value through GH_PersistentParam&lt;T&gt;.SetPersistentData(params object[]),
-    // which casts each object into T the same way an incoming wire's data is cast. There is no
-    // non-generic interface exposing it, and T is only known at runtime — hence the lookup by name.
-    private static MethodInfo? PersistentSetter(IGH_Param param) =>
-        param.GetType().GetMethod("SetPersistentData", new[] { typeof(object[]) });
+        candidate is GHPanel || ParamTargets.CanHold(candidate);
 
     // The text a piece of goo transmits, plus the key that decides whether it is new. A signal is
     // keyed by its sequence — the one thing that makes it that signal — and everything else by its
@@ -258,59 +251,6 @@ public class TextTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
         text = string.Empty;
         key = string.Empty;
         return false;
-    }
-
-    // The object a drop on this node should link. A node that holds its own value (a Panel, a floating
-    // param) takes it directly; a component is entered through one of its inputs, chosen the way
-    // Grasshopper chooses one for a wire — the nearest input GRIP, then the input row under the
-    // cursor, then the first input, so aiming at the icon still does the obvious thing.
-    private static IGH_DocumentObject? RefineDropTarget(IGH_DocumentObject hit, PointF dropPoint)
-    {
-        if (CanReceive(hit))
-        {
-            return hit;
-        }
-
-        if (hit is not IGH_Component component)
-        {
-            return null;
-        }
-
-        IGH_Param? first = null;
-        IGH_Param? underCursor = null;
-        IGH_Param? nearestGrip = null;
-        float nearest = GripSnap;
-
-        foreach (IGH_Param input in component.Params.Input)
-        {
-            if (PersistentSetter(input) is null)
-            {
-                continue;
-            }
-
-            first ??= input;
-
-            if (input.Attributes.Bounds.Contains(dropPoint))
-            {
-                underCursor ??= input;
-            }
-
-            if (input.Attributes is { HasInputGrip: true } attributes)
-            {
-                PointF grip = attributes.InputGrip;
-                float distance = (float)Math.Sqrt(
-                    ((grip.X - dropPoint.X) * (grip.X - dropPoint.X))
-                    + ((grip.Y - dropPoint.Y) * (grip.Y - dropPoint.Y)));
-
-                if (distance < nearest)
-                {
-                    nearest = distance;
-                    nearestGrip = input;
-                }
-            }
-        }
-
-        return nearestGrip ?? underCursor ?? first;
     }
 
     // Queues the deferred write. Delivery mutates and expires a document that is not the one being
@@ -376,7 +316,7 @@ public class TextTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
             return null;
         }
 
-        if (target is not IGH_Param param || PersistentSetter(param) is not { } setter)
+        if (target is not IGH_Param param || ParamTargets.PersistentSetter(param) is not { } setter)
         {
             return $"The linked object cannot hold a value ({target.GetType().Name}).";
         }
@@ -396,15 +336,10 @@ public class TextTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
 
         // A cast the target could not make leaves it empty — say so, rather than let the user hunt for
         // a value that was delivered but discarded.
-        return DeliveredCount(param) == 0 && text.Length > 0
+        return ParamTargets.DeliveredCount(param) == 0 && text.Length > 0
             ? $"\"{param.NickName}\" could not read \"{Truncate(text)}\" as {param.TypeName}."
             : null;
     }
-
-    // How many values the param ended up holding, read back through the same runtime-typed surface
-    // the setter came from. Unknown (null) counts as delivered — never invent a failure.
-    private static int? DeliveredCount(IGH_Param param) =>
-        param.GetType().GetProperty("PersistentDataCount")?.GetValue(param) as int?;
 
     private static string Truncate(string text) =>
         text.Length <= 30 ? text : text[..30] + "…";

@@ -30,6 +30,9 @@ public static class ArrowStyles
     /// <summary>Text Transmitter → the input it feeds: neon green to blue.</summary>
     public static readonly WireGradient TextTx = new(Color.FromArgb(255, 57, 255, 20), Color.Blue);
 
+    /// <summary>Geometry Transmitter → the input it feeds: hot magenta to bright gold.</summary>
+    public static readonly WireGradient GeoTx = new(Color.FromArgb(255, 255, 0, 229), Color.FromArgb(255, 255, 214, 0));
+
     /// <summary>ZoomGuid → any component link: gold to royal blue.</summary>
     public static readonly WireGradient ZoomGuid = new(Color.Gold, Color.RoyalBlue);
 }

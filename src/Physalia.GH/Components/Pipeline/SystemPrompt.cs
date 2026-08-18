@@ -12,9 +12,10 @@ using Physalia.GH.Generation;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Assembles a system prompt from a preamble and a JSON schema.
+/// Assembles a system prompt from a preamble and a JSON schema, plus optional free text
+/// appended at the end.
 /// Each section can be supplied as a filename resolved from the Files/SYSTEM_PROMPTS folder,
-/// or as inline text wired directly.
+/// or as inline text wired directly. The additional prompt is always taken verbatim.
 /// </summary>
 public class SystemPrompt : PhyBase, IPickableValuesSource
 {
@@ -67,6 +68,8 @@ public class SystemPrompt : PhyBase, IPickableValuesSource
     {
         pManager.AddTextParameter("Preamble", "P", "Instruction preamble. Filename from PREAMBLE folder or inline text.", GH_ParamAccess.item, string.Empty);
         pManager.AddTextParameter("Schema", "S", "JSON schema. Filename from SCHEMA folder or inline text.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Additional Prompt", "AP", "Optional plain text appended verbatim to the end of the assembled prompt. Never resolved as a filename.", GH_ParamAccess.item, string.Empty);
+        pManager[2].Optional = true;
     }
 
     /// <inheritdoc/>
@@ -100,14 +103,16 @@ public class SystemPrompt : PhyBase, IPickableValuesSource
 
         string preamble = string.Empty;
         string schema = string.Empty;
+        string additional = string.Empty;
 
         DA.GetData(0, ref preamble);
         DA.GetData(1, ref schema);
+        DA.GetData(2, ref additional);
 
         string resolvedPreamble = Resolve(preamble, SubfolderPreamble);
         string resolvedSchema = Resolve(schema, SubfolderSchema);
 
-        string systemPrompt = Assemble(resolvedPreamble, resolvedSchema);
+        string systemPrompt = Assemble(resolvedPreamble, resolvedSchema, additional);
 
         DA.SetData(0, resolvedSchema);
         DA.SetData(1, systemPrompt);
@@ -192,7 +197,7 @@ public class SystemPrompt : PhyBase, IPickableValuesSource
         });
     }
 
-    private static string Assemble(string preamble, string schema)
+    private static string Assemble(string preamble, string schema, string additional)
     {
         var parts = new List<string>();
 
@@ -204,6 +209,9 @@ public class SystemPrompt : PhyBase, IPickableValuesSource
             parts.Add("Your response must be valid JSON that conforms exactly to the following schema:");
             parts.Add(schema.Trim());
         }
+
+        if (!string.IsNullOrWhiteSpace(additional))
+            parts.Add(additional.Trim());
 
         return string.Join("\n\n", parts);
     }

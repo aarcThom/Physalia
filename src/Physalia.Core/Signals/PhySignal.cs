@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 
 namespace Physalia.Core.Signals;
@@ -54,6 +55,29 @@ public sealed record PhySignal(
     public Instructions? Instructions { get; init; }
 
     /// <summary>
+    /// Gets the components this event ultimately came FROM, when that differs from the component
+    /// that minted it. An aggregator (Merge Signal's join, the Feedback Collector's batch) and an
+    /// escalating pass-through (Stall Guard) re-mint under their own identity, which would otherwise
+    /// erase the producer of the text; they carry the trail forward instead. Empty on an original
+    /// mint, where <see cref="SourceId"/>/<see cref="SourceName"/> ARE the origin — read
+    /// <see cref="OriginTrail"/> rather than this, and never branch on it.
+    ///
+    /// <para>Provenance, not a carrier: it sits with <see cref="SourceId"/>, <see cref="SourceName"/>
+    /// and <see cref="Timestamp"/> as trace metadata about the event, and holds no data the pipeline
+    /// acts on. The carrier discipline above is untouched — Payload, ContentBlocks and Instructions
+    /// remain the only things a signal carries.</para>
+    /// </summary>
+    public IReadOnlyList<ComponentOrigin> Origins { get; init; } = Array.Empty<ComponentOrigin>();
+
+    /// <summary>
+    /// Gets the origin trail to attribute this event to: <see cref="Origins"/> when it was carried
+    /// forward through an aggregator, else the emitting component itself. Always at least one entry,
+    /// so callers never special-case an original mint.
+    /// </summary>
+    public IReadOnlyList<ComponentOrigin> OriginTrail =>
+        Origins.Count > 0 ? Origins : new[] { new ComponentOrigin(SourceId, SourceName) };
+
+    /// <summary>
     /// Mints a new signal with the next global sequence number. This is the only way a
     /// sequence is assigned — callers can never reuse or fabricate sequence numbers.
     /// </summary>
@@ -63,11 +87,17 @@ public sealed record PhySignal(
     /// <param name="sourceName">Display name of the emitting component.</param>
     /// <param name="contentBlocks">Optional resolved content blocks; null is normalised to empty.</param>
     /// <param name="instructions">Optional full inference context carried by the event (Conversation Log→LLM Call); null otherwise.</param>
+    /// <param name="origins">
+    /// Optional trail of the components this event ultimately came from, for a signal that re-mints
+    /// someone else's event (an aggregator, an escalating pass-through); null on an original mint,
+    /// where the emitting component is the origin.
+    /// </param>
     /// <returns>A freshly sequenced signal.</returns>
-    public static PhySignal Mint(SignalOutcome outcome, string? payload, Guid sourceId, string sourceName, IReadOnlyList<MessageContent>? contentBlocks = null, Instructions? instructions = null) =>
+    public static PhySignal Mint(SignalOutcome outcome, string? payload, Guid sourceId, string sourceName, IReadOnlyList<MessageContent>? contentBlocks = null, Instructions? instructions = null, IReadOnlyList<ComponentOrigin>? origins = null) =>
         new(SignalSequencer.Next(), outcome, payload ?? string.Empty, sourceId, sourceName, DateTime.UtcNow)
         {
             ContentBlocks = contentBlocks ?? Array.Empty<MessageContent>(),
             Instructions = instructions,
+            Origins = origins ?? Array.Empty<ComponentOrigin>(),
         };
 }

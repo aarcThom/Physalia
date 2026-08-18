@@ -116,7 +116,10 @@ public class StallGuard : StatefulComponentBase
                     BuildEscalation(limit) + Environment.NewLine + Environment.NewLine + signal.Payload,
                     InstanceGuid,
                     Name,
-                    signal.ContentBlocks.Count > 0 ? signal.ContentBlocks : null);
+                    signal.ContentBlocks.Count > 0 ? signal.ContentBlocks : null,
+                    // Re-minted under this component's identity, so the producer of the failure it is
+                    // escalating rides along rather than being replaced by the guard.
+                    origins: signal.OriginTrail);
             }
             else
             {

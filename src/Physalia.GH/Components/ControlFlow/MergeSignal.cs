@@ -195,7 +195,9 @@ public class MergeSignal : StatefulComponentBase, IGH_VariableParameterComponent
         _mergedCount = parts.Count;
         _held.Clear();
 
-        LatchSuccess(payload, emitSignal: true, outcome: outcome, contentBlocks: blocks.Count > 0 ? blocks : null, instructions: instructions);
+        // origins: the join is minted under this component's identity, so every branch's producer
+        // rides along — a merged feedback turn is badged with all of them, not with "Merge Signal".
+        LatchSuccess(payload, emitSignal: true, outcome: outcome, contentBlocks: blocks.Count > 0 ? blocks : null, instructions: instructions, origins: combined.Origins);
     }
 
     private static string InputName(int index) => $"Signal {index + 1}";

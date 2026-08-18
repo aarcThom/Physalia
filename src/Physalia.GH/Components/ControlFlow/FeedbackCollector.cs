@@ -101,7 +101,9 @@ public class FeedbackCollector : StatefulComponentBase
             AggregatedContent combined = SignalAggregation.Combine(_batch, Environment.NewLine);
             IReadOnlyList<MessageContent> blocks = combined.ContentBlocks;
 
-            LatchSuccess(combined.Payload, emitSignal: true, outcome: outcome, contentBlocks: blocks.Count > 0 ? blocks : null);
+            // origins: the batch is minted under this component's identity, so the producers of the
+            // batched feedback ride along — that is what the chat window badges a feedback turn with.
+            LatchSuccess(combined.Payload, emitSignal: true, outcome: outcome, contentBlocks: blocks.Count > 0 ? blocks : null, origins: combined.Origins);
             _batch = new List<PhySignal>();
 
             bool more;

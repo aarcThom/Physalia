@@ -14,7 +14,15 @@ namespace Physalia.Core.Signals;
 /// The combined blocks, or empty when no part carried any (the ordinary text-only case, in which
 /// the payload is the sole carrier).
 /// </param>
-public sealed record AggregatedContent(string Payload, IReadOnlyList<MessageContent> ContentBlocks);
+/// <param name="Origins">
+/// Every component the aggregated parts ultimately came from, in the order given and deduplicated
+/// by guid. The aggregate is re-minted under the aggregator's own identity, so this is the only
+/// thing left that names the components that actually produced the text.
+/// </param>
+public sealed record AggregatedContent(
+    string Payload,
+    IReadOnlyList<MessageContent> ContentBlocks,
+    IReadOnlyList<ComponentOrigin> Origins);
 
 /// <summary>
 /// Pure policy for combining several signals into one, shared by every component that aggregates
@@ -46,7 +54,7 @@ public static class SignalAggregation
     /// decision, and both the payload and the blocks are built in the order given.
     /// </param>
     /// <param name="separator">The string placed between two non-blank payloads.</param>
-    /// <returns>The joined payload and the combined blocks.</returns>
+    /// <returns>The joined payload, the combined blocks, and the combined origin trail.</returns>
     public static AggregatedContent Combine(IReadOnlyList<PhySignal> parts, string separator)
     {
         ArgumentNullException.ThrowIfNull(parts);
@@ -56,10 +64,22 @@ public static class SignalAggregation
             separator,
             parts.Select(s => s.Payload).Where(StringHelpers.IsNonBlank));
 
+        // Provenance survives aggregation: the aggregate is minted under the aggregator's identity,
+        // so without this the component that produced the text can no longer be named.
+        var origins = new List<ComponentOrigin>();
+        var seen = new HashSet<Guid>();
+        foreach (ComponentOrigin origin in parts.SelectMany(s => s.OriginTrail))
+        {
+            if (seen.Add(origin.Id))
+            {
+                origins.Add(origin);
+            }
+        }
+
         // No part carried blocks: leave the aggregate text-only rather than inventing a block list.
         if (!parts.Any(s => s.ContentBlocks.Count > 0))
         {
-            return new AggregatedContent(payload, Array.Empty<MessageContent>());
+            return new AggregatedContent(payload, Array.Empty<MessageContent>(), origins);
         }
 
         var blocks = new List<MessageContent>();
@@ -78,6 +98,6 @@ public static class SignalAggregation
             }
         }
 
-        return new AggregatedContent(payload, blocks);
+        return new AggregatedContent(payload, blocks, origins);
     }
 }

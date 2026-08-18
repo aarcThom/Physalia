@@ -4,6 +4,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -16,6 +18,7 @@ using Eto.Forms;
 using Grasshopper;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
+using Physalia.Core.Common;
 using Physalia.Core.Config;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Grounding;
@@ -124,6 +127,12 @@ public class ChatWindow : Form
     // the canvas widget focuses, so the widget is a way back to placement rather than a jump into
     // whichever conversation happened to be found first.
     private bool _home;
+
+    // Component-icon PNGs (as data URIs) for the feedback-turn badges, keyed by instance guid.
+    // Per window rather than static: a guid is only unique within a document, and the icon is
+    // resolved through the viewed Chat's document.
+    private readonly Dictionary<Guid, string?> _sourceIcons = new();
+
     private readonly WebView _webView;
     private readonly UITimer _timer;
 
@@ -2237,8 +2246,8 @@ public class ChatWindow : Form
             : Path.Combine(assemblyDir, "Files", "API_KEY_CONFIG.YAML");
     }
 
-    // Maps the committed conversation to the UI message shape (text / images / tool calls).
-    private static List<UiMessage> BuildMessages(Conversation? convo)
+    // Maps the committed conversation to the UI message shape (text / images / tool calls / sources).
+    private List<UiMessage> BuildMessages(Conversation? convo)
     {
         var messages = new List<UiMessage>();
         if (convo is null)
@@ -2314,10 +2323,72 @@ public class ChatWindow : Form
                 string.Join("\n\n", textParts),
                 images.Count > 0 ? images : null,
                 tools.Count > 0 ? tools : null,
-                message.IsFeedback));
+                message.IsFeedback,
+                BuildSources(message.Sources)));
         }
 
         return messages;
+    }
+
+    // Resolves a turn's origin trail into what the UI badges it with: the node's CURRENT nickname
+    // and icon, looked up live in this Chat's document (which, inside a harness, is the harness
+    // sub-document the whole pipeline lives in). The trail's recorded name is the fallback for a
+    // component that has since been deleted — a turn already in the log must keep its attribution.
+    private List<UiSource>? BuildSources(IReadOnlyList<ComponentOrigin> origins)
+    {
+        if (origins.Count == 0)
+        {
+            return null;
+        }
+
+        var sources = new List<UiSource>(origins.Count);
+        GH_Document? doc = _component.OnPingDocument();
+        foreach (ComponentOrigin origin in origins)
+        {
+            IGH_DocumentObject? obj = doc?.FindObject(origin.Id, false);
+            string name = obj is null
+                ? origin.Name
+                : string.IsNullOrWhiteSpace(obj.NickName) ? obj.Name : obj.NickName;
+            sources.Add(new UiSource(name, IconDataUri(origin.Id, obj)));
+        }
+
+        return sources;
+    }
+
+    // A component icon as a data URI, encoded once per component and cached: the history is rebuilt
+    // on every conversation change, and re-encoding a PNG per feedback turn per push is pure waste.
+    // Only a resolved lookup is cached, so a component found later still gets its icon.
+    private string? IconDataUri(Guid id, IGH_DocumentObject? obj)
+    {
+        if (_sourceIcons.TryGetValue(id, out string? cached))
+        {
+            return cached;
+        }
+
+        if (obj is null)
+        {
+            return null;
+        }
+
+        string? uri = null;
+        try
+        {
+            Bitmap? icon = obj.Icon_24x24;
+            if (icon is not null)
+            {
+                using var buffer = new MemoryStream();
+                icon.Save(buffer, ImageFormat.Png);
+                uri = "data:image/png;base64," + Convert.ToBase64String(buffer.ToArray());
+            }
+        }
+        catch (Exception)
+        {
+            // An icon is decoration: a component whose bitmap cannot be read still gets its name.
+            uri = null;
+        }
+
+        _sourceIcons[id] = uri;
+        return uri;
     }
 
     private static UiTool BuildTool(ToolCallContent call, IReadOnlyDictionary<string, ToolResultContent> results)
@@ -2380,7 +2451,12 @@ public class ChatWindow : Form
         string Text,
         IReadOnlyList<UiImage>? Images,
         IReadOnlyList<UiTool>? Tools,
-        bool Feedback);
+        bool Feedback,
+        IReadOnlyList<UiSource>? Sources);
+
+    // The component a turn came from, as the UI shows it: nickname plus its icon as a data URI
+    // (null when the node is gone or its bitmap could not be read).
+    private sealed record UiSource(string Name, string? Icon);
 
     private sealed record SubmitImage(string Base64, string MediaType, string Filename);
 

@@ -120,7 +120,7 @@ public static class ConversationLogBuilder
                     // blocks but a blank payload, so check blocks first.
                     if (signal.ContentBlocks.Count > 0)
                     {
-                        RecordUserBlocks(WithPayloadText(signal), signal.Payload);
+                        RecordUserBlocks(WithPayloadText(signal), signal.Payload, sources: signal.OriginTrail);
                         break;
                     }
 
@@ -130,7 +130,7 @@ public static class ConversationLogBuilder
                         break;
                     }
 
-                    RecordUserText(signal.Payload);
+                    RecordUserText(signal.Payload, sources: signal.OriginTrail);
                     break;
 
                 case RecordedTurnKind.Feedback:
@@ -139,7 +139,7 @@ public static class ConversationLogBuilder
                     // An image-only feedback turn has blocks but a blank payload, so check blocks first.
                     if (signal.ContentBlocks.Count > 0)
                     {
-                        RecordUserBlocks(WithPayloadText(signal), signal.Payload, isFeedback: true);
+                        RecordUserBlocks(WithPayloadText(signal), signal.Payload, isFeedback: true, sources: signal.OriginTrail);
                         break;
                     }
 
@@ -149,7 +149,7 @@ public static class ConversationLogBuilder
                         break;
                     }
 
-                    RecordUserText(signal.Payload, isFeedback: true);
+                    RecordUserText(signal.Payload, isFeedback: true, sources: signal.OriginTrail);
                     break;
 
                 case RecordedTurnKind.Tool:
@@ -183,7 +183,7 @@ public static class ConversationLogBuilder
 
             if (resultBlocks.Count > 0)
             {
-                RecordUserBlocks(resultBlocks, signal.Payload);
+                RecordUserBlocks(resultBlocks, signal.Payload, sources: signal.OriginTrail);
                 recorded = true;
             }
 
@@ -271,18 +271,26 @@ public static class ConversationLogBuilder
             return blocks;
         }
 
-        private void RecordUserText(string text, bool isFeedback = false) =>
-            RecordUserBlocks(new MessageContent[] { new TextContent(text) }, text, isFeedback);
+        private void RecordUserText(string text, bool isFeedback = false, IReadOnlyList<ComponentOrigin>? sources = null) =>
+            RecordUserBlocks(new MessageContent[] { new TextContent(text) }, text, isFeedback, sources);
 
-        private void RecordUserBlocks(IReadOnlyList<MessageContent> blocks, string traceText, bool isFeedback = false)
+        private void RecordUserBlocks(
+            IReadOnlyList<MessageContent> blocks,
+            string traceText,
+            bool isFeedback = false,
+            IReadOnlyList<ComponentOrigin>? sources = null)
         {
             try
             {
                 // Merging preserves the strict role alternation providers require when two user-side
                 // events arrive in a row (e.g. a prompt followed by feedback before any assistant turn).
                 Conversation = Conversation.Count > 0 && Conversation.Messages[^1].Role == Role.User
-                    ? Conversation.MergeIntoLastUserMessage(blocks)
-                    : Conversation.Append(new ConversationMessage(Role.User, blocks) { IsFeedback = isFeedback });
+                    ? Conversation.MergeIntoLastUserMessage(blocks, isFeedback, sources)
+                    : Conversation.Append(new ConversationMessage(Role.User, blocks)
+                    {
+                        IsFeedback = isFeedback,
+                        Sources = sources ?? Array.Empty<ComponentOrigin>(),
+                    });
                 Outcome = RecordOutcome.UserTurn;
                 UserTraceText = traceText;
             }

@@ -32,6 +32,14 @@ export interface UiTool {
 	errorText?: string;
 }
 
+/** The component a turn was produced by, as the host resolved it (nickname + icon). */
+export interface UiSource {
+	/** The node's current nickname on the canvas — its recorded name if it has since been deleted. */
+	name: string;
+	/** Its Grasshopper icon as a data: URI, or undefined when the node is gone / had no readable icon. */
+	icon?: string;
+}
+
 /** One committed conversation turn, as pushed by the host. */
 export interface UiMessage {
 	id: string;
@@ -43,6 +51,10 @@ export interface UiMessage {
 	/** True when this user-role turn is auto-generated feedback (validation errors, fix-and-resubmit
 	 *  messages) rather than text the human typed — the UI styles it apart. */
 	feedback?: boolean;
+	/** The pipeline component(s) that produced this turn — what a feedback turn's header names and
+	 *  badges. Several when an aggregated (Merge Signal / Feedback Collector) turn joined branches;
+	 *  absent for a human-typed prompt. */
+	sources?: UiSource[];
 }
 
 /** Connection / busy state of the wired pipeline. */

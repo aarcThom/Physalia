@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 
 namespace Physalia.Core.Compaction;
@@ -174,7 +175,8 @@ public static class CompactionInvariants
     /// <summary>
     /// Merges consecutive same-role messages — which a cut can produce when the dropped span sat
     /// between two turns of the same role — so role alternation holds. Content blocks concatenate
-    /// in order; IsFeedback survives only when both merged turns were feedback.
+    /// in order; IsFeedback survives only when both merged turns were feedback, and the source trails
+    /// union so the merged turn still names every component behind it.
     /// </summary>
     /// <param name="messages">The messages to merge, in order.</param>
     /// <param name="start">The index to start from, skipping any leading assistant turns.</param>
@@ -196,6 +198,7 @@ public static class CompactionInvariants
                 merged[^1] = new ConversationMessage(prev.Role, blocks)
                 {
                     IsFeedback = prev.IsFeedback && message.IsFeedback,
+                    Sources = UnionSources(prev.Sources, message.Sources),
                 };
             }
             else
@@ -205,6 +208,34 @@ public static class CompactionInvariants
         }
 
         return merged;
+    }
+
+    // Deduplicated by guid, order preserved — the same producer on both sides is one badge.
+    private static IReadOnlyList<ComponentOrigin> UnionSources(
+        IReadOnlyList<ComponentOrigin> first,
+        IReadOnlyList<ComponentOrigin> second)
+    {
+        if (second.Count == 0)
+        {
+            return first;
+        }
+
+        if (first.Count == 0)
+        {
+            return second;
+        }
+
+        var union = new List<ComponentOrigin>(first);
+        var seen = new HashSet<Guid>(first.Select(o => o.Id));
+        foreach (ComponentOrigin origin in second)
+        {
+            if (seen.Add(origin.Id))
+            {
+                union.Add(origin);
+            }
+        }
+
+        return union;
     }
 
     /// <summary>

@@ -8,6 +8,7 @@
 	import Response from '$lib/components/ai-elements/response/response.svelte';
 	import Image from '$lib/components/ai-elements/image/image.svelte';
 	import AssistantTurnGroup from '$lib/chat/AssistantTurnGroup.svelte';
+	import FeedbackTurn from '$lib/chat/FeedbackTurn.svelte';
 	import Composer from '$lib/chat/Composer.svelte';
 	import Setup from '$lib/chat/Setup.svelte';
 	import Preset from '$lib/chat/Preset.svelte';
@@ -745,29 +746,41 @@
 				</div>
 			{/if}
 
+			<!-- The body of a user-side turn. Shared, because a feedback turn renders exactly the same
+			     images and bubble — only behind a collapsed header naming the component that spoke. -->
+			{#snippet userBody(message: UiMessage)}
+				{#if message.images?.length}
+					<div class="flex flex-wrap justify-end gap-2">
+						{#each message.images as image, i (i)}
+							<Image
+								base64={image.base64}
+								mediaType={image.mediaType}
+								alt="attachment"
+								class="neu-raised-sm max-h-48 w-auto rounded-lg"
+							/>
+						{/each}
+					</div>
+				{/if}
+				{#if message.text}
+					<MessageContent>
+						<!-- break-words + hyphens-auto: unbreakable runs (checksums, ids, URLs)
+						     split inside the bubble instead of overflowing it sideways. -->
+						<div class="whitespace-pre-wrap break-words hyphens-auto">
+							{message.text}
+						</div>
+					</MessageContent>
+				{/if}
+			{/snippet}
+
 			{#each groups as group (group.key)}
 				{#if group.kind === 'user'}
 					<Message from="user" feedback={group.message.feedback}>
-						{#if group.message.images?.length}
-							<div class="flex flex-wrap justify-end gap-2">
-								{#each group.message.images as image, i (i)}
-									<Image
-										base64={image.base64}
-										mediaType={image.mediaType}
-										alt="attachment"
-										class="neu-raised-sm max-h-48 w-auto rounded-lg"
-									/>
-								{/each}
-							</div>
-						{/if}
-						{#if group.message.text}
-							<MessageContent>
-								<!-- break-words + hyphens-auto: unbreakable runs (checksums, ids, URLs)
-								     split inside the bubble instead of overflowing it sideways. -->
-								<div class="whitespace-pre-wrap break-words hyphens-auto">
-									{group.message.text}
-								</div>
-							</MessageContent>
+						{#if group.message.feedback}
+							<FeedbackTurn sources={group.message.sources}>
+								{@render userBody(group.message)}
+							</FeedbackTurn>
+						{:else}
+							{@render userBody(group.message)}
 						{/if}
 					</Message>
 				{:else}

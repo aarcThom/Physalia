@@ -7,6 +7,7 @@ using System.Linq;
 using System.Windows.Forms;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Types;
+using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Signals;
 using Physalia.GH.Goo;
@@ -326,10 +327,15 @@ public abstract class StatefulComponentBase : PhyBase
     /// Optional full inference context carried by the minted signal — the Conversation Log→LLM Call hop, and a
     /// compaction component re-emitting compacted context. Null for the common case.
     /// </param>
-    protected void LatchSuccess(string payload, bool emitSignal = true, SignalOutcome outcome = SignalOutcome.Success, IReadOnlyList<MessageContent>? contentBlocks = null, Instructions? instructions = null)
+    /// <param name="origins">
+    /// Optional trail of the components the event ultimately came from, for a component that re-mints
+    /// someone else's event (an aggregator's join or batch). Null when this component IS the origin,
+    /// which is every ordinary case.
+    /// </param>
+    protected void LatchSuccess(string payload, bool emitSignal = true, SignalOutcome outcome = SignalOutcome.Success, IReadOnlyList<MessageContent>? contentBlocks = null, Instructions? instructions = null, IReadOnlyList<ComponentOrigin>? origins = null)
     {
         State = SolveState.SolveSuccess;
-        SuccessSignal = emitSignal ? PhySignal.Mint(outcome, payload, InstanceGuid, Name, contentBlocks, instructions) : null;
+        SuccessSignal = emitSignal ? PhySignal.Mint(outcome, payload, InstanceGuid, Name, contentBlocks, instructions, origins) : null;
         FailSignal = null;
         UpdateStateDisplay();
     }

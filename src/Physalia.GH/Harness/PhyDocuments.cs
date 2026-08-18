@@ -76,8 +76,9 @@ internal static class PhyDocuments
     /// <summary>
     /// Resolves the harness a pipeline component lives in — its identity as one line of work, which is
     /// what per-pipeline state is filed under (the master group it writes into, the canvas frame the
-    /// model is reading). Null for a component that is not inside a harness, which the residency guard
-    /// makes a transient state rather than a supported one.
+    /// model is reading). Null for a component placed straight onto the canvas rather than into a
+    /// harness, which is allowed: everything keyed on the harness falls back to an unscoped default
+    /// (the master group loses its per-harness suffix, the chat switcher sorts it ahead of the rest).
     /// </summary>
     /// <param name="obj">The document object, typically the calling component.</param>
     /// <returns>The owning harness, or null.</returns>

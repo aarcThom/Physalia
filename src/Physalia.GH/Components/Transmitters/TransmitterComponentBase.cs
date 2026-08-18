@@ -19,8 +19,9 @@ namespace Physalia.GH.Components;
 /// proxy grows a grip for each one inside it.
 ///
 /// <para>What such a transmitter shares lives here: the payload comes off the consumed signal, the
-/// node itself is drawn plain (the drag arrow belongs to the proxy, on the canvas the targets are
-/// on), and the arrow's coordinates are measured from that proxy. What differs — the label and
+/// drag arrow is hosted by the proxy whenever there is one (and by the node itself when it is
+/// standing on the canvas — see <see cref="OutletArrowAttrib"/>), and the arrow's coordinates are
+/// measured from whichever of the two it hangs off. What differs — the label and
 /// colour of the grip, where its settled wires land, what a drop means, and of course the push
 /// itself — is left to the subclass. Those that push into an EXISTING component on the canvas share
 /// a second tier, <see cref="ScriptTransmitterBase"/>.</para>
@@ -61,20 +62,20 @@ public abstract class TransmitterComponentBase : RoutingComponentBase<string>, I
     /// Gets the canvas point this transmitter's arrow geometry is measured from: the harness
     /// proxy's pivot, because that is the node the arrow is drawn from and it shares a coordinate
     /// space with the drop point. Falls back to this component's own pivot when it is not in a
-    /// harness (the arrow is then unreachable, but an offset stored before the move still resolves
-    /// sensibly).
+    /// harness, which is then the node the arrow is drawn from — same rule, one level down.
     /// </summary>
     protected PointF ArrowAnchor =>
         HarnessComponent.OwnerOf(OnPingDocument())?.Attributes?.Pivot ?? Attributes.Pivot;
 
     /// <inheritdoc/>
     /// <remarks>
-    /// A plain node: the drag arrow lives on the harness proxy, which sits on the canvas this
-    /// transmitter writes to (see <see cref="IHarnessOutlet"/>).
+    /// Inside a harness this is a plain node — the drag arrow lives on the proxy, which sits on the
+    /// canvas this transmitter writes to (see <see cref="IHarnessOutlet"/>). Standing alone on that
+    /// canvas there is no proxy to host it, so the same attribute grows the grip back onto the node.
     /// </remarks>
     public override void CreateAttributes()
     {
-        m_attributes = new PhyComponentAttributes(this);
+        m_attributes = new OutletArrowAttrib(this, this);
     }
 
     /// <inheritdoc/>

@@ -16,8 +16,9 @@ namespace Physalia.GH.Attributes;
 /// shared <see cref="ArrowGrip"/> wire rendering and drag state machine on top of
 /// <see cref="BottomGripAttributes"/>: subclasses supply only the arrow's colour, endpoints, and
 /// drop behaviour (through <see cref="IArrowHost"/>), and optionally a custom drag hit test via
-/// <see cref="TryStartDrag"/>. The link attributes and the Component Transmitter derive from this;
-/// the collapsed-harness Chat proxy reuses the same <see cref="ArrowGrip"/> by composition.
+/// <see cref="TryStartDrag"/>. The link attributes and <see cref="OutletArrowAttrib"/> derive from
+/// this; the harness proxy reuses the same <see cref="ArrowGrip"/> by composition instead, because
+/// it hosts one arrow per outlet rather than a single one.
 /// </summary>
 public abstract class ArrowAttributeBase : BottomGripAttributes, IArrowHost
 {

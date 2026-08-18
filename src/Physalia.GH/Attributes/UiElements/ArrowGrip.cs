@@ -10,10 +10,10 @@ namespace Physalia.GH.Attributes.UiElements;
 
 /// <summary>
 /// Supplies an <see cref="ArrowGrip"/> with everything it needs to draw and commit a drag arrow.
-/// Implemented by the host attribute (Feedback/PyTransmitter/ZoomGuid via <c>GripLinkAttrib</c>,
-/// the Component Transmitter, and the collapsed-harness Chat proxy), which keeps only the parts
-/// that genuinely differ — where the arrow starts, what colour and head it uses, where its settled
-/// ends land, and what a drop means.
+/// Implemented by the host attribute (Feedback/Script I/O via <c>GripLinkAttrib</c>, a transmitter
+/// standing on the canvas via <c>OutletArrowAttrib</c>, and the harness proxy, which hosts one per
+/// outlet inside it), which keeps only the parts that genuinely differ — where the arrow starts,
+/// what colour and head it uses, where its settled ends land, and what a drop means.
 /// </summary>
 public interface IArrowHost
 {
@@ -69,7 +69,7 @@ public interface IArrowHost
 /// is drawn by the host (see <c>BottomGripAttributes</c>); this controller owns only the wires and
 /// the drag. Hosts forward their render/mouse calls to it, supplying their specifics through
 /// <see cref="IArrowHost"/>. This is the single place the arrow draw + drag logic lives, shared by
-/// the link attributes, the Component Transmitter, and the collapsed-harness proxy.
+/// the link attributes, a canvas-resident transmitter, and the harness proxy.
 /// </summary>
 public sealed class ArrowGrip
 {

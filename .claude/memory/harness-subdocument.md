@@ -1,11 +1,11 @@
 ---
 name: harness-subdocument
-description: "The Harness is a real owned GH sub-document and the plug-in's base unit — every Physalia component lives inside one"
+description: "The Harness is a real owned GH sub-document and the plug-in's base unit — where a Physalia pipeline belongs, though components may also sit bare on the canvas"
 metadata: 
   node_type: memory
   type: project
   originSessionId: 8ba6eaa2-c1c1-4bb2-9487-ac5379251e1f
-  modified: 2026-08-17T08:20:59.732Z
+  modified: 2026-08-17T12:00:00.000Z
 ---
 
 Built 2026-08-08 (replaces the in-place "collapsible harness" entirely). Related: [[chat-window]],
@@ -27,7 +27,7 @@ window** on the Chat inside (the proxy stands in for that Chat, so it answers th
 pipeline never exchanges *dataflow* with the user's canvas — it only *scans* it (grounders, guardrails)
 and *writes to it by side effect* (placement). So nothing crosses the boundary as a wire.
 
-Files: `HarnessComponent.cs`, `PhyDocuments.cs`, `HarnessResidency.cs`, `IHarnessOutlet.cs`,
+Files: `HarnessComponent.cs`, `PhyDocuments.cs`, `IHarnessOutlet.cs`,
 `Attributes/HarnessAttrib.cs`, `Widgets/HarnessReturnWidget.cs`,
 `Components/Transmitters/{TransmitterComponentBase,ScriptTransmitterBase,TransmitterLink,TextTransmitter}.cs`.
 
@@ -97,23 +97,23 @@ host-resolution at our call sites does NOT reach it. The library is reference-on
   `GetOptions` (false). This was a **grounding** bug as much as a placement one: inside a harness the
   model was handed an empty canvas.
 
-## Residency: Physalia components must live in a harness
+## Residency: RETIRED 2026-08-17 — components may sit on the canvas again
 
-`HarnessResidency`, hooked from `PhyBase.AddedToDocument` (every subclass override already called base).
-A `PhyBase` that is not a `HarnessComponent` and lands outside a harness is **removed on the next idle
-pass**, reason written to the Rhino command line. Deliberately not undoable — an undo would re-add it
-and trip the guard again. Four exemptions:
+`HarnessResidency` is **deleted**, along with its `PhyBase.AddedToDocument` hook. It used to remove a
+`PhyBase` that landed outside a harness on the next idle pass, with four exemptions (the proxy itself,
+anything already in a harness, `GhJsonBridge.IsImporting`, and anything added to a non-canvas document —
+that last one being how a file load was told apart from a user placement; *`GH_Document.Context` looks
+like the natural signal but its own SDK docs say it is a setter, not a getter*). All of that is gone.
 
-1. `HarnessComponent` itself.
-2. Anything already in a harness document.
-3. `GhJsonBridge.IsImporting`.
-4. **Anything added to a document that is not the canvas document** — this is how a file load is told
-   apart from a user placement (GH reads every object in before handing the document to the canvas).
-   *`GH_Document.Context` looks like the natural signal but its own SDK docs say it is a setter, not a
-   getter — do not use it for this.*
+**Nothing needed repairing to allow it**, which is worth knowing: every harness-keyed path was already
+nullable. `PhyDocuments.Host()` on a canvas-resident component returns the canvas itself,
+`PhyDocuments.Harness()` is `HarnessComponent?` at every call site, `GhJsonBridge.MasterGroupName(null)`
+falls back to the unsuffixed `"Physalia"` group, and `ChatWindow.HarnessOf`/`HarnessPivot` already sorted
+harness-less Chats ahead of the rest ("loose on the canvas in a pre-harness file"). The ONLY thing that
+actually broke was the transmitter drag arrow — see the next section.
 
-The idle deferral also re-checks each queued component, so anything swept into a harness meanwhile is
-spared. Pre-harness files load untouched; migrate by opening a harness and pasting the pipeline in.
+A stray still gives up the harness's affordances: the proxy's Chat-emoji row, presets, the Edit-Harness
+canvas, and group-scoped grounding keyed per pipeline (it shares the unsuffixed master group).
 
 ## Arrows live on the proxy — one grip per transmitter (variable outlets, 2026-08-10)
 
@@ -122,6 +122,25 @@ Transmitters draw no arrow (`PyTransmitterAttrib` / `CompTxAttrib` deleted; both
 **a drag cannot cross two canvases**. `ComponentTransmitter`'s placement offset is measured from the
 **proxy's** pivot (`ArrowAnchor`, now on `TransmitterComponentBase`). For the same reason the script
 transmitters carry a **"Link to Script Component" menu picker** over the host canvas.
+
+**…unless there is no proxy (2026-08-17).** A transmitter placed straight on the canvas shares one
+document with its targets, so the drag has nowhere to cross and the grip comes back onto the node:
+`Attributes/OutletArrowAttrib.cs`, an `ArrowAttributeBase` adapting `IHarnessOutlet` — the same three
+members (`OutletGradient`, `GetArrowEndpoints`, `HandleDrop`) the proxy's `OutletHandle` drives, so an
+outlet answers them identically either way. Used by `TransmitterComponentBase.CreateAttributes` and by
+`TextTransmitter` (which implements `IHarnessOutlet` directly).
+
+Two decisions worth keeping:
+- **One attribute, residency read LIVE** (`OwnsArrow`, per layout and per frame) rather than picking a
+  class at construction — attributes are built before the component reaches a document, so at
+  `CreateAttributes` time there is nothing to branch on. Inside a harness it draws no grip, expands no
+  pick region (`ExpandForGrip` passes the rect through) and refuses `TryStartDrag`, so the proxy stays
+  the only arrow.
+- **Bottom-centre grip, not the right edge** the proxy uses: a transmitter is a `RoutingComponentBase`
+  whose right edge already carries Success/Fail Signal outputs.
+
+`ArrowAnchor` needed no change — it already fell back to the component's own pivot, which is now the
+node the arrow really hangs off rather than a dead fallback.
 
 **A harness has as many outputs as it has transmitters.** `IHarnessOutlet` (was `IHarnessArrow`) is
 the base transmitter output type: `OutletLabel` (the short tag drawn beside the grip — `"node"`,

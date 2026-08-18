@@ -83,6 +83,16 @@ public class TextTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
     public override Guid ComponentGuid => new Guid("B7D4E9F1-3C60-4A2E-95B8-1F0C7A6D2E43");
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Inside a harness the "text" grip lives on the proxy, so this draws a plain node; standing
+    /// alone on the canvas the same attribute grows the grip back onto the node itself.
+    /// </remarks>
+    public override void CreateAttributes()
+    {
+        m_attributes = new Attributes.OutletArrowAttrib(this, this);
+    }
+
+    /// <inheritdoc/>
     public string OutletLabel => "text";
 
     /// <inheritdoc/>

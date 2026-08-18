@@ -14,11 +14,15 @@ namespace Physalia.GH.Harness;
 /// the canvas, so what leaves it is never a wire's worth of data, only a transmitter's reach onto
 /// the document it writes to.
 ///
-/// <para>Transmitters draw no arrow of their own. They live inside a harness document, while the
-/// things their arrow points at — a script component to link, a free point to place a generated
-/// graph at — live on the host canvas, and a drag cannot cross two canvases. So the proxy carries
-/// the grips and forwards each drag to the outlet it belongs to, which puts the gesture on the
-/// canvas where the target actually is.</para>
+/// <para>Inside a harness a transmitter draws no arrow of its own. It lives in the sub-document,
+/// while the things its arrow points at — a script component to link, a free point to place a
+/// generated graph at — live on the host canvas, and a drag cannot cross two canvases. So the proxy
+/// carries the grips and forwards each drag to the outlet it belongs to, which puts the gesture on
+/// the canvas where the target actually is.</para>
+///
+/// <para>A transmitter placed straight onto that canvas has no proxy to borrow, and needs none: it
+/// and its targets share one document. There <c>OutletArrowAttrib</c> puts the grip back on the node
+/// and drives the same three members, so an outlet answers them the same way either way.</para>
 ///
 /// <para>The proxy grows ONE grip per outlet, stacked down its right edge in the order the
 /// transmitters are laid out inside the harness, each labelled and coloured by the outlet itself —

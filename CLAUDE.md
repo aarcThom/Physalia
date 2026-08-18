@@ -118,11 +118,21 @@ proxy node; the entire Physalia pipeline — Chat included — lives inside it. 
 double-click opens the chat window on the Chat inside. It needs no cluster input/output hooks: a
 pipeline never exchanges *dataflow* with the canvas, it only scans it and writes to it by side effect.
 
-- **Every Physalia component must live in a harness.** `HarnessResidency` (hooked from
-  `PhyBase.AddedToDocument`) removes a stray on the next idle pass and says why on the Rhino command
-  line. Exempt: the proxy itself, anything already inside a harness, `GhJsonBridge.IsImporting`, and
-  anything added to a document that is not the canvas document (that is how a file load is told apart
-  from a user placement — existing files are left alone).
+- **A harness is where a pipeline belongs, not where it is forced to be.** Placing a Physalia
+  component straight onto the user's canvas is legal (the `HarnessResidency` guard, which used to
+  delete strays on the next idle pass, is **deleted** — 2026-08-17). Nothing needs repairing for
+  that case: `PhyDocuments.Host()` on a canvas-resident component returns the canvas itself,
+  `PhyDocuments.Harness()` is nullable everywhere it is consumed, `MasterGroupName(null)` falls back
+  to the unsuffixed `"Physalia"` group, and the chat switcher already sorts harness-less Chats ahead
+  of the rest. What a stray gives up is the harness's own affordances — the proxy's icon row, presets,
+  the Edit-Harness canvas, group-scoped grounding keyed per pipeline.
+- **A transmitter outside a harness hosts its own drag arrow.** The arrow normally lives on the proxy
+  because a drag cannot cross two documents; standing on the canvas there is only one document and no
+  proxy, so `OutletArrowAttrib` (an `ArrowAttributeBase` adapting `IHarnessOutlet`) puts the grip back
+  on the node — bottom-centre, since the right edge already carries the Signal outputs. One attribute
+  covers both cases and reads residency **live** per layout/frame (`OwnsArrow`), because attributes are
+  built before the component reaches a document; inside a harness it draws no grip, expands no pick
+  region and starts no drag. Used by `TransmitterComponentBase` and by `TextTransmitter`.
 - **`OnPingDocument()` inside a harness returns the SUB-document.** Use `PhyDocuments.Host(this)` /
   `ActiveHost()` for anything meaning "the user's canvas" (grounding, placement, reports, memory
   scope); keep `ScheduleSolution`/`NewSolution` and co-resident peer lookups on the local document.

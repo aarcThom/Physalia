@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using Physalia.Core.ConvoInstruct;
@@ -22,6 +22,59 @@ public class ToolBatchRunnerTests
         var ids = batch.Blocks.Cast<ToolResultContent>().Select(b => b.ToolCallId).ToArray();
         Assert.Equal(new[] { "1", "2" }, ids);
         Assert.Equal(string.Join(Environment.NewLine, "out-1", "out-2"), batch.Payload);
+    }
+
+    [Fact]
+    public void Run_Attachments_LandAfterEveryResult()
+    {
+        // Anthropic requires the tool_result blocks to lead the answering user turn, so an attachment
+        // from the FIRST call must still sort behind the LAST result.
+        var image = new ImageContent(new InlineImage(new byte[] { 9 }, "image/png"));
+
+        ToolBatchResult batch = ToolBatchRunner.Run(
+            new[] { Call("1"), Call("2") },
+            call => call.Id == "1"
+                ? new ToolCallOutcome("out-1", false, new MessageContent[] { image })
+                : new ToolCallOutcome("out-2", false));
+
+        Assert.Equal(3, batch.Blocks.Count);
+        Assert.IsType<ToolResultContent>(batch.Blocks[0]);
+        Assert.IsType<ToolResultContent>(batch.Blocks[1]);
+        Assert.Same(image, batch.Blocks[2]);
+
+        // The payload stays the result text only — an image has no text form.
+        Assert.Equal(string.Join(Environment.NewLine, "out-1", "out-2"), batch.Payload);
+    }
+
+    [Fact]
+    public async Task RunAsync_Attachments_LandAfterEveryResult()
+    {
+        var image = new ImageContent(new InlineImage(new byte[] { 9 }, "image/png"));
+
+        ToolBatchResult? batch = await ToolBatchRunner.RunAsync(
+            new[] { Call("1"), Call("2") },
+            (call, _) => Task.FromResult(call.Id == "1"
+                ? new ToolCallOutcome("out-1", false, new MessageContent[] { image })
+                : new ToolCallOutcome("out-2", false)),
+            CancellationToken.None);
+
+        Assert.NotNull(batch);
+        Assert.Equal(3, batch!.Blocks.Count);
+        Assert.IsType<ToolResultContent>(batch.Blocks[0]);
+        Assert.IsType<ToolResultContent>(batch.Blocks[1]);
+        Assert.Same(image, batch.Blocks[2]);
+    }
+
+    [Fact]
+    public void Run_NoAttachments_ProducesResultsOnly()
+    {
+        // Every ordinary tool: the turn must be byte-for-byte what it was before attachments existed.
+        ToolBatchResult batch = ToolBatchRunner.Run(
+            new[] { Call("1") },
+            _ => new ToolCallOutcome("out", false));
+
+        Assert.Single(batch.Blocks);
+        Assert.IsType<ToolResultContent>(batch.Blocks[0]);
     }
 
     [Fact]

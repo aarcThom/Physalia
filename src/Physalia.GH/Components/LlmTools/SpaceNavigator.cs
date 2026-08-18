@@ -210,6 +210,47 @@ public static class SpaceNavigator
     }
 
     /// <summary>
+    /// The unit direction for an aim given as a compass azimuth and an elevation, in degrees.
+    ///
+    /// <para>This lives here, beside the cone table it is the inverse of, because the Take Snapshot
+    /// tool aims a camera by azimuth while this class names movement by cone — and the two only agree
+    /// if they share ONE bearing convention. Keeping both against the same table means the model can
+    /// carry a single mental compass between walking and looking, and that a change to the convention
+    /// cannot move one tool without the other.</para>
+    /// </summary>
+    /// <param name="azimuthDegrees">Bearing from +Y turning toward +X: 0 forwards, 90 right.</param>
+    /// <param name="elevationDegrees">Tilt: 0 level, positive up, negative down.</param>
+    /// <returns>The unit direction vector.</returns>
+    public static Vector3d Aim(double azimuthDegrees, double elevationDegrees)
+    {
+        double azimuth = azimuthDegrees * Math.PI / 180.0;
+        double elevation = elevationDegrees * Math.PI / 180.0;
+        double horizontal = Math.Cos(elevation);
+
+        return new Vector3d(
+            Math.Sin(azimuth) * horizontal,
+            Math.Cos(azimuth) * horizontal,
+            Math.Sin(elevation));
+    }
+
+    /// <summary>
+    /// The nearest of the eight compass words for an azimuth, so a camera aim can be echoed back in
+    /// the same vocabulary the movement options are listed in.
+    /// </summary>
+    /// <param name="azimuthDegrees">Bearing from +Y turning toward +X.</param>
+    /// <returns>The direction label, e.g. "forwards-right".</returns>
+    public static string BearingLabel(double azimuthDegrees)
+    {
+        double degrees = azimuthDegrees % 360.0;
+        if (degrees < 0)
+        {
+            degrees += 360.0;
+        }
+
+        return Compass[(int)Math.Round(degrees / 45.0) % 8].Label;
+    }
+
+    /// <summary>
     /// Formats a position the way every line of the tool result reports one, so the model sees a
     /// single coordinate style throughout.
     /// </summary>

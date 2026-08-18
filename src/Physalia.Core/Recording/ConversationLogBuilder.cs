@@ -174,8 +174,9 @@ public static class ConversationLogBuilder
             var resultBlocks = blocks.OfType<ToolResultContent>().Cast<MessageContent>().ToList();
 
             bool recorded = false;
+            bool isRequest = requestBlocks.Any(b => b is ToolCallContent);
 
-            if (requestBlocks.Any(b => b is ToolCallContent))
+            if (isRequest)
             {
                 RecordAssistantBlocks(requestBlocks);
                 recorded = true;
@@ -183,6 +184,16 @@ public static class ConversationLogBuilder
 
             if (resultBlocks.Count > 0)
             {
+                // With no tool_use in the signal this is the Router's answering turn, and any
+                // non-result block is an ATTACHMENT a tool sent back beside its result — an image,
+                // in practice, since a tool_result is text on every provider. It belongs in this
+                // same user turn, appended after the results (Anthropic requires the tool_result
+                // blocks to lead it). Dropping it here is how the image used to disappear.
+                if (!isRequest && requestBlocks.Count > 0)
+                {
+                    resultBlocks.AddRange(requestBlocks);
+                }
+
                 RecordUserBlocks(resultBlocks, signal.Payload, sources: signal.OriginTrail);
                 recorded = true;
             }

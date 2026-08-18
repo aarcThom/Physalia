@@ -122,15 +122,39 @@ public static class ToolDispatchRound
     /// <summary>
     /// Combines the collected tool results into the content blocks and trace payload for the single
     /// user turn forwarded to the Conversation Log after the assistant tool_use turn.
+    ///
+    /// <para><b>Attachments carry what a tool_result cannot.</b> A tool result is text on every
+    /// provider — <see cref="ToolResultContent.Content"/> is a string, OpenAI's role:tool message and
+    /// Gemini's functionResponse have nowhere to put an image, and only Anthropic accepts image
+    /// blocks nested inside a tool_result. So a tool that answers with an image (Take Snapshot)
+    /// returns the text result AND the image, and the image rides the same user turn as a sibling
+    /// block. Every provider already renders that correctly: Anthropic puts tool_result and image
+    /// blocks side by side in the one user message, the OpenAI protocol splits the turn into
+    /// role:tool messages plus a role:user message for the rest, and Gemini emits functionResponse
+    /// and inlineData parts together.</para>
+    ///
+    /// <para><b>Order is load-bearing:</b> attachments go AFTER every result, because Anthropic
+    /// requires the tool_result blocks to lead the user message that answers a tool_use turn.</para>
     /// </summary>
     /// <param name="results">The collected tool results, in arrival order.</param>
+    /// <param name="attachments">
+    /// Non-result blocks the tools sent back alongside their results (images, extra text), in arrival
+    /// order. Null or empty leaves the turn exactly as results-only, which is every tool but the
+    /// snapshot ones.
+    /// </param>
     /// <returns>The content blocks and the newline-joined non-blank result text.</returns>
     public static (IReadOnlyList<MessageContent> Blocks, string Payload) CombineResults(
-        IReadOnlyList<ToolResultContent> results)
+        IReadOnlyList<ToolResultContent> results,
+        IReadOnlyList<MessageContent>? attachments = null)
     {
         ArgumentNullException.ThrowIfNull(results);
 
         var blocks = results.Cast<MessageContent>().ToList();
+        if (attachments is { Count: > 0 })
+        {
+            blocks.AddRange(attachments);
+        }
+
         string payload = string.Join(
             Environment.NewLine,
             results.Select(r => r.Content).Where(StringHelpers.IsNonBlank));

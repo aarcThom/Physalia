@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using Physalia.Core.ConvoInstruct;
@@ -176,6 +176,52 @@ public class ConversationLogBuilderTests
         RecordResult result = Record(start, new RecordEvent(RecordedTurnKind.Tool, toolResult));
 
         Assert.IsType<ToolResultContent>(result.Conversation.Messages[^1].Content[0]);
+    }
+
+    [Fact]
+    public void ToolSignal_WithResultAndImage_RecordsOneUserTurn_ImageAfterResult()
+    {
+        // How the Take Snapshot tool answers: a tool_result is text on every provider, so the picture
+        // rides the same user turn as a sibling block. It must be RECORDED (this used to be dropped)
+        // and must come after the result, because Anthropic requires tool_result blocks to lead the
+        // turn that answers a tool_use.
+        Conversation start = Conversation.Empty.Append(new ConversationMessage(Role.User, "q"))
+            .Append(new ConversationMessage(Role.Assistant, "a"));
+        PhySignal snapshot = Blocks(
+            "snapshot taken",
+            new ToolResultContent("id1", "snapshot taken"),
+            new ImageContent(new InlineImage(new byte[] { 1, 2, 3 }, "image/png")));
+
+        RecordResult result = Record(start, new RecordEvent(RecordedTurnKind.Tool, snapshot));
+
+        Assert.Equal(3, result.Conversation.Count);
+        ConversationMessage turn = result.Conversation.Messages[^1];
+        Assert.Equal(Role.User, turn.Role);
+        Assert.Equal(2, turn.Content.Count);
+        Assert.IsType<ToolResultContent>(turn.Content[0]);
+        Assert.IsType<ImageContent>(turn.Content[1]);
+        Assert.Equal(RecordOutcome.UserTurn, result.Outcome);
+    }
+
+    [Fact]
+    public void ToolSignal_WithToolUseAndImage_StillRecordsImageOnTheAssistantTurn()
+    {
+        // The pre-existing shape must not shift: when the signal carries a tool_use, the non-result
+        // blocks belong to that assistant request, not to a user turn.
+        Conversation start = Conversation.Empty.Append(new ConversationMessage(Role.User, "q"));
+        PhySignal mixed = Blocks(
+            "tool ran",
+            new ToolCallContent("id1", "search", "{}"),
+            new TextContent("thinking out loud"),
+            new ToolResultContent("id1", "result"));
+
+        RecordResult result = Record(start, new RecordEvent(RecordedTurnKind.Tool, mixed));
+
+        Assert.Equal(3, result.Conversation.Count);
+        Assert.Equal(Role.Assistant, result.Conversation.Messages[1].Role);
+        Assert.Contains(result.Conversation.Messages[1].Content, b => b is TextContent);
+        Assert.Equal(Role.User, result.Conversation.Messages[2].Role);
+        Assert.Single(result.Conversation.Messages[2].Content);
     }
 
     [Fact]

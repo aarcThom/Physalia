@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -49,6 +49,12 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     // Correctness is by the dispatched id set, not by the timing of independent tool nodes.
     private readonly HashSet<string> _pendingToolUseIds = new(StringComparer.Ordinal);
     private readonly List<ToolResultContent> _collectedResults = new();
+
+    // Blocks a tool sent back ALONGSIDE its tool_result — an image, in practice. A tool result is
+    // text on every provider, so a tool answering with a picture (Take Snapshot) returns both, and
+    // the picture rides the same user turn as a sibling block. Kept separate from the results so it
+    // lands AFTER them: Anthropic requires the tool_result blocks to lead that turn.
+    private readonly List<MessageContent> _collectedAttachments = new();
     private bool _awaitingResults;
 
     /// <summary>
@@ -202,6 +208,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
         _feedbackSignal = null;
         _pendingToolUseIds.Clear();
         _collectedResults.Clear();
+        _collectedAttachments.Clear();
         _awaitingResults = false;
     }
 
@@ -218,6 +225,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
         // before the combined tool_result turn is forwarded.
         _pendingToolUseIds.Clear();
         _collectedResults.Clear();
+        _collectedAttachments.Clear();
         _awaitingResults = true;
 
         // Forward the whole assistant turn (text + tool_use blocks) to the Conversation Log so the model's
@@ -258,10 +266,19 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
         // Accumulate (never forward per-result): each independent tool node returns its own
         // tool_result, but they must arrive at the Conversation Log as ONE user turn. Match by tool_use_id
         // so the dispatched set drains regardless of arrival order.
-        foreach (ToolResultContent result in signal.ContentBlocks.OfType<ToolResultContent>())
+        foreach (MessageContent block in signal.ContentBlocks)
         {
-            _collectedResults.Add(result);
-            _pendingToolUseIds.Remove(result.ToolCallId);
+            if (block is ToolResultContent result)
+            {
+                _collectedResults.Add(result);
+                _pendingToolUseIds.Remove(result.ToolCallId);
+            }
+            else if (block is not ToolCallContent)
+            {
+                // Anything that is not the answer itself and not a re-echoed call: forward it rather
+                // than drop it, or a tool that answers with an image would silently lose the image.
+                _collectedAttachments.Add(block);
+            }
         }
     }
 
@@ -273,10 +290,12 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
         // One combined signal carrying every tool_result — recorded as the single user turn the
         // provider requires after the assistant tool_use turn, firing the LLM Call exactly once.
         _awaitingResults = false;
-        (IReadOnlyList<MessageContent> blocks, string payload) = ToolDispatchRound.CombineResults(_collectedResults);
+        (IReadOnlyList<MessageContent> blocks, string payload) =
+            ToolDispatchRound.CombineResults(_collectedResults, _collectedAttachments);
 
         _feedbackSignal = PhySignal.Mint(SignalOutcome.Success, payload, InstanceGuid, Name, blocks);
         _collectedResults.Clear();
+        _collectedAttachments.Clear();
     }
 
     private void Emit(IGH_DataAccess da)

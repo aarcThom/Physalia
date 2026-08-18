@@ -274,7 +274,7 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
                 async (call, token) =>
                 {
                     ToolCallResult result = await ExecuteCallAsync(call, token).ConfigureAwait(false);
-                    return new ToolCallOutcome(result.Content, result.IsError);
+                    return new ToolCallOutcome(result.Content, result.IsError, result.Attachments);
                 },
                 ct).ConfigureAwait(false);
 
@@ -305,19 +305,28 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
             call =>
             {
                 ToolCallResult result = ExecuteCall(call);
-                return new ToolCallOutcome(result.Content, result.IsError);
+                return new ToolCallOutcome(result.Content, result.IsError, result.Attachments);
             });
 
         _resultSignal = PhySignal.Mint(SignalOutcome.Success, batch.Payload, InstanceGuid, Name, batch.Blocks);
     }
 
     /// <summary>
-    /// The outcome of a single tool call: the result body and whether it represents an error
-    /// (mapped to the tool_result block's <c>is_error</c> flag so the model can self-correct).
+    /// The outcome of a single tool call: the result body, whether it represents an error
+    /// (mapped to the tool_result block's <c>is_error</c> flag so the model can self-correct), and
+    /// any blocks the result body itself cannot hold.
     /// </summary>
     /// <param name="Content">The result body returned to the model.</param>
     /// <param name="IsError">True when the call failed.</param>
-    protected readonly record struct ToolCallResult(string Content, bool IsError = false)
+    /// <param name="Attachments">
+    /// Blocks this call answers WITH but cannot answer THROUGH — an image, in practice, since a
+    /// tool_result is text on every provider. They ride the same user turn as sibling blocks, placed
+    /// after every result. Null for every ordinary tool.
+    /// </param>
+    protected readonly record struct ToolCallResult(
+        string Content,
+        bool IsError = false,
+        IReadOnlyList<MessageContent>? Attachments = null)
     {
         /// <summary>
         /// Creates a successful result.
@@ -325,6 +334,16 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
         /// <param name="content">The result body.</param>
         /// <returns>A success <see cref="ToolCallResult"/>.</returns>
         public static ToolCallResult Ok(string content) => new(content, false);
+
+        /// <summary>
+        /// Creates a successful result that also carries blocks the result body cannot hold, such as
+        /// a captured image.
+        /// </summary>
+        /// <param name="content">The result body.</param>
+        /// <param name="attachments">The blocks to send in the same user turn, after the results.</param>
+        /// <returns>A success <see cref="ToolCallResult"/> carrying the attachments.</returns>
+        public static ToolCallResult OkWith(string content, IReadOnlyList<MessageContent> attachments) =>
+            new(content, false, attachments);
 
         /// <summary>
         /// Creates an error result.

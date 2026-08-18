@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using Physalia.Core.ConvoInstruct;
@@ -105,5 +105,37 @@ public class ToolDispatchRoundTests
 
         Assert.Equal(3, blocks.Count); // every result becomes a tool_result block
         Assert.Equal(string.Join(Environment.NewLine, "ok", "done"), payload); // blank content dropped from trace
+    }
+
+    [Fact]
+    public void CombineResults_Attachments_LandAfterEveryResult()
+    {
+        // The Router aggregates across tool nodes, so it enforces the same ordering rule the batch
+        // runner does within one node: results lead, attachments follow.
+        var image = new ImageContent(new InlineImage(new byte[] { 7 }, "image/png"));
+        var results = new[]
+        {
+            new ToolResultContent("a", "ra"),
+            new ToolResultContent("b", "rb"),
+        };
+
+        (IReadOnlyList<MessageContent> blocks, string payload) =
+            ToolDispatchRound.CombineResults(results, new MessageContent[] { image });
+
+        Assert.Equal(3, blocks.Count);
+        Assert.IsType<ToolResultContent>(blocks[0]);
+        Assert.IsType<ToolResultContent>(blocks[1]);
+        Assert.Same(image, blocks[2]);
+        Assert.Equal(string.Join(Environment.NewLine, "ra", "rb"), payload);
+    }
+
+    [Fact]
+    public void CombineResults_NoAttachments_IsUnchanged()
+    {
+        (IReadOnlyList<MessageContent> blocks, _) =
+            ToolDispatchRound.CombineResults(new[] { new ToolResultContent("a", "ra") });
+
+        Assert.Single(blocks);
+        Assert.IsType<ToolResultContent>(blocks[0]);
     }
 }

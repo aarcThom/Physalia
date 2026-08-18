@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using Physalia.Core.ConvoInstruct;
@@ -6,17 +6,31 @@ using Physalia.Core.ConvoInstruct;
 namespace Physalia.Core.Tools;
 
 /// <summary>
-/// The outcome of a single tool call: the result body and whether it represents an error.
+/// The outcome of a single tool call: the result body, whether it represents an error, and any
+/// blocks that could not fit in the result body itself.
 /// </summary>
 /// <param name="Content">The result body returned to the model.</param>
 /// <param name="IsError">True when the call failed.</param>
-public readonly record struct ToolCallOutcome(string Content, bool IsError);
+/// <param name="Attachments">
+/// Blocks the call answers WITH but cannot answer THROUGH — an image, in practice. A tool result is
+/// text on every provider, so a tool whose answer is a picture (Take Snapshot) returns the text here
+/// and the picture as an attachment, and it rides the same user turn as a sibling block. Null or
+/// empty for every ordinary tool.
+/// </param>
+public readonly record struct ToolCallOutcome(
+    string Content,
+    bool IsError,
+    IReadOnlyList<MessageContent>? Attachments = null);
 
 /// <summary>
 /// The assembled result of running a dispatched batch: one tool_result block per call plus the
 /// newline-joined trace payload.
 /// </summary>
-/// <param name="Blocks">One <see cref="ToolResultContent"/> per call, echoing each call's id.</param>
+/// <param name="Blocks">
+/// One <see cref="ToolResultContent"/> per call, echoing each call's id, followed by every
+/// attachment. Attachments come LAST because Anthropic requires the tool_result blocks to lead the
+/// user message that answers a tool_use turn.
+/// </param>
 /// <param name="Payload">The newline-joined result text (signal trace payload).</param>
 public sealed record ToolBatchResult(IReadOnlyList<MessageContent> Blocks, string Payload);
 
@@ -47,13 +61,20 @@ public static class ToolBatchRunner
         var resultBlocks = new List<MessageContent>(calls.Count);
         var resultTexts = new List<string>(calls.Count);
 
+        var attachments = new List<MessageContent>();
+
         foreach (ToolCallContent call in calls)
         {
             ToolCallOutcome outcome = execute(call);
             resultBlocks.Add(new ToolResultContent(call.Id, outcome.Content, outcome.IsError));
             resultTexts.Add(outcome.Content);
+            if (outcome.Attachments is { Count: > 0 })
+            {
+                attachments.AddRange(outcome.Attachments);
+            }
         }
 
+        resultBlocks.AddRange(attachments);
         return new ToolBatchResult(resultBlocks, string.Join(Environment.NewLine, resultTexts));
     }
 
@@ -77,6 +98,7 @@ public static class ToolBatchRunner
 
         var resultBlocks = new List<MessageContent>(calls.Count);
         var resultTexts = new List<string>(calls.Count);
+        var attachments = new List<MessageContent>();
 
         try
         {
@@ -94,6 +116,10 @@ public static class ToolBatchRunner
 
                 resultBlocks.Add(new ToolResultContent(call.Id, outcome.Content, outcome.IsError));
                 resultTexts.Add(outcome.Content);
+                if (outcome.Attachments is { Count: > 0 })
+                {
+                    attachments.AddRange(outcome.Attachments);
+                }
             }
         }
         catch (Exception ex)
@@ -103,9 +129,11 @@ public static class ToolBatchRunner
                 return null;
             }
 
-            // Answer every dispatched id with an error so the Router round still completes.
+            // Answer every dispatched id with an error so the Router round still completes. The batch
+            // failed as a whole, so any attachment gathered before the throw is dropped with it.
             resultBlocks = calls.Select(c => (MessageContent)new ToolResultContent(c.Id, ex.Message, true)).ToList();
             resultTexts = new List<string> { ex.Message };
+            attachments.Clear();
         }
 
         if (ct.IsCancellationRequested)
@@ -113,6 +141,7 @@ public static class ToolBatchRunner
             return null;
         }
 
+        resultBlocks.AddRange(attachments);
         return new ToolBatchResult(resultBlocks, string.Join(Environment.NewLine, resultTexts));
     }
 }

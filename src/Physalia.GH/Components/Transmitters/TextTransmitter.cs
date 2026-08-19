@@ -63,7 +63,7 @@ public class TextTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
             "Passes whatever arrives — a signal or text — straight through, and transmits its text form out of the harness into a linked component input, parameter, or panel. Drag the harness's \"text\" grip onto the input grip it should feed, the way an ordinary Grasshopper output connects.",
             "Transmitters")
     {
-        _link = new TransmitterLink(this, "Component Input", "component input or panel", CanReceive)
+        _link = new TransmitterLink(this, "Component Input", "component input or panel", ParamTargets.CanHoldOrDisplay)
         {
             // A freshly linked target starts empty, so whatever is on the wire has to go in again.
             Changed = () =>
@@ -119,7 +119,7 @@ public class TextTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
             hostDocument,
             dropPoint,
             ctrl,
-            (hit, point) => ParamTargets.RefineDropTarget(hit, point, CanReceive));
+            (hit, point) => ParamTargets.RefineDropTarget(hit, point, ParamTargets.CanHoldOrDisplay));
 
     /// <inheritdoc/>
     /// <remarks>
@@ -217,17 +217,6 @@ public class TextTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
         _lastKey = key;
         QueueWrite(text);
     }
-
-    /// <summary>
-    /// Whether an object on the host canvas can receive the transmitted value: a Panel, or any
-    /// parameter that can hold data of its own — which is what a component's input IS, so this covers
-    /// inputs of every type, not only text ones. The value is cast into whatever the input holds,
-    /// exactly as a wire's would be.
-    /// </summary>
-    /// <param name="candidate">An object on the user's canvas.</param>
-    /// <returns>true when a value can be delivered into it.</returns>
-    private static bool CanReceive(IGH_DocumentObject candidate) =>
-        candidate is GHPanel || ParamTargets.CanHold(candidate);
 
     // The text a piece of goo transmits, plus the key that decides whether it is new. A signal is
     // keyed by its sequence — the one thing that makes it that signal — and everything else by its

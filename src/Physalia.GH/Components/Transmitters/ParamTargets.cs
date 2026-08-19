@@ -5,9 +5,11 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Reflection;
+using System.Text;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Types;
+using GHPanel = Grasshopper.Kernel.Special.GH_Panel;
 
 namespace Physalia.GH.Components;
 
@@ -54,6 +56,21 @@ internal static class ParamTargets
     /// <returns>true when a value can be delivered into it.</returns>
     internal static bool CanHold(IGH_DocumentObject candidate) =>
         candidate is IGH_Param param && PersistentSetter(param) is not null;
+
+    /// <summary>
+    /// Whether an object on the host canvas can receive a transmitted value at all — everything
+    /// <see cref="CanHold"/> covers, plus a Panel.
+    ///
+    /// <para>A Panel is the exception both wire-like transmitters have to make: it is a
+    /// <c>GH_Param</c> but NOT a <c>GH_PersistentParam</c>, so it has no persistent data to write and
+    /// takes its content through <c>SetUserText</c> instead. It is also the target a user reaches for
+    /// first when they want to SEE what is being transmitted, so refusing it would be the wrong kind
+    /// of strict — a panel shows text, and everything has a text form.</para>
+    /// </summary>
+    /// <param name="candidate">An object on the user's canvas.</param>
+    /// <returns>true when a value can be delivered into it.</returns>
+    internal static bool CanHoldOrDisplay(IGH_DocumentObject candidate) =>
+        candidate is GHPanel || CanHold(candidate);
 
     /// <summary>
     /// The object a drop on a node should actually link. A node that holds its own value (a floating
@@ -140,6 +157,12 @@ internal static class ParamTargets
     /// exactly as it would through a wire — and an item the param cannot read is counted rather than
     /// silently dropped, since "some of it arrived" is the one outcome a user cannot see.</para>
     ///
+    /// <para>An item the param refuses outright is offered again as TEXT, because a great many
+    /// inputs are text inputs and a wire into one of them would have delivered exactly that — the
+    /// value's own string form, the thing a Panel shows. Nothing has to opt in: a param that cannot
+    /// read the geometry AND cannot read a string refuses both and is counted, so the fallback only
+    /// ever fires where it is the right answer.</para>
+    ///
     /// <para>If a Grasshopper build ever stops offering those members the write still happens, flat:
     /// delivering the values without the branching beats delivering nothing.</para>
     /// </summary>
@@ -185,9 +208,9 @@ internal static class ParamTargets
                     continue;
                 }
 
-                object? value = itemType.IsInstanceOfType(item)
-                    ? item
-                    : cast?.Invoke(param, new object?[] { item });
+                // The value itself, and failing that the text a wire into a text input would have
+                // carried. Both go through the param's own cast, so neither is a special case here.
+                object? value = ToItemType(item) ?? ToItemType(new GH_String(ItemText(item)));
 
                 if (value is null)
                 {
@@ -201,7 +224,70 @@ internal static class ParamTargets
 
         setTree.Invoke(param, new[] { structure });
         return null;
+
+        object? ToItemType(IGH_Goo candidate) => itemType.IsInstanceOfType(candidate)
+            ? candidate
+            : cast?.Invoke(param, new object?[] { candidate });
     }
+
+    /// <summary>
+    /// Renders a whole tree the way a Panel shows one — a plain list of lines when there is a single
+    /// branch, and path headers with indexed items when there is more than one. This is what a
+    /// transmitter delivers into a Panel, which holds one string rather than data and so cannot be
+    /// given the tree itself.
+    /// </summary>
+    /// <typeparam name="T">The goo type the tree is read as.</typeparam>
+    /// <param name="tree">The tree to render.</param>
+    /// <returns>The tree's text form.</returns>
+    internal static string TreeText<T>(GH_Structure<T> tree)
+        where T : IGH_Goo
+    {
+        StringBuilder text = new();
+
+        if (tree.PathCount <= 1)
+        {
+            foreach (IGH_Goo item in tree.AllData(true))
+            {
+                text.AppendLine(ItemText(item));
+            }
+
+            return text.ToString().TrimEnd();
+        }
+
+        for (int branch = 0; branch < tree.PathCount; branch++)
+        {
+            if (branch > 0)
+            {
+                text.AppendLine();
+            }
+
+            text.AppendLine(tree.Paths[branch].ToString());
+
+            IList<T> items = tree.Branches[branch];
+            for (int index = 0; index < items.Count; index++)
+            {
+                if (items[index] is { } item)
+                {
+                    text.AppendLine($"   {index}. {ItemText(item)}");
+                }
+            }
+        }
+
+        return text.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// A single value's text form: Grasshopper's own conversion where it has one, and the goo's
+    /// <c>ToString</c> otherwise — which for geometry is the type name Panels already show ("Brep",
+    /// "Mesh"). Never null, because a value that cannot be described is worse than one described
+    /// plainly.
+    /// </summary>
+    /// <param name="item">The value to describe.</param>
+    /// <returns>The value's text form.</returns>
+    internal static string ItemText(IGH_Goo item) =>
+        GH_Convert.ToString(item, out string text, GH_Conversion.Both)
+            ? text
+            : item.ToString() ?? string.Empty;
 
     // The constructed GH_PersistentParam<T> in a param's base chain, which is where every member used
     // above is declared. Null for a param that has no persistent data of its own.

@@ -13,6 +13,7 @@ using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Types;
 using Physalia.GH.Attributes.UiElements;
 using Physalia.GH.Harness;
+using GHPanel = Grasshopper.Kernel.Special.GH_Panel;
 
 namespace Physalia.GH.Components;
 
@@ -34,6 +35,13 @@ namespace Physalia.GH.Components;
 /// do, not only a geometry one — the values are cast into whatever the input holds, exactly as a
 /// wire's would be — and an input that cannot read them says so rather than going quietly empty.
 /// Ctrl+drop on the target unlinks; a drop on empty canvas does nothing.</para>
+///
+/// <para><b>Text targets work too.</b> A Panel takes the tree written out the way a Panel shows one
+/// — plain lines for a single branch, path headers and indexed items for more — and any input that
+/// would have stringified the geometry off a wire still does, because an item the target refuses
+/// outright is offered again as its text form. Seeing what is being transmitted needs no special
+/// wiring, and none of it is a special case in this component: it is all in
+/// <see cref="ParamTargets"/>, shared with <see cref="TextTransmitter"/>.</para>
 ///
 /// <para>The delivery itself is deferred to <c>RhinoApp.Idle</c>: it writes into and expires a
 /// document that is not the one being solved — the target sits on the user's canvas, this component
@@ -71,10 +79,10 @@ public class GeometryTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
         : base(
             "Geometry Transmitter",
             "GeoTx",
-            "Passes geometry straight through, tree structure and all, and transmits it out of the harness into a linked component input or parameter. Drag the harness's \"geo\" grip onto the input grip it should feed, the way an ordinary Grasshopper output connects.",
+            "Passes geometry straight through, tree structure and all, and transmits it out of the harness into a linked component input, parameter, or panel. Drag the harness's \"geo\" grip onto the input grip it should feed, the way an ordinary Grasshopper output connects.",
             "Transmitters")
     {
-        _link = new TransmitterLink(this, "Component Input", "component input or parameter", ParamTargets.CanHold)
+        _link = new TransmitterLink(this, "Component Input", "component input or panel", ParamTargets.CanHoldOrDisplay)
         {
             // A freshly linked target starts empty, so whatever is on the wire has to go in again.
             Changed = () =>
@@ -130,7 +138,7 @@ public class GeometryTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
             hostDocument,
             dropPoint,
             ctrl,
-            (hit, point) => ParamTargets.RefineDropTarget(hit, point, ParamTargets.CanHold));
+            (hit, point) => ParamTargets.RefineDropTarget(hit, point, ParamTargets.CanHoldOrDisplay));
 
     /// <inheritdoc/>
     /// <remarks>
@@ -312,6 +320,15 @@ public class GeometryTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
         if (target is null)
         {
             return linkError;
+        }
+
+        // A Panel holds one string, not data, so it gets the tree written out the way a Panel shows
+        // one. This is the target a user reaches for to SEE what is going out.
+        if (target is GHPanel panel)
+        {
+            panel.SetUserText(ParamTargets.TreeText(tree));
+            panel.ExpireSolution(true);
+            return null;
         }
 
         if (target is not IGH_Param param)

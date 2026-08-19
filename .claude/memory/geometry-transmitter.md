@@ -39,6 +39,16 @@ composed `TransmitterLink`, no signal lifecycle at all.
    next expires** — well before the `RhinoApp.Idle` callback runs. Queue a copy
    (`new GH_Structure<T>(tree, false)`, shallow) or the deferred write finds nothing.
 
+**Text targets, added the same day.** A Panel is a `GH_Param` but NOT a `GH_PersistentParam`, so
+it has no persistent data to write and takes `SetUserText` instead — it gets `ParamTargets.TreeText`,
+the tree rendered the way a Panel shows one (plain lines for a single branch, `{path}` headers plus
+indexed items for more). Separately, any item a target param refuses outright is offered again as a
+`GH_String` of its own text form, so a text input that would have stringified geometry off a wire
+still does. Neither is a special case in the component: a param that can read neither the geometry
+nor a string refuses both and is counted, so the fallback only ever fires where it is the right
+answer. `CanHoldOrDisplay` (Panel or persistent param) is now the shared target test for both
+wire-like transmitters.
+
 Also: `AddGeometryParameter` is `Param_Geometry` = `IGH_GeometricGoo`, which **excludes GH_Vector,
 GH_Transform and GH_Interval** (GH_Plane, GH_Point, GH_Box and everything solid ARE included). That
 was a deliberate trade for viewport preview and an honestly-typed wire.

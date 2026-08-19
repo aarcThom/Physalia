@@ -238,6 +238,12 @@ Right Click:
 ---
 
 ### Receiver
+> **Superseded, and the name has since been reused.** What this section describes — the executor of
+> side effects on the GH document — was built as the **transmitters** (Component Transmitter,
+> PyTransmitter, C# Transmitter). The name **Receiver** now belongs to a different component built on
+> 2026-08-18: a harness *inlet*, the inverse of a transmitter, which carries data from the user's
+> canvas INTO the harness as an ordinary input on the proxy. Read the section below as history.
+
 **Role:** The sole executor of side effects on the GH document. Consumes Transmitter output and performs component placement, parameter wiring, and script injection on GH_Document. The only component in the pipeline that mutates the Grasshopper environment. Uses passed JSON to determine whether to generate a cluster component or python component.
 
 **Deterministic.**

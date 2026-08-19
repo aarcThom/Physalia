@@ -30,6 +30,13 @@ namespace Physalia.GH.Attributes;
 /// things a transmitter points at live on the user's canvas, and a drag cannot cross two canvases.
 /// The capsule grows taller to fit them; with no transmitters inside it stays a plain bar with no
 /// grips at all.</para>
+///
+/// <para>Down the LEFT edge it grows one ordinary Grasshopper input per Receiver inside — its inlets
+/// (see <see cref="IHarnessInlet"/>). Those are real parameters, so Grasshopper lays them out itself;
+/// this class only has to draw them, because the capsule here is composed by hand and never reaches
+/// <see cref="GH_ComponentAttributes"/>'s own render. It also has to TRANSLATE them: Grasshopper sizes
+/// the capsule from the parameters and this class then grows it for the outlets and the emoji row, so
+/// the rows are re-centred on the grown capsule rather than left clinging to the top of it.</para>
 /// </summary>
 public class HarnessAttrib : BottomGripAttributes
 {
@@ -54,6 +61,10 @@ public class HarnessAttrib : BottomGripAttributes
 
     // Gap between the labels and the capsule's right edge, so a tag never crowds its grip.
     private const float LabelInset = 7f;
+
+    // Gap between an input's row and the name drawn in it, matching the breathing room Grasshopper
+    // leaves on an ordinary component.
+    private const float InputLabelInset = 3f;
 
     // Strip reserved along the right edge for the outlet labels — room for a short tag at 1:1 zoom,
     // which is what a canvas unit means.
@@ -82,6 +93,11 @@ public class HarnessAttrib : BottomGripAttributes
 
     private OutletHandle? _dragging;
 
+    // How far the input rows must move to sit centred in the grown capsule, measured in
+    // AdjustVisualBounds (the only place that sees both the size Grasshopper chose and the size the
+    // outlets forced) and applied once the layout pass is over.
+    private float _inputShift;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="HarnessAttrib"/> class.
     /// </summary>
@@ -108,9 +124,31 @@ public class HarnessAttrib : BottomGripAttributes
     protected override PointF GripOrigin => RightCentre;
 
     // The capsule width the contents actually need: the row of Chat emoji, the outlet labels beside
-    // it, and the insets either side. Only wider than the default proxy width once a harness holds
-    // enough Chats to fill it.
-    private float ContentWidth => EmojiStripWidth + LabelColumn + (ContentInset * 4f);
+    // it, the strip Grasshopper laid the input names out in, and the insets either side. Only wider
+    // than the default proxy width once a harness holds enough Chats to fill it.
+    private float ContentWidthFrom(float left) =>
+        EmojiStripWidth + LabelColumn + InputColumnFrom(left) + (ContentInset * 4f);
+
+    // The strip along the left edge that the input rows occupy, measured from what Grasshopper's own
+    // layout produced rather than guessed at — it sizes each row from the parameter name, which is a
+    // Receiver's nickname and so any length at all. Zero when the harness holds no Receiver.
+    //
+    // The capsule's left edge is passed in rather than read from VisualBounds, because the measuring
+    // pass needs this BEFORE VisualBounds has been recomputed — and on the very first layout that
+    // field is still empty, which would make the column the whole distance from the canvas origin.
+    private float InputColumnFrom(float left)
+    {
+        float right = left;
+        foreach (IGH_Param param in _harness.Params.Input)
+        {
+            if (param.Attributes is { } attributes)
+            {
+                right = Math.Max(right, attributes.Bounds.Right);
+            }
+        }
+
+        return Math.Max(0f, right - left);
+    }
 
     // The row of emoji, or nothing at all when the harness holds no Chat — an empty harness keeps the
     // plug-in's own mark and needs no room reserved for a row that is not there.
@@ -185,12 +223,27 @@ public class HarnessAttrib : BottomGripAttributes
     /// outlets need more height than one node-row. A harness with several Chats in it stretches
     /// further right still, enough to show every emoji beside the outlet labels.
     /// </remarks>
-    protected override RectangleF AdjustVisualBounds(RectangleF bounds) =>
-        new(
+    protected override RectangleF AdjustVisualBounds(RectangleF bounds)
+    {
+        float height = Math.Max(bounds.Height, _handles.Count * RowHeight);
+
+        // Recorded, not applied: the input rows are Grasshopper's own attributes and moving them from
+        // inside the measuring pass would have this method reading bounds it had just changed.
+        _inputShift = (height - bounds.Height) / 2f;
+
+        // The widening factor applies only to a harness with no inputs. With inputs, Grasshopper has
+        // already sized the capsule around the Receiver names, and multiplying THAT would give a node
+        // stretching half the canvas for three short labels.
+        float minimum = _harness.Params.Input.Count == 0
+            ? bounds.Width * WidthFactor
+            : bounds.Width;
+
+        return new RectangleF(
             bounds.X,
             bounds.Y,
-            Math.Max(bounds.Width * WidthFactor, ContentWidth),
-            Math.Max(bounds.Height, _handles.Count * RowHeight));
+            Math.Max(minimum, ContentWidthFrom(bounds.X)),
+            height);
+    }
 
     /// <inheritdoc/>
     /// <remarks>The grips are on the right, so the hittable strip goes there rather than underneath.</remarks>
@@ -201,26 +254,60 @@ public class HarnessAttrib : BottomGripAttributes
     /// <remarks>Only expands the pick region for the grips when there are outlets to host.</remarks>
     protected override void Layout()
     {
-        // Both before base.Layout(), because AdjustVisualBounds sizes the capsule from the outlet
-        // count and the emoji count.
+        // All three before base.Layout(), because AdjustVisualBounds sizes the capsule from the outlet
+        // count and the emoji count — and Grasshopper measures each input row from its parameter name,
+        // so a Receiver renamed inside the harness has to be picked up before that, not after.
         RefreshHandles();
         RefreshChats();
+        _harness.RefreshInlets();
 
         base.Layout();
 
+        // The capsule grew downward for the outlets after Grasshopper had already placed the input
+        // rows against the shorter one; re-centre them on what is actually drawn. A pure translation,
+        // so every point derived from a row — the input grip a wire lands on above all — moves with it.
+        ShiftInputParams(_inputShift);
+
         // Grasshopper sized the inner region for the small capsule it thought it was laying out, so the
         // icon (or the nickname) would sit in a corner of the grown one. Re-centre it on the capsule,
-        // less the strip the outlet labels occupy.
+        // less the strips the input names and the outlet labels occupy.
         RectangleF inner = RectangleF.Inflate(VisualBounds, -ContentInset, -ContentInset);
-        m_innerBounds = _handles.Count == 0
-            ? inner
-            : new RectangleF(inner.X, inner.Y, Math.Max(1f, inner.Width - LabelColumn), inner.Height);
+        float left = InputColumnFrom(VisualBounds.X);
+        float right = _handles.Count == 0 ? 0f : LabelColumn;
+        m_innerBounds = new RectangleF(
+            inner.X + left,
+            inner.Y,
+            Math.Max(1f, inner.Width - left - right),
+            inner.Height);
 
         PositionHandles();
 
         if (_handles.Count == 0)
         {
             Bounds = VisualBounds;
+        }
+    }
+
+    // Slides the input rows down (or up) by the amount the capsule grew, so they read as belonging to
+    // the node rather than hanging off its top edge. Bounds and Pivot both move: Grasshopper derives
+    // the input grip from them, and a grip left behind would take wires to the wrong row.
+    private void ShiftInputParams(float dy)
+    {
+        if (Math.Abs(dy) < 0.01f)
+        {
+            return;
+        }
+
+        foreach (IGH_Param param in _harness.Params.Input)
+        {
+            if (param.Attributes is not { } attributes)
+            {
+                continue;
+            }
+
+            RectangleF bounds = attributes.Bounds;
+            attributes.Bounds = new RectangleF(bounds.X, bounds.Y + dy, bounds.Width, bounds.Height);
+            attributes.Pivot = new PointF(attributes.Pivot.X, attributes.Pivot.Y + dy);
         }
     }
 
@@ -253,10 +340,21 @@ public class HarnessAttrib : BottomGripAttributes
 
             // Labels last: they belong on top of the capsule, not under it.
             DrawOutletLabels(canvas, graphics);
+            DrawInputLabels(canvas, graphics);
+
+            Bounds = outer;
+            return;
         }
 
-        // The arrow wires (Wires channel).
-        RenderGripContent(canvas, graphics, channel);
+        // Every other channel — the Wires channel above all — goes to the base, which draws this
+        // proxy's outlet arrows and then hands on to Grasshopper's own render.
+        //
+        // That last hop is what draws the wires ARRIVING at the inputs, and skipping it is exactly
+        // what this method used to do: the Objects channel is composed here by hand, so the base was
+        // never called at all. It went unnoticed for as long as a harness had no inputs and there was
+        // no incoming wire to lose — the data still crossed, because delivery is the solver's business
+        // and has nothing to do with what is painted.
+        base.Render(canvas, graphics, channel);
 
         Bounds = outer;
     }
@@ -390,8 +488,52 @@ public class HarnessAttrib : BottomGripAttributes
         }
     }
 
+    // The name of each input, in the row Grasshopper laid out for it. Drawn here because this class
+    // composes its own capsule and so never reaches the base render that would normally draw them —
+    // without this the parameters would be laid out, wireable and completely invisible.
+    //
+    // The parameter's own nickname, which the Receiver and the parameter keep in step between them by
+    // overriding the virtual NickName setter at both ends — so this is both what the user typed, if
+    // they renamed the input out here, and what the Receiver is called, if they renamed it inside.
+    // Drawn from a measured point rather than clipped into the row, so a name that outgrew the width
+    // Grasshopper last measured overhangs rather than losing its tail.
+    private void DrawInputLabels(GH_Canvas canvas, Graphics graphics)
+    {
+        if (_harness.Params.Input.Count == 0 || canvas.Viewport.Zoom < LabelZoomFloor)
+        {
+            return;
+        }
+
+        using var ink = new SolidBrush(HarnessTheme.Ink);
+        using var format = new StringFormat(StringFormat.GenericTypographic)
+        {
+            FormatFlags = StringFormatFlags.NoWrap,
+        };
+
+        Font font = GH_FontServer.StandardAdjusted;
+
+        foreach (IGH_Param param in _harness.Params.Input)
+        {
+            if (param.Attributes is not { } attributes)
+            {
+                continue;
+            }
+
+            RectangleF row = attributes.Bounds;
+            SizeF size = graphics.MeasureString(param.NickName, font, PointF.Empty, format);
+
+            graphics.DrawString(
+                param.NickName,
+                font,
+                ink,
+                row.X + InputLabelInset,
+                row.Y + ((row.Height - size.Height) / 2f),
+                format);
+        }
+    }
+
     // Mirrors GH_ComponentAttributes.RenderComponentCapsule but rounds both edges and drives
-    // fill/edge/text from our own palette style: the harness has no parameters at all, so GH would
+    // fill/edge/text from our own palette style: the harness has no parameters of its own, so GH would
     // otherwise force a jagged "no inputs" left edge and, because the node is not preview-capable,
     // the Hidden palette.
     private void RenderSmoothCapsule(GH_Canvas canvas, Graphics graphics, GH_PaletteStyle style)
@@ -408,6 +550,16 @@ public class HarnessAttrib : BottomGripAttributes
         try
         {
             capsule.SetJaggedEdges(false, false);
+
+            // The nub each input wire lands on. Visual only — the parameter's own bounds are what
+            // Grasshopper hit-tests a wire drag against, and Layout has already placed those.
+            foreach (IGH_Param input in _harness.Params.Input)
+            {
+                if (input.Attributes is { HasInputGrip: true } attributes)
+                {
+                    capsule.AddInputGrip(attributes.InputGrip.Y);
+                }
+            }
 
             graphics.SmoothingMode = SmoothingMode.HighQuality;
             canvas.SetSmartTextRenderingHint();

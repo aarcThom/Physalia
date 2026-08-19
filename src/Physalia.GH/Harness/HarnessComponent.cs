@@ -12,9 +12,12 @@ using GH_IO.Serialization;
 using Grasshopper;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
+using Grasshopper.Kernel.Data;
+using Grasshopper.Kernel.Types;
 using Grasshopper.Kernel.Undo;
 using Grasshopper.Kernel.Undo.Actions;
 using Physalia.GH.Components;
+using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Harness;
 
@@ -25,11 +28,16 @@ namespace Physalia.GH.Harness;
 /// chat window on the Chat inside, because the proxy is the only face that pipeline has on the
 /// user's canvas.
 ///
-/// <para>Unlike a cluster this needs no input or output hooks. A Chat has no inputs and one
-/// output, and a Physalia pipeline never exchanges dataflow with the user's canvas: it only
-/// <em>scans</em> it (grounders, guardrails) and <em>writes to it by side effect</em> (component
-/// placement). So the whole pipeline, Chat included, lives inside and nothing crosses the boundary
-/// as a wire.</para>
+/// <para>Nothing crosses the boundary OUTWARD as a wire. What a pipeline produces is an edit to the
+/// user's canvas — component placement, a script pushed into a node — so its outputs are side effects
+/// carried by the drag arrows the proxy hosts (see <see cref="IHarnessOutlet"/>), never dataflow.</para>
+///
+/// <para>Inward is the other way round, and the asymmetry is the point. What a pipeline consumes is
+/// data the canvas already computed, and Grasshopper hands us wires pointing inward for free — so a
+/// <c>Receiver</c> placed inside grows an ordinary input parameter on the LEFT edge of this proxy
+/// (see <see cref="IHarnessInlet"/>), with ordinary expiry and ordinary solve ordering. The proxy's
+/// solve hands each inlet's tree to its Receiver and schedules ONE solution on the harness document;
+/// arriving data never mints a signal, so it can start no round and can close no loop.</para>
 ///
 /// <para>The inner document is kept enabled while it is off-canvas so the pipeline keeps solving
 /// while you work on your model — an async LLM response must be able to land at any time. It is
@@ -38,7 +46,7 @@ namespace Physalia.GH.Harness;
 /// <para>Components inside the harness see the inner document from <c>OnPingDocument()</c>; anything
 /// that means "the user's canvas" must go through <see cref="PhyDocuments"/>.</para>
 /// </summary>
-public sealed class HarnessComponent : PhyBase
+public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
 {
     // Archive chunk holding the inner document, written by GH_Document.Write and rehydrated by
     // GH_Document.Read. This is the only nested-archive persistence in the plug-in; every other
@@ -65,6 +73,8 @@ public sealed class HarnessComponent : PhyBase
     private static readonly ConditionalWeakTable<GH_Document, HarnessComponent> Owners = new();
 
     private GH_Document? _inner;
+
+    private bool _syncHooked;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HarnessComponent"/> class.
@@ -235,7 +245,8 @@ public sealed class HarnessComponent : PhyBase
         if (_inner is { ObjectCount: > 0 }
             && Rhino.UI.Dialogs.ShowMessage(
                 $"Loading \"{Path.GetFileName(path)}\" replaces the pipeline in this harness, "
-                + "including its conversation. This cannot be undone. Continue?",
+                + "including its conversation. Its Receivers go with it, so any wires feeding this "
+                + "harness's inputs are dropped. This cannot be undone. Continue?",
                 LoadFileLabel,
                 Rhino.UI.ShowMessageButton.YesNo,
                 Rhino.UI.ShowMessageIcon.Warning) != Rhino.UI.ShowMessageResult.Yes)
@@ -415,6 +426,14 @@ public sealed class HarnessComponent : PhyBase
         {
             outlet.ClearHostTarget();
         }
+
+        // The inward half of the same sweep. A Receiver's held data is session-only and so cannot
+        // arrive in an archive, but a document read here may also be one being re-adopted, and data
+        // from the canvas it used to be fed by means nothing on this one.
+        foreach (IHarnessInlet inlet in document.Objects.OfType<IHarnessInlet>())
+        {
+            inlet.ClearInlet();
+        }
     }
 
     /// <summary>
@@ -538,6 +557,27 @@ public sealed class HarnessComponent : PhyBase
                 .ToList();
 
     /// <summary>
+    /// Gets the Receivers inside this harness, in the order the proxy stacks their inputs down its
+    /// left edge — one input per Receiver, since a harness with two of them takes two distinct feeds
+    /// off the user's canvas.
+    ///
+    /// <para>Ordered the same way <see cref="Outlets"/> is, and for the same reason: by where the
+    /// Receivers sit INSIDE the harness, top to bottom then left to right, so the inputs read in the
+    /// order of the pipeline they belong to and stay put across sessions without anything being
+    /// serialized. Moving a Receiver inside re-orders the inputs — and because each input is BOUND to
+    /// its Receiver by InstanceGuid rather than by position, the wires move with them instead of
+    /// silently swapping one Receiver's data for another's.</para>
+    /// </summary>
+    internal IReadOnlyList<IHarnessInlet> Inlets =>
+        _inner is null
+            ? Array.Empty<IHarnessInlet>()
+            : _inner.Objects
+                .OfType<IHarnessInlet>()
+                .OrderBy(inlet => ((IGH_DocumentObject)inlet).Attributes?.Pivot.Y ?? 0f)
+                .ThenBy(inlet => ((IGH_DocumentObject)inlet).Attributes?.Pivot.X ?? 0f)
+                .ToList();
+
+    /// <summary>
     /// Gets the Chats inside this harness, in the order the chat window's switcher row shows them —
     /// by pivot, left to right then top to bottom. The proxy wears their emoji as its icon, so the
     /// node on the canvas and the row of circles in the window read as the same list; matching
@@ -591,15 +631,43 @@ public sealed class HarnessComponent : PhyBase
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// None to start with. The proxy's inputs are DERIVED from the Receivers inside the harness and
+    /// are grown by <see cref="SyncInlets"/>, so a harness holding no Receiver has no inputs at all.
+    /// </remarks>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        // No inputs — the pipeline inside is self-contained and crosses no wires.
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
         // No outputs — the pipeline acts on the host canvas by side effect, never by wire.
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Never: the input set is derived from the harness contents, so the zoomable +/- icons would
+    /// offer the user a parameter belonging to no Receiver. Implementing the interface at all is what
+    /// tells Grasshopper this component's parameters are not the ones <c>RegisterInputParams</c>
+    /// registered, so an archived set is restored rather than discarded.
+    /// </remarks>
+    public bool CanInsertParameter(GH_ParameterSide side, int index) => false;
+
+    /// <inheritdoc/>
+    /// <remarks>Never, for the same reason — remove the Receiver inside instead.</remarks>
+    public bool CanRemoveParameter(GH_ParameterSide side, int index) => false;
+
+    /// <inheritdoc/>
+    public IGH_Param CreateParameter(GH_ParameterSide side, int index) => new Param_Inlet();
+
+    /// <inheritdoc/>
+    public bool DestroyParameter(GH_ParameterSide side, int index) => true;
+
+    /// <inheritdoc/>
+    /// <remarks>Nothing to maintain — <see cref="SyncInlets"/> owns the whole input set.</remarks>
+    public void VariableParameterMaintenance()
+    {
     }
 
     /// <inheritdoc/>
@@ -612,7 +680,335 @@ public sealed class HarnessComponent : PhyBase
         // Deliberately sets no Message: the component count used to ride under the node as GH's black
         // message tag, which said little that mattered and cluttered the canvas.
         ReviveInner();
+
+        PushInlets(DA);
+
+        // Moving a Receiver inside the harness re-orders the inputs out here, and NOTHING announces a
+        // move — no event, and not reliably a layout either (see RefreshInlets). The solve is the one
+        // hook that runs often and runs for certain, so the drift is checked here and handed to the
+        // idle sync, which is where the parameter list may actually be rebuilt.
+        if (InletsDiffer())
+        {
+            RequestInletSync();
+        }
     }
+
+    /// <inheritdoc/>
+    public override void AddedToDocument(GH_Document document)
+    {
+        base.AddedToDocument(document);
+
+        // Covers the load path: Read has rehydrated both the harness contents and this proxy's
+        // archived inputs by now, so the sync's job here is to MATCH them up — and to build the set
+        // from scratch for a harness that arrived some other way, such as a preset placement.
+        RequestInletSync();
+    }
+
+    /// <inheritdoc/>
+    public override void RemovedFromDocument(GH_Document document)
+    {
+        UnhookSync();
+        base.RemovedFromDocument(document);
+    }
+
+    // Hands each inlet the data on its parameter and, when any of it is new, schedules ONE solution on
+    // the harness document with those Receivers expired.
+    //
+    // Deferred rather than solved here: this is the HOST's solution, and the harness is a different
+    // document with its own solver. Expiring inside a scheduled callback is the safe shape — GH flushes
+    // scheduled delegates at the start of the solution it is about to run, so marking expired is
+    // exactly enough, and a sub-document solution cannot re-enter the one running now.
+    private void PushInlets(IGH_DataAccess DA)
+    {
+        if (_inner is null)
+        {
+            return;
+        }
+
+        List<IGH_ActiveObject>? touched = null;
+
+        for (int i = 0; i < Params.Input.Count; i++)
+        {
+            if (Params.Input[i] is not Param_Inlet inlet)
+            {
+                continue;
+            }
+
+            if (FindInlet(inlet.ReceiverId) is not { } receiver)
+            {
+                continue;
+            }
+
+            // An unwired input still pushes: the empty tree is what clears a Receiver that used to be
+            // fed, and without it the harness would keep serving data the canvas no longer supplies.
+            if (!DA.GetDataTree(i, out GH_Structure<IGH_Goo> tree) || tree is null)
+            {
+                tree = new GH_Structure<IGH_Goo>();
+            }
+
+            if (receiver.Accept(tree) && receiver is IGH_ActiveObject active)
+            {
+                (touched ??= new List<IGH_ActiveObject>()).Add(active);
+            }
+        }
+
+        if (touched is null)
+        {
+            return;
+        }
+
+        List<IGH_ActiveObject> expire = touched;
+        _inner.ScheduleSolution(1, _ =>
+        {
+            foreach (IGH_ActiveObject receiver in expire)
+            {
+                receiver.ExpireSolution(false);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Relabels the input belonging to a Receiver that has just been renamed, and repaints.
+    ///
+    /// <para>Called from the Receiver's own <c>NickName</c> setter, which is the only hook that cannot
+    /// be missed: nothing raises an event for a rename, and an expired layout is not a promise that
+    /// <c>Layout</c> will run. See <see cref="RefreshInlets"/> for the evidence.</para>
+    /// </summary>
+    /// <param name="inlet">The Receiver whose name changed.</param>
+    internal void OnInletRenamed(IHarnessInlet inlet)
+    {
+        Guid id = ((IGH_DocumentObject)inlet).InstanceGuid;
+
+        foreach (IGH_Param param in Params.Input)
+        {
+            if (param is Param_Inlet bound && bound.ReceiverId == id)
+            {
+                Describe(bound, inlet);
+                ExpireProxyLayout();
+                return;
+            }
+        }
+    }
+
+    // Carries a rename made OUT here back to the Receiver, so the input and its Receiver keep one
+    // name between them whichever end is edited. The Receiver's own setter pushes the same name back,
+    // where the parameter's equality guard stops the bounce.
+    private void RenameReceiver(Guid receiverId, string name)
+    {
+        if (FindInlet(receiverId) is IGH_DocumentObject receiver)
+        {
+            receiver.NickName = name;
+        }
+    }
+
+    // Points a parameter at the Receiver it must rename. Re-applied on every pass rather than only on
+    // creation, since a parameter restored from an archive is built by Grasshopper and arrives blank.
+    private void Bind(Param_Inlet param)
+    {
+        param.Renamed = name => RenameReceiver(param.ReceiverId, name);
+    }
+
+    // The Receiver an input parameter belongs to, or null when it has been deleted inside the harness
+    // (the next sync drops the parameter).
+    private IHarnessInlet? FindInlet(Guid receiverId)
+    {
+        if (_inner is null || receiverId == Guid.Empty)
+        {
+            return null;
+        }
+
+        foreach (IHarnessInlet inlet in _inner.Objects.OfType<IHarnessInlet>())
+        {
+            if (((IGH_DocumentObject)inlet).InstanceGuid == receiverId)
+            {
+                return inlet;
+            }
+        }
+
+        return null;
+    }
+
+    // Asks for a sync at the next idle. Deferred because it mutates this component's parameter set,
+    // which must not happen while a solution — this document's or the harness's — is running, and
+    // because the events that trigger it (objects added inside, a Receiver renamed or moved) arrive in
+    // bursts that coalesce into one pass here.
+    private void RequestInletSync()
+    {
+        if (_syncHooked)
+        {
+            return;
+        }
+
+        _syncHooked = true;
+        Rhino.RhinoApp.Idle += OnIdleSync;
+    }
+
+    private void UnhookSync()
+    {
+        if (_syncHooked)
+        {
+            Rhino.RhinoApp.Idle -= OnIdleSync;
+            _syncHooked = false;
+        }
+    }
+
+    private void OnIdleSync(object? sender, EventArgs e)
+    {
+        UnhookSync();
+
+        if (!SyncInlets())
+        {
+            return;
+        }
+
+        Params.OnParametersChanged();
+        ExpireProxyLayout();
+
+        // Only re-solve once there is something to re-solve. A sync can run before this proxy has
+        // reached a document at all: Adopt asks for one while the harness contents are still being
+        // read out of an archive.
+        if (OnPingDocument() is not null)
+        {
+            ExpireSolution(true);
+        }
+    }
+
+    /// <summary>
+    /// Reconciles this proxy's inputs with the Receivers inside the harness: one input per Receiver,
+    /// in their layout order, named after them.
+    ///
+    /// <para>Bound by InstanceGuid, never by position. An input parameter is a real object that other
+    /// components' wires point AT — unlike an outlet's grip, which is an arrow we draw ourselves — so
+    /// a parameter whose Receiver still exists is REUSED, never rebuilt: rebuilding it would drop the
+    /// wire feeding it, and re-binding by index would hand one Receiver's data to another as soon as
+    /// the nodes inside were re-ordered. Re-ordering moves the parameter objects themselves, so their
+    /// sources travel with them.</para>
+    /// </summary>
+    /// <returns>True when anything changed, so the caller re-lays out and re-solves.</returns>
+    private bool SyncInlets()
+    {
+        IReadOnlyList<IHarnessInlet> inlets = Inlets;
+        var desired = new List<IGH_Param>(inlets.Count);
+        bool created = false;
+        bool relabelled = false;
+
+        foreach (IHarnessInlet inlet in inlets)
+        {
+            Guid id = ((IGH_DocumentObject)inlet).InstanceGuid;
+
+            Param_Inlet? param = Params.Input
+                .OfType<Param_Inlet>()
+                .FirstOrDefault(candidate => candidate.ReceiverId == id && !desired.Contains(candidate));
+
+            if (param is null)
+            {
+                param = new Param_Inlet { ReceiverId = id };
+                created = true;
+            }
+
+            Bind(param);
+            relabelled |= Describe(param, inlet);
+            desired.Add(param);
+        }
+
+        bool rebuild = created || Params.Input.Count != desired.Count;
+        for (int i = 0; !rebuild && i < desired.Count; i++)
+        {
+            rebuild = !ReferenceEquals(Params.Input[i], desired[i]);
+        }
+
+        if (rebuild)
+        {
+            // Isolated only when the parameter is going for good; one that is merely MOVING keeps its
+            // sources, which is what makes re-ordering the Receivers inside harmless out here.
+            foreach (IGH_Param existing in Params.Input.ToList())
+            {
+                Params.UnregisterInputParameter(existing, isolate: !desired.Contains(existing));
+            }
+
+            foreach (IGH_Param param in desired)
+            {
+                Params.RegisterInputParam(param);
+            }
+        }
+
+        return rebuild || relabelled;
+    }
+
+    /// <summary>
+    /// Brings the inputs back in step with the Receivers inside, called from the proxy's layout pass.
+    ///
+    /// <para>Nothing announces either change. Grasshopper's <c>NickName</c> setter raises NOTHING
+    /// (verified against the shipped assembly: the setter body is a bare field assignment) — only the
+    /// right-click name box does, through <c>Menu_NameItemTextChanged</c> and friends, so an F2 or
+    /// properties-panel rename reaches no handler at all. A MOVE raises nothing anywhere either, which
+    /// is why <c>MasterGroupFollower</c> ended up polling.</para>
+    ///
+    /// <para>A rename does not rely on this, and must not: <c>PerformLayout</c> is called from a bare
+    /// handful of places in Grasshopper and the paint loop is not one of them, so an expired layout can
+    /// go unperformed indefinitely. Both ends of the name are kept in step by overriding the virtual
+    /// <c>NickName</c> setter instead — on the Receiver (<see cref="OnInletRenamed"/>) and on the
+    /// parameter (<see cref="Param_Inlet.Renamed"/>). What is left for this pass is repair: rebinding
+    /// parameters restored from an archive, and handing a set or order change to the idle sync, since
+    /// the parameter list must not be rebuilt from inside a layout pass.</para>
+    /// </summary>
+    internal void RefreshInlets()
+    {
+        foreach (IGH_Param param in Params.Input)
+        {
+            if (param is Param_Inlet inlet && FindInlet(inlet.ReceiverId) is { } receiver)
+            {
+                Bind(inlet);
+                Describe(inlet, receiver);
+            }
+        }
+
+        if (InletsDiffer())
+        {
+            RequestInletSync();
+        }
+    }
+
+    // Whether the Receivers inside no longer line up with the inputs out here — one added, one
+    // deleted, or the set re-ordered by moving a node.
+    private bool InletsDiffer()
+    {
+        IReadOnlyList<IHarnessInlet> inlets = Inlets;
+        if (Params.Input.Count != inlets.Count)
+        {
+            return true;
+        }
+
+        for (int i = 0; i < inlets.Count; i++)
+        {
+            if (Params.Input[i] is not Param_Inlet param
+                || param.ReceiverId != ((IGH_DocumentObject)inlets[i]).InstanceGuid)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Names an input after its Receiver. Returns whether anything actually changed, so a sync that
+    // finds nothing new costs a relayout and nothing more.
+    private static bool Describe(Param_Inlet param, IHarnessInlet inlet)
+    {
+        string name = inlet.InletName;
+        string description = inlet.InletDescription;
+
+        if (param.Name == name && param.NickName == name && param.Description == description)
+        {
+            return false;
+        }
+
+        param.Name = name;
+        param.NickName = name;
+        param.Description = description;
+        return true;
+    }
+
 
     // Adopts a document as this harness's contents: recorded in the owner table (so PhyDocuments
     // can climb back to the user's canvas) and enabled so it keeps solving while off-canvas.
@@ -640,10 +1036,20 @@ public sealed class HarnessComponent : PhyBase
 
         document.Enabled = true;
         _inner = document;
+
+        // The inputs are derived from what is in here, and adopting raises no ObjectsAdded — the
+        // objects were already in the document when it arrived.
+        RequestInletSync();
     }
 
-    // Re-lays the proxy out and repaints when the harness contents change underneath it.
-    private void OnInnerObjectsChanged(object sender, GH_DocObjectEventArgs e) => ExpireProxyLayout();
+    // Re-lays the proxy out and repaints when the harness contents change underneath it, and
+    // reconciles the inputs: a Receiver added or deleted in there is an input appearing or vanishing
+    // out here.
+    private void OnInnerObjectsChanged(object sender, GH_DocObjectEventArgs e)
+    {
+        ExpireProxyLayout();
+        RequestInletSync();
+    }
 
     // Re-lays the proxy out and repaints, after the harness contents changed underneath it.
     private void ExpireProxyLayout()

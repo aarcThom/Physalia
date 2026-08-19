@@ -4,8 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Runtime.CompilerServices;
-using System.Text;
 using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
@@ -56,15 +54,7 @@ public class GeometryTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
 
     // Identifies what was last transmitted, so ordinary dataflow delivers once per change rather than
     // on every solve (each delivery expires the target, and re-delivering the same geometry would keep
-    // the canvas busy for nothing).
-    //
-    // Keyed by the tree's shape plus the REFERENCE identity of every item in it, which is exact in the
-    // one direction that matters. Grasshopper hands back the very goo objects its producer made, and
-    // only re-makes them when that producer recomputes — so identical references mean nothing upstream
-    // ran, and a changed reference means something did. It can re-transmit geometry that recomputed to
-    // the same shape; it can never miss geometry that changed. Comparing the geometry itself would be
-    // the other way round: cheap tests (bounding boxes) silently miss real changes, and honest ones
-    // cost a full compare of every Brep on every solve.
+    // the canvas busy for nothing). See TreeIdentity for what the key is made of and why.
     private string? _lastKey;
 
     // The tree queued for the deferred write, and the problem the last one reported.
@@ -231,7 +221,7 @@ public class GeometryTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
         // the pipeline behind it must not be held up.
         DA.SetDataTree(OutGeometry, tree);
 
-        string key = TreeKey(tree);
+        string key = TreeIdentity.Of(tree);
         if (key == _lastKey)
         {
             return;
@@ -239,27 +229,6 @@ public class GeometryTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
 
         _lastKey = key;
         QueueWrite(tree);
-    }
-
-    // What makes this tree that tree: its paths, and the identity of the goo on each of them. See
-    // _lastKey for why identity rather than value.
-    private static string TreeKey(GH_Structure<IGH_GeometricGoo> tree)
-    {
-        StringBuilder key = new();
-
-        for (int branch = 0; branch < tree.PathCount; branch++)
-        {
-            key.Append(tree.Paths[branch]).Append(':');
-
-            foreach (IGH_GeometricGoo item in tree.Branches[branch])
-            {
-                key.Append(item is null ? 0 : RuntimeHelpers.GetHashCode(item)).Append(',');
-            }
-
-            key.Append(';');
-        }
-
-        return key.ToString();
     }
 
     // Queues the deferred write. Delivery mutates and expires a document that is not the one being

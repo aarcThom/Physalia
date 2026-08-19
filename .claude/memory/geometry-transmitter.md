@@ -39,15 +39,27 @@ composed `TransmitterLink`, no signal lifecycle at all.
    next expires** — well before the `RhinoApp.Idle` callback runs. Queue a copy
    (`new GH_Structure<T>(tree, false)`, shallow) or the deferred write finds nothing.
 
-**Text targets, added the same day.** A Panel is a `GH_Param` but NOT a `GH_PersistentParam`, so
-it has no persistent data to write and takes `SetUserText` instead — it gets `ParamTargets.TreeText`,
-the tree rendered the way a Panel shows one (plain lines for a single branch, `{path}` headers plus
-indexed items for more). Separately, any item a target param refuses outright is offered again as a
-`GH_String` of its own text form, so a text input that would have stringified geometry off a wire
-still does. Neither is a special case in the component: a param that can read neither the geometry
-nor a string refuses both and is counted, so the fallback only ever fires where it is the right
-answer. `CanHoldOrDisplay` (Panel or persistent param) is now the shared target test for both
-wire-like transmitters.
+**Text targets, same day — the rule is PER ITEM, container preserved.** A text param needs no help:
+`Param_String.Cast_Object` stringifies each goo on its own (probed outside Rhino — a `GH_Point`
+casts to `"{1, 2, 3}"`), so the tree survives the ordinary `WriteTree` path. On top of that, an item
+any param refuses outright is retried as a `GH_String` of its text form; a param that reads neither
+refuses both and is counted, so the fallback only fires where it is right.
+
+**The Panel is the one target that cannot hold data**, and it cost a wrong first attempt. Its only
+storage is a single `_userText` string (`GH_Param`, not `GH_PersistentParam` — reflect its declared
+members and there is nothing else). `CollectVolatileData_Custom` rebuilds its data from that string,
+and I probed it directly by setting `_userText` and invoking it:
+
+- `Multiline = false` → **one item per line, one branch**. So a LIST round-trips exactly.
+- `Multiline = true`  → the whole text as one item.
+- GH's own tree rendering (`{0;0}` headers, `0. item` lines) is **NOT parsed back** — the headers
+  come back as data ITEMS.
+
+So `ParamTargets.WritePanel` writes one item per line, forces `Multiline` off when there is more than
+one, and collapses any newline inside an item's own text to a space (line count IS item count). My
+first version rendered the GH tree display into the panel, which would have corrupted the data — a
+multi-branch tree simply cannot live in a panel, so it is flattened and the component warns and
+points at a Text parameter. `CanHoldOrDisplay` (Panel or persistent param) is the shared target test.
 
 Also: `AddGeometryParameter` is `Param_Geometry` = `IGH_GeometricGoo`, which **excludes GH_Vector,
 GH_Transform and GH_Interval** (GH_Plane, GH_Point, GH_Box and everything solid ARE included). That

@@ -36,12 +36,12 @@ namespace Physalia.GH.Components;
 /// wire's would be — and an input that cannot read them says so rather than going quietly empty.
 /// Ctrl+drop on the target unlinks; a drop on empty canvas does nothing.</para>
 ///
-/// <para><b>Text targets work too.</b> A Panel takes the tree written out the way a Panel shows one
-/// — plain lines for a single branch, path headers and indexed items for more — and any input that
-/// would have stringified the geometry off a wire still does, because an item the target refuses
-/// outright is offered again as its text form. Seeing what is being transmitted needs no special
-/// wiring, and none of it is a special case in this component: it is all in
-/// <see cref="ParamTargets"/>, shared with <see cref="TextTransmitter"/>.</para>
+/// <para><b>Text targets work too, PER ITEM.</b> Stringifying never collapses the data: a text
+/// parameter casts each piece of geometry to text on its own and keeps the tree it arrived in, and
+/// an item a target refuses outright is offered again as its own text form for the same reason. A
+/// Panel gets the items one per line — a LIST of the same length, not one blob — which is the only
+/// shape a Panel's single string can be read back as; branching is the one thing it cannot carry, and
+/// a tree sent to one is flattened with a warning that says so.</para>
 ///
 /// <para>The delivery itself is deferred to <c>RhinoApp.Idle</c>: it writes into and expires a
 /// document that is not the one being solved — the target sits on the user's canvas, this component
@@ -322,13 +322,18 @@ public class GeometryTransmitter : PhyBase, IHarnessOutlet, IGuidLinked
             return linkError;
         }
 
-        // A Panel holds one string, not data, so it gets the tree written out the way a Panel shows
-        // one. This is the target a user reaches for to SEE what is going out.
+        // A Panel is the target a user reaches for to SEE what is going out. It holds one string and
+        // splits it by line, so the items land as a LIST — each piece of geometry cast to text on its
+        // own, the way a wire would have delivered them. Branching is the one thing it cannot carry.
         if (target is GHPanel panel)
         {
-            panel.SetUserText(ParamTargets.TreeText(tree));
+            ParamTargets.WritePanel(panel, tree);
             panel.ExpireSolution(true);
-            return null;
+
+            return tree.PathCount > 1
+                ? $"\"{panel.NickName}\" is a Panel, which holds one list — the {tree.PathCount} branches "
+                    + "were flattened into it. Transmit into a Text parameter to keep the tree."
+                : null;
         }
 
         if (target is not IGH_Param param)

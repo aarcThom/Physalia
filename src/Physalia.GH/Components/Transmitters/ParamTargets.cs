@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Reflection;
-using System.Text;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Types;
@@ -231,50 +230,46 @@ internal static class ParamTargets
     }
 
     /// <summary>
-    /// Renders a whole tree the way a Panel shows one — a plain list of lines when there is a single
-    /// branch, and path headers with indexed items when there is more than one. This is what a
-    /// transmitter delivers into a Panel, which holds one string rather than data and so cannot be
-    /// given the tree itself.
+    /// Writes a whole tree into a Panel AS A LIST — one item per line, which is the only shape a
+    /// Panel's own storage can carry.
+    ///
+    /// <para>A Panel holds a single string and rebuilds its data from it: with <c>Multiline</c> off
+    /// it splits that string into ONE ITEM PER LINE, so a list of geometry lands as a list of the
+    /// same length, each piece cast to text on its own — the structure a wire would have delivered,
+    /// not one blob. <c>Multiline</c> is therefore forced off whenever there is more than one item,
+    /// since leaving it on would collapse them all back into a single value. A newline inside an
+    /// item's own text is flattened to a space, because the line count IS the item count here.</para>
+    ///
+    /// <para><b>Branching cannot survive.</b> A Panel parses no paths back out of its text — writing
+    /// Grasshopper's own <c>{0;0}</c> headers would land them as data items, which is worse than
+    /// losing the branching — so a tree arrives flattened and the caller says so. A Text parameter
+    /// takes the same values with the tree intact, and is where a tree belongs.</para>
     /// </summary>
     /// <typeparam name="T">The goo type the tree is read as.</typeparam>
-    /// <param name="tree">The tree to render.</param>
-    /// <returns>The tree's text form.</returns>
-    internal static string TreeText<T>(GH_Structure<T> tree)
+    /// <param name="panel">The Panel to write into.</param>
+    /// <param name="tree">The tree to write.</param>
+    internal static void WritePanel<T>(GHPanel panel, GH_Structure<T> tree)
         where T : IGH_Goo
     {
-        StringBuilder text = new();
+        List<string> lines = new();
 
-        if (tree.PathCount <= 1)
+        foreach (IGH_Goo item in tree.AllData(true))
         {
-            foreach (IGH_Goo item in tree.AllData(true))
-            {
-                text.AppendLine(ItemText(item));
-            }
-
-            return text.ToString().TrimEnd();
+            lines.Add(OneLine(ItemText(item)));
         }
 
-        for (int branch = 0; branch < tree.PathCount; branch++)
+        if (lines.Count > 1)
         {
-            if (branch > 0)
-            {
-                text.AppendLine();
-            }
-
-            text.AppendLine(tree.Paths[branch].ToString());
-
-            IList<T> items = tree.Branches[branch];
-            for (int index = 0; index < items.Count; index++)
-            {
-                if (items[index] is { } item)
-                {
-                    text.AppendLine($"   {index}. {ItemText(item)}");
-                }
-            }
+            panel.Properties.Multiline = false;
         }
 
-        return text.ToString().TrimEnd();
+        panel.SetUserText(string.Join(Environment.NewLine, lines));
     }
+
+    // One item, one line: any newline inside a value's own text would otherwise be read back as an
+    // extra item, since a Panel splits its content by line.
+    private static string OneLine(string text) =>
+        text.Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ');
 
     /// <summary>
     /// A single value's text form: Grasshopper's own conversion where it has one, and the goo's

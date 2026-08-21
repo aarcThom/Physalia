@@ -4,7 +4,6 @@
 using System;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Parameters;
 
 namespace Physalia.GH.Parameters;
 
@@ -21,8 +20,12 @@ namespace Physalia.GH.Parameters;
 /// remember WHICH Receiver it belongs to — through a save and reload, and across a reorder. Binding
 /// by position instead would hand one Receiver's data to another as soon as the nodes inside were
 /// moved; rebuilding a parameter that already exists would drop the wire feeding it.</para>
+///
+/// <para>Its nickname is shared with the Receiver's own output, through
+/// <see cref="Param_LinkedName"/>: the two are ONE name, both starting out "Data", and renaming
+/// either end renames the other.</para>
 /// </summary>
-public class Param_Inlet : Param_GenericObject
+public class Param_Inlet : Param_LinkedName
 {
     // Archive key for the bound Receiver. Deliberately prefixed: this parameter's archive is the stock
     // generic-parameter one, and a collision with a Grasshopper key would be silent.
@@ -53,40 +56,6 @@ public class Param_Inlet : Param_GenericObject
     /// </summary>
     public Guid ReceiverId { get; set; }
 
-    /// <summary>
-    /// Gets or sets what to do when the user renames this input on the proxy: rename the Receiver it
-    /// belongs to. Set by the harness; null on a parameter that has not been bound yet, and on one
-    /// being rehydrated from an archive, where the name arriving IS the Receiver's own.
-    /// </summary>
-    internal Action<string>? Renamed { get; set; }
-
-    /// <inheritdoc/>
-    /// <remarks>
-    /// The input and its Receiver share ONE name, and this is the half that carries an edit inward.
-    /// Renaming the input on the proxy renames the Receiver inside the harness, exactly as renaming
-    /// the Receiver relabels the input — either end can be edited and the other follows.
-    ///
-    /// <para>Overriding the property is the only way to see it happen. Grasshopper's own setter (on
-    /// <c>GH_InstanceDescription</c>, and virtual, which is what makes this possible) raises no event
-    /// at all, so there is nothing to subscribe to; it is virtual, so there is something to override.
-    /// The recursion the two halves would otherwise make is cut by the equality guard: the Receiver
-    /// pushes the very name that arrived here, so the second pass finds nothing to change.</para>
-    /// </remarks>
-    public override string NickName
-    {
-        get => base.NickName;
-
-        set
-        {
-            if (string.Equals(base.NickName, value, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            base.NickName = value;
-            Renamed?.Invoke(value);
-        }
-    }
 
     /// <inheritdoc/>
     public override bool Write(GH_IWriter writer)

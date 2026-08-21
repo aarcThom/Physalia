@@ -6,6 +6,7 @@ using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Types;
 using Physalia.GH.Harness;
+using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
 
@@ -14,10 +15,14 @@ namespace Physalia.GH.Components;
 /// thing that crosses that boundary as a wire.
 ///
 /// <para><b>No inputs, one output.</b> Placing one inside a harness grows an input on the LEFT edge of
-/// that harness's proxy, named after this node's nickname; whatever is wired into it out there arrives
-/// here, tree structure intact, and leaves on <b>Data</b>. Place several and the proxy grows several,
-/// stacked in the order the Receivers are laid out inside — move them and the inputs re-order with
-/// them. Rename one and its input on the proxy is renamed too.</para>
+/// that harness's proxy; whatever is wired into it out there arrives here, tree structure intact, and
+/// leaves on <b>Data</b>. Place several and the proxy grows several, stacked in the order the Receivers
+/// are laid out inside — move them and the inputs re-order with them.</para>
+///
+/// <para><b>One name, two ends.</b> This output and the harness input it is fed by share a nickname,
+/// starting out "Data" on both. Rename either — the output in here, or the input on the proxy out
+/// there — and the other follows, so the label a user reads on the harness always says what the wire
+/// inside is called. The node's own nickname is left alone for saying what the node is.</para>
 ///
 /// <para><b>Any data, not only geometry.</b> Geometry is what these are mostly for — a site boundary,
 /// a target volume, an existing structure the model has to work around — and it rides through
@@ -36,6 +41,9 @@ namespace Physalia.GH.Components;
 public class Receiver : PhyBase, IHarnessInlet
 {
     private const int OutData = 0;
+
+    /// <summary>The name a fresh Receiver's output — and so its harness input — starts out with.</summary>
+    private const string DefaultName = "Data";
 
     // The latched tree, held because the harness pipeline solves on its own schedule: the host
     // solution that delivered this data is long over by the time a signal round reads it.
@@ -59,45 +67,38 @@ public class Receiver : PhyBase, IHarnessInlet
     public override Guid ComponentGuid => new Guid("5F0A8C31-4D76-42B9-9E85-6C13A7F2D094");
 
     /// <inheritdoc/>
-    /// <remarks>Falls back to the type name for a nickname cleared to nothing, so the proxy's input is never nameless.</remarks>
-    public string InletName => string.IsNullOrWhiteSpace(NickName) ? Name : NickName;
-
-    /// <inheritdoc/>
     /// <remarks>
-    /// Renaming this node relabels its input on the harness proxy, which is the whole point of naming
-    /// it — the label out there is how you tell one harness input from another, and this is the node
-    /// that says what it is.
-    ///
-    /// <para>Overridden rather than watched, because there is nothing to watch. Grasshopper's
-    /// <c>NickName</c> setter raises no event whatsoever (its body is a bare field assignment), and
-    /// only the right-click name box announces a rename at all — so an F2 or properties-panel rename
-    /// reaches no handler anywhere. Nor can the proxy simply re-read the name when it is next laid
-    /// out: <c>PerformLayout</c> is called from a bare handful of places and the paint loop is not one
-    /// of them, so an expired layout may never be performed. The setter is virtual, so overriding it
-    /// is the one hook that cannot be missed.</para>
+    /// The OUTPUT parameter's nickname, not this node's. The name a harness input carries and the name
+    /// on the wire leaving this Receiver are the same name, so there is one place it lives and this is
+    /// it; the node's own nickname stays free to say what the node is ("Rx"). Falls back to
+    /// <see cref="DefaultName"/> for a nickname cleared to nothing, so the input is never nameless.
     /// </remarks>
-    public override string NickName
+    public string InletName
     {
-        get => base.NickName;
+        get => Output?.NickName is { } nickname && !string.IsNullOrWhiteSpace(nickname)
+            ? nickname
+            : DefaultName;
 
         set
         {
-            if (string.Equals(base.NickName, value, StringComparison.Ordinal))
+            if (Output is { } output)
             {
-                return;
+                // A cleared name is taken as "back to the default" rather than obeyed: an unnamed grip
+                // on the proxy tells the user nothing, and the two ends would then disagree, since the
+                // getter has to answer with something.
+                output.NickName = string.IsNullOrWhiteSpace(value) ? DefaultName : value;
             }
-
-            base.NickName = value;
-
-            // Null while this node is being read out of an archive or pasted, before it belongs to a
-            // harness. The proxy's sync names its inputs on arrival, so nothing is lost.
-            PhyDocuments.Harness(this)?.OnInletRenamed(this);
         }
     }
 
     /// <inheritdoc/>
     public string InletDescription =>
         $"Data for the \"{InletName}\" Receiver inside this harness. Tree structure is carried through unchanged.";
+
+    // This Receiver's output, typed so its rename can be heard. Null only while the component is being
+    // constructed or has had its parameters torn down.
+    private Param_ReceiverData? Output =>
+        Params.Output.Count > OutData ? Params.Output[OutData] as Param_ReceiverData : null;
 
     /// <inheritdoc/>
     public bool Accept(GH_Structure<IGH_Goo> data)
@@ -133,11 +134,54 @@ public class Receiver : PhyBase, IHarnessInlet
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddGenericParameter(
-            "Data",
-            "D",
-            "Exactly what is wired into this Receiver's input on the harness proxy — the same items on the same paths.",
+        // Nicknamed in full rather than initialled, because this name is shared with the harness input
+        // it feeds and has to read as a label out there. Bound here as well as in AddedToDocument: this
+        // runs during construction, so a rename is heard from the very first one.
+        var output = new Param_ReceiverData();
+        BindOutput(output);
+
+        pManager.AddParameter(
+            output,
+            DefaultName,
+            DefaultName,
+            "Exactly what is wired into this Receiver's input on the harness proxy — the same items on the same paths. Rename it and the harness input is renamed too.",
             GH_ParamAccess.tree);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Re-binds the output's rename callback. Registration already bound the parameter this component
+    /// built, but a component read from an archive gets its parameters back from Grasshopper, and
+    /// those arrive with nothing attached.
+    /// </remarks>
+    public override void AddedToDocument(GH_Document document)
+    {
+        base.AddedToDocument(document);
+
+        if (Output is { } output)
+        {
+            BindOutput(output);
+        }
+    }
+
+    // Points the output at this Receiver, so renaming it carries out to the harness input. Nothing
+    // else can see that rename: Grasshopper's NickName setter raises no event, and layout — which
+    // could otherwise re-read the name — is performed on solution, not on paint.
+    private void BindOutput(Param_ReceiverData output)
+    {
+        output.Renamed = name =>
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                // Cleared in here rather than on the proxy. Put the default back, which re-enters this
+                // callback with a real name and carries THAT outward — so both ends land on "Data"
+                // instead of one going blank and the other keeping the old label.
+                output.NickName = DefaultName;
+                return;
+            }
+
+            PhyDocuments.Harness(this)?.OnInletRenamed(this);
+        };
     }
 
     /// <inheritdoc/>

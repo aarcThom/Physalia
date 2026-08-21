@@ -770,9 +770,10 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
     /// <summary>
     /// Relabels the input belonging to a Receiver that has just been renamed, and repaints.
     ///
-    /// <para>Called from the Receiver's own <c>NickName</c> setter, which is the only hook that cannot
-    /// be missed: nothing raises an event for a rename, and an expired layout is not a promise that
-    /// <c>Layout</c> will run. See <see cref="RefreshInlets"/> for the evidence.</para>
+    /// <para>Called from the Receiver's output parameter, whose <c>NickName</c> setter is overridden
+    /// because that is the only hook that cannot be missed: nothing raises an event for a rename, and
+    /// an expired layout is not a promise that <c>Layout</c> will run. See <see cref="RefreshInlets"/>
+    /// for the evidence.</para>
     /// </summary>
     /// <param name="inlet">The Receiver whose name changed.</param>
     internal void OnInletRenamed(IHarnessInlet inlet)
@@ -790,14 +791,14 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
         }
     }
 
-    // Carries a rename made OUT here back to the Receiver, so the input and its Receiver keep one
-    // name between them whichever end is edited. The Receiver's own setter pushes the same name back,
+    // Carries a rename made OUT here back inside, onto the Receiver's own output parameter, so the two
+    // ends keep one name between them whichever is edited. The Receiver pushes the same name back out,
     // where the parameter's equality guard stops the bounce.
     private void RenameReceiver(Guid receiverId, string name)
     {
-        if (FindInlet(receiverId) is IGH_DocumentObject receiver)
+        if (FindInlet(receiverId) is { } receiver)
         {
-            receiver.NickName = name;
+            receiver.InletName = name;
         }
     }
 
@@ -947,8 +948,8 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
     /// <para>A rename does not rely on this, and must not: <c>PerformLayout</c> is called from a bare
     /// handful of places in Grasshopper and the paint loop is not one of them, so an expired layout can
     /// go unperformed indefinitely. Both ends of the name are kept in step by overriding the virtual
-    /// <c>NickName</c> setter instead — on the Receiver (<see cref="OnInletRenamed"/>) and on the
-    /// parameter (<see cref="Param_Inlet.Renamed"/>). What is left for this pass is repair: rebinding
+    /// <c>NickName</c> setter instead — see <see cref="Param_LinkedName"/>, which both the Receiver's
+    /// output and this proxy's input derive from. What is left for this pass is repair: rebinding
     /// parameters restored from an archive, and handing a set or order change to the idle sync, since
     /// the parameter list must not be rebuilt from inside a layout pass.</para>
     /// </summary>

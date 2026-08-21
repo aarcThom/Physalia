@@ -10,7 +10,7 @@ metadata:
 
 Built 2026-08-18: **Receiver** (`Rx`, section "Receivers"), the inverse of a transmitter. No inputs,
 one generic tree output; placing one inside a harness grows a real Grasshopper input on the LEFT edge
-of the harness proxy, named after the Receiver's nickname. Intended use: passing geometry and goal
+of the harness proxy. Intended use: passing geometry and goal
 conditions in for LLM tools to reason against. Complements [[harness-subdocument]] and
 [[geometry-transmitter]].
 
@@ -74,13 +74,20 @@ it buys purity and inherits the Script I/O watch-hell, with no expiry guarantees
      direction: the name became derived-only, so renaming the input on the proxy silently reverted.
      A name editable at both ends needs a two-way sync, not a one-way read.
    What works: **override the virtual `NickName` setter** (declared on `GH_InstanceDescription`, and
-   virtual — which is the only reason any of this is reachable) at BOTH ends. `Receiver.NickName`
-   relabels its input through `HarnessComponent.OnInletRenamed`; `Param_Inlet.NickName` renames the
-   Receiver through its `Renamed` callback. One name, either end editable, recursion cut by an equality
-   guard. A MOVE has no hook whatsoever, so order drift is checked in `SolveInstance` — the one thing
-   that runs often and runs for certain — and handed to the idle sync.
+   virtual — which is the only reason any of this is reachable) at BOTH ends, via the shared
+   `Param_LinkedName` base. One name, either end editable, recursion cut by an equality guard, a
+   cleared name normalised back to the default rather than obeyed. A MOVE has no hook whatsoever, so
+   order drift is checked in `SolveInstance` — the one thing that runs often and runs for certain —
+   and handed to the idle sync.
    **This also casts doubt on [[script-io-grounder]]'s rename watch**, which is built on
    `ObjectChanged` alone and has never been run live.
+
+3. **And the linked pair was the wrong pair.** Two rounds went into syncing the Receiver COMPONENT's
+   nickname with the proxy input. What the pipeline actually wants linked is the Receiver's **output
+   parameter** nickname with the proxy input's nickname — one name on the wire inside and on the grip
+   outside, both defaulting to "Data". The component's own nickname stays free to say what the node is
+   ("Rx"). Lesson for next time: when a request says "nickname", ask WHICH object's — a GH component
+   and each of its parameters all have one, and they are all visible on the canvas.
 
 **Otherwise not yet run in Rhino.** Builds clean, 482 Core tests pass. The one thing to watch on first launch:
 whether GH restores the archived `Param_Inlet` set on file reload (it should — same machinery Merge

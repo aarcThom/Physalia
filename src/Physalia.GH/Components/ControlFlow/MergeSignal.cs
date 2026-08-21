@@ -57,7 +57,7 @@ public class MergeSignal : StatefulComponentBase, IGH_VariableParameterComponent
     /// Initializes a new instance of the <see cref="MergeSignal"/> class.
     /// </summary>
     public MergeSignal()
-        : base("Merge Signal", "Merge", "Merges two or more signals into one. Waits until every wired input has a signal, then emits a single signal carrying all of their content.", "Control Flow")
+        : base("Merge Signal", "Merge", "Joins two or more branches into one signal. It waits for every wired input to be holding something, then sends one signal carrying all of it. Zoom in to add or remove inputs.", "Control Flow")
     {
     }
 
@@ -77,7 +77,7 @@ public class MergeSignal : StatefulComponentBase, IGH_VariableParameterComponent
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Signal", "S", "One signal carrying the merged content of the whole input set: payloads joined in sequence order, content blocks combined in the same order (a text-only branch contributing its text as a block), newest Instructions kept. Latched until the next round.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Signal", "S", "All the branches as one signal: their text joined in the order things actually happened, their images and other content kept alongside it, and the newest conversation context of the set. It reports failure if any branch failed.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -205,7 +205,7 @@ public class MergeSignal : StatefulComponentBase, IGH_VariableParameterComponent
     private static string InputNick(int index) => $"S{index + 1}";
 
     private static string InputDescription =>
-        "One branch of the join. The merged signal is emitted once this and every other wired input is holding a signal; an unwired input is ignored.";
+        "One branch coming in. Nothing goes out until this input and every other wired one is holding a signal; an input with no wire is ignored.";
 
     private static Param_Signal NewSignalInput(int index) => new()
     {

@@ -37,7 +37,7 @@ public class Serializer : PhyBase
     /// Initializes a new instance of the <see cref="Serializer"/> class.
     /// </summary>
     public Serializer()
-        : base("Serializer", "Serialize", "Exports a selection of Grasshopper objects to a .ghjson file.", "Extra")
+        : base("Serializer", "Serialize", "Writes a selection of Grasshopper objects out to a .ghjson file — the same format Physalia uses to describe a definition to the model.", "Extra")
     {
     }
 
@@ -50,14 +50,14 @@ public class Serializer : PhyBase
         pManager.AddBooleanParameter(
             "Run",
             "R",
-            "Set to true to begin selecting objects to export. Press Enter to confirm, Esc to cancel.",
+            "Flip to true to start picking objects on the canvas. Enter confirms the selection, Esc abandons it.",
             GH_ParamAccess.item,
             false);
 
         pManager.AddTextParameter(
             "Comment",
             "C",
-            "Optional description written to the file's metadata (top of the .ghjson).",
+            "A note written into the top of the file, for whoever opens it later.",
             GH_ParamAccess.item,
             string.Empty);
         pManager[1].Optional = true;

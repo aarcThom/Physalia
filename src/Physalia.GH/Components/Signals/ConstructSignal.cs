@@ -25,7 +25,7 @@ public class ConstructSignal : StatefulComponentBase
     /// Initializes a new instance of the <see cref="ConstructSignal"/> class.
     /// </summary>
     public ConstructSignal()
-        : base("Construct Signal", "ConSig", "Mints a signal carrying the given payload, once per incoming trigger.", "Signals")
+        : base("Construct Signal", "ConSig", "Makes a signal by hand, one per button press. This is the one place an ordinary Grasshopper button is allowed to drive a Physalia pipeline.", "Signals")
     {
     }
 
@@ -35,12 +35,12 @@ public class ConstructSignal : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Payload", "P", "Text payload carried by the minted signal.", GH_ParamAccess.item, string.Empty);
-        pManager.AddBooleanParameter("Failure", "F", "When true the minted signal carries a Failure outcome (for hand-testing feedback paths).", GH_ParamAccess.item, false);
+        pManager.AddTextParameter("Payload", "P", "The text the signal carries — a fixed prompt, a canned instruction, whatever the receiving component expects to read.", GH_ParamAccess.item, string.Empty);
+        pManager.AddBooleanParameter("Failure", "F", "Send it as a failure instead of a success, so a feedback path can be tried out without waiting for something to actually go wrong.", GH_ParamAccess.item, false);
         pManager.AddBooleanParameter(
             "Trigger",
             "T",
-            "Native Boolean trigger: each Button press (false→true) mints the output once. Nothing fires on load or paste until a real press.",
+            "One press, one signal. Wire a Button here. Opening or pasting the file fires nothing — only a real press does.",
             GH_ParamAccess.item,
             false);
         pManager[InPayload].Optional = true;
@@ -49,7 +49,7 @@ public class ConstructSignal : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Signal", "S", "The minted signal, latched until the next trigger or a clear. Casts to text (the payload).", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Signal", "S", "The signal, held on the wire until the next press. Anything expecting text reads it as the Payload.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

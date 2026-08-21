@@ -66,12 +66,24 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
     /// Initializes a new instance of the <see cref="LlmCall"/> class.
     /// </summary>
     public LlmCall()
-        : base("LLM Call", "LLM Call", "Performs a single LLM forward pass and routes the response.", "Pipeline")
+        : base("LLM Call", "LLM Call", "Asks the model for one reply and streams it into the chat window as it arrives. One reply per arriving signal — nothing repeats or retries on its own.", "Pipeline")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("F1097B2B-564A-43F8-8F70-BA6961F00E00");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The conversation to send. Wire a Conversation Log's Signal here — the signal brings the instructions and history with it, so there is no second wire for the text.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The model's finished reply. Wire it back into a Conversation Log's Response Signal so the answer is remembered, and onward to whatever reads it.";
+
+    /// <inheritdoc/>
+    protected override string FailSignalDescription =>
+        "Fires when the call could not be made or completed — no connection, a rejected key, a request the provider turned down — carrying the reason. The model said nothing.";
 
     /// <inheritdoc/>
     /// <remarks>
@@ -106,14 +118,14 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Model configuration from a Model or Tweaker component.", GH_ParamAccess.item);
-        _cancelIndex = pManager.AddBooleanParameter("Cancel", "X", "Rising edge cancels the active inference call.", GH_ParamAccess.item, false);
+        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Which model to ask. Wire a Model component, or a Tweaker if you have adjusted its settings.", GH_ParamAccess.item);
+        _cancelIndex = pManager.AddBooleanParameter("Cancel", "X", "A press abandons the reply currently being written. Nothing is recorded and no signal goes out.", GH_ParamAccess.item, false);
     }
 
     /// <inheritdoc/>
     protected override void RegisterAdditionalOutputs(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Tool Calls", "TC", "Latched signal minted when the model requests tool calls; its content blocks carry the assistant turn (text + tool_use). Wire to a Router. Empty when the model returns a final answer (which routes on Success instead).", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Tool Calls", "TC", "Fires instead of Success when the model wants to use a tool rather than answer. Wire into a Router, which runs the tool and sends the result back for another turn.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

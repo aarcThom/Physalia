@@ -83,12 +83,24 @@ public class GeometryReport : RoutingComponentBase<string>
     /// Initializes a new instance of the <see cref="GeometryReport"/> class.
     /// </summary>
     public GeometryReport()
-        : base("Geometry Report", "Geometry Report", "Measures the geometry the watched graph produces — per-component bounding boxes, counts, closedness, disjoint groups, containments — and emits the digest as text on its single Signal output, so the model can compare realization against intent without images.", "Guardrails")
+        : base("Geometry Report", "Geometry Report", "Measures what was built and writes it out in words: how big each thing is, where it sits, how many there are, what stands apart from what, what is inside what. The same feedback a photograph gives, for a model that cannot see.", "Guardrails")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("8C2E5A17-4B9D-4E63-A0F8-D51B7C39E624");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "Takes the measurements when this fires. Wire it after the checks, so nothing is measured before the geometry has finished computing.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The written report, as one turn for the model to read. Wire into a Feedback.";
+
+    /// <inheritdoc/>
+    /// <remarks>Empty: this component has a single Signal output, so there is no Fail Signal to describe.</remarks>
+    protected override string FailSignalDescription => string.Empty;
 
     /// <inheritdoc/>
     /// <remarks>
@@ -104,7 +116,7 @@ public class GeometryReport : RoutingComponentBase<string>
         pManager.AddTextParameter(
             "Message",
             "M",
-            "Optional operator note folded into the report (e.g. what the user asked for), so the model weighs the measured facts against that framing. A Build Plan tracker's Progress digest wired here also switches the report's closing instruction to its staged form.",
+            "A note folded into the report — usually what was asked for, so the measurements are read against it. Wire a Build Plan's Progress here instead and the report closes by asking for the next stage rather than for a verdict.",
             GH_ParamAccess.item,
             string.Empty);
         pManager[MessageInputIndex].Optional = true;

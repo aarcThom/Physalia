@@ -99,12 +99,24 @@ public class CsTransmitter : ScriptTransmitterBase
         : base(
             "C# Transmitter",
             "CsTx",
-            "Pushes LLM-generated C# into a linked Rhino 8 C# Script component and routes its errors. Drag the harness's \"C#\" grip to the target C# component.")
+            "Writes the model's C# into a Rhino 8 script component on your canvas and reports back whatever it complains about. Right-click and choose Link to Script Component to say which one, or drag the harness's \"C#\" grip onto it.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("3F6A9D14-8B27-4C50-A1E9-7D4C2B6F8035");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The C# to push. Wire a Schema Validator's Success Signal, so what arrives is already known to be the right shape.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "Word that the code went in and compiled. Wire on to a Geometry Report or a Geometry Observation to see what it actually produced.";
+
+    /// <inheritdoc/>
+    protected override string FailSignalDescription =>
+        "What was refused: a compiler error, or a RunScript signature that disagrees with the parameters the submission declared. The expected signature is spelled out so the model can match it. Wire into a Feedback.";
 
     /// <inheritdoc/>
     public override string OutletLabel => "C#";

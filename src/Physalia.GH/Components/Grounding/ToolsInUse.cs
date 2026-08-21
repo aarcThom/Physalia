@@ -34,7 +34,7 @@ public class ToolsInUse : PhyBase
     /// Initializes a new instance of the <see cref="ToolsInUse"/> class.
     /// </summary>
     public ToolsInUse()
-        : base("Tools Present", "ToolsUsed", "Grounds the model with every tool node wired into a Router. Wire into a Conversation Log's Grounding input.", "Grounding")
+        : base("Tools Present", "ToolsUsed", "Tells the model which tools it can actually reach, by looking at what is wired into the Router. Nothing to set: add or remove a tool node and this follows.", "Grounding")
     {
     }
 
@@ -69,7 +69,7 @@ public class ToolsInUse : PhyBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Grounding carrying the definitions of every tool node wired into a Router. Wire into the Conversation Log's Grounding input.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Every tool currently reachable through a Router, described so the model knows when each one is worth calling. Wire into a Conversation Log's Grounding input.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

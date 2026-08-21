@@ -31,12 +31,20 @@ public class TokenWindow : CompactionComponentBase
         : base(
             "Token Window",
             "TokWin",
-            "Keeps the most recent messages of a conversation that fit within a token budget. Deterministic; needs a synchronous token estimator.")
+            "Shortens the conversation to as many recent turns as will fit a token budget. A Sliding Window counts turns; this one measures them, which is the honest way to hit a context limit.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("82B8ED80-8433-490F-9037-9F338B4CD253");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The conversation to measure and cut back, riding on a Conversation Log's signal. Usually reached from a Token Threshold's Over Limit output.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "As much of the recent conversation as fits the budget, ready for the LLM Call. If the measuring cannot be done, the conversation goes on in full rather than the turn being lost.";
 
     /// <inheritdoc/>
     protected override void RegisterCompactionInputs(GH_InputParamManager pManager)
@@ -45,12 +53,12 @@ public class TokenWindow : CompactionComponentBase
             new Param_ITokenEstimator(),
             "Tokenization Technique",
             "T",
-            "A synchronous token estimator (Heuristic or Tiktoken) used to measure the budget.",
+            "How the turns are added up as they are kept. It has to be one of the local methods — Heuristic or Tiktoken — because a provider round trip cannot happen part-way through a solve.",
             GH_ParamAccess.item);
         pManager.AddIntegerParameter(
             "Max Tokens",
             "N",
-            "The token budget the kept conversation (plus the system prompt, which is always counted but never dropped) must fit within.",
+            "The budget the kept turns must fit inside. The system prompt is counted against it but never dropped, so a very large prompt leaves less room for history.",
             GH_ParamAccess.item,
             8000);
     }

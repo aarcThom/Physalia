@@ -34,7 +34,7 @@ public class ModelInformation : PhyBase
         : base(
             "Model Information",
             "ModelInfo",
-            "Looks up a model in the merged OpenRouter + LiteLLM catalogs and returns its context limits and capability flags.",
+            "Looks a model up in the public OpenRouter and LiteLLM catalogues and reports what it can do — so a compaction budget can be set against real numbers instead of a guess.",
             "Models")
     {
     }
@@ -45,16 +45,16 @@ public class ModelInformation : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "The model configuration to look up.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "The model to look up. Wire any Model component.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddIntegerParameter("Max Input", "I", "Maximum input tokens (context window size).", GH_ParamAccess.item);
-        pManager.AddIntegerParameter("Max Output", "O", "Maximum output tokens the model can generate.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Image Capable", "V", "Whether the model accepts image inputs.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Tool Capable", "T", "Whether the model supports function/tool calling.", GH_ParamAccess.item);
+        pManager.AddIntegerParameter("Max Input", "I", "How much it can be given at once — its context window, in tokens.", GH_ParamAccess.item);
+        pManager.AddIntegerParameter("Max Output", "O", "How much it can produce in one reply, in tokens.", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("Image Capable", "V", "Whether it can be shown pictures — worth checking before wiring a Geometry Observation.", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("Tool Capable", "T", "Whether it can call tools — worth checking before wiring a Router.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

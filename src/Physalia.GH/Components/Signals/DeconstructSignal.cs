@@ -20,7 +20,7 @@ public class DeconstructSignal : PhyBase
     /// Initializes a new instance of the <see cref="DeconstructSignal"/> class.
     /// </summary>
     public DeconstructSignal()
-        : base("Deconstruct Signal", "DeSig", "Breaks a signal into sequence, outcome, payload, source, and time. Passive — never consumes the signal.", "Signals")
+        : base("Deconstruct Signal", "DeSig", "Opens a signal up so you can see what is inside it. Looking is free: unlike every other component, this one never uses the signal up, so you can tap it anywhere to see what is going on.", "Signals")
     {
     }
 
@@ -30,19 +30,19 @@ public class DeconstructSignal : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Signal", "S", "The signal to inspect.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Signal", "S", "The signal to look inside. It is left exactly as it was, still there for everything else on that wire.", GH_ParamAccess.item);
         pManager[0].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddIntegerParameter("Sequence", "#", "Process-wide monotonic sequence number. Higher = happened later; sequence order is causal order.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Success", "OK", "True for a Success outcome, false for Failure.", GH_ParamAccess.item);
-        pManager.AddTextParameter("Payload", "P", "The carried payload: result text on success, feedback text on failure.", GH_ParamAccess.item);
-        pManager.AddTextParameter("Source", "Sr", "Name of the component that minted the signal.", GH_ParamAccess.item);
-        pManager.AddTextParameter("Time", "T", "Local mint time (HH:mm:ss.fff).", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "The full inference context the signal carries (system prompt + conversation), when it is a Conversation Log→LLM Call event. Empty for other signals.", GH_ParamAccess.item);
+        pManager.AddIntegerParameter("Sequence", "#", "When it happened. Every signal takes the next number in line, so a higher number always means later.", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("Success", "OK", "True if the signal reports success, false if it reports failure.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Payload", "P", "The text it carries: the result if it succeeded, the complaint if it did not.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Source", "Sr", "The name of the component that sent it.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Time", "T", "The moment it was sent, to the millisecond.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "The instructions and conversation it carries, if this is the signal on its way from a Conversation Log to an LLM Call. Empty for every other kind of signal.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

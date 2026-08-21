@@ -23,12 +23,16 @@ public class SignalTrace : HumanToolComponentBase
     /// Initializes a new instance of the <see cref="SignalTrace"/> class.
     /// </summary>
     public SignalTrace()
-        : base("Signal Trace", "Trace", "Adds a button to the chat window that opens the Physalia signal-trace window.")
+        : base("Signal Trace", "Trace", "Adds a button to the chat window that opens the signal trace: a running list of every signal the pipeline has sent, for working out where a run stopped.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("503C8B2E-AF01-4870-A8FA-EE3731844565");
+
+    /// <inheritdoc/>
+    protected override string ToolOutputDescription =>
+        "Puts the signal trace button in the chat window. Wire into a Conversation Log's Human Tools input.";
 
     /// <inheritdoc/>
     protected override HumanTool Tool => new SignalTraceTool();

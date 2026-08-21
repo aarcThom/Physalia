@@ -8,6 +8,14 @@ metadata:
   modified: 2026-08-12T06:29:27.812Z
 ---
 
+> **⚠ Its rename watch is probably broken (found 2026-08-19, not yet fixed).** It detects a rename
+> through `ObjectChanged` on the target and its params — but `GH_InstanceDescription`'s `NickName`
+> setter raises NO event at all (IL-verified), and only the right-click name box does. So an F2 or
+> properties-panel rename of a script parameter reaches nothing here. This has never been run live.
+> The fix that worked for [[harness-io]] was overriding the virtual setter, which is not available
+> on a target component we do not own — a poll or a solution-time re-read is likelier here. See
+> [[gh-custom-attribute-traps]].
+
 # Script I/O grounder (built 2026-07-31 as "Interface Lock", renamed 2026-08-11; not yet run live in Rhino)
 
 Grounding-section component that freezes a script component's I/O so LLM pushes can't break existing wires. **The old name "Interface Lock" is gone** — display name AND nickname are now `Script I/O`, class/file `ScriptIO` (`Components/Grounding/ScriptIO.cs`), attrib `ScriptIOAttrib`, gradient `ArrowStyles.ScriptIO`, transmitter-side accessor `ScriptTransmitterBase.ActiveScriptIO`. **ComponentGuid pinned** (`B7D2F4A9-…0A46`), per the [[component-rename-plainspoken]] precedent, so saved `.gh` files round-trip. Behaviour words ("locked interface", `RespectsLockedInterface`, the grounding's "LOCKED interface" prose) were deliberately KEPT — locking is still what it does; only the component's name changed. Read the rest of this file with the old name mentally substituted.

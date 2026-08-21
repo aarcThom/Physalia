@@ -95,6 +95,24 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
     protected virtual bool RunsAsync => false;
 
     /// <summary>
+    /// Gets the tooltip for the Signal input: what this particular tool is being asked to do
+    /// when the Router dispatches a call to it. Every tool writes its own — a shared default
+    /// would tell the reader nothing about the tool they are hovering over.
+    /// </summary>
+    protected abstract string SignalInputDescription { get; }
+
+    /// <summary>
+    /// Gets the tooltip for the Tool output: the advertisement the model reads, in this tool's
+    /// own terms.
+    /// </summary>
+    protected abstract string ToolOutputDescription { get; }
+
+    /// <summary>
+    /// Gets the tooltip for the Result output: what this tool hands back after a call.
+    /// </summary>
+    protected abstract string ResultOutputDescription { get; }
+
+    /// <summary>
     /// Registers the tool's own inputs after the base-owned Signal input (index 1 onward).
     /// Default implementation adds nothing.
     /// </summary>
@@ -159,7 +177,7 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
     /// <inheritdoc/>
     protected sealed override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Signal", "S", "Dispatched tool-call signal from a Router.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "Signal", "S", SignalInputDescription, GH_ParamAccess.list);
         pManager[InSignal].Optional = true;
         RegisterAdditionalInputs(pManager);
     }
@@ -167,8 +185,8 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
     /// <inheritdoc/>
     protected sealed override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_LlmToolDefinition(), "Tool", "T", "The tool definition advertised to the model. The Tools Present grounder collects this automatically once a Router dispatches to this node — no wire needed.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_Signal(), "Result", "R", "Tool result signal. Wire through a Feedback component into a Feedback Collector, then into the Router's Results input.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_LlmToolDefinition(), "Tool", "T", ToolOutputDescription, GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Result", "R", ResultOutputDescription, GH_ParamAccess.item);
         RegisterAdditionalOutputs(pManager);
     }
 

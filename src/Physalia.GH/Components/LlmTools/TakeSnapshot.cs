@@ -100,12 +100,24 @@ public class TakeSnapshot : LlmToolComponentBase
     /// Initializes a new instance of the <see cref="TakeSnapshot"/> class.
     /// </summary>
     public TakeSnapshot()
-        : base("Take Snapshot", "Snap", "A tool the model calls to photograph the Rhino model from its current location, facing any direction it chooses.")
+        : base("Take Snapshot", "Snap", "Lets the model look. A camera stands where you tell it, the model chooses which way to face, and a photograph comes back. This is how it sees the model rather than being shown a view you chose.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("6E2B94A7-51D3-4C68-8F1A-2D7C0E5B9A34");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "A direction the model wants to look in, sent here by the Router.";
+
+    /// <inheritdoc/>
+    protected override string ToolOutputDescription =>
+        "Advertises looking to the model: a bearing and a tilt in, a photograph out, taken with a 35mm-equivalent lens so it knows how much is in frame. A Tools Present grounder finds this on its own once a Router dispatches here, so it needs no wire.";
+
+    /// <inheritdoc/>
+    protected override string ResultOutputDescription =>
+        "The photograph heading back to the model, riding alongside its own text. Wire through a Feedback into a Feedback Collector, then into the Router's Results input.";
 
     /// <inheritdoc/>
     protected override LlmToolDefinition Definition => ToolDef;
@@ -126,14 +138,14 @@ public class TakeSnapshot : LlmToolComponentBase
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddPointParameter("Current Location", "CL", "Where the camera stands when the model looks. Wire the model's current position — the last of Move In Space's Traversed Points — so looking and walking agree. Each new value opens a new branch on Snapshot Directions.", GH_ParamAccess.item, Point3d.Origin);
+        pManager.AddPointParameter("Current Location", "CL", "Where the camera stands. Wire a Move In Space component's Current Position so looking and walking agree; wire a fixed point to keep the camera still. Every new value starts a new branch on Snapshot Directions.", GH_ParamAccess.item, Point3d.Origin);
     }
 
     /// <inheritdoc/>
     protected override void RegisterAdditionalOutputs(GH_OutputParamManager pManager)
     {
-        pManager.AddVectorParameter("Snapshot Directions", "SD", "Unit view direction of every snapshot taken, as a tree: one branch per visit to a Current Location, in visit order, each branch holding that visit's looks in the order they were taken. Session-only.", GH_ParamAccess.tree);
-        pManager.AddVectorParameter("Current View", "CV", "Unit view direction of the MOST RECENT snapshot — where the model is looking now. The last item of the last branch of Snapshot Directions, published on its own. Empty until the first snapshot is taken.", GH_ParamAccess.item);
+        pManager.AddVectorParameter("Snapshot Directions", "SD", "Which way the model has looked, as a tree: one branch per place it stood, in the order it stood there, each branch holding that stop's looks in order. Forgotten when Rhino closes.", GH_ParamAccess.tree);
+        pManager.AddVectorParameter("Current View", "CV", "Which way the model is looking now — the latest direction on its own, so a cone or a camera can be wired straight to it. Empty until it has looked at least once.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

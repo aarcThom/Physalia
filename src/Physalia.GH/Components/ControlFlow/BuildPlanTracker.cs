@@ -51,13 +51,25 @@ public class BuildPlanTracker : RoutingComponentBase<string>
         : base(
             "Build Plan",
             "Plan",
-            "Reads the model's staged build plan out of each response and renders a progress digest (stages built, stage just placed, stages outstanding) for the Geometry Report's Message input. Must see the RAW response: wire it on the Detect JSON → Schema Validator hop, or as a parallel tap off the LLM Call's Success Signal. The response passes through unchanged.",
+            "Follows a build that happens in stages. It reads the plan out of each reply and writes back where the build has got to — what is done, what was just placed, what is still to come. It only watches: the reply passes through exactly as it arrived.",
             "Control Flow")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("3F7A61C4-52D8-4E19-9B0A-C6E4D28F5A73");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The reply to read, still raw. The plan is written in prose, so tap this before anything strips the JSON out: on the way from Detect JSON to Schema Validator, or straight off an LLM Call's Success Signal.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The reply passed on untouched. Nothing is ever rejected here — reading the plan does not change it.";
+
+    /// <inheritdoc/>
+    /// <remarks>Empty: this component has a single Signal output, so there is no Fail Signal to describe.</remarks>
+    protected override string FailSignalDescription => string.Empty;
 
     /// <inheritdoc/>
     /// <remarks>
@@ -75,7 +87,7 @@ public class BuildPlanTracker : RoutingComponentBase<string>
         pManager.AddTextParameter(
             "Progress",
             "P",
-            "The build-progress digest for the stage just submitted: the plan read back with each stage marked built, current, or outstanding, and the instruction that decides whether the loop continues. Wire into the Geometry Report's Message input. Empty until a response declares a plan.",
+            "Where the build stands after the stage just submitted: the plan written back out with every stage marked done, current or still to come, and the line that decides whether the loop asks for another. Wire into a Geometry Report's Message input. Empty until a reply declares a plan.",
             GH_ParamAccess.item);
     }
 

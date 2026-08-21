@@ -23,7 +23,7 @@ public class Picker : PhyBase
     /// Initializes a new instance of the <see cref="Picker"/> class.
     /// </summary>
     public Picker()
-        : base("Picker", "Pick", "Picks a value from a connected component's available values.", "Extra")
+        : base("Picker", "Pick", "Offers whatever choices the component it feeds knows about, and passes back the one you pick. Several Physalia components place one of these beside themselves automatically.", "Extra")
     {
     }
 
@@ -61,7 +61,7 @@ public class Picker : PhyBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("Value", "V", "The selected value.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Value", "V", "The choice you made.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

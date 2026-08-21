@@ -47,13 +47,25 @@ public class Summarizer : RoutingComponentBase<Instructions>
         : base(
             "Summarizer",
             "Distill",
-            "Summarizes the older portion of a conversation into one turn and keeps recent turns verbatim. Uses an LLM call. Routes the compacted conversation on its Signal output; if the call fails, forwards the conversation unsummarized rather than losing the turn.",
+            "Shortens the conversation by having a model read the older part and write it up as a single turn, leaving the recent turns word for word. The only compactor that costs a call, and the only one that can keep what actually mattered.",
             "Tokens & Compaction")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("8241DBD1-BBE4-4A2D-B11B-8F1140859FBA");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The conversation to summarise, riding on a Conversation Log's signal. Usually reached from a Token Threshold's Over Limit output.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The summarised conversation, ready for the LLM Call. If the summarising call fails, the conversation goes on in full — a longer prompt beats a lost turn.";
+
+    /// <inheritdoc/>
+    /// <remarks>Empty: this component has a single Signal output, so there is no Fail Signal to describe.</remarks>
+    protected override string FailSignalDescription => string.Empty;
 
     /// <inheritdoc/>
     /// <remarks>
@@ -69,9 +81,9 @@ public class Summarizer : RoutingComponentBase<Instructions>
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Model configuration for the summarization call, from a Model or Tweaker component.", GH_ParamAccess.item);
-        int instructionIdx = pManager.AddTextParameter("Summary Prompt", "SP", "Summarization instruction (system prompt for the compaction call). Optional; a sensible default is used when blank.", GH_ParamAccess.item, string.Empty);
-        pManager.AddIntegerParameter("Keep Recent", "K", "How many of the most recent messages to keep verbatim; everything older is summarized into one turn.", GH_ParamAccess.item, 6);
+        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Which model writes the summary. It need not be the one doing the real work — a cheaper, faster one is usually plenty.", GH_ParamAccess.item);
+        int instructionIdx = pManager.AddTextParameter("Summary Prompt", "SP", "How to summarise — what must survive the squeeze. Left blank, a sensible default is used.", GH_ParamAccess.item, string.Empty);
+        pManager.AddIntegerParameter("Keep Recent", "K", "How many of the most recent turns to leave exactly as they are. Everything older becomes the summary.", GH_ParamAccess.item, 6);
         pManager[instructionIdx].Optional = true;
     }
 

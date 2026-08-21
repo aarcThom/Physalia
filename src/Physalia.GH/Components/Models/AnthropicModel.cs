@@ -17,7 +17,7 @@ public class AnthropicModel : ModelComponentBase
     /// Initializes a new instance of the <see cref="AnthropicModel"/> class.
     /// </summary>
     public AnthropicModel()
-        : base("Anthropic Model", "Anth", "Configures an Anthropic model and fetches available models from the API.")
+        : base("Anthropic Model", "Anth", "Points the pipeline at an Anthropic model. The list of models on offer is fetched from the API as soon as a key arrives.")
     {
     }
 
@@ -25,10 +25,16 @@ public class AnthropicModel : ModelComponentBase
     public override Guid ComponentGuid => new Guid("D60822A6-1ABD-4BA8-AB0F-A54937D0B923");
 
     /// <inheritdoc/>
-    protected override string ApiKeyDescription => "Anthropic API key.";
+    protected override string ApiKeyDescription =>
+        "Your Anthropic key. Wire an API Keys component; the model list is fetched the moment it arrives.";
 
     /// <inheritdoc/>
-    protected override string ModelOutputDescription => "Configured Anthropic model.";
+    protected override string ModelIdDescription =>
+        "Which Claude to use, e.g. claude-sonnet-4-6. The Picker placed alongside fills with whatever the key can reach.";
+
+    /// <inheritdoc/>
+    protected override string ModelOutputDescription =>
+        "The Anthropic model, configured. Wire into an LLM Call, or through an Anthropic Tweaker first to change how it samples.";
 
     /// <inheritdoc/>
     protected override ModelConfig CreateConfig(string modelId, string apiKey)
@@ -41,7 +47,7 @@ public class AnthropicModel : ModelComponentBase
     /// </remarks>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddIntegerParameter("Max Tokens", "T", "Maximum number of tokens to generate (thinking + answer).", GH_ParamAccess.item, 32768);
+        pManager.AddIntegerParameter("Max Tokens", "T", "The ceiling on one reply, thinking included. Anthropic insists on a number here, so there is no leaving it out.", GH_ParamAccess.item, 32768);
     }
 
     /// <inheritdoc/>

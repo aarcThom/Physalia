@@ -25,7 +25,7 @@ public class ClusterGrounder : PhyBase
     /// Initializes a new instance of the <see cref="ClusterGrounder"/> class.
     /// </summary>
     public ClusterGrounder()
-        : base("Cluster Grounding", "ClGnd", "Grounds the model with the Grasshopper clusters in Files/CLUSTERS. Right-click to refresh.", "Grounding")
+        : base("Cluster Grounding", "ClGnd", "Tells the model which saved Grasshopper clusters it may use, read from Files/CLUSTERS. Right-click to read the folder again. Unfinished — a scaffold.", "Grounding")
     {
     }
 
@@ -41,7 +41,7 @@ public class ClusterGrounder : PhyBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Cluster grounding for the Conversation Log.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "The clusters on offer, with what each one takes and gives back. Wire into a Conversation Log's Grounding input.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

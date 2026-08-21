@@ -35,13 +35,25 @@ public class RequiredInputCheck : RoutingComponentBase<string>
         : base(
             "Required Input Check",
             "ReqIn",
-            "Flags required inputs left with no wire and no internalized value before placement. A clean graph passes forward unchanged; unmet required inputs route a fix-it list back.",
+            "Catches the wiring mistakes that can be seen before anything is placed: a required input with nothing in it, several wires into an input that takes one thing, a connection pointing past the end of a component, a slider driving nothing.",
             "Guardrails")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("D2F5A9C4-6B31-4E0A-8C77-1A9E4F2B3D68");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The definition to inspect. Wire a GH Definition Validator's Success Signal, so the structure is already known to be sound.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The definition passed through unchanged, once nothing is left dangling. Wire on to a Component Transmitter.";
+
+    /// <inheritdoc/>
+    protected override string FailSignalDescription =>
+        "Every gap found, naming the component and the input, so the model knows exactly what to fill in. Wire into a Feedback.";
 
     /// <inheritdoc/>
     /// <remarks>The GhJSON graph arrives as the consumed signal's payload.</remarks>

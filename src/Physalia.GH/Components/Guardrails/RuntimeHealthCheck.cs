@@ -71,12 +71,24 @@ public class RuntimeHealthCheck : RoutingComponentBase<string>
     /// Initializes a new instance of the <see cref="RuntimeHealthCheck"/> class.
     /// </summary>
     public RuntimeHealthCheck()
-        : base("Runtime Health Check", "Runtime Health Check", "Scans the placed graph (or whole document) for errors, warnings, and dead components and routes a report back on the Fail Signal; a clean scan passes the signal through.", "Guardrails")
+        : base("Runtime Health Check", "Runtime Health Check", "Reads the placed components after they have run: red errors, orange warnings, components sitting there producing nothing. This is where a definition that looked right on paper admits what it actually did. Right-click to stop treating warnings as failures.", "Guardrails")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("F4B0D63C-8E57-4A4B-9C3D-5B2A7F1E04D8");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The components to read, by id. Wire a Component Transmitter's Success Signal; if the signal carries no ids, the whole document is scanned for errors and warnings instead.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The same ids, passed on when nothing on the canvas is complaining. Wire into a Geometry Report or a Geometry Observation.";
+
+    /// <inheritdoc/>
+    protected override string FailSignalDescription =>
+        "The errors, warnings and dead components found, with a sample of the values flowing through them, so the model can see what went wrong rather than guess. Wire into a Feedback.";
 
     /// <inheritdoc/>
     /// <remarks>

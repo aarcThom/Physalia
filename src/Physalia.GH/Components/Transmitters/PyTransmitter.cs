@@ -46,12 +46,24 @@ public class PyTransmitter : ScriptTransmitterBase
         : base(
             "Py Transmitter",
             "PyTx",
-            "Pushes LLM-generated Python into a linked GH Python Script component and routes its errors. Drag the harness's \"py\" grip to the target Python component.")
+            "Writes the model's Python into a script component on your canvas and reports back whatever it complains about. Right-click and choose Link to Script Component to say which one, or drag the harness's \"py\" grip onto it.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("8E3B1C7A-2F4D-4A19-9C6E-0B5D7A2E1F38");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The Python to push. Wire a Schema Validator's Success Signal, so what arrives is already known to be the right shape.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "Word that the code went in and ran without complaint. Wire on to a Geometry Report or a Geometry Observation to see what it actually produced.";
+
+    /// <inheritdoc/>
+    protected override string FailSignalDescription =>
+        "What went wrong: a syntax error, an exception while running, or a parameter name the target script does not have. Wire into a Feedback so the model can correct it.";
 
     /// <inheritdoc/>
     public override string OutletLabel => "py";

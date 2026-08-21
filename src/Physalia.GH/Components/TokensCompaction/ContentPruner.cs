@@ -43,7 +43,7 @@ public class ContentPruner : CompactionComponentBase
         : base(
             "Content Pruner",
             "Prune",
-            "Drops or truncates selected content (images, tool exchanges, feedback, over-long output) from a conversation. Deterministic; no LLM call.")
+            "Shortens the conversation by throwing out the bulky parts rather than whole turns: pictures, finished tool exchanges, feedback already acted on, runaway text. Every turn survives; some just get lighter.")
     {
     }
 
@@ -51,13 +51,21 @@ public class ContentPruner : CompactionComponentBase
     public override Guid ComponentGuid => new Guid("EE741363-71D5-411A-AB19-51D58BF1D4FC");
 
     /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The conversation to lighten, riding on a Conversation Log's signal. Usually reached from a Token Threshold's Over Limit output.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The lightened conversation, ready for the LLM Call. If nothing can be pruned, the conversation goes on in full rather than the turn being lost.";
+
+    /// <inheritdoc/>
     protected override void RegisterCompactionInputs(GH_InputParamManager pManager)
     {
-        pManager.AddBooleanParameter("Drop Images", "I", "Remove image content blocks.", GH_ParamAccess.item, false);
-        pManager.AddBooleanParameter("Drop Tool Exchanges", "X", "Remove tool_use requests and their tool_result blocks.", GH_ParamAccess.item, false);
-        pManager.AddBooleanParameter("Drop Feedback", "F", "Remove auto-generated feedback turns.", GH_ParamAccess.item, false);
-        pManager.AddIntegerParameter("Max Tool Result Chars", "TR", "Truncate tool results longer than this many characters. 0 disables.", GH_ParamAccess.item, 0);
-        pManager.AddIntegerParameter("Max Text Chars", "TX", "Truncate text blocks longer than this many characters. 0 disables.", GH_ParamAccess.item, 0);
+        pManager.AddBooleanParameter("Drop Images", "I", "Throw away the pictures. Usually the heaviest thing in the history by a wide margin.", GH_ParamAccess.item, false);
+        pManager.AddBooleanParameter("Drop Tool Exchanges", "X", "Throw away tool requests together with their answers. Always both, since a provider rejects one without the other.", GH_ParamAccess.item, false);
+        pManager.AddBooleanParameter("Drop Feedback", "F", "Throw away the automatic feedback turns — reports and complaints the model has already dealt with.", GH_ParamAccess.item, false);
+        pManager.AddIntegerParameter("Max Tool Result Chars", "TR", "Cut tool answers back to this many characters. 0 leaves them whole.", GH_ParamAccess.item, 0);
+        pManager.AddIntegerParameter("Max Text Chars", "TX", "Cut text back to this many characters. 0 leaves it whole.", GH_ParamAccess.item, 0);
     }
 
     /// <inheritdoc/>

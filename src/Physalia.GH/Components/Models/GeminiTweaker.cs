@@ -16,7 +16,7 @@ public class GeminiTweaker : TweakerComponentBase<GeminiConfig>
     /// Initializes a new instance of the <see cref="GeminiTweaker"/> class.
     /// </summary>
     public GeminiTweaker()
-        : base("Gemini Tweaker", "GemTwk", "Adjusts temperature, top-p, and top-k on a Gemini model configuration.")
+        : base("Gemini Tweaker", "GemTwk", "Changes how a Gemini model picks its words, and how much it is allowed to think before answering.")
     {
     }
 
@@ -24,13 +24,20 @@ public class GeminiTweaker : TweakerComponentBase<GeminiConfig>
     public override Guid ComponentGuid => new Guid("DE6C8CD4-79C8-458F-9BE8-D68CF88DC1A8");
 
     /// <inheritdoc/>
-    protected override string ModelInputDescription => "Gemini model configuration to adjust.";
+    protected override string ModelInputDescription =>
+        "The Gemini model to adjust. Wire a Gemini Model component.";
 
     /// <inheritdoc/>
-    protected override string ModelOutputDescription => "Adjusted Gemini model configuration.";
+    protected override string ModelOutputDescription =>
+        "The same Gemini model with these settings applied. Wire into an LLM Call.";
 
     /// <inheritdoc/>
-    protected override string TemperatureDescription => "Sampling temperature (0.0–2.0).";
+    protected override string TemperatureDescription =>
+        "How freely it words things, from 0 to 2.";
+
+    /// <inheritdoc/>
+    protected override string TopPDescription =>
+        "Narrows the choice to the likeliest words only. Gemini's own default is 0.95.";
 
     /// <inheritdoc/>
     protected override double TopPDefault => 0.95;
@@ -44,7 +51,7 @@ public class GeminiTweaker : TweakerComponentBase<GeminiConfig>
     /// <inheritdoc/>
     protected override void RegisterThirdParam(GH_InputParamManager pManager)
     {
-        pManager.AddIntegerParameter("Top K", "K", "Top-K sampling pool size. Set to 0 to use the provider default.", GH_ParamAccess.item, 0);
+        pManager.AddIntegerParameter("Top K", "K", "How many candidate words are in play at each step. 0 leaves it to Gemini.", GH_ParamAccess.item, 0);
     }
 
     /// <inheritdoc/>
@@ -62,7 +69,7 @@ public class GeminiTweaker : TweakerComponentBase<GeminiConfig>
         int index = pManager.AddIntegerParameter(
             "Thinking Budget",
             "TB",
-            "Gemini thinkingBudget: 0 disables thinking (where supported), -1 lets the model decide, positive values cap thinking tokens. Unwired omits the field so the model default applies.",
+            "How much thinking to allow. Left unwired, the model does whatever it normally does. 0 turns thinking off where the model permits it; -1 lets the model decide how long to think; a positive number caps the thinking tokens.",
             GH_ParamAccess.item);
         pManager[index].Optional = true;
     }

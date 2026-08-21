@@ -34,6 +34,13 @@ public abstract class HumanToolComponentBase : PhyBase
     /// </summary>
     protected abstract HumanTool Tool { get; }
 
+    /// <summary>
+    /// Gets the tooltip for the Human Tool output, naming the affordance this particular
+    /// component switches on. Each tool writes its own — the output is the only thing on the
+    /// component, so a shared description would be the whole tooltip and say nothing.
+    /// </summary>
+    protected abstract string ToolOutputDescription { get; }
+
     /// <inheritdoc/>
     protected sealed override void RegisterInputParams(GH_InputParamManager pManager)
     {
@@ -44,7 +51,7 @@ public abstract class HumanToolComponentBase : PhyBase
     /// <inheritdoc/>
     protected sealed override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_HumanTool(), "Human Tool", "HT", "Human tool for the Conversation Log's Human Tools input.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_HumanTool(), "Human Tool", "HT", ToolOutputDescription, GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

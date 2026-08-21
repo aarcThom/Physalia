@@ -28,7 +28,7 @@ public class Deserializer : PhyBase
     /// Initializes a new instance of the <see cref="Deserializer"/> class.
     /// </summary>
     public Deserializer()
-        : base("Deserializer", "Deserialize", "Imports a .ghjson file and places its components to the right of this component.", "Extra")
+        : base("Deserializer", "Deserialize", "Reads a .ghjson file and places the components it describes on the canvas, just to the right of this node.", "Extra")
     {
     }
 
@@ -41,13 +41,13 @@ public class Deserializer : PhyBase
         pManager.AddTextParameter(
             "File Path",
             "F",
-            "Path to a .ghjson file to import.",
+            "The .ghjson file to read.",
             GH_ParamAccess.item);
 
         pManager.AddBooleanParameter(
             "Run",
             "R",
-            "Set to true to place the file's components on the canvas, directly to the right of this component.",
+            "Flip to true to place the file's components.",
             GH_ParamAccess.item,
             false);
     }

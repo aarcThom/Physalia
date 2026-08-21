@@ -22,7 +22,7 @@ public class SchemaValidator : RoutingComponentBase<string>
     /// Initializes a new instance of the <see cref="SchemaValidator"/> class.
     /// </summary>
     public SchemaValidator()
-        : base("Schema Validator", "Schema Validator", "Strips LLM prose, validates JSON against schema, and passes clean output forward.", "Guardrails")
+        : base("Schema Validator", "Schema Validator", "Finds the JSON in the model's reply, ignoring any chatter around it, and checks it against the schema. Valid JSON carries on; invalid JSON goes back to the model with the reason.", "Guardrails")
     {
     }
 
@@ -30,9 +30,21 @@ public class SchemaValidator : RoutingComponentBase<string>
     public override Guid ComponentGuid => new Guid("F3A8C21D-7E04-4B69-A953-D60F2E8B1C47");
 
     /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The reply to check. Wire an LLM Call's Success Signal — or a Detect JSON first, if this pipeline also carries ordinary conversation.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The JSON on its own, prose stripped and every rule satisfied. Wire on to whatever reads the definition.";
+
+    /// <inheritdoc/>
+    protected override string FailSignalDescription =>
+        "Why the reply was rejected: where the JSON broke, or which part of the schema it disagrees with. Wire into a Feedback so the model can correct itself.";
+
+    /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Schema", "Sc", "JSON schema string from System Prompt.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Schema", "Sc", "The schema to judge the reply against. Wire the System Prompt's Schema output, so the model is held to exactly the shape it was given.", GH_ParamAccess.item, string.Empty);
     }
 
     /// <inheritdoc/>

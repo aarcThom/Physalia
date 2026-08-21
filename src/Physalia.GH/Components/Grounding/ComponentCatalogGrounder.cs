@@ -34,7 +34,7 @@ public class ComponentCatalogGrounder : PhyBase
     /// Initializes a new instance of the <see cref="ComponentCatalogGrounder"/> class.
     /// </summary>
     public ComponentCatalogGrounder()
-        : base("Component Catalog", "Component Catalog", "Snapshots the installed Grasshopper components (names and type GUIDs) for resolving and grounding generated graphs. Right-click to refresh.", "Grounding")
+        : base("Component Catalog", "Component Catalog", "Takes stock of every Grasshopper component installed on this machine. A Component Resolver matches generated names against it, and the model reads it to know what it is allowed to use. Right-click to take stock again.", "Grounding")
     {
     }
 
@@ -50,7 +50,7 @@ public class ComponentCatalogGrounder : PhyBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ComponentCatalog(), "Component Catalog", "Cat", "Snapshot of the installed Grasshopper components.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ComponentCatalog(), "Component Catalog", "Cat", "Every component installed here, by name and type id. Wire into a Component Resolver, a Component Search tool, or a Conversation Log's Grounding input.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

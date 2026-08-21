@@ -19,7 +19,7 @@ public class ConversationCompositor : PhyBase
     /// Initializes a new instance of the <see cref="ConversationCompositor"/> class.
     /// </summary>
     public ConversationCompositor()
-        : base("Conversation Compositor", "CConv", "Composes an ordered list of ConversationMessages into a Conversation.", "Signals")
+        : base("Conversation Compositor", "CConv", "Builds a conversation out of separate turns, for assembling context by hand instead of letting a Conversation Log gather it.", "Signals")
     {
     }
 
@@ -29,13 +29,13 @@ public class ConversationCompositor : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ConversationMessage(), "Messages", "M", "Ordered list of conversation turns. Roles must alternate User/Assistant.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_ConversationMessage(), "Messages", "M", "The turns in order. They have to alternate between User and Assistant — two of the same in a row is rejected.", GH_ParamAccess.list);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Conversation(), "Conversation", "C", "The assembled conversation.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Conversation(), "Conversation", "C", "The turns assembled into one conversation.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

@@ -41,12 +41,24 @@ public class RhinoCommonSearch : LlmToolComponentBase
     /// Initializes a new instance of the <see cref="RhinoCommonSearch"/> class.
     /// </summary>
     public RhinoCommonSearch()
-        : base("RhinoCommon Search", "RC Search", "A tool the model calls to search the RhinoCommon API for exact signatures and docs.")
+        : base("RhinoCommon Search", "RC Search", "Lets the model look up the RhinoCommon API — real method signatures and their documentation — before it writes code against them. The cure for invented method names.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("7A3C1E92-5D44-4B8F-9C21-3E6A8F0D1B57");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "An API lookup the model has asked for, sent here by the Router.";
+
+    /// <inheritdoc/>
+    protected override string ToolOutputDescription =>
+        "Advertises the RhinoCommon lookup to the model: a type or method name in, its real signature and documentation out. A Tools Present grounder finds this on its own once a Router dispatches here, so it needs no wire.";
+
+    /// <inheritdoc/>
+    protected override string ResultOutputDescription =>
+        "The signatures and documentation heading back to the model. Wire through a Feedback into a Feedback Collector, then into the Router's Results input.";
 
     /// <inheritdoc/>
     protected override LlmToolDefinition Definition => ToolDef;

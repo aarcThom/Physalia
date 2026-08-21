@@ -42,7 +42,7 @@ public class CanvasStateGrounder : PhyBase
     /// Initializes a new instance of the <see cref="CanvasStateGrounder"/> class.
     /// </summary>
     public CanvasStateGrounder()
-        : base("Canvas State", "CvsSt", "Grounds the model with the current canvas state as GhJSON so it can edit the definition incrementally (via ghpatch) instead of regenerating it. Wire into a Conversation Log's Grounding input.", "Grounding")
+        : base("Canvas State", "CvsSt", "Shows the model what is already on your canvas, so it can change the definition in place rather than build it again from nothing. Wire into a Conversation Log's Grounding input.", "Grounding")
     {
     }
 
@@ -93,10 +93,18 @@ public class CanvasStateGrounder : PhyBase
         // No inputs — the component snapshots the canvas by scanning the document.
     }
 
+    /// <summary>
+    /// Gets the tooltip for the Grounding output, naming exactly how much of the canvas this
+    /// grounder shows the model. The group-scoped subclass overrides it, because "the canvas"
+    /// and "one group on the canvas" are the whole difference between the two components.
+    /// </summary>
+    protected virtual string GroundingOutputDescription =>
+        "The whole canvas as the model will read it, stamped with which version it saw — so an edit it sends back is checked against that same version before anything moves. Wire into a Conversation Log's Grounding input.";
+
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Grounding carrying the current canvas state as GhJSON. Wire into the Conversation Log's Grounding input.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", GroundingOutputDescription, GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

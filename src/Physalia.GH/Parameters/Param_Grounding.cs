@@ -17,7 +17,7 @@ public class Param_Grounding : PhyParam<GH_Grounding>
     /// Initializes a new instance of the <see cref="Param_Grounding"/> class.
     /// </summary>
     public Param_Grounding()
-        : base("Grounding", "Gnd", "Model-grounding context folded into the system prompt (component catalog, cluster, or python function).")
+        : base("Grounding", "Gnd", "Something the model should know about this document, folded into its instructions.")
     {
     }
 

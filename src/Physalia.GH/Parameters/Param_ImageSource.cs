@@ -15,7 +15,7 @@ public class Param_ImageSource : PhyParam<GH_ImageSource>
     /// Initializes a new instance of the <see cref="Param_ImageSource"/> class.
     /// </summary>
     public Param_ImageSource()
-        : base("Image Source", "Img", "An image plus its alias, ready for inline delivery to a multimodal model.")
+        : base("Image Source", "Img", "A picture, together with the short name you refer to it by in a prompt.")
     {
     }
 

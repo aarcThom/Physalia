@@ -23,12 +23,25 @@ public class DetectJson : RoutingComponentBase<string>
     /// Initializes a new instance of the <see cref="DetectJson"/> class.
     /// </summary>
     public DetectJson()
-        : base("Detect JSON", "DJson", "Passes responses containing JSON (even malformed) through; plain conversation dead-ends quietly so it never triggers validation feedback.", "Guardrails")
+        : base("Detect JSON", "DJson", "Separates answers that are trying to be JSON from ordinary conversation. Any attempt passes on, even a broken one; plain talk stops here in silence, so chatting to the model never sets the validation loop going.", "Guardrails")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("85E51782-BA18-4B96-9488-B574950F2963");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The reply to sort. Wire an LLM Call's Success Signal.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The reply passed through untouched, whenever it holds an attempt at JSON. Wire into a Schema Validator, which is what decides whether the attempt is any good.";
+
+    /// <inheritdoc/>
+    /// <remarks>Empty: this component has a single Signal output, so there is no Fail Signal to describe.</remarks>
+    protected override string FailSignalDescription => string.Empty;
+
 
     /// <inheritdoc/>
     /// <remarks>

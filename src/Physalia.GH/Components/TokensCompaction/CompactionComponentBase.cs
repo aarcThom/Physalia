@@ -46,6 +46,12 @@ public abstract class CompactionComponentBase : RoutingComponentBase<Instruction
     /// </remarks>
     protected sealed override bool HasFailOutput => false;
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Sealed empty: compactors fail open, so there is no Fail Signal output to describe.
+    /// </remarks>
+    protected sealed override string FailSignalDescription => string.Empty;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="CompactionComponentBase"/> class in the
     /// Compaction sub-category.

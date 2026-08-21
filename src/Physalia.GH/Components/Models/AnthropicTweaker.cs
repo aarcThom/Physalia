@@ -16,7 +16,7 @@ public class AnthropicTweaker : TweakerComponentBase<AnthropicConfig>
     /// Initializes a new instance of the <see cref="AnthropicTweaker"/> class.
     /// </summary>
     public AnthropicTweaker()
-        : base("Anthropic Tweaker", "AnthTwk", "Adjusts temperature, top-p, and top-k on an Anthropic model configuration.")
+        : base("Anthropic Tweaker", "AnthTwk", "Changes how an Anthropic model picks its words, and how much it is allowed to think before answering.")
     {
     }
 
@@ -24,13 +24,20 @@ public class AnthropicTweaker : TweakerComponentBase<AnthropicConfig>
     public override Guid ComponentGuid => new Guid("ED550693-9492-482E-A70F-9BAD732B3C4F");
 
     /// <inheritdoc/>
-    protected override string ModelInputDescription => "Anthropic model configuration to adjust.";
+    protected override string ModelInputDescription =>
+        "The Anthropic model to adjust. Wire an Anthropic Model component.";
 
     /// <inheritdoc/>
-    protected override string ModelOutputDescription => "Adjusted Anthropic model configuration.";
+    protected override string ModelOutputDescription =>
+        "The same Anthropic model with these settings applied. Wire into an LLM Call.";
 
     /// <inheritdoc/>
-    protected override string TemperatureDescription => "Sampling temperature (0.0–1.0). Clamped on intake.";
+    protected override string TemperatureDescription =>
+        "How freely it words things, from 0 to 1. Anything outside that range is pulled back in, because Anthropic will not accept it.";
+
+    /// <inheritdoc/>
+    protected override string TopPDescription =>
+        "Narrows the choice to the likeliest words only. 1 considers them all, which is Anthropic's own default.";
 
     /// <inheritdoc/>
     protected override double TopPDefault => 1.0;
@@ -44,7 +51,7 @@ public class AnthropicTweaker : TweakerComponentBase<AnthropicConfig>
     /// <inheritdoc/>
     protected override void RegisterThirdParam(GH_InputParamManager pManager)
     {
-        pManager.AddIntegerParameter("Top K", "K", "Top-K sampling pool size. Set to 0 to use the provider default.", GH_ParamAccess.item, 0);
+        pManager.AddIntegerParameter("Top K", "K", "How many candidate words are in play at each step. 0 leaves it to Anthropic.", GH_ParamAccess.item, 0);
     }
 
     /// <inheritdoc/>
@@ -62,7 +69,7 @@ public class AnthropicTweaker : TweakerComponentBase<AnthropicConfig>
         int index = pManager.AddIntegerParameter(
             "Thinking Budget",
             "TB",
-            "Extended thinking control. Unwired applies the model's known default behaviour (models that think by default get readable summaries automatically); 0 explicitly disables thinking; -1 requests adaptive thinking with readable summaries; positive values set a manual budget (raised to the 1024 API minimum; Max Tokens auto-bumped). Requests are mapped to the form the model accepts. Temperature/Top P/Top K are ignored while thinking is enabled.",
+            "How much thinking to allow. Left unwired, the model does whatever it normally does — the ones that think by default keep doing so, with a readable summary. 0 turns thinking off; -1 lets the model decide how long to think; a positive number is a token budget (nudged up to Anthropic's minimum of 1024, with Max Tokens raised to fit). While thinking is on, Temperature, Top P and Top K are ignored.",
             GH_ParamAccess.item);
         pManager[index].Optional = true;
     }

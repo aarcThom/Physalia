@@ -19,12 +19,16 @@ public class ExportConversation : HumanToolComponentBase
     /// Initializes a new instance of the <see cref="ExportConversation"/> class.
     /// </summary>
     public ExportConversation()
-        : base("Export Conversation", "Export", "Adds an export button to the chat window that saves the conversation as a plain-text transcript.")
+        : base("Export Conversation", "Export", "Adds a button to the chat window that saves the conversation you are looking at as a plain text file.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("91C5514E-87C5-45FD-97A9-F3F0BFBDC136");
+
+    /// <inheritdoc/>
+    protected override string ToolOutputDescription =>
+        "Puts the export button in the chat window. Wire into a Conversation Log's Human Tools input.";
 
     /// <inheritdoc/>
     protected override HumanTool Tool => new ExportConversationTool();

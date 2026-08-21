@@ -30,7 +30,7 @@ public class ImageSources : PhyBase
     /// Initializes a new instance of the <see cref="ImageSources"/> class.
     /// </summary>
     public ImageSources()
-        : base("Image Sources", "Image Sources", "Gathers images from disk or the clipboard and outputs them as image sources for multimodal models. Right-click to manage images.", "Grounding")
+        : base("Image Sources", "Image Sources", "Collects pictures from disk or the clipboard and hands them on for a model that can see. Right-click to add, remove or rename them.", "Grounding")
     {
     }
 
@@ -124,7 +124,7 @@ public class ImageSources : PhyBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ImageSource(), "Image Sources", "Img", "One image source per gathered image, carrying bytes, MIME type, and alias.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_ImageSource(), "Image Sources", "Img", "One entry per picture, carrying the image itself and the short name you refer to it by in a prompt.", GH_ParamAccess.list);
     }
 
     /// <inheritdoc/>

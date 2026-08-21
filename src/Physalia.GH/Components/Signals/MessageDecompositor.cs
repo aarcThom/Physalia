@@ -18,7 +18,7 @@ public class MessageDecompositor : PhyBase
     /// Initializes a new instance of the <see cref="MessageDecompositor"/> class.
     /// </summary>
     public MessageDecompositor()
-        : base("Message Decompositor", "MDecomp", "Breaks a ConversationMessage into its role and content strings.", "Signals")
+        : base("Message Decompositor", "MDecomp", "Splits one conversation turn back into who spoke and what they said.", "Signals")
     {
     }
 
@@ -28,14 +28,14 @@ public class MessageDecompositor : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ConversationMessage(), "Message", "M", "The conversation message to decompose.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ConversationMessage(), "Message", "M", "The turn to open up.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("Role", "R", "The role of this turn: User or Assistant.", GH_ParamAccess.item);
-        pManager.AddTextParameter("Content", "C", "The content of this turn rendered as a display string.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Role", "R", "Who spoke: User or Assistant.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Content", "C", "What was said, flattened to plain text. Images and tool traffic are described rather than shown.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

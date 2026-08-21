@@ -49,7 +49,7 @@ public class HarnessNotes : PhyBase
         : base(
             "Harness Notes",
             "Notes",
-            "Describes what this harness does. Double-click to edit. When the harness is saved as a preset this text becomes the preset's description in the chat window.",
+            "A note on what this harness is for. Double-click to write in it. Save the harness as a preset and this text becomes the preset's description in the chat window's gallery.",
             "Pipeline")
     {
     }

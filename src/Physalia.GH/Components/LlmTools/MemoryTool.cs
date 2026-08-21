@@ -55,12 +55,24 @@ public class MemoryTool : LlmToolComponentBase
     /// Initializes a new instance of the <see cref="MemoryTool"/> class.
     /// </summary>
     public MemoryTool()
-        : base("Memory", "Memory", "A tool the model calls to read and write its persistent memory (global + per-document).")
+        : base("Memory", "Memory", "Gives the model somewhere to keep notes between sessions: one set shared across every document, one belonging to this file alone. Files live under Files/MEMORIES.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("7B4D9E12-2C6A-4F58-9A31-5E0C7D8B4A16");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "A note the model wants to read, write or delete, sent here by the Router.";
+
+    /// <inheritdoc/>
+    protected override string ToolOutputDescription =>
+        "Advertises the notebook to the model: list, read, write or delete, in either the shared or this-document scope. A Tools Present grounder finds this on its own once a Router dispatches here, so it needs no wire.";
+
+    /// <inheritdoc/>
+    protected override string ResultOutputDescription =>
+        "What the note said, or confirmation that it was saved, heading back to the model. Wire through a Feedback into a Feedback Collector, then into the Router's Results input.";
 
     /// <inheritdoc/>
     protected override LlmToolDefinition Definition => ToolDef;

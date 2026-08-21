@@ -15,7 +15,7 @@ public class Param_Signal : PhyParam<GH_Signal>
     /// Initializes a new instance of the <see cref="Param_Signal"/> class.
     /// </summary>
     public Param_Signal()
-        : base("Signal", "Sig", "A sequence-numbered event consumed exactly once by downstream components.")
+        : base("Signal", "Sig", "An event passing between Physalia components. It carries both what happened and the data that goes with it, and whatever it reaches uses it exactly once.")
     {
     }
 

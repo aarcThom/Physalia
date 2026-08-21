@@ -35,7 +35,7 @@ public class SignalLimiter : StatefulComponentBase
     /// Initializes a new instance of the <see cref="SignalLimiter"/> class.
     /// </summary>
     public SignalLimiter()
-        : base("Signal Limiter", "SigLim", "Routes the first N new signals through the Within Limit output and any beyond N through the Over Limit output. Reset zeroes the count.", "Control Flow")
+        : base("Signal Limiter", "SigLim", "Counts signals and splits them at a limit: the first few leave one way, everything after leaves the other. This is how you cap the number of times a repair loop may go round.", "Control Flow")
     {
     }
 
@@ -45,17 +45,17 @@ public class SignalLimiter : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Signal", "S", "Signals to count and route. Each distinct incoming signal is counted once.", GH_ParamAccess.list);
-        pManager.AddIntegerParameter("Count", "N", "The limit: this many new signals (at or below) pass the Within Limit output; any beyond pass the Over Limit output.", GH_ParamAccess.item, 1);
-        pManager.AddBooleanParameter("Reset", "R", "A false→true press zeroes the running count and clears both outputs, restarting the routing.", GH_ParamAccess.item, false);
+        pManager.AddParameter(new Param_Signal(), "Signal", "S", "The signals to count. Each one counts once, however many times the canvas happens to re-solve.", GH_ParamAccess.list);
+        pManager.AddIntegerParameter("Count", "N", "How many signals are allowed through the Within Limit output. Everything after that number leaves by Over Limit instead.", GH_ParamAccess.item, 1);
+        pManager.AddBooleanParameter("Reset", "R", "A press puts the count back to zero and clears both outputs, so counting starts again.", GH_ParamAccess.item, false);
         pManager[InSignal].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Within Limit", "W", "Carries each incoming signal while the running count is at or below the Count limit. Latched until the next signal or a reset.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_Signal(), "Over Limit", "O", "Carries each incoming signal once the running count exceeds the Count limit. Latched until the next signal or a reset.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Within Limit", "W", "Each signal while the count is still inside the limit. This is the branch that keeps the loop turning.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Over Limit", "O", "Each signal once the count has passed the limit. Wire it to whatever should happen when the loop has gone on long enough — a note to the model, or nothing at all.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

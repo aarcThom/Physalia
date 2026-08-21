@@ -26,12 +26,16 @@ public class GeometrySnapshot : SnapshotToolComponentBase
     /// Initializes a new instance of the <see cref="GeometrySnapshot"/> class.
     /// </summary>
     public GeometrySnapshot()
-        : base("Geometry Snapshot", "GeoSnap", "Adds a geometry button to the chat window that captures a viewport snapshot of the transmitter-generated geometry — sent as its own message, or attached to the prompt box for you to caption.")
+        : base("Geometry Snapshot", "GeoSnap", "Adds a button to the chat window that photographs the geometry the pipeline has built, framing the camera on it for you. It only lights up while there is such geometry to look at. Right-click to choose whether the picture is sent straight away or attached to the prompt box for you to caption.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("D5B8F2A6-7E31-4C94-A0D8-3F6E1B9C5A27");
+
+    /// <inheritdoc/>
+    protected override string ToolOutputDescription =>
+        "Puts the geometry snapshot button in the chat window. Wire into a Conversation Log's Human Tools input.";
 
     /// <inheritdoc/>
     protected override HumanTool Tool => new GeometrySnapshotTool(GeometrySnapshotTool.DefaultMessage, SendWithMessage);

@@ -41,13 +41,25 @@ public class GeometryObservation : RoutingComponentBase<string>
         : base(
             "Geometry Observation",
             "Geometry Observation",
-            "Zooms the Rhino viewport onto the upstream geometry and captures a snapshot. Emits the Message plus the snapshot image on its single Signal output.",
+            "Frames the Rhino viewport on the geometry that was just built and photographs it, so the model can look at the result instead of being told about it. Needs a model that accepts images.",
             "Guardrails")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("4A969C47-C1E5-446D-BB20-9F973D5E2E3D");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "Takes the photograph when this fires. Wire it after the checks, so nothing is captured before the geometry has finished computing.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The note and the photograph together, as one turn for the model to read. Wire into a Feedback.";
+
+    /// <inheritdoc/>
+    /// <remarks>Empty: this component has a single Signal output, so there is no Fail Signal to describe.</remarks>
+    protected override string FailSignalDescription => string.Empty;
 
     /// <inheritdoc/>
     /// <remarks>
@@ -71,7 +83,7 @@ public class GeometryObservation : RoutingComponentBase<string>
         pManager.AddTextParameter(
             "Message",
             "M",
-            "Text to accompany the snapshot. Becomes the emitted signal's payload and a text block alongside the image.",
+            "What to say alongside the picture — usually what was asked for, so the model judges the image against it.",
             GH_ParamAccess.item,
             string.Empty);
         pManager[MessageInputIndex].Optional = true;

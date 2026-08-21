@@ -35,7 +35,7 @@ public class FeedbackCollector : StatefulComponentBase
     /// Initializes a new instance of the <see cref="FeedbackCollector"/> class.
     /// </summary>
     public FeedbackCollector()
-        : base("Feedback Collector", "FC", "Collects wireless Feedback signals and re-emits them into the pipeline.", "Control Flow")
+        : base("Feedback Collector", "FC", "The far end of the wireless Feedback links. It gathers everything sent to it and puts it back into the pipeline as one signal.", "Control Flow")
     {
     }
 
@@ -57,7 +57,7 @@ public class FeedbackCollector : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Signal", "S", "Latched signal minted per batch; its payload is all feedback from the batch, newline-joined. Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Signal", "S", "Everything collected this round, gathered into one signal. Wire into a Conversation Log's Feedback Signal, or a Router's Results input.", GH_ParamAccess.item);
     }
 
     /// <summary>

@@ -28,7 +28,7 @@ public class ApiKeys : PhyBase, IPickableValuesSource
     /// Initializes a new instance of the <see cref="ApiKeys"/> class.
     /// </summary>
     public ApiKeys()
-        : base("API Keys", "APIKeys", "Reads API keys from API_KEY_CONFIG.YAML and outputs the key for the selected provider.", "Models")
+        : base("API Keys", "APIKeys", "Fetches the key for one provider out of API_KEY_CONFIG.YAML. The secret itself never appears on the canvas and is never written into your .gh file.", "Models")
     {
     }
 
@@ -52,13 +52,13 @@ public class ApiKeys : PhyBase, IPickableValuesSource
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Provider", "P", "Provider name. Wire a Picker component to select.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Provider", "P", "Whose key to fetch. Wire the Picker placed alongside — it lists the sections found in the YAML file.", GH_ParamAccess.item, string.Empty);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ApiKey(), "API Key", "K", "Resolved API key for the selected provider.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ApiKey(), "API Key", "K", "The key for that provider, carried as a label only. Wire it into a Model component; the secret is never shown, printed or saved.", GH_ParamAccess.item);
     }
 
     /// <summary>

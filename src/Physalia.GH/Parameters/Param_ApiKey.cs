@@ -15,7 +15,7 @@ public class Param_ApiKey : PhyParam<GH_ApiKey>
     /// Initializes a new instance of the <see cref="Param_ApiKey"/> class.
     /// </summary>
     public Param_ApiKey()
-        : base("API Key", "K", "A resolved API key. Displays as a label only; the secret is never shown or serialised.")
+        : base("API Key", "K", "An API key, carried as a label only. The secret itself is never shown on the canvas and never saved into your file.")
     {
     }
 

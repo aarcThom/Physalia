@@ -18,12 +18,16 @@ public class AddImage : HumanToolComponentBase
     /// Initializes a new instance of the <see cref="AddImage"/> class.
     /// </summary>
     public AddImage()
-        : base("Add Image", "AddImg", "Enables image attachments (paste, drag-drop, file picker) in the chat window's prompt box.")
+        : base("Add Image", "AddImg", "Lets you put pictures into the prompt box — paste, drag and drop, or pick a file. Without this component, image attachments are off.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("4F7A9C25-8D13-4E6B-A2C9-1B5E8F3D7A60");
+
+    /// <inheritdoc/>
+    protected override string ToolOutputDescription =>
+        "Switches image attachments on in the chat window. Wire into a Conversation Log's Human Tools input.";
 
     /// <inheritdoc/>
     protected override HumanTool Tool => new AddImageTool();

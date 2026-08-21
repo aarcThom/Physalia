@@ -23,12 +23,16 @@ public class ViewSnapshot : SnapshotToolComponentBase
     /// Initializes a new instance of the <see cref="ViewSnapshot"/> class.
     /// </summary>
     public ViewSnapshot()
-        : base("View Snapshot", "ViewSnap", "Adds a view button to the chat window that captures the active Rhino viewport as-is, with no geometry scan and no camera move — sent as its own message, or attached to the prompt box for you to caption.")
+        : base("View Snapshot", "ViewSnap", "Adds a button to the chat window that photographs the Rhino viewport exactly as it stands. Nothing is hunted for and the camera never moves, so it is always ready. Right-click to choose whether the picture is sent straight away or attached to the prompt box for you to caption.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("B7E3D14A-9C62-4F05-8A7D-2E6B4C1F93D8");
+
+    /// <inheritdoc/>
+    protected override string ToolOutputDescription =>
+        "Puts the view snapshot button in the chat window. Wire into a Conversation Log's Human Tools input.";
 
     /// <inheritdoc/>
     protected override HumanTool Tool => new ViewSnapshotTool(ViewSnapshotTool.DefaultMessage, SendWithMessage);

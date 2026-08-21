@@ -15,7 +15,7 @@ public class Param_ConversationMessage : PhyParam<GH_ConversationMessage>
     /// Initializes a new instance of the <see cref="Param_ConversationMessage"/> class.
     /// </summary>
     public Param_ConversationMessage()
-        : base("ConversationMessage", "Msg", "A single turn in a conversation.")
+        : base("ConversationMessage", "Msg", "One turn in a conversation — who spoke, and what they said.")
     {
     }
 

@@ -130,7 +130,7 @@ public class ConversationLog : StatefulComponentBase
     /// Initializes a new instance of the <see cref="ConversationLog"/> class.
     /// </summary>
     public ConversationLog()
-        : base("Conversation Log", "Conversation Log", "Maintains the conversation history and emits it as a Signal carrying the full Instructions for inference.", "Pipeline")
+        : base("Conversation Log", "Conversation Log", "Keeps the conversation. Everything the model is told arrives here — instructions, what you typed, what it said, what came back from tools and checks — and every time your side gains a turn the whole thing goes out for another reply.", "Pipeline")
     {
     }
 
@@ -485,13 +485,13 @@ public class ConversationLog : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("System Prompt", "S", "System prompt from the System Prompt component.", GH_ParamAccess.item, string.Empty);
-        pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "Records a user turn; the signal payload is the prompt text. Use Construct Signal to combine a text payload with a manual trigger.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Optional grounding context (e.g. the Component Catalog); each grounding's section is folded into the system prompt. Narrow what is included via the chat window's grounding panel.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_HumanTool(), "Human Tools", "HT", "Optional human tools — affordances enabled in the chat window (Geometry Snapshot, View Snapshot, Add Image, Export Conversation, Signal Trace). Never sent to the model.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "Records an assistant turn from the LLM Call's Success Signal.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Records feedback as a user turn. Wire one or more Feedback Collectors directly — no OR gate needed.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_Signal(), "LLM Tool Signal", "TS", "Records tool turns from a Router (via Feedback Collector): a signal whose content blocks carry tool_use is logged as an assistant turn; one whose blocks carry tool_result is logged as a user turn.", GH_ParamAccess.list);
+        pManager.AddTextParameter("System Prompt", "S", "The standing instructions, sent ahead of the conversation on every turn. Wire a System Prompt component here.", GH_ParamAccess.item, string.Empty);
+        pManager.AddParameter(new Param_Signal(), "Prompt Signal", "PS", "What you say, recorded as your turn. Wire a Chat for a typed message, or a Construct Signal to fire a fixed prompt from a button.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "What the model should know about this document — the canvas, the units, which components exist. Wire as many grounders as you like; each adds its own section to the instructions, and the chat window's grounding panel narrows what is actually sent.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_HumanTool(), "Human Tools", "HT", "Buttons and abilities switched on in the chat window for you: attaching images, capturing a view, exporting the transcript. The model is never told about these.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "Response Signal", "RS", "What the model said, recorded as its turn. Wire an LLM Call's Success Signal here.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "Feedback Signal", "FS", "Anything sent back for the model to act on — a validation error, a report, a retry instruction — recorded as though you had said it. Wire any number of Feedback Collectors straight in.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "LLM Tool Signal", "TS", "Tool traffic on its way back from a Router: the model's request and the answer it got, each recorded as the turn it belongs to.", GH_ParamAccess.list);
 
         pManager[InPromptSignal].Optional = true;
         pManager[InResponseSignal].Optional = true;
@@ -504,7 +504,7 @@ public class ConversationLog : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Signal", "Sig", "Latched signal minted when a user turn was recorded; it carries the full Instructions (system prompt + conversation) for inference. Wire into an LLM Call (optionally through a compaction component). Casts to Instructions/Conversation/text. Assistant turns latch quietly.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Signal", "Sig", "Fires whenever your side of the conversation gains a turn, carrying the instructions and the whole history with it. Wire into an LLM Call — or into a compaction component first, if the conversation is outgrowing the model's context. Recording the model's own reply does not fire it, so the loop cannot run away.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

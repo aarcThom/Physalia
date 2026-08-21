@@ -22,7 +22,7 @@ public class PhysaliaGroupGrounder : CanvasStateGrounder
         : base(
             "Physalia Group Components",
             "PhyGrp",
-            "Grounds the model with only the contents of the 'Physalia' group — the shared workspace where LLM-placed components land automatically and the user can drop components for the model to read. The rest of the canvas stays out of the model's view. Wire into a Conversation Log's Grounding input instead of Canvas State.")
+            "Shows the model only what is inside the Physalia group — the shared workspace everything it places lands in. The rest of your canvas stays out of sight; move a component into the group to let the model read it. Use this in place of Canvas State when the file also holds unrelated work.")
     {
     }
 
@@ -31,4 +31,8 @@ public class PhysaliaGroupGrounder : CanvasStateGrounder
 
     /// <inheritdoc/>
     protected override bool GroupScope => true;
+
+    /// <inheritdoc/>
+    protected override string GroundingOutputDescription =>
+        "The contents of the Physalia group only, as the model will read them, stamped with which version it saw. Wire into a Conversation Log's Grounding input.";
 }

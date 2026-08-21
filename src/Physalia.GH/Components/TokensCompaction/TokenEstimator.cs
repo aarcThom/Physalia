@@ -44,7 +44,7 @@ public class TokenEstimator : PhyBase, IPickableValuesSource
         : base(
             "Token Estimator",
             "TokEst",
-            "Estimates token count using the selected tokenization technique.",
+            "Counts the tokens in a conversation, a set of instructions, or a piece of text — so you can see how close a conversation is running to the model's limit.",
             "Tokens & Compaction")
     {
     }
@@ -69,17 +69,17 @@ public class TokenEstimator : PhyBase, IPickableValuesSource
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ITokenEstimator(), "Tokenization Technique", "T", "The tokenization technique to use for estimation.", GH_ParamAccess.item);
-        pManager.AddGenericParameter("Data", "D", "Instructions, Conversation, or text string to estimate.", GH_ParamAccess.item);
-        pManager.AddTextParameter("Tiktoken Name", "TN", "Tiktoken model name. Auto-populated based on technique; shows N/A for non-tiktoken estimators.", GH_ParamAccess.item, "N/A");
-        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Model configuration for API-backed estimators (Anthropic, Gemini, LlamaCpp).", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ITokenEstimator(), "Tokenization Technique", "T", "How to count. Wire a Tokenization Techniques component.", GH_ParamAccess.item);
+        pManager.AddGenericParameter("Data", "D", "What to measure: a set of Instructions, a Conversation, or plain text. A Conversation Log's Signal can be wired straight in.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Tiktoken Name", "TN", "Which tiktoken table to use. Filled in for you from the chosen method, and reads N/A for the methods that do not need one.", GH_ParamAccess.item, "N/A");
+        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Which model to ask, for the counting methods that get an exact figure from the provider rather than working it out here.", GH_ParamAccess.item);
         pManager[3].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddIntegerParameter("Token Count", "N", "Estimated token count.", GH_ParamAccess.item);
+        pManager.AddIntegerParameter("Token Count", "N", "How many tokens that came to.", GH_ParamAccess.item);
     }
 
     /// <summary>

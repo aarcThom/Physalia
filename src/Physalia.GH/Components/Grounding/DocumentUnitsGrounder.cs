@@ -22,7 +22,7 @@ public class DocumentUnitsGrounder : PhyBase
     /// Initializes a new instance of the <see cref="DocumentUnitsGrounder"/> class.
     /// </summary>
     public DocumentUnitsGrounder()
-        : base("Document Units Grounding", "UnGnd", "Grounds the model with the active Rhino document's unit system.", "Grounding")
+        : base("Document Units Grounding", "UnGnd", "Tells the model what one unit means in this document, so a wall 3000 long does not come out 3000 metres tall.", "Grounding")
     {
     }
 
@@ -38,7 +38,7 @@ public class DocumentUnitsGrounder : PhyBase
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Document-units grounding for the Conversation Log.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "This document's unit system, spelled out for the model. Wire into a Conversation Log's Grounding input.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

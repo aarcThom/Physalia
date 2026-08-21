@@ -16,7 +16,7 @@ public class Param_ComponentCatalog : PhyParam<GH_ComponentCatalog>
     /// Initializes a new instance of the <see cref="Param_ComponentCatalog"/> class.
     /// </summary>
     public Param_ComponentCatalog()
-        : base("Component Catalog", "Cat", "A snapshot of the installed Grasshopper components, for resolving and grounding generated graphs.")
+        : base("Component Catalog", "Cat", "A stock-take of every Grasshopper component installed on this machine, by name and type id.")
     {
     }
 

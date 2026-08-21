@@ -61,7 +61,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     /// Initializes a new instance of the <see cref="Router"/> class.
     /// </summary>
     public Router()
-        : base("Router", "Rtr", "Dispatches tool calls to named outputs and routes the request and results back to the Conversation Log.", "LLM Tools")
+        : base("Router", "Rtr", "Runs the tools the model asks for. Each request leaves by the output named after its tool, and the request together with whatever comes back is handed to the Conversation Log so the model sees the answer. Zoom in to add or remove outputs.", "LLM Tools")
     {
     }
 
@@ -93,8 +93,8 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Tool Calls", "TC", "Tool-call signal from a LLM Call's Tool Calls output. Each call is dispatched to the output whose nickname matches the tool's name.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_Signal(), "Results", "R", "Tool results returning through a Feedback Collector. Forwarded to the Conversation Log via the Feedback output.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "Tool Calls", "TC", "The model's requests, from an LLM Call's Tool Calls output. Each leaves by the output whose name matches the tool being asked for.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_Signal(), "Results", "R", "The answers coming back from the tool nodes, gathered by a Feedback Collector.", GH_ParamAccess.list);
         pManager[InToolCalls].Optional = true;
         pManager[InResults].Optional = true;
     }
@@ -107,7 +107,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     /// </remarks>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Feedback", "F", "Carries the assistant tool-call request and the collected results back to the Conversation Log. Wire through a Feedback component into a Feedback Collector, then into the Conversation Log's Tool input.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Feedback", "F", "The request and its answers together, as the matched pair of turns the conversation needs. Wire through a Feedback into a Feedback Collector, then into a Conversation Log's LLM Tool Signal input.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
@@ -126,7 +126,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
         {
             Name = nick,
             NickName = nick,
-            Description = "Dispatches tool calls whose name matches this output. Wire it into a tool node's Signal input and its name updates to that tool automatically.",
+            Description = "Carries the calls for one tool. Wire it into a tool node's Signal input and this output takes that tool's name by itself.",
             Access = GH_ParamAccess.item,
         };
     }

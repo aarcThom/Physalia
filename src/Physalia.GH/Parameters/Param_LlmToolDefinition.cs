@@ -16,7 +16,7 @@ public class Param_LlmToolDefinition : PhyParam<GH_LlmToolDefinition>
     /// Initializes a new instance of the <see cref="Param_LlmToolDefinition"/> class.
     /// </summary>
     public Param_LlmToolDefinition()
-        : base("Tool Definition", "Tool", "A tool advertised to the model (name, description, argument schema).")
+        : base("Tool Definition", "Tool", "A tool offered to the model: what it is called, what it does, and the arguments it takes.")
     {
     }
 

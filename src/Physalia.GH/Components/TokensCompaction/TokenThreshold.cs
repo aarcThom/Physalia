@@ -49,7 +49,7 @@ public class TokenThreshold : StatefulComponentBase
         : base(
             "Token Threshold",
             "TokGate",
-            "Routes a Conversation Log's Signal by the estimated token size of the Instructions it carries: under the threshold passes through, over the threshold routes to a compactor.",
+            "Watches how large the conversation has grown and forks the path: while it still fits, it goes straight to the model; once it is too big, it goes through a compactor first.",
             "Tokens & Compaction")
     {
     }
@@ -60,18 +60,18 @@ public class TokenThreshold : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Signal", "S", "The Conversation Log's Signal to route, carrying the Instructions to measure.", GH_ParamAccess.list);
-        pManager.AddParameter(new Param_ITokenEstimator(), "Tokenization Technique", "T", "A synchronous token estimator (Heuristic or Tiktoken) used to measure the carried context.", GH_ParamAccess.item);
-        pManager.AddIntegerParameter("Threshold", "N", "Token budget: a context at or under this passes Under Limit; over it routes to Over Limit (e.g. ~80% of the model's context limit).", GH_ParamAccess.item, 8000);
+        pManager.AddParameter(new Param_Signal(), "Signal", "S", "The Conversation Log's Signal, which brings the conversation to be measured with it.", GH_ParamAccess.list);
+        pManager.AddParameter(new Param_ITokenEstimator(), "Tokenization Technique", "T", "How to count. It has to be one of the local methods — Heuristic or Tiktoken — because this measurement decides which way the signal goes and cannot wait on a provider to answer.", GH_ParamAccess.item);
+        pManager.AddIntegerParameter("Threshold", "N", "The budget in tokens. At or under it the signal leaves by Under Limit, over it by Over Limit. Around 80% of the model's context window leaves room for the reply.", GH_ParamAccess.item, 8000);
         pManager[InSignal].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Under Limit", "U", "Carries the signal (with its Instructions) when its context is at or under the threshold. Wire to a LLM Call. Latched until the next routed signal.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_Signal(), "Over Limit", "O", "Carries the signal (with its Instructions) when its context exceeds the threshold. Wire to a compaction component, then on to the LLM Call. Latched until the next routed signal.", GH_ParamAccess.item);
-        pManager.AddIntegerParameter("Token Count", "N", "Estimated token count of the most recently routed context.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Under Limit", "U", "The signal while the conversation still fits. Wire straight into an LLM Call.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Over Limit", "O", "The signal once the conversation has outgrown the budget. Wire into a compaction component, and from there on to the same LLM Call.", GH_ParamAccess.item);
+        pManager.AddIntegerParameter("Token Count", "N", "How large the conversation was the last time it came through. Worth wiring to a panel while tuning the threshold.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

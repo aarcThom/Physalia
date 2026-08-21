@@ -15,7 +15,7 @@ public class Param_ModelConfig : PhyParam<GH_ModelConfig>
     /// Initializes a new instance of the <see cref="Param_ModelConfig"/> class.
     /// </summary>
     public Param_ModelConfig()
-        : base("Model Config", "Model", "An LLM model configuration.")
+        : base("Model Config", "Model", "A model and its settings: which provider, which model, and how it words its replies.")
     {
     }
 

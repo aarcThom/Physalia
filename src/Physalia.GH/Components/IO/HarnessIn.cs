@@ -60,7 +60,7 @@ public class HarnessIn : PhyBase, IHarnessInlet
         : base(
             "Harness In",
             "Harness In",
-            "Passes data from the user's canvas into the harness. Placing one grows an input on the harness proxy — wire geometry (or anything else) into that input and it arrives here, tree structure intact. Rename this node's output to label that input.",
+            "Brings data from your canvas into the harness. Putting one in grows an input on the left edge of the harness node; whatever you wire into it out there arrives here, branches and all. Rename this node's output to label that input.",
             "I/O")
     {
     }
@@ -99,7 +99,7 @@ public class HarnessIn : PhyBase, IHarnessInlet
 
     /// <inheritdoc/>
     public string InletDescription =>
-        $"Data for the \"{InletName}\" Harness In inside this harness. Tree structure is carried through unchanged.";
+        $"Goes to the \"{InletName}\" Harness In inside this harness. Branch structure is carried through unchanged.";
 
     // This node's output, typed so its rename can be heard. Null only while the component is being
     // constructed or has had its parameters torn down.
@@ -166,7 +166,7 @@ public class HarnessIn : PhyBase, IHarnessInlet
             port,
             DefaultName,
             DefaultName,
-            "Exactly what is wired into this node's input on the harness proxy — the same items on the same paths. Rename it and the harness input is renamed too.",
+            "Exactly what is wired into the matching input on the harness node: same items, same branches. Rename it and that input takes the new name too.",
             GH_ParamAccess.tree);
     }
 

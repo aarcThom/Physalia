@@ -32,7 +32,7 @@ public class SystemPrompt : PhyBase, IPickableValuesSource
     /// Initializes a new instance of the <see cref="SystemPrompt"/> class.
     /// </summary>
     public SystemPrompt()
-        : base("System Prompt", "System Prompt", "Assembles a system prompt from a preamble and a JSON schema.", "Pipeline")
+        : base("System Prompt", "System Prompt", "Writes the standing instructions the model is given on every turn: a preamble, the JSON shape its answers must take, and any extra wording you add. Wire the result into a Conversation Log.", "Pipeline")
     {
     }
 
@@ -66,17 +66,17 @@ public class SystemPrompt : PhyBase, IPickableValuesSource
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Preamble", "P", "Instruction preamble. Filename from PREAMBLE folder or inline text.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("Schema", "S", "JSON schema. Filename from SCHEMA folder or inline text.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("Additional Prompt", "AP", "Optional plain text appended verbatim to the end of the assembled prompt. Never resolved as a filename.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Preamble", "P", "The instructions themselves — who the model is and how it should work. Either the name of a file in Files/SYSTEM_PROMPTS/PREAMBLE (the Picker placed alongside lists them) or the text typed straight in.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Schema", "S", "The JSON shape answers must follow, so a Schema Validator can check them. Either the name of a file in Files/SYSTEM_PROMPTS/SCHEMA (the Picker placed alongside lists them) or the schema typed straight in.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Additional Prompt", "AP", "Anything extra you want to say, added at the end word for word. Always treated as text, never as a filename — this is the place for wording specific to this definition.", GH_ParamAccess.item, string.Empty);
         pManager[2].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("Schema", "S", "Resolved schema string for Schema Validator.", GH_ParamAccess.item);
-        pManager.AddTextParameter("System Prompt", "SP", "Assembled system prompt for Conversation Log.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Schema", "S", "The schema on its own, with any filename already resolved to its contents. Wire into a Schema Validator so it checks answers against the same schema the model was given.", GH_ParamAccess.item);
+        pManager.AddTextParameter("System Prompt", "SP", "The three pieces joined into one block of instructions. Wire into a Conversation Log's System Prompt input.", GH_ParamAccess.item);
     }
 
     /// <summary>

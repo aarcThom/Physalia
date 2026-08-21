@@ -24,7 +24,7 @@ public class PythonGrounder : PhyBase
     /// Initializes a new instance of the <see cref="PythonGrounder"/> class.
     /// </summary>
     public PythonGrounder()
-        : base("Python Grounding", "PyGnd", "Grounds the model with an available python function. WIP scaffold.", "Grounding")
+        : base("Python Grounding", "PyGnd", "Tells the model about a Python function it is allowed to call. Unfinished — a scaffold.", "Grounding")
     {
     }
 
@@ -34,15 +34,15 @@ public class PythonGrounder : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Signature", "S", "The function signature, e.g. def foo(a, b) -> float.", GH_ParamAccess.item, string.Empty);
-        int docIndex = pManager.AddTextParameter("Docstring", "D", "What the function does.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Signature", "S", "How the function is called, e.g. def foo(a, b) -> float.", GH_ParamAccess.item, string.Empty);
+        int docIndex = pManager.AddTextParameter("Docstring", "D", "What the function is for, in enough detail that the model knows when to reach for it.", GH_ParamAccess.item, string.Empty);
         pManager[docIndex].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Python-function grounding for the System Prompt.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "The function described for the model. Wire into a Conversation Log's Grounding input.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

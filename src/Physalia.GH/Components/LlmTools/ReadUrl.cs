@@ -43,12 +43,24 @@ public class ReadUrl : LlmToolComponentBase
     /// Initializes a new instance of the <see cref="ReadUrl"/> class.
     /// </summary>
     public ReadUrl()
-        : base("Read URL", "ReadURL", "A tool the model calls to fetch and read a web page (Jina Reader).")
+        : base("Read URL", "ReadURL", "Lets the model open a web page and read it as plain text — the usual follow-up to a search. Runs on Jina Reader and needs no key.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("7F8E6EB2-B012-4068-A90B-D9EF87229B7F");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "A page the model wants to read, sent here by the Router.";
+
+    /// <inheritdoc/>
+    protected override string ToolOutputDescription =>
+        "Advertises page reading to the model: a URL in, the page as text out. A Tools Present grounder finds this on its own once a Router dispatches here, so it needs no wire.";
+
+    /// <inheritdoc/>
+    protected override string ResultOutputDescription =>
+        "The page text heading back to the model. Wire through a Feedback into a Feedback Collector, then into the Router's Results input.";
 
     /// <inheritdoc/>
     protected override LlmToolDefinition Definition => ToolDef;

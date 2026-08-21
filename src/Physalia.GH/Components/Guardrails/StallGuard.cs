@@ -50,7 +50,7 @@ public class StallGuard : StatefulComponentBase
     /// Initializes a new instance of the <see cref="StallGuard"/> class.
     /// </summary>
     public StallGuard()
-        : base("Stall Guard", "Stall", "Passes signals through until the same failure payload arrives N consecutive times: the Nth repeat is escalated (the model is told to stop patching and explain the blocker to the human), and further identical repeats are not re-emitted. Any different signal resets the streak.", "Guardrails")
+        : base("Stall Guard", "Stall", "Stops a repair loop going round for ever. It watches for the same failure arriving again and again: at the limit the model is told to stop patching and explain the problem to you, and beyond it nothing more is sent. Any different failure starts the count over.", "Guardrails")
     {
     }
 
@@ -60,15 +60,15 @@ public class StallGuard : StatefulComponentBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddIntegerParameter("Stall Limit", "SL", "Consecutive identical failure payloads tolerated. The repeat that reaches the limit passes with an escalation preamble telling the model to stop and explain the blocker to the human; repeats beyond the limit are not re-emitted (the loop parks until something changes). 0 disables the guard.", GH_ParamAccess.item, DefaultStallLimit);
-        pManager.AddParameter(new Param_Signal(), "Signal", "S", "Signals to gate. Success signals always pass; consecutive identical failure payloads are counted against the Stall Limit.", GH_ParamAccess.list);
+        pManager.AddIntegerParameter("Stall Limit", "SL", "How many identical failures in a row to put up with. The one that reaches the limit still goes through, but carrying an instruction to stop and explain; anything after it is dropped and the loop parks until something changes. 0 turns the guard off.", GH_ParamAccess.item, DefaultStallLimit);
+        pManager.AddParameter(new Param_Signal(), "Signal", "S", "The signals to watch, usually the failure side of a check. Successes always pass; identical failures are what get counted.", GH_ParamAccess.list);
         pManager[InSignal].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Signal(), "Success Signal", "SS", "Carries each gated signal onward (unchanged, or with the escalation preamble at the limit). Latched until the next signal. Stays silent while the loop is parked.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Signal(), "Success Signal", "SS", "Each signal on its way out — unchanged, or with the stop-and-explain wording in front of it at the limit. Silent once the loop has parked.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

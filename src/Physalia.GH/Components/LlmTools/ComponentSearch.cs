@@ -40,7 +40,7 @@ public class ComponentSearch : LlmToolComponentBase
     /// Initializes a new instance of the <see cref="ComponentSearch"/> class.
     /// </summary>
     public ComponentSearch()
-        : base("Component Search", "Search", "A tool the model calls to search the installed component library by keyword.")
+        : base("Component Search", "Search", "Lets the model look up Grasshopper components by keyword, so it can find the one it needs instead of guessing at a name that may not exist here.")
     {
     }
 
@@ -48,12 +48,24 @@ public class ComponentSearch : LlmToolComponentBase
     public override Guid ComponentGuid => new Guid("C5F2A9D4-6B81-4E37-A0C2-9D4F1B6E8350");
 
     /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "A component search the model has asked for, sent here by the Router.";
+
+    /// <inheritdoc/>
+    protected override string ToolOutputDescription =>
+        "Advertises component search to the model: a keyword in, matching component names out. A Tools Present grounder finds this on its own once a Router dispatches here, so it needs no wire.";
+
+    /// <inheritdoc/>
+    protected override string ResultOutputDescription =>
+        "The matches heading back to the model. Wire through a Feedback into a Feedback Collector, then into the Router's Results input.";
+
+    /// <inheritdoc/>
     protected override LlmToolDefinition Definition => ToolDef;
 
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ComponentCatalog(), "Component Catalog", "Cat", "Installed-component catalog from a Component Catalog component, searched on each call.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ComponentCatalog(), "Component Catalog", "Cat", "The list of components to search. Wire a Component Catalog; it is read fresh on every call.", GH_ParamAccess.item);
         pManager[InCatalog].Optional = true;
     }
 

@@ -55,12 +55,24 @@ public class ComponentTransmitter : TransmitterComponentBase
         : base(
             "Component Transmitter",
             "CompTx",
-            "Places an LLM-generated GhJSON graph on the canvas. Clean placement routes the placed components' GUIDs forward (for a Runtime Health Check to scan); mechanical placement problems route a description back.")
+            "Builds what the model designed: components and wires placed on your canvas, or edits made to the ones already there. This is where the pipeline stops describing and starts changing your file.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("4BA76257-AD4C-462C-AB7E-B130DB176BF4");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The definition to build. Wire the last check in the chain — everything upstream of here exists so that what arrives is safe to put on the canvas.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The ids of everything it placed, so the checks below know exactly what to look at. Wire into a Fidelity Check, a Runtime Health Check or a Geometry Report.";
+
+    /// <inheritdoc/>
+    protected override string FailSignalDescription =>
+        "What stopped the build — a component that would not be made, a wire that could not be joined. Wire into a Feedback so the model can try again.";
 
     /// <inheritdoc/>
     public override string OutletLabel => "node";

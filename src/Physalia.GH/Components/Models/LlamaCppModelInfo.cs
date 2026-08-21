@@ -42,7 +42,7 @@ public class LlamaCppModelInfo : PhyBase
         : base(
             "LlamaCpp Model Info",
             "LCppInfo",
-            "Queries a running llama-server for context window size. Capability flags are inferred from the LiteLLM database using the GGUF-normalised model ID.",
+            "Asks a running llama-server how much context it was started with, and guesses the rest from the public catalogues by tidying up the GGUF model name.",
             "Models")
     {
     }
@@ -53,16 +53,16 @@ public class LlamaCppModelInfo : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "OpenAI-compatible model configuration pointing to a llama-server instance.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "An OpenAI Compatible Model whose Base URL points at your llama-server.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddIntegerParameter("Max Input", "I", "Training context length (n_ctx_train) from the server — the architectural maximum from the GGUF header.", GH_ParamAccess.item);
-        pManager.AddIntegerParameter("Max Output", "O", "Server context window (n_ctx). May be less than Max Input if --ctx-size was set at launch.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Image Capable", "V", "Whether the model accepts image inputs. Inferred from the LiteLLM database using the GGUF-normalised model ID. False if the model is not found.", GH_ParamAccess.item);
-        pManager.AddBooleanParameter("Tool Capable", "T", "Whether the model supports function/tool calling. Inferred from the LiteLLM database using the GGUF-normalised model ID. False if the model is not found.", GH_ParamAccess.item);
+        pManager.AddIntegerParameter("Max Input", "I", "The context length the model was trained for, read from the GGUF header. The most it could ever handle.", GH_ParamAccess.item);
+        pManager.AddIntegerParameter("Max Output", "O", "The context the server is actually running with — smaller than Max Input if it was started with --ctx-size.", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("Image Capable", "V", "Whether it can be shown pictures. Looked up by name, so false may only mean the name was not recognised.", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("Tool Capable", "T", "Whether it can call tools. Looked up by name, so false may only mean the name was not recognised.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

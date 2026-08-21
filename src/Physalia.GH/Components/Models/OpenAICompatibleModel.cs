@@ -34,7 +34,7 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
         : base(
             "OpenAI Compatible Model",
             "OAIModel",
-            "Configures a connection to any OpenAI-compatible endpoint: OpenAI, OpenRouter, DeepSeek, Groq, Ollama, or llama.cpp.",
+            "Points the pipeline at anything that speaks the OpenAI API — OpenAI itself, OpenRouter, DeepSeek, Groq, Ollama, a local llama.cpp server. Changing the endpoint is a matter of changing the URL.",
             "Models")
     {
     }
@@ -72,17 +72,17 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Base URL", "U", "Base URL of the API endpoint. Default: https://api.openai.com/v1", GH_ParamAccess.item, "https://api.openai.com/v1");
-        pManager.AddParameter(new Param_ApiKey(), "API Key", "K", "API key for authentication. Leave empty for local servers that do not require a key.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Base URL", "U", "Where the endpoint lives. Left as https://api.openai.com/v1 it is OpenAI; swap it for OpenRouter, DeepSeek, or a server running on your own machine.", GH_ParamAccess.item, "https://api.openai.com/v1");
+        pManager.AddParameter(new Param_ApiKey(), "API Key", "K", "The key for that endpoint. Wire an API Keys component, or leave it empty for a local server that asks for none.", GH_ParamAccess.item);
         pManager[1].Optional = true;
-        pManager.AddTextParameter("Model", "M", "Model ID, e.g. gpt-4o or anthropic/claude-sonnet-4-6. Wire a Picker component to select from the endpoint's available models.", GH_ParamAccess.item, string.Empty);
-        pManager.AddIntegerParameter("Max Tokens", "T", "Maximum number of tokens to generate.", GH_ParamAccess.item, 4096);
+        pManager.AddTextParameter("Model", "M", "Which model to use — gpt-4o, or a prefixed name like anthropic/claude-sonnet-4-6 on OpenRouter. The Picker placed alongside lists what this endpoint offers.", GH_ParamAccess.item, string.Empty);
+        pManager.AddIntegerParameter("Max Tokens", "T", "The ceiling on one reply. Raise it if answers come back cut off mid-sentence.", GH_ParamAccess.item, 4096);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Configured OpenAI-compatible model.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "The model, configured. Wire into an LLM Call, or through an OpenAI Compatible Tweaker first to change how it samples.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

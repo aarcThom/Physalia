@@ -46,6 +46,11 @@ public abstract class TweakerComponentBase<TConfig> : PhyBase
     protected abstract string TemperatureDescription { get; }
 
     /// <summary>
+    /// Gets the description for the Top P input, including the provider's own default.
+    /// </summary>
+    protected abstract string TopPDescription { get; }
+
+    /// <summary>
     /// Gets the default Top P value (e.g. 0.95 for Gemini, 1.0 elsewhere).
     /// </summary>
     protected abstract double TopPDefault { get; }
@@ -82,7 +87,7 @@ public abstract class TweakerComponentBase<TConfig> : PhyBase
     {
         pManager.AddParameter(new Param_ModelConfig(), "Model", "M", ModelInputDescription, GH_ParamAccess.item);
         pManager.AddNumberParameter("Temperature", "T", TemperatureDescription, GH_ParamAccess.item, 1.0);
-        pManager.AddNumberParameter("Top P", "P", "Nucleus sampling threshold (0.0–1.0).", GH_ParamAccess.item, TopPDefault);
+        pManager.AddNumberParameter("Top P", "P", TopPDescription, GH_ParamAccess.item, TopPDefault);
         RegisterThirdParam(pManager);
         RegisterAdditionalParams(pManager);
     }

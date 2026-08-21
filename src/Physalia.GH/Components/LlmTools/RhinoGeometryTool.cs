@@ -72,12 +72,24 @@ public class RhinoGeometryTool : LlmToolComponentBase
     /// Initializes a new instance of the <see cref="RhinoGeometryTool"/> class.
     /// </summary>
     public RhinoGeometryTool()
-        : base("Rhino Geometry", "RhinoGeo", "A tool the model calls to create Rhino geometry and reference it into Grasshopper via a parameter node.")
+        : base("Rhino Geometry", "RhinoGeo", "Lets the model make Rhino geometry outright — baked into the document, with a parameter dropped on the canvas that points at it. For shapes that are easier made than described in a definition.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("7D3F1A94-2C6B-4E58-9A1F-3B0C7E5D8A21");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "Geometry the model wants made, sent here by the Router.";
+
+    /// <inheritdoc/>
+    protected override string ToolOutputDescription =>
+        "Advertises geometry making to the model: a shape described in Rhino terms, baked into the document and handed back as a canvas parameter. A Tools Present grounder finds this on its own once a Router dispatches here, so it needs no wire.";
+
+    /// <inheritdoc/>
+    protected override string ResultOutputDescription =>
+        "What was made and where it landed, heading back to the model. Wire through a Feedback into a Feedback Collector, then into the Router's Results input.";
 
     /// <inheritdoc/>
     protected override LlmToolDefinition Definition => ToolDef;

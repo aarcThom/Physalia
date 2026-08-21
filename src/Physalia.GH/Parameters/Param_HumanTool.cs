@@ -16,7 +16,7 @@ public class Param_HumanTool : PhyParam<GH_HumanTool>
     /// Initializes a new instance of the <see cref="Param_HumanTool"/> class.
     /// </summary>
     public Param_HumanTool()
-        : base("Human Tool", "HT", "An affordance for the human in the chat window (geometry snapshot, image attachments).")
+        : base("Human Tool", "HT", "A button or ability added to the chat window for you. The model is never told about it.")
     {
     }
 

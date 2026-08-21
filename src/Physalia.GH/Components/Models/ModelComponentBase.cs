@@ -48,6 +48,12 @@ public abstract class ModelComponentBase : PhyBase, IPickableValuesSource
     protected abstract string ApiKeyDescription { get; }
 
     /// <summary>
+    /// Gets the description for the Model ID input parameter, phrased for this provider's
+    /// own model names.
+    /// </summary>
+    protected abstract string ModelIdDescription { get; }
+
+    /// <summary>
     /// Gets the description for the configured Model output parameter.
     /// </summary>
     protected abstract string ModelOutputDescription { get; }
@@ -90,7 +96,7 @@ public abstract class ModelComponentBase : PhyBase, IPickableValuesSource
     {
         pManager.AddParameter(new Param_ApiKey(), "API Key", "K", ApiKeyDescription, GH_ParamAccess.item);
         pManager[0].Optional = true;
-        pManager.AddTextParameter("Model", "M", "Model ID. Wire a Picker component to select from available models.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Model", "M", ModelIdDescription, GH_ParamAccess.item, string.Empty);
         RegisterAdditionalInputs(pManager);
     }
 

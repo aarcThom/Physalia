@@ -25,7 +25,7 @@ public class ClaudeCodeModel : PhyBase, IPickableValuesSource
         : base(
             "Claude Code Model",
             "ClaudeCode",
-            "Configures a model served by the local Claude Code CLI. Uses your `claude auth login` session — no API key required.",
+            "Runs inference through the Claude Code CLI already installed on this machine, signed in as you are. No key to store, nothing billed per token.",
             "Models")
     {
     }
@@ -70,13 +70,13 @@ public class ClaudeCodeModel : PhyBase, IPickableValuesSource
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Model", "M", "Claude model alias or ID (opus, sonnet, haiku). Wire a Picker to select.", GH_ParamAccess.item, "sonnet");
+        pManager.AddTextParameter("Model", "M", "Which Claude to use: opus, sonnet or haiku, or a full model id. The Picker placed alongside lists them.", GH_ParamAccess.item, "sonnet");
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Configured Claude Code model (local CLI, no API key).", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "The local Claude Code session, configured as a model. Wire into an LLM Call — there is no Tweaker for this one.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

@@ -31,7 +31,7 @@ public class ZoomGuid : PhyBase, IGuidLinked
         : base(
             "Zoom Guid",
             "ZoomG",
-            "Test: zooms the Perspective viewport onto the linked component's geometry output when the input is set true. Drag the bottom grip to any component.",
+            "Zooms the Perspective viewport onto the geometry coming out of a linked component. Drag the bottom grip onto whichever component you want to look at. A test tool.",
             "Extra")
     {
     }
@@ -74,7 +74,7 @@ public class ZoomGuid : PhyBase, IGuidLinked
         pManager.AddBooleanParameter(
             "Zoom",
             "Z",
-            "Set true (e.g. with a Button) to zoom the Perspective viewport onto the linked component's geometry output.",
+            "A press zooms the Perspective view onto the linked component's geometry.",
             GH_ParamAccess.item,
             false);
     }

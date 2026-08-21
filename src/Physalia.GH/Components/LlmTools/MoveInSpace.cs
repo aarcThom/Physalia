@@ -77,12 +77,24 @@ public class MoveInSpace : LlmToolComponentBase
     /// Initializes a new instance of the <see cref="MoveInSpace"/> class.
     /// </summary>
     public MoveInSpace()
-        : base("Move In Space", "Move", "A tool the model calls to walk step by step through a set of positions, reporting where it is and where it can go next.")
+        : base("Move In Space", "Move", "Lets the model walk. You give it the positions it may stand in; it moves one step at a time and is told where it is and which way it can go from there. The route it walks comes out as points you can build on.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("A4E17C63-8D25-4B9F-91A0-6C3E5D2B7F48");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "A step the model wants to take, sent here by the Router.";
+
+    /// <inheritdoc/>
+    protected override string ToolOutputDescription =>
+        "Advertises walking to the model: a direction in — forward, up-left, down-back and the rest — the new position and its onward options out. Asking with no direction just reports where it stands, which is how it gets its bearings. A Tools Present grounder finds this on its own once a Router dispatches here, so it needs no wire.";
+
+    /// <inheritdoc/>
+    protected override string ResultOutputDescription =>
+        "Where it now stands, what is there, and where it can go next, heading back to the model. Wire through a Feedback into a Feedback Collector, then into the Router's Results input.";
 
     /// <inheritdoc/>
     protected override LlmToolDefinition Definition => ToolDef;
@@ -102,18 +114,18 @@ public class MoveInSpace : LlmToolComponentBase
     /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        pManager.AddPointParameter("Start Point", "SP", "The position the model starts from. It is the first entry of Traversed Points, and need not be one of the Positions. Moving it restarts the walk.", GH_ParamAccess.item, Point3d.Origin);
-        pManager.AddPointParameter("Positions", "P", "Every position the model is allowed to occupy — the lattice it walks through. One call moves it to an adjacent position in this set; a position further along the same direction is reached by a later step.", GH_ParamAccess.list);
+        pManager.AddPointParameter("Start Point", "SP", "Where the model begins. It need not be one of the Positions. Move it and the walk starts over from scratch.", GH_ParamAccess.item, Point3d.Origin);
+        pManager.AddPointParameter("Positions", "P", "Every position the model is allowed to stand in. One step takes it to the nearest of these in the direction it chose; anything further along that line is reached by taking another step.", GH_ParamAccess.list);
         pManager[InPositions].Optional = true;
-        pManager.AddTextParameter("Position Notes", "PN", "Optional note per position, describing what is at it — reported to the model whenever it stands there. Paired with Positions by LONGEST-LIST matching: one note per position pairs 1:1, and a shorter list has its last note reused for the remaining positions. Leave unwired for no notes at all.", GH_ParamAccess.list);
+        pManager.AddTextParameter("Position Notes", "PN", "What is at each position, told to the model whenever it stands there — \"kitchen doorway\", \"top of the stair\". Matched to Positions the usual Grasshopper way: one note each pairs up, and a short list has its last note reused for the rest. Leave it unwired for no notes.", GH_ParamAccess.list);
         pManager[InPositionNotes].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterAdditionalOutputs(GH_OutputParamManager pManager)
     {
-        pManager.AddPointParameter("Traversed Points", "TP", "Every position the model has occupied, in visiting order, starting with the Start Point. Session-only: cleared when the walk restarts.", GH_ParamAccess.list);
-        pManager.AddPointParameter("Current Position", "CP", "Where the model stands right now — the last position walked to, or the Start Point before it has moved. The same as the last of Traversed Points, published on its own so a camera or a report can be wired straight to it.", GH_ParamAccess.item);
+        pManager.AddPointParameter("Traversed Points", "TP", "The route so far — every position it has stood in, in order, starting from the Start Point. Cleared when the walk restarts.", GH_ParamAccess.list);
+        pManager.AddPointParameter("Current Position", "CP", "Where the model is standing now, on its own so a Take Snapshot camera can be wired straight to it. The Start Point until it has moved.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

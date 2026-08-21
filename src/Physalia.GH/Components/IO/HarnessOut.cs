@@ -84,7 +84,7 @@ public class HarnessOut : PhyBase, IHarnessOutlet, IGuidLinked
         : base(
             "Harness Out",
             "Harness Out",
-            "Passes any Grasshopper data out of the harness and into a linked component input, parameter, or panel — tree structure and all. Drag the matching grip on the harness proxy onto the input grip it should feed, the way an ordinary Grasshopper output connects. Rename this node's input to label that grip.",
+            "Sends data out of the harness and into something on your canvas — a component input, a floating parameter, a panel. Drag the matching grip on the harness node onto the input it should feed, exactly as you would connect an ordinary output. Rename this node's input to label that grip.",
             "I/O")
     {
         _link = new TransmitterLink(this, "Component Input", "component input or panel", ParamTargets.CanHoldOrDisplay)
@@ -286,7 +286,7 @@ public class HarnessOut : PhyBase, IHarnessOutlet, IGuidLinked
             port,
             DefaultName,
             DefaultName,
-            "Any Grasshopper data — geometry, numbers, text, booleans, a signal. It is transmitted out of the harness into the linked input, tree structure intact. Rename it and the grip on the harness proxy is relabelled to match.",
+            "Anything at all: geometry, numbers, text, booleans, even a signal. It is written into the linked input with its branch structure intact. Rename it and the grip on the harness node is relabelled to match.",
             GH_ParamAccess.tree);
         pManager[InData].Optional = true;
     }

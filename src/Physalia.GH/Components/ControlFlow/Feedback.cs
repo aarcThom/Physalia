@@ -31,7 +31,7 @@ public class Feedback : StatefulComponentBase, IGuidLinked
     /// Initializes a new instance of the <see cref="Feedback"/> class.
     /// </summary>
     public Feedback()
-        : base("Feedback", "FB", "Routes signals wirelessly to paired Feedback Collectors.", "Control Flow")
+        : base("Feedback", "FB", "Sends signals across the canvas without a wire. Drag its grip onto a Feedback Collector and whatever arrives here comes out there — so a loop can close back to the Conversation Log without a line drawn across the whole definition.", "Control Flow")
     {
     }
 
@@ -56,7 +56,7 @@ public class Feedback : StatefulComponentBase, IGuidLinked
             new Param_Signal(),
             "Signal",
             "S",
-            "Signals to route wirelessly to paired Feedback Collectors. Each signal is forwarded exactly once; the payload carries the feedback text.",
+            "The signals to send. Each goes across once, to every Collector this component is linked to.",
             GH_ParamAccess.list);
         pManager[idx].Optional = true;
     }

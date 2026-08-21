@@ -15,7 +15,7 @@ public class Param_ITokenEstimator : PhyParam<GH_ITokenEstimator>
     /// Initializes a new instance of the <see cref="Param_ITokenEstimator"/> class.
     /// </summary>
     public Param_ITokenEstimator()
-        : base("Token Estimator", "TokEst", "Estimates token consumption for a set of instructions.")
+        : base("Token Estimator", "TokEst", "A way of counting tokens — a local estimate, or a figure from the provider.")
     {
     }
 

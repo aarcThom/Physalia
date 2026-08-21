@@ -33,7 +33,7 @@ public class TokenizationTechniques : PhyBase, IPickableValuesSource
         : base(
             "Tokenization Techniques",
             "TokTech",
-            "Selects a tokenization technique and outputs the corresponding token estimator.",
+            "Chooses how tokens get counted: a quick local estimate, a real tiktoken table, or asking the provider for an exact figure. Everything that measures a conversation takes its method from here.",
             "Tokens & Compaction")
     {
     }
@@ -54,13 +54,13 @@ public class TokenizationTechniques : PhyBase, IPickableValuesSource
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Technique", "T", "Tokenization technique. Connect the auto-placed Picker.", GH_ParamAccess.item, "Heuristic");
+        pManager.AddTextParameter("Technique", "T", "Which counting method to use. Wire the Picker placed alongside — it lists them all.", GH_ParamAccess.item, "Heuristic");
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ITokenEstimator(), "Tokenization Technique", "T", "The selected token estimator.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ITokenEstimator(), "Tokenization Technique", "T", "The chosen counting method. Wire into a Token Estimator, a Token Threshold or a Token Window.", GH_ParamAccess.item);
     }
 
     /// <summary>

@@ -42,12 +42,24 @@ public class WebSearch : LlmToolComponentBase
     /// Initializes a new instance of the <see cref="WebSearch"/> class.
     /// </summary>
     public WebSearch()
-        : base("Web Search", "WebSearch", "A tool the model calls to search the internet (Tavily).")
+        : base("Web Search", "WebSearch", "Lets the model search the web when it needs something it does not know. Runs on Tavily, so it needs a web_search key in API_KEY_CONFIG.YAML.")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("02315974-8633-4BCF-B4B3-9C33DC193778");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "A search the model has asked for, sent here by the Router.";
+
+    /// <inheritdoc/>
+    protected override string ToolOutputDescription =>
+        "Advertises web search to the model: a query in, a page of results out. A Tools Present grounder finds this on its own once a Router dispatches here, so it needs no wire.";
+
+    /// <inheritdoc/>
+    protected override string ResultOutputDescription =>
+        "The search results heading back to the model. Wire through a Feedback into a Feedback Collector, then into the Router's Results input.";
 
     /// <inheritdoc/>
     protected override LlmToolDefinition Definition => ToolDef;

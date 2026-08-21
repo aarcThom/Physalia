@@ -32,7 +32,7 @@ public class ComponentResolver : RoutingComponentBase<string>
     /// Initializes a new instance of the <see cref="ComponentResolver"/> class.
     /// </summary>
     public ComponentResolver()
-        : base("Component Resolver", "Component Resolver", "Resolves generated component names to real installed components and stamps their type GUIDs; unresolved names route back as feedback.", "Guardrails")
+        : base("Component Resolver", "Component Resolver", "Matches the component names in a generated definition to components actually installed here and stamps in their type ids. A name matching nothing goes back to the model rather than failing on the canvas.", "Guardrails")
     {
     }
 
@@ -40,9 +40,21 @@ public class ComponentResolver : RoutingComponentBase<string>
     public override Guid ComponentGuid => new Guid("E3A9C52B-7D46-4F3A-B2C8-4A1F6E0D93C7");
 
     /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The definition whose component names need matching. Wire a validator's Success Signal.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The same definition, with every component now identified by the type id of a real installed one. Wire into a Component Transmitter.";
+
+    /// <inheritdoc/>
+    protected override string FailSignalDescription =>
+        "The names that match nothing on this machine, so the model can choose components that exist here. Wire into a Feedback.";
+
+    /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
-        int index = pManager.AddParameter(new Param_ComponentCatalog(), "Component Catalog", "Cat", "Installed-component catalog from the Component Catalog component.", GH_ParamAccess.item);
+        int index = pManager.AddParameter(new Param_ComponentCatalog(), "Component Catalog", "Cat", "The components installed on this machine, to match names against. Wire a Component Catalog.", GH_ParamAccess.item);
         pManager[index].Optional = true;
     }
 

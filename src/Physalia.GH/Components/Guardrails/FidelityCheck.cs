@@ -52,7 +52,7 @@ public class FidelityCheck : RoutingComponentBase<string>
         : base(
             "Fidelity Check",
             "Fidelity",
-            "Verifies the placed graph matches the authored definition: every component landed, every connection exists. A faithful placement forwards the placed GUIDs unchanged; discrepancies route an itemised fix-it list back.",
+            "Compares the canvas against the definition that produced it — every component landed, every connection made. It catches the gap between what the model asked for and what actually appeared. Whole definitions only; an edit to an existing one passes straight through.",
             "Guardrails")
     {
     }
@@ -61,12 +61,24 @@ public class FidelityCheck : RoutingComponentBase<string>
     public override Guid ComponentGuid => new Guid("E1B7A4C9-3D58-4F02-B6A1-9C24E8D57F13");
 
     /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The finished placement to verify. Wire a Component Transmitter's Success Signal, which carries the ids of what it placed.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "Those same ids, passed on when the canvas matches the definition. Wire into a Runtime Health Check or a Geometry Report.";
+
+    /// <inheritdoc/>
+    protected override string FailSignalDescription =>
+        "What did not survive placement, component by component and connection by connection. Wire into a Feedback.";
+
+    /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
         int index = pManager.AddTextParameter(
             "Definition",
             "D",
-            "The generated GhJSON the transmitter placed. Wire from the SAME signal output the Component Transmitter's Signal input consumes — a Signal wire plugged into this text input yields its payload, read passively (it never triggers a run).",
+            "The definition that was placed, to compare the canvas against. Wire it from the same signal the Component Transmitter runs on: a signal wire plugged into this text input just hands over its text and starts nothing. Leave it unwired and the check uses the definition recorded at placement time.",
             GH_ParamAccess.item,
             string.Empty);
         pManager[index].Optional = true;

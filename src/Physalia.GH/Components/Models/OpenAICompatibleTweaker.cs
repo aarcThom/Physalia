@@ -19,7 +19,7 @@ public class OpenAICompatibleTweaker : TweakerComponentBase<OpenAIProtocolConfig
         : base(
             "OpenAI Compatible Tweaker",
             "OAITwk",
-            "Adjusts temperature, top-p, and max tokens on any OpenAI-compatible model configuration.")
+            "Changes how an OpenAI-compatible model picks its words, how long a reply may run, and how hard a reasoning model thinks.")
     {
     }
 
@@ -27,13 +27,20 @@ public class OpenAICompatibleTweaker : TweakerComponentBase<OpenAIProtocolConfig
     public override Guid ComponentGuid => new Guid("D5E6F7A8-B9C0-4D1E-F2A3-B4C5D6E7F8A9");
 
     /// <inheritdoc/>
-    protected override string ModelInputDescription => "OpenAI-compatible model configuration to adjust.";
+    protected override string ModelInputDescription =>
+        "The model to adjust. Wire an OpenAI Compatible Model component.";
 
     /// <inheritdoc/>
-    protected override string ModelOutputDescription => "Adjusted OpenAI-compatible model configuration.";
+    protected override string ModelOutputDescription =>
+        "The same model with these settings applied. Wire into an LLM Call.";
 
     /// <inheritdoc/>
-    protected override string TemperatureDescription => "Sampling temperature (0.0–2.0).";
+    protected override string TemperatureDescription =>
+        "How freely it words things, from 0 to 2. Reasoning models refuse this outright, and it is left out of the request for them.";
+
+    /// <inheritdoc/>
+    protected override string TopPDescription =>
+        "Narrows the choice to the likeliest words only. 1 considers them all.";
 
     /// <inheritdoc/>
     protected override double TopPDefault => 1.0;
@@ -47,7 +54,7 @@ public class OpenAICompatibleTweaker : TweakerComponentBase<OpenAIProtocolConfig
     /// <inheritdoc/>
     protected override void RegisterThirdParam(GH_InputParamManager pManager)
     {
-        pManager.AddIntegerParameter("Max Tokens", "N", "Maximum number of tokens to generate.", GH_ParamAccess.item, 4096);
+        pManager.AddIntegerParameter("Max Tokens", "N", "The ceiling on one reply, replacing whatever the Model component set.", GH_ParamAccess.item, 4096);
     }
 
     /// <inheritdoc/>
@@ -65,14 +72,14 @@ public class OpenAICompatibleTweaker : TweakerComponentBase<OpenAIProtocolConfig
         int effortIndex = pManager.AddTextParameter(
             "Reasoning Effort",
             "E",
-            "Reasoning effort for reasoning-capable models: low, medium, or high. Sent as reasoning_effort; leave unwired for models/servers that do not support it.",
+            "How hard a reasoning model should think: low, medium or high. Leave it unwired for models and servers that have no such setting.",
             GH_ParamAccess.item);
         pManager[effortIndex].Optional = true;
 
         int thinkingIndex = pManager.AddBooleanParameter(
             "Thinking",
             "TH",
-            "Thinking mode (sent as thinking:{type:enabled}) — required before DeepSeek V4 emits its reasoning. Unwired applies the model's known default behaviour (on for DeepSeek V4, off elsewhere); wire true/false to override.",
+            "Switches thinking on for models that have to be asked — DeepSeek will not show its reasoning otherwise. Left unwired, each model does whatever it normally does; wire true or false to insist.",
             GH_ParamAccess.item);
         pManager[thinkingIndex].Optional = true;
     }

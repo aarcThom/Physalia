@@ -15,7 +15,7 @@ public class Param_Instructions : PhyParam<GH_Instructions>
     /// Initializes a new instance of the <see cref="Param_Instructions"/> class.
     /// </summary>
     public Param_Instructions()
-        : base("Instructions", "Instructions", "Conversation history and system prompt for inference.")
+        : base("Instructions", "Instructions", "Everything one call to a model needs: the standing instructions and the conversation so far.")
     {
     }
 

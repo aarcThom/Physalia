@@ -30,13 +30,25 @@ public class GhDefinitionValidator : RoutingComponentBase<string>
         : base(
             "GH Definition Validator",
             "DefValid",
-            "Validates a generated GhJSON graph or ghpatch against the GhJSON library's schema and structural-integrity checks (unique ids, connection references, group membership). A valid payload passes forward unchanged; an invalid one routes the verdict back.",
+            "Checks a generated definition holds together before anything is placed: ids used once, connections pointing at components that exist, groups naming real members. Works on a whole definition or an edit to one.",
             "Guardrails")
     {
     }
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("7C4E8D2A-95B1-4F63-A80E-3D6F1B7C42E9");
+
+    /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The definition to inspect. Wire a Schema Validator's Success Signal, so what arrives is already known to be well-formed JSON.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The definition passed through unchanged, once its structure holds up. Wire on to a Component Resolver, or straight to a Component Transmitter.";
+
+    /// <inheritdoc/>
+    protected override string FailSignalDescription =>
+        "What does not hold together — an id used twice, a connection to nothing, a group naming a component that was never declared. Wire into a Feedback so the model can repair it.";
 
     /// <inheritdoc/>
     /// <remarks>The GhJSON graph or ghpatch arrives as the consumed signal's payload.</remarks>

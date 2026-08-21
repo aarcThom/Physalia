@@ -15,7 +15,7 @@ public class Param_Conversation : PhyParam<GH_Conversation>
     /// Initializes a new instance of the <see cref="Param_Conversation"/> class.
     /// </summary>
     public Param_Conversation()
-        : base("Conversation", "Conv", "An immutable, append-only conversation history.")
+        : base("Conversation", "Conv", "A conversation: its turns in order, oldest first. Adding a turn makes a new conversation rather than altering this one.")
     {
     }
 

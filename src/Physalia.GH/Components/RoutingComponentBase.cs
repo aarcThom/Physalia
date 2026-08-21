@@ -127,6 +127,27 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     }
 
     /// <summary>
+    /// Gets the tooltip for this component's Signal input, saying what arriving here makes
+    /// it do. Every subclass writes its own: the wording is what tells one guardrail's
+    /// trigger from another's, so there is deliberately no shared default.
+    /// </summary>
+    protected abstract string SignalInputDescription { get; }
+
+    /// <summary>
+    /// Gets the tooltip for the outgoing signal — the "Success Signal" output, or the single
+    /// "Signal" output when <see cref="HasFailOutput"/> is false. Say what the signal carries
+    /// and where it usually goes next.
+    /// </summary>
+    protected abstract string SignalOutputDescription { get; }
+
+    /// <summary>
+    /// Gets the tooltip for the "Fail Signal" output: what went wrong and what the signal
+    /// carries back. Read only when <see cref="HasFailOutput"/> is true; single-output
+    /// components return an empty string.
+    /// </summary>
+    protected abstract string FailSignalDescription { get; }
+
+    /// <summary>
     /// Registers the subclass's inputs (e.g. a Schema input), starting at index 0.
     /// The base appends the Signal input last. Default implementation adds nothing.
     /// </summary>
@@ -215,7 +236,7 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
             new Param_Signal(),
             "Signal",
             "S",
-            "Run signal. Each incoming signal runs the component exactly once; multiple signal sources may be wired directly. For a manual run, wire a Construct Signal (Button + payload).",
+            SignalInputDescription,
             GH_ParamAccess.list);
         pManager[_signalIndex].Optional = true;
     }
@@ -225,12 +246,12 @@ public abstract class RoutingComponentBase<TData> : StatefulComponentBase
     {
         if (HasFailOutput)
         {
-            pManager.AddParameter(new Param_Signal(), "Success Signal", "SS", "Latched signal minted when a run succeeds; its payload carries the result. Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
-            pManager.AddParameter(new Param_Signal(), "Fail Signal", "FS", "Latched signal minted when a run fails; its payload carries the feedback. Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
+            pManager.AddParameter(new Param_Signal(), "Success Signal", "SS", SignalOutputDescription, GH_ParamAccess.item);
+            pManager.AddParameter(new Param_Signal(), "Fail Signal", "FS", FailSignalDescription, GH_ParamAccess.item);
         }
         else
         {
-            pManager.AddParameter(new Param_Signal(), "Signal", "S", "Latched signal minted when a run completes; its payload carries the result on success or the feedback on failure (the signal's outcome records which). Downstream components consume it exactly once. Casts to text (the payload).", GH_ParamAccess.item);
+            pManager.AddParameter(new Param_Signal(), "Signal", "S", SignalOutputDescription, GH_ParamAccess.item);
         }
 
         RegisterAdditionalOutputs(pManager);

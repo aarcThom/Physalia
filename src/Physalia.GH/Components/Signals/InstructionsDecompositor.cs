@@ -19,7 +19,7 @@ public class InstructionsDecompositor : PhyBase
     /// Initializes a new instance of the <see cref="InstructionsDecompositor"/> class.
     /// </summary>
     public InstructionsDecompositor()
-        : base("Instructions Decompositor", "IDecomp", "Breaks Instructions into a system prompt string and a list of ConversationMessages.", "Signals")
+        : base("Instructions Decompositor", "IDecomp", "Splits a bundle of instructions back into its system prompt and its turns, so you can see what a signal is about to send.", "Signals")
     {
     }
 
@@ -29,14 +29,14 @@ public class InstructionsDecompositor : PhyBase
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "Instructions to decompose.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Instructions(), "Instructions", "I", "The bundle to open up — usually read straight off a Conversation Log's signal.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddTextParameter("System Prompt", "S", "The system prompt string.", GH_ParamAccess.item);
-        pManager.AddParameter(new Param_ConversationMessage(), "Messages", "M", "The ordered list of conversation turns.", GH_ParamAccess.list);
+        pManager.AddTextParameter("System Prompt", "S", "The standing instructions it holds.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ConversationMessage(), "Messages", "M", "The turns it holds, oldest first.", GH_ParamAccess.list);
     }
 
     /// <inheritdoc/>

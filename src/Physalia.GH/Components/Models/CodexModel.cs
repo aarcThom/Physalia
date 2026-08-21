@@ -39,7 +39,7 @@ public class CodexModel : PhyBase, IPickableValuesSource
         : base(
             "Codex Model",
             "Codex",
-            "Configures a model served by the local OpenAI Codex CLI. Uses your `codex login` session — no API key required.",
+            "Runs inference through the OpenAI Codex CLI already installed on this machine, signed in as you are. No key to store, nothing billed per token.",
             "Models")
     {
     }
@@ -98,15 +98,15 @@ public class CodexModel : PhyBase, IPickableValuesSource
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Model", "M", "Codex model ID (e.g. gpt-5.5). Wire a Picker to select. Leave empty for the CLI's own default.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("Effort", "E", "Reasoning effort (low, medium, high, xhigh). Wire a Picker to select. Leave empty for the model's default.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Model", "M", "Which model to use. The Picker placed alongside is filled by asking the CLI itself. Leave it empty to take whatever the CLI would choose.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Effort", "E", "How hard to think: low, medium, high or xhigh. The Picker placed alongside lists them. Leave it empty for the model's own default.", GH_ParamAccess.item, string.Empty);
         pManager[1].Optional = true;
     }
 
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "Configured Codex model (local CLI, no API key).", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ModelConfig(), "Model", "M", "The local Codex session, configured as a model. Wire into an LLM Call — there is no Tweaker for this one.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

@@ -58,7 +58,7 @@ public class ScriptIO : PhyBase, IGuidLinked
         : base(
             "Script I/O",
             "Script I/O",
-            "Grounds the model with the linked transmitter's target inputs/outputs and locks them: the transmitter pushes code only and rejects submissions that change the interface. Drag the bottom grip to a Py or C# Transmitter; wire the output into a Conversation Log's Grounding input.",
+            "Shows the model the exact inputs and outputs of the script component a transmitter writes into, and holds their names still — the model may correct a type or an access mode, but it cannot rename, add or drop a parameter, so your wires survive every push. Drag the bottom grip onto a Py or C# Transmitter. Disable the component to lift the hold without unlinking.",
             "Grounding")
     {
     }
@@ -200,7 +200,7 @@ public class ScriptIO : PhyBase, IGuidLinked
     /// <inheritdoc/>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Locked-interface grounding for the linked transmitter's target. Wire into the Conversation Log's Grounding input.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "The target script's parameters written out for the model to copy back word for word, together with what the canvas below each output already expects. Wire into a Conversation Log's Grounding input.", GH_ParamAccess.item);
     }
 
     /// <inheritdoc/>

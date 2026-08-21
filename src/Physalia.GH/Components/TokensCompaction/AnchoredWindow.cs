@@ -32,7 +32,7 @@ public class AnchoredWindow : CompactionComponentBase
         : base(
             "Anchored Window",
             "Anchor",
-            "Keeps the first K and last M messages of a conversation and drops the middle. Deterministic; no LLM call.")
+            "Shortens the conversation by keeping both ends and dropping the middle — the original brief stays, the work in hand stays, the sprawl between them goes. Nothing is sent anywhere to do it.")
     {
     }
 
@@ -40,18 +40,26 @@ public class AnchoredWindow : CompactionComponentBase
     public override Guid ComponentGuid => new Guid("ABA68278-2EA0-4D1A-B5D9-7E91CCC702D6");
 
     /// <inheritdoc/>
+    protected override string SignalInputDescription =>
+        "The conversation to trim at both ends, riding on a Conversation Log's signal. Usually reached from a Token Threshold's Over Limit output.";
+
+    /// <inheritdoc/>
+    protected override string SignalOutputDescription =>
+        "The trimmed conversation, ready for the LLM Call. If the trim cannot be done, the conversation goes on in full rather than the turn being lost.";
+
+    /// <inheritdoc/>
     protected override void RegisterCompactionInputs(GH_InputParamManager pManager)
     {
         pManager.AddIntegerParameter(
             "Keep First",
             "K",
-            "How many leading messages to keep at most (the initial task / context). Kept exactly unless the cut would split a tool exchange, in which case the head shrinks so the exchange is dropped whole.",
+            "How many turns to keep from the beginning — the task as first stated. Kept exactly, unless the cut would land in the middle of a tool exchange, in which case one fewer is kept so the exchange goes whole.",
             GH_ParamAccess.item,
             2);
         pManager.AddIntegerParameter(
             "Keep Last",
             "M",
-            "How many trailing messages to keep (the recent working set).",
+            "How many turns to keep from the end — the work currently under way.",
             GH_ParamAccess.item,
             8);
     }

@@ -80,7 +80,7 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
     /// Initializes a new instance of the <see cref="HarnessComponent"/> class.
     /// </summary>
     public HarnessComponent()
-        : base("Harness", "Harness", "Holds a Physalia pipeline in its own document. Double-click to open its chat window; right-click \"Edit Harness\" to edit it on a secondary canvas.", "Pipeline")
+        : base("Harness", "Harness", "Holds a whole Physalia pipeline inside its own document, so your canvas carries one node instead of thirty. Double-click to open its chat window; right-click and choose Edit Harness to work on the pipeline inside.", "Pipeline")
     {
     }
 

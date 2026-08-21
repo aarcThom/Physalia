@@ -164,7 +164,14 @@ proxy's LEFT edge (inlets). See the I/O row below.
   called the wire inside. `DrawOutletLabels` reads it every frame so no push is needed; what a rename
   does need is `OnOutletRenamed` → `ExpireProxyLayout`, because the right-edge label strip is
   MEASURED now (`TextRenderer` + `GH_FontServer.Standard` — the unadjusted font, since layout runs in
-  canvas units and does not re-run on zoom) rather than the old fixed 30u for three-letter tags.
+  canvas units and does not re-run on zoom) rather than the old fixed 30u for three-letter tags. The
+  capsule is sized from its PARTS — input column + gap + centre + gap + label column — and no longer
+  floors on GH's own `bounds.Width` once there are inputs: GH's layout reserves an icon region of its
+  own, this class adds another, and taking the larger left a hole between the icon and the outlet
+  labels with all the slack on one side. The centre is measured in BOTH display modes
+  (`CentreStripWidth`): the emoji row (or the plug-in mark, for a harness with no Chat) under icons,
+  the nickname under `GH_FontServer.Large` otherwise — unadjusted, same canvas-units reason as the
+  outlet labels — so the two modes size and centre identically.
 - **A harness has one INLET per Harness In inside it** — its only kind of input, and the mirror of the
   outlets. `IHarnessInlet` (implemented by `HarnessIn`) is that type; `HarnessComponent.Inlets` orders
   them by pivot INSIDE the harness exactly as `Outlets` does, and the proxy grows one `Param_Inlet`

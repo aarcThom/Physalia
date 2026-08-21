@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using Grasshopper;
 using Grasshopper.GUI;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
@@ -66,6 +67,15 @@ public class HarnessAttrib : BottomGripAttributes
     // leaves on an ordinary component.
     private const float InputLabelInset = 3f;
 
+    // Breathing space either side of the capsule's centre content — the icon or the nickname — between
+    // it and the input names on the left and the outlet labels on the right. Spent twice, and counted
+    // twice in the width, so the two are equal.
+    private const float IconGap = 6f;
+
+    // Slack added to a measured nickname, so the text capsule has somewhere to sit inside its rect
+    // rather than being pressed against both ends of it.
+    private const float NameInset = 6f;
+
     // Least room reserved along the right edge for the outlet labels, in canvas units — enough for a
     // short tag like "node" or "py" at 1:1 zoom.
     private const float MinLabelColumn = 30f;
@@ -117,11 +127,42 @@ public class HarnessAttrib : BottomGripAttributes
     /// </remarks>
     protected override PointF GripOrigin => RightCentre;
 
-    // The capsule width the contents actually need: the row of Chat emoji, the outlet labels beside
-    // it, the strip Grasshopper laid the input names out in, and the insets either side. Only wider
-    // than the default proxy width once a harness holds enough Chats to fill it.
+    // Exactly what the capsule holds, left to right: the strip Grasshopper laid the input names out
+    // in, a gap, the icon (or the row of Chat emoji), the same gap again, the outlet labels, and the
+    // insets either side. Measuring the parts is what keeps the icon centred between the two columns
+    // — the gap is spent twice and the width accounts for both, so neither side can end up with slack
+    // the other does not have.
     private float ContentWidthFrom(float left) =>
-        EmojiStripWidth + LabelColumn + InputColumnFrom(left) + (ContentInset * 4f);
+        InputColumnFrom(left) + CentreStripWidth + LabelColumn + (IconGap * 2f) + (ContentInset * 2f);
+
+    // Whether the capsule shows its icon or its nickname, resolved the way Grasshopper resolves it:
+    // the component's own setting unless that defers to the canvas-wide one.
+    private bool IconMode =>
+        _harness.IconDisplayMode == GH_IconDisplayMode.icon
+        || (_harness.IconDisplayMode == GH_IconDisplayMode.application && CentralSettings.CanvasObjectIcons);
+
+    // What the middle of the capsule has to fit, whichever of the two things it is showing. In icon
+    // mode that is one emoji per Chat, or the plug-in's own mark for a harness holding none — note it
+    // is NOT EmojiStripWidth, which is zero in that second case because there is no ROW to draw, while
+    // there is still an icon needing room. In nickname mode it is the nickname, measured.
+    //
+    // Both modes go through here so the node behaves the same in either: sized to its contents, with
+    // the same gap to the input names on one side and the outlet labels on the other. Measuring with
+    // GH_FontServer.Large rather than LargeAdjusted for the reason the outlet labels do — layout runs
+    // in canvas units, while the adjusted font follows the canvas zoom and layout does not re-run when
+    // you zoom.
+    private float CentreStripWidth
+    {
+        get
+        {
+            if (!IconMode)
+            {
+                return TextRenderer.MeasureText(_harness.NickName, GH_FontServer.Large).Width + NameInset;
+            }
+
+            return _chats.Count == 0 ? EmojiSize : EmojiStripWidth;
+        }
+    }
 
     // The strip the outlet labels need. A Harness Out is labelled with its input's nickname, so these
     // are arbitrary user text now rather than the fixed three-letter tags they started as, and a fixed
@@ -135,6 +176,14 @@ public class HarnessAttrib : BottomGripAttributes
     {
         get
         {
+            if (_handles.Count == 0)
+            {
+                // No outlets, no strip. Reserving the minimum anyway would hand that width to the icon
+                // region, which centres its contents — so an inlet-only harness would sit off to the
+                // left of its own capsule.
+                return 0f;
+            }
+
             float widest = 0f;
             foreach (OutletHandle handle in _handles)
             {
@@ -236,10 +285,10 @@ public class HarnessAttrib : BottomGripAttributes
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Widens the capsule, keeping its left edge where Grasshopper put it — so the node reaches
-    /// rightwards from the spot it was placed at rather than jumping — and grows it downward when the
-    /// outlets need more height than one node-row. A harness with several Chats in it stretches
-    /// further right still, enough to show every emoji beside the outlet labels.
+    /// Sizes the capsule from what it actually holds, keeping its left edge where Grasshopper put it —
+    /// so the node reaches rightwards from the spot it was placed at rather than jumping — and grows
+    /// it downward when the outlets need more height than one node-row. A harness with several Chats
+    /// in it stretches further right still, enough to show every emoji between the two columns.
     /// </remarks>
     protected override RectangleF AdjustVisualBounds(RectangleF bounds)
     {
@@ -249,18 +298,21 @@ public class HarnessAttrib : BottomGripAttributes
         // inside the measuring pass would have this method reading bounds it had just changed.
         _inputShift = (height - bounds.Height) / 2f;
 
-        // The widening factor applies only to a harness with no inputs. With inputs, Grasshopper has
-        // already sized the capsule around the Harness In names, and multiplying THAT would give a node
-        // stretching half the canvas for three short labels.
-        float minimum = _harness.Params.Input.Count == 0
-            ? bounds.Width * WidthFactor
-            : bounds.Width;
+        float content = ContentWidthFrom(bounds.X);
 
-        return new RectangleF(
-            bounds.X,
-            bounds.Y,
-            Math.Max(minimum, ContentWidthFrom(bounds.X)),
-            height);
+        // With no inputs Grasshopper has nothing to size the node from — a harness stands for a whole
+        // pipeline and its own layout would make it one of the smallest nodes on the canvas — so the
+        // factor sets a floor there and only there.
+        //
+        // With inputs, the measured content IS the width. Taking Grasshopper's as a floor was what put
+        // a hole between the icon and the outlet labels: its layout reserves an icon region of its own,
+        // this class then adds one, and the node ends up wider than anything in it, with all the slack
+        // falling on whichever side the icon is not centred against.
+        float width = _harness.Params.Input.Count == 0
+            ? Math.Max(bounds.Width * WidthFactor, content)
+            : content;
+
+        return new RectangleF(bounds.X, bounds.Y, width, height);
     }
 
     /// <inheritdoc/>
@@ -289,9 +341,12 @@ public class HarnessAttrib : BottomGripAttributes
         // Grasshopper sized the inner region for the small capsule it thought it was laying out, so the
         // icon (or the nickname) would sit in a corner of the grown one. Re-centre it on the capsule,
         // less the strips the input names and the outlet labels occupy.
+        // What is left between the two columns, which is exactly the icon plus a gap either side when
+        // the capsule is at its measured width — so centring the icon in here puts equal space between
+        // it and the input names on one side and the outlet labels on the other.
         RectangleF inner = RectangleF.Inflate(VisualBounds, -ContentInset, -ContentInset);
         float left = InputColumnFrom(VisualBounds.X);
-        float right = _handles.Count == 0 ? 0f : LabelColumn;
+        float right = LabelColumn;
         m_innerBounds = new RectangleF(
             inner.X + left,
             inner.Y,
@@ -586,10 +641,7 @@ public class HarnessAttrib : BottomGripAttributes
             // caption Grasshopper hangs under a node can never appear beneath a harness.
             capsule.Render(graphics, style);
 
-            bool iconMode = _harness.IconDisplayMode == GH_IconDisplayMode.icon
-                || (_harness.IconDisplayMode == GH_IconDisplayMode.application && Grasshopper.CentralSettings.CanvasObjectIcons);
-
-            if (iconMode)
+            if (IconMode)
             {
                 if (_chats.Count > 0)
                 {

@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+using System;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Grasshopper.Kernel.Data;
@@ -27,8 +29,13 @@ internal static class TreeIdentity
     /// </summary>
     /// <typeparam name="T">The goo type on the tree.</typeparam>
     /// <param name="tree">The tree to key. An empty or null tree keys as the empty string.</param>
+    /// <param name="identify">
+    /// How to key one item, for data whose identity is NOT its reference — a signal is re-wrapped in a
+    /// fresh goo on every solve, so identity would report a change every time, while its sequence says
+    /// exactly which signal it is. Omit for the reference-identity default.
+    /// </param>
     /// <returns>A key that changes when the tree's shape or any item's identity changes.</returns>
-    internal static string Of<T>(GH_Structure<T>? tree)
+    internal static string Of<T>(GH_Structure<T>? tree, Func<T?, string>? identify = null)
         where T : IGH_Goo
     {
         if (tree is null)
@@ -44,7 +51,7 @@ internal static class TreeIdentity
 
             foreach (T item in tree.Branches[branch])
             {
-                key.Append(item is null ? 0 : RuntimeHelpers.GetHashCode(item)).Append(',');
+                key.Append(identify is null ? Reference(item) : identify(item)).Append(',');
             }
 
             key.Append(';');
@@ -52,4 +59,7 @@ internal static class TreeIdentity
 
         return key.ToString();
     }
+
+    private static string Reference<T>(T? item) =>
+        item is null ? "0" : RuntimeHelpers.GetHashCode(item).ToString(CultureInfo.InvariantCulture);
 }

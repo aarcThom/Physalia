@@ -8,7 +8,18 @@ metadata:
   modified: 2026-08-19T04:52:44.384Z
 ---
 
-Built 2026-08-18: **Receiver** (`Rx`, section "Receivers"), the inverse of a transmitter. No inputs,
+> **Renamed 2026-08-19.** The component is now **Harness In** (class `HarnessIn`), paired with
+> **Harness Out** (class `HarnessOut`), both under the **I/O** ribbon section. ComponentGuids were
+> deliberately kept, so documents holding the old "Receiver"/"GH Data Transmitter" still load. Read
+> "Receiver" below as "Harness In". The pair is now symmetric: Harness In has no inputs, Harness Out
+> has **no outputs** (it is an endpoint, not a passthrough) — the whole exchange with the canvas
+> happens at the proxy. Harness Out's INPUT nickname labels its grip on the proxy, live via
+> `OutletLabel`; that direction is one-way, because a painted label has no editor, and it forced the
+> proxy's right-edge label strip to become MEASURED (`TextRenderer` + the unadjusted
+> `GH_FontServer.Standard`, since layout runs in canvas units and does not re-run on zoom) instead of
+> a fixed 30u sized for three-letter tags.
+
+Built 2026-08-18: the inverse of a transmitter. No inputs,
 one generic tree output; placing one inside a harness grows a real Grasshopper input on the LEFT edge
 of the harness proxy. Intended use: passing geometry and goal
 conditions in for LLM tools to reason against. Complements [[harness-subdocument]] and

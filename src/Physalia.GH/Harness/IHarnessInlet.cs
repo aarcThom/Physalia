@@ -7,7 +7,7 @@ using Grasshopper.Kernel.Types;
 namespace Physalia.GH.Harness;
 
 /// <summary>
-/// One inlet of a harness: a Receiver inside it whose input parameter is hosted by the proxy on the
+/// One inlet of a harness: a Harness In inside it whose input parameter is hosted by the proxy on the
 /// user's canvas. The mirror of <see cref="IHarnessOutlet"/>, and the only way data gets IN.
 ///
 /// <para>The asymmetry between the two is deliberate, not an oversight. What a pipeline PRODUCES is
@@ -18,26 +18,26 @@ namespace Physalia.GH.Harness;
 /// and an ordinary wire. Nothing here needs the watch machinery an arrow would have needed.</para>
 ///
 /// <para><b>An inlet is passive.</b> Data arriving never mints a signal and never starts a round: a
-/// Receiver latches what it was handed and outputs it, and that is all. Two reasons, and the second
+/// Harness In latches what it was handed and outputs it, and that is all. Two reasons, and the second
 /// is structural. A value source that fired the pipeline would launch an inference per slider tick;
 /// and the moment a transmitter can write into something that feeds a receiver, harness-writes-canvas
 /// / canvas-feeds-harness becomes a cycle Grasshopper's own detector cannot see, because half of it is
 /// not a wire. Passive inlets mean nothing in the harness ACTS on inlet data alone, so that loop can
 /// never close.</para>
 ///
-/// <para>The proxy grows ONE input per inlet, stacked down its left edge in the order the Receivers
-/// are laid out inside the harness. An inlet's input and the Receiver's own OUTPUT share ONE name —
+/// <para>The proxy grows ONE input per inlet, stacked down its left edge in the order the nodes
+/// are laid out inside the harness. An inlet's input and the node's own OUTPUT share ONE name —
 /// both start out "Data", and renaming either end renames the other, so the label on the harness and
 /// the label on the wire inside can never drift apart. Unlike an outlet's grip, an inlet's parameter
-/// is a real object that other components' wires point AT, so it is bound to its Receiver by
-/// InstanceGuid and never rebuilt while that Receiver lives: rebuilding it would drop the wire, and
-/// re-binding by position would silently swap one Receiver's data for another's.</para>
+/// is a real object that other components' wires point AT, so it is bound to its node by
+/// InstanceGuid and never rebuilt while that Harness In lives: rebuilding it would drop the wire, and
+/// re-binding by position would silently swap one node's data for another's.</para>
 /// </summary>
 public interface IHarnessInlet
 {
     /// <summary>
-    /// Gets or sets the name this inlet is known by at BOTH ends — the Receiver's output parameter
-    /// inside the harness, and the input it grows on the proxy outside. Reading it asks the Receiver
+    /// Gets or sets the name this inlet is known by at BOTH ends — the Harness In's output parameter
+    /// inside the harness, and the input it grows on the proxy outside. Reading it asks the node
     /// what its output is called; setting it renames that output, which is what carries a rename made
     /// on the proxy back inside.
     /// </summary>

@@ -8,6 +8,16 @@ metadata:
   modified: 2026-08-18T07:54:15.288Z
 ---
 
+> **Superseded 2026-08-19.** Geometry Transmitter and Text Transmitter were merged into one
+> **GH Data Transmitter** (`DataTx`, grip "data"), generic at tree access, so booleans, integers and
+> colours ride through too — the split only ever reflected the param type each happened to declare.
+> Everything below still describes how the delivery works; it is now that one component, living with
+> [[harness-receiver-inlets]] under the **I/O** ribbon section. Two things the merge had to add:
+> preview is supplied by hand (generic params tell GH nothing about geometry, so the viewport preview
+> would have been silently lost), and a **signal is keyed by SEQUENCE, not reference identity** — a
+> latched signal is re-wrapped in a fresh goo every solve, so identity would write to the canvas on
+> every scheduled solve.
+
 Built 2026-08-18. `GeometryTransmitter` (`GeoTx`, grip "geo", magenta→gold gradient) is a harness
 outlet that behaves as an ordinary wire: `Geometry In` → `Geometry Out` passthrough, plus a
 deferred write of the same data into a linked input on the host canvas. Structurally a copy of

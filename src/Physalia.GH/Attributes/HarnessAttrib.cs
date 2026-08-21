@@ -31,7 +31,7 @@ namespace Physalia.GH.Attributes;
 /// The capsule grows taller to fit them; with no transmitters inside it stays a plain bar with no
 /// grips at all.</para>
 ///
-/// <para>Down the LEFT edge it grows one ordinary Grasshopper input per Receiver inside — its inlets
+/// <para>Down the LEFT edge it grows one ordinary Grasshopper input per Harness In inside — its inlets
 /// (see <see cref="IHarnessInlet"/>). Those are real parameters, so Grasshopper lays them out itself;
 /// this class only has to draw them, because the capsule here is composed by hand and never reaches
 /// <see cref="GH_ComponentAttributes"/>'s own render. It also has to TRANSLATE them: Grasshopper sizes
@@ -66,15 +66,9 @@ public class HarnessAttrib : BottomGripAttributes
     // leaves on an ordinary component.
     private const float InputLabelInset = 3f;
 
-    // Strip reserved along the right edge for the outlet labels — room for a short tag at 1:1 zoom,
-    // which is what a canvas unit means.
-    //
-    // Fixed, NOT measured. Measuring looks tempting but cannot work here: layout runs in canvas units
-    // while GH_FontServer's adjusted font follows the canvas zoom, and layout does not re-run when you
-    // zoom — so a measured column reserved a third of the node at high zoom and left a hole between
-    // the emoji and a four-letter tag. Nothing depends on it being exact, either: the labels are drawn
-    // from their own measurement at paint time, so they cannot clip whatever this says.
-    private const float LabelColumn = 30f;
+    // Least room reserved along the right edge for the outlet labels, in canvas units — enough for a
+    // short tag like "node" or "py" at 1:1 zoom.
+    private const float MinLabelColumn = 30f;
 
     // Below this canvas zoom the labels are dropped, the way Grasshopper drops parameter names: the
     // adjusted font would render them as unreadable smears over the node.
@@ -129,9 +123,33 @@ public class HarnessAttrib : BottomGripAttributes
     private float ContentWidthFrom(float left) =>
         EmojiStripWidth + LabelColumn + InputColumnFrom(left) + (ContentInset * 4f);
 
+    // The strip the outlet labels need. A Harness Out is labelled with its input's nickname, so these
+    // are arbitrary user text now rather than the fixed three-letter tags they started as, and a fixed
+    // column would have a long name running out over the icon.
+    //
+    // Measured with GH_FontServer.Standard, deliberately NOT the Adjusted font: layout runs in canvas
+    // units while the adjusted font follows the canvas zoom, and layout does not re-run when you zoom
+    // — measuring with it once reserved a third of the node at high zoom and left a hole beside a
+    // four-letter tag at 1:1. TextRenderer measures without a Graphics, which layout does not have.
+    private float LabelColumn
+    {
+        get
+        {
+            float widest = 0f;
+            foreach (OutletHandle handle in _handles)
+            {
+                widest = Math.Max(
+                    widest,
+                    TextRenderer.MeasureText(handle.Outlet.OutletLabel, GH_FontServer.Standard).Width);
+            }
+
+            return Math.Max(MinLabelColumn, widest + LabelInset);
+        }
+    }
+
     // The strip along the left edge that the input rows occupy, measured from what Grasshopper's own
     // layout produced rather than guessed at — it sizes each row from the parameter name, which is a
-    // Receiver's nickname and so any length at all. Zero when the harness holds no Receiver.
+    // Harness In's nickname and so any length at all. Zero when the harness holds no Harness In.
     //
     // The capsule's left edge is passed in rather than read from VisualBounds, because the measuring
     // pass needs this BEFORE VisualBounds has been recomputed — and on the very first layout that
@@ -232,7 +250,7 @@ public class HarnessAttrib : BottomGripAttributes
         _inputShift = (height - bounds.Height) / 2f;
 
         // The widening factor applies only to a harness with no inputs. With inputs, Grasshopper has
-        // already sized the capsule around the Receiver names, and multiplying THAT would give a node
+        // already sized the capsule around the Harness In names, and multiplying THAT would give a node
         // stretching half the canvas for three short labels.
         float minimum = _harness.Params.Input.Count == 0
             ? bounds.Width * WidthFactor
@@ -256,7 +274,7 @@ public class HarnessAttrib : BottomGripAttributes
     {
         // All three before base.Layout(), because AdjustVisualBounds sizes the capsule from the outlet
         // count and the emoji count — and Grasshopper measures each input row from its parameter name,
-        // so a Receiver renamed inside the harness has to be picked up before that, not after.
+        // so a Harness In renamed inside the harness has to be picked up before that, not after.
         RefreshHandles();
         RefreshChats();
         _harness.RefreshInlets();
@@ -492,9 +510,9 @@ public class HarnessAttrib : BottomGripAttributes
     // composes its own capsule and so never reaches the base render that would normally draw them —
     // without this the parameters would be laid out, wireable and completely invisible.
     //
-    // The parameter's own nickname, which the Receiver and the parameter keep in step between them by
+    // The parameter's own nickname, which the Harness In and the parameter keep in step between them by
     // overriding the virtual NickName setter at both ends — so this is both what the user typed, if
-    // they renamed the input out here, and what the Receiver is called, if they renamed it inside.
+    // they renamed the input out here, and what the Harness In is called, if they renamed it inside.
     // Drawn from a measured point rather than clipped into the row, so a name that outgrew the width
     // Grasshopper last measured overhangs rather than losing its tail.
     private void DrawInputLabels(GH_Canvas canvas, Graphics graphics)

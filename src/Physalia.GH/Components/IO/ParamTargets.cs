@@ -15,8 +15,8 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// How a transmitter that behaves like an ordinary wire finds its target and writes a value into it.
 ///
-/// <para>Two transmitters connect this way — <see cref="TextTransmitter"/> and
-/// <see cref="GeometryTransmitter"/> — and neither pushes CODE into a component the way the script
+/// <para>One transmitter connects this way — <see cref="HarnessOut"/> — and it does not push
+/// CODE into a component the way the script
 /// transmitters do: they internalise a value in a parameter, which is what a wire delivering the
 /// same data would leave behind. That is one mechanism, so it lives in one place: which objects can
 /// receive at all, which input a drop on a component means, and the write itself.</para>

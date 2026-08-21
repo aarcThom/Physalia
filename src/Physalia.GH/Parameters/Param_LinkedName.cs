@@ -11,9 +11,9 @@ namespace Physalia.GH.Parameters;
 /// A generic parameter whose nickname is shared with a parameter somewhere else, and which reports an
 /// edit so the other end can follow.
 ///
-/// <para>Used for the two ends of a harness inlet: a Receiver's output inside the harness and the
-/// input it grows on the proxy outside are ONE name, editable from either side. Whichever the user
-/// types into carries the change to the other.</para>
+/// <para>Used for the two ends of a harness port. A Harness In's output and the input it grows on
+/// the proxy are ONE name, editable from either side. A Harness Out's input names the grip the proxy
+/// paints for it, which has no editor of its own, so that pair travels outward only.</para>
 ///
 /// <para>Overriding the property is the only way to see that happen. Grasshopper's own
 /// <c>NickName</c> setter (declared on <c>GH_InstanceDescription</c>) raises no event at all — its

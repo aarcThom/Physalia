@@ -24,7 +24,7 @@ namespace Physalia.GH.Components;
 /// call that kind of component in a message (<see cref="TargetKind"/>), and what pushing means. That
 /// is the seam the Python, IronPython and C# transmitters differ across. A transmitter that is NOT
 /// signal-driven composes the same <see cref="TransmitterLink"/> directly instead — see
-/// <see cref="TextTransmitter"/>.</para>
+/// <see cref="HarnessOut"/>.</para>
 /// </summary>
 public abstract class ScriptTransmitterBase : TransmitterComponentBase, IGuidLinked
 {

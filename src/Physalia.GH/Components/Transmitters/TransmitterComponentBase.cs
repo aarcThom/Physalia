@@ -26,7 +26,7 @@ namespace Physalia.GH.Components;
 /// itself — is left to the subclass. Those that push into an EXISTING component on the canvas share
 /// a second tier, <see cref="ScriptTransmitterBase"/>.</para>
 ///
-/// <para>Not every transmitter belongs here. <see cref="TextTransmitter"/> is driven by ordinary
+/// <para>Not every transmitter belongs here. <see cref="HarnessOut"/> is driven by ordinary
 /// dataflow rather than by signals — one input, one output, no routing — so it implements
 /// <see cref="IHarnessOutlet"/> directly and composes a <see cref="TransmitterLink"/> for the linked
 /// target. The outlet is the contract; this class is only the common case.</para>

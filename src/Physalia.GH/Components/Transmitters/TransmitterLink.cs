@@ -20,7 +20,7 @@ namespace Physalia.GH.Components;
 ///
 /// <para>Composed rather than inherited, because the two kinds of transmitter that need it sit on
 /// different bases: <see cref="ScriptTransmitterBase"/> is a routing component driven by signals,
-/// while <see cref="TextTransmitter"/> is a plain passthrough with no signal lifecycle at all. This
+/// while <see cref="HarnessOut"/> is a plain passthrough with no signal lifecycle at all. This
 /// is the one implementation of "how a transmitter is linked", and every gesture goes through it.</para>
 /// </summary>
 internal sealed class TransmitterLink

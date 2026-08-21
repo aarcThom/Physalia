@@ -1,6 +1,6 @@
 ---
 name: resources-tab-image-gatherer
-description: "Resources GH tab + Image Gatherer component (2026-06-12) — ImageResource goo, path-only persistence, and the Eto/WPF GridView edit-commit gotcha that cost two crashes"
+description: "Resources GH tab + the Image Sources component (2026-06-12, then named Image Gatherer) — ImageResource goo, path-only persistence, and the Eto/WPF GridView edit-commit gotcha that cost two crashes"
 metadata: 
   node_type: memory
   type: project
@@ -8,11 +8,11 @@ metadata:
   modified: 2026-07-26T05:04:02.591Z
 ---
 
-New **"Resources"** GH tab (created simply by passing `"Resources"` as the PhyBase `subCategory`). First component: **Image Gatherer** (`Components/Resources/ImageGatherer.cs`) — no inputs, single list output of a `GH_ImageSource` goo. Right-click → **Manage Images** opens `ManageImagesDialog` (Eto panel) with a GridView (path / editable alias / preview / red-✕ remove) + Add Image / Paste buttons.
+New **"Resources"** GH tab (created simply by passing `"Resources"` as the PhyBase `subCategory`). First component: **Image Sources** — renamed from "Image Gatherer", and it now lives on the Grounding ribbon at `Components/Grounding/ImageSources.cs` (verified 2026-08-21) — no inputs, single list output of a `GH_ImageSource` goo. Right-click → **Manage Images** opens `ManageImagesDialog` (Eto panel) with a GridView (path / editable alias / preview / red-✕ remove) + Add Image / Paste buttons.
 
 - **Alias carried as real data**, not just a display string: Core record `ImageResource(string Alias, ImageSource Source)` in `Physalia.Core/ConvoInstruct/ImageResource.cs`. Goo `GH_ImageSource : PhyGoo<GH_ImageSource, ImageResource>` (TypeName "Image Source"); param `Param_ImageSource`. Images become `InlineImage(bytes, mime)`.
 - **Persistence = file paths + aliases only** (component-level `Write`/`Read`; bytes re-read from disk on load via `File.ReadAllBytes`). Clipboard-pasted images have `FilePath = null` → NOT persisted; missing files on reopen → deferred warning surfaced in the next `SolveInstance`. Goo `Write`/`Read` are no-ops (component owns persistence).
-- MIME map + unique-alias helpers are `internal static` on `ImageGatherer`, reused by the dialog. Alias uniqueness validated case-insensitively on cell-edit commit (revert + MessageBox on blank/dup).
+- MIME map + unique-alias helpers are `internal static` on the component, reused by the dialog. Alias uniqueness validated case-insensitively on cell-edit commit (revert + MessageBox on blank/dup).
 
 **Eto/WPF GridView edit-commit gotcha (cost two crashes to find).** Rhino-Windows Eto is `Eto.Wpf`, so `GridView` wraps a WPF `DataGrid`:
 1. Doing grid work synchronously inside the `CellEdited` handler re-enters the grid mid-commit and crashes — defer via `Application.Instance.AsyncInvoke`.

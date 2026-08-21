@@ -14,7 +14,8 @@ using Physalia.GH.Generation;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Takes LLM-generated C# (validated against CSharpComponent.json, arriving as the consumed
+/// Takes LLM-generated C# (validated against <c>SYSTEM_PROMPTS/SCHEMA/C# Script.json</c>, arriving
+/// as the consumed
 /// signal's payload) and pushes its code, inputs, and outputs into a linked Rhino 8 C# Script
 /// component, then reads back the target's compile and runtime errors. On a clean run it routes the
 /// linked component's GUID forward on the Success Signal (so a downstream Runtime Health Check or

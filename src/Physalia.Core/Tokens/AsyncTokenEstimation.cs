@@ -71,7 +71,7 @@ public static class AsyncTokenEstimation
     /// <c>POST /tokenize</c> endpoint. Serialises the full conversation to a single
     /// string before sending — exact for the loaded model, regardless of vocabulary.
     /// Accepts any OpenAI-compatible config; only <see cref="OpenAIProtocolConfig.BaseUrl"/>
-    /// and <see cref="OpenAIProtocolConfig.ApiKey"/> are used.
+    /// and <see cref="Models.ModelConfig.ApiKey"/> are used.
     /// </summary>
     /// <param name="instructions">The instructions to measure.</param>
     /// <param name="config">Any OpenAI-compatible provider configuration.</param>

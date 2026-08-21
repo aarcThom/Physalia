@@ -190,6 +190,10 @@ internal static partial class GhJsonBridge
     /// <param name="authoredJson">The authored full-graph GhJSON document (not a ghpatch).</param>
     /// <param name="placedGuids">The instanceGuids the transmitter reported placing this turn.</param>
     /// <param name="doc">The live document; null falls back to the active canvas.</param>
+    /// <param name="harness">
+    /// The harness whose pipeline is reporting, and whose group scopes the frame the returned base
+    /// checksum is taken in. Null for a pipeline standing on the canvas outside any harness.
+    /// </param>
     /// <returns>The fidelity report.</returns>
     internal static FidelityReport VerifyPlacementFidelity(
         string authoredJson,

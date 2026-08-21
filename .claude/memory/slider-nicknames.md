@@ -9,7 +9,14 @@ metadata:
 
 Made LLM-generated Number Sliders (and other input sources) get meaningful canvas nicknames instead of the default "Number Slider" label (2026-06-30). Builds clean, 135 Core tests green. **Live Rhino test pending.**
 
-Two model-facing schemas drive canvas building: **PhySchema** (`SCHEMA/PhySchema.json` + `(Minified)` — the `Node Graph` preamble; LLM emits it, `SchemaTranslator` → `GhJsonBridge.SerializePhySchema` → GhJSON → place) and **GhJSON** (`SCHEMA/GhJSONSchema.json` — full-GhJSON mode, placed directly). Both were missing slider-naming guidance; PhySchema was also missing the `nickName` field entirely (its component object is `additionalProperties:false`, so the LLM literally couldn't emit one).
+> **STALE BELOW (the PhySchema half).** The whole PhySchema path — `SCHEMA/PhySchema.json`, its
+> minified twin, `Generation/PhySchema.cs`, `SerializePhySchema` and the `SchemaTranslator`
+> component — was deleted (`d053d6f`, `8300690`). The model emits GhJSON directly now, and the
+> schemas live in `SYSTEM_PROMPTS/SCHEMA/` as `Node Graph.json` / `Incremental Node Graph.json` /
+> `Python3 Script.json` / `C# Script.json`. Only the GhJSON and placement-preserve notes below still
+> apply; the slider-naming RULE survived into `Node Graph.json`.
+
+At the time, two model-facing schemas drove canvas building: **PhySchema** (`SCHEMA/PhySchema.json` + `(Minified)` — the `Node Graph` preamble; LLM emits it, `SchemaTranslator` → `GhJsonBridge.SerializePhySchema` → GhJSON → place) and **GhJSON** (`SCHEMA/GhJSONSchema.json` — full-GhJSON mode, placed directly). Both were missing slider-naming guidance; PhySchema was also missing the `nickName` field entirely (its component object is `additionalProperties:false`, so the LLM literally couldn't emit one).
 
 Changes:
 - **PhySchema.json + minified:** added a `nickName` component property + a rule ("give every Number Slider a nickName naming what it controls") + nicknamed the example sliders.

@@ -69,7 +69,7 @@ public abstract class StatefulComponentBase : PhyBase
     }
 
     /// <summary>
-    /// Lifecycle state of a component, shown on the canvas via <see cref="GH_DocumentObject.Message"/>.
+    /// Lifecycle state of a component, shown on the canvas as the component's <c>Message</c> caption.
     /// </summary>
     protected enum SolveState
     {

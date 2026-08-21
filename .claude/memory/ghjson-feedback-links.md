@@ -25,5 +25,5 @@ Solution (all in `Generation/GhJsonBridge.cs`):
 
 ## Gotchas
 - `JsonException` is ambiguous in `GhJsonBridge.cs` (both `System.Text.Json` and `Newtonsoft.Json` are imported) — fully-qualify as `Newtonsoft.Json.JsonException`.
-- `SerializePhySchema` (LLM-authored/CompTx authoring) was left unchanged; the import-side restore would still pick up the extension if such files ever carry it.
+- `SerializePhySchema` (LLM-authored/CompTx authoring) was left unchanged — and has since been deleted with the rest of the PhySchema path (`8300690`); the import-side restore would still pick up the extension if such files ever carry it.
 - Builds clean (`dotnet build src/Physalia.GH -p:BuildUI=false`, 0 errors). Live in-Rhino round-trip test still pending (place Feedback+2 collectors, link, serialize with comment, deserialize to clean canvas, confirm CollectorGuids.Count==2 and wireless forwarding works).

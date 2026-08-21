@@ -15,7 +15,8 @@ using Physalia.GH.Generation;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Takes LLM-generated Python (validated against PythonComponent.json, arriving as the
+/// Takes LLM-generated Python (validated against <c>SYSTEM_PROMPTS/SCHEMA/Python3 Script.json</c>,
+/// arriving as the
 /// consumed signal's payload) and pushes its code, inputs, and outputs into a linked GH
 /// Python Script component, then reads back the target's runtime errors. On clean
 /// execution it routes the linked Python component's GUID forward on the Success Signal

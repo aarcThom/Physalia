@@ -4,6 +4,15 @@
     <TargetFramework>net7.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Doc generation is on so the COMPILER validates the doc comments, not to ship the .xml.
+         Without it every <see cref="..."/>, <param>, and <paramref> is unchecked text: a cref to a
+         renamed member, a param tag for a parameter that no longer exists, or a paramref on a type
+         (which has no parameters at all) all pass silently. A sweep in 2026-08 found 16 such
+         defects that had accumulated invisibly. CS1591 stays suppressed because StyleCop's SA1600
+         already enforces that members ARE documented — this is here to check that what they SAY
+         still resolves. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

@@ -45,7 +45,8 @@ public class ScriptIO : PhyBase, IGuidLinked
 
     // The target's own objects (the script component and each of its parameters) that currently
     // carry an ObjectChanged handler. Renaming a parameter never reaches a SolutionEnd, so this is
-    // the only way the rename is seen at all — see WatchTarget.
+    // the only way a rename is seen at all — and only a name-box rename raises the event; see the
+    // KNOWN GAP in WatchTarget.
     private readonly List<IGH_DocumentObject> _watchedTargetObjects = new();
 
     // Session-only diagnostic, off by default (see the right-click menu). Never serialized.
@@ -142,6 +143,12 @@ public class ScriptIO : PhyBase, IGuidLinked
     /// For outputs, the types the canvas downstream already demands (see
     /// <see cref="GhPythonBridge.GetOutputRecipientTypes"/>). Null for inputs, which have no
     /// downstream side.
+    /// </param>
+    /// <param name="incoming">
+    /// For inputs, the live data already arriving on each connected input (see
+    /// <see cref="GhPythonBridge.GetInputIncoming"/>), so the grounding can state the mismatch when
+    /// the declared access disagrees with what actually turns up. Null for outputs, which have no
+    /// incoming side.
     /// </param>
     /// <returns>The locked-interface ports, in interface order.</returns>
     public static IReadOnlyList<ScriptInterfacePort> ToPorts(
@@ -416,7 +423,8 @@ public class ScriptIO : PhyBase, IGuidLinked
 
     /// <summary>
     /// Puts an <c>ObjectChanged</c> handler on the target script component and every one of its
-    /// parameters, so a RENAME is noticed. A solution watch cannot see one.
+    /// parameters, so a RENAME through the right-click name box is noticed. A solution watch cannot
+    /// see one.
     ///
     /// <para>Grasshopper expires along the data graph, and a parameter's recipients are downstream
     /// of it. Renaming an INPUT therefore expires the component (the input's recipient IS the
@@ -425,6 +433,17 @@ public class ScriptIO : PhyBase, IGuidLinked
     /// alone — so an unwired output rename expires nothing, runs no solution, and raises no
     /// SolutionEnd anywhere. It is a real change to the contract all the same: on a script
     /// component the parameter name IS the variable name.</para>
+    ///
+    /// <para>KNOWN GAP, and the reason this says "the name box" rather than "a rename":
+    /// <c>GH_InstanceDescription.NickName</c>'s setter is a bare field assignment that raises
+    /// nothing (read off the shipped assembly's IL). The only members that raise
+    /// <c>ObjectChanged(NickName)</c> are the right-click name-box handlers, so an F2 or
+    /// properties-panel rename of an unwired output reaches no handler here and runs no solution
+    /// anywhere — the locked interface then reports the old variable name until something else
+    /// re-solves this component. Overriding the setter is the hook that cannot be missed (see
+    /// <see cref="Parameters.Param_LinkedName"/>), but it is not available here: these parameters
+    /// belong to the user's script component, not to Physalia, so there is no type of ours to
+    /// override. Closing the gap properly needs a different mechanism than a subscription.</para>
     ///
     /// <para>Re-synced rather than subscribed once, since the parameter set itself changes. Adding
     /// or removing a parameter DOES expire the component, so a solution runs and brings us back

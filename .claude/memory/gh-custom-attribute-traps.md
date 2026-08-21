@@ -8,7 +8,7 @@ metadata:
   modified: 2026-08-21T08:43:41.509Z
 ---
 
-Four things about Grasshopper that are not written down anywhere and each cost a wrong fix. All
+Six things about Grasshopper that are not written down anywhere and each cost a wrong fix. All
 verified by reading the IL of the shipped `Grasshopper.dll` (method see [[inspecting-rhino-assemblies]]),
 not inferred. Learned building [[harness-io]]; they apply to any custom attribute in this repo.
 
@@ -24,7 +24,11 @@ two-way and cut the recursion with an equality guard; a derived-only name (one e
 live) silently reverts what the user typed at the other end.
 
 **⚠ [[script-io-grounder]]'s rename watch is built on `ObjectChanged` alone and has never been run
-live.** By this evidence it only fires for the name box. Likely latent bug, untouched so far.
+live.** By this evidence it only fires for the name box, so an F2 rename of an UNWIRED output goes
+unnoticed and the locked interface reports the old variable name. Documented as a KNOWN GAP in
+`ScriptIO.WatchTarget` 2026-08-21; still unfixed, and the override-the-setter hook is NOT available
+there — those params belong to the user's script component, so there is no type of ours to override.
+Closing it needs a different mechanism than a subscription.
 
 **2. `ExpireLayout()` is not a promise that `Layout()` will run.** `PerformLayout` is called from
 about a dozen places in the whole assembly and **the paint loop is not one of them** — layout is
@@ -46,7 +50,17 @@ no wire is painted. Every non-Objects channel must fall through to `base.Render`
 The symptom is diagnostic in general: painting and delivery are unrelated concerns, so "the data
 arrives but nothing is drawn" is always a render path, never a solver one.
 
-**5. Do not floor your capsule width on GH's `bounds.Width` if you add content of your own.** GH's
+**5. Overriding `Layout()` costs you every param grip.** An attribute that fully overrides `Layout()`
+without calling the base gets NO automatic grip placement or drawing: each parameter needs its
+`Attributes.Pivot` AND `Bounds` set by hand, plus its own `DrawWireGrip` call, or it is invisible and
+unwireable. Note the pairing — `GH_Capsule.AddOutputGrip(y)` is visual only, so a grip that looks
+right can still be dead to the mouse until the param's bounds agree with it. Also widen the pick
+region on whichever edges carry grips, or a grip drawn past the capsule edge cannot be clicked. Found
+on the old `PrompterAttrib` (since deleted) and still true of every hand-laid-out attribute in the
+repo — `HarnessAttrib` does exactly this for its inlet rows. Same family as trap 4:
+[[prompter-image-references]] carried the original note.
+
+**6. Do not floor your capsule width on GH's `bounds.Width` if you add content of your own.** GH's
 layout already reserves an icon region between the input and output columns. Reserve another and take
 the larger, and the node ends up wider than anything in it, with all the slack falling on whichever
 side your content is not centred against. Size the capsule from its parts instead —

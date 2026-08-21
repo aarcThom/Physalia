@@ -144,7 +144,7 @@ public abstract class CompactionComponentBase : RoutingComponentBase<Instruction
     /// <param name="source">The instructions that arrived, forwarded unchanged.</param>
     /// <param name="reason">Why compaction did not run.</param>
     /// <param name="level">The level for the runtime message.</param>
-    /// <returns>A success <see cref="RoutingResult"/> carrying the uncompacted Instructions.</returns>
+    /// <returns>A success <see cref="RoutingComponentBase{TData}.RoutingResult"/> carrying the uncompacted Instructions.</returns>
     private static RoutingResult PassThrough(Instructions source, string reason, GH_RuntimeMessageLevel level)
     {
         int count = source.Conversation.Count;
@@ -161,7 +161,7 @@ public abstract class CompactionComponentBase : RoutingComponentBase<Instruction
     /// </summary>
     /// <param name="source">The source instructions, for the preserved system prompt.</param>
     /// <param name="result">The compaction result.</param>
-    /// <returns>A success <see cref="RoutingResult"/> carrying the compacted Instructions.</returns>
+    /// <returns>A success <see cref="RoutingComponentBase{TData}.RoutingResult"/> carrying the compacted Instructions.</returns>
     private static RoutingResult Succeed(Instructions source, CompactionResult result)
     {
         string trace = $"Compacted {result.OriginalMessageCount} → {result.RetainedMessageCount} messages";

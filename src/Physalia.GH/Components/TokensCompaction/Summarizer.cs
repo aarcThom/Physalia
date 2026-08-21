@@ -166,7 +166,7 @@ public class Summarizer : RoutingComponentBase<Instructions>
     /// </summary>
     /// <param name="source">The instructions that arrived, forwarded unchanged.</param>
     /// <param name="reason">Why summarization did not run.</param>
-    /// <returns>A success <see cref="RoutingResult"/> carrying the unsummarized Instructions.</returns>
+    /// <returns>A success <see cref="RoutingComponentBase{TData}.RoutingResult"/> carrying the unsummarized Instructions.</returns>
     private static RoutingResult PassThrough(Instructions source, string reason)
     {
         int count = source.Conversation.Count;

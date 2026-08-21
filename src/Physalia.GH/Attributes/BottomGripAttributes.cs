@@ -104,7 +104,7 @@ public abstract class BottomGripAttributes : PhyComponentAttributes
     ///
     /// <para>The seam exists because the grip, the wire origin
     /// (<see cref="BottomCentre"/>) and the pick region all derive from the capsule rect: adjusting
-    /// <see cref="Bounds"/> after the fact would leave those three disagreeing with what is drawn.
+    /// <see cref="IGH_Attributes.Bounds"/> after the fact would leave those three disagreeing with what is drawn.
     /// The base implementation changes nothing.</para>
     /// </summary>
     /// <param name="bounds">The capsule rect Grasshopper computed.</param>

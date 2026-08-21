@@ -35,7 +35,7 @@ namespace Physalia.GH.Attributes;
 /// <para>Down the LEFT edge it grows one ordinary Grasshopper input per Harness In inside — its inlets
 /// (see <see cref="IHarnessInlet"/>). Those are real parameters, so Grasshopper lays them out itself;
 /// this class only has to draw them, because the capsule here is composed by hand and never reaches
-/// <see cref="GH_ComponentAttributes"/>'s own render. It also has to TRANSLATE them: Grasshopper sizes
+/// <see cref="Grasshopper.Kernel.Attributes.GH_ComponentAttributes"/>'s own render. It also has to TRANSLATE them: Grasshopper sizes
 /// the capsule from the parameters and this class then grows it for the outlets and the emoji row, so
 /// the rows are re-centred on the grown capsule rather than left clinging to the top of it.</para>
 /// </summary>
@@ -387,7 +387,9 @@ public class HarnessAttrib : BottomGripAttributes
     /// <inheritdoc/>
     /// <remarks>
     /// Composed by hand rather than through the base render: the harness draws a bespoke capsule,
-    /// so it cannot fall through to <see cref="GH_ComponentAttributes"/>'s.
+    /// so it cannot fall through to <see cref="Grasshopper.Kernel.Attributes.GH_ComponentAttributes"/>'s.
+    /// Every OTHER channel must still fall through, or Grasshopper never draws the wires arriving at
+    /// the inlets.
     /// </remarks>
     protected override void Render(GH_Canvas canvas, Graphics graphics, GH_CanvasChannel channel)
     {

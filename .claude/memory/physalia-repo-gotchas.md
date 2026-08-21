@@ -24,8 +24,10 @@ references, and the "Receiver" concept is retired — the harness inlet is **Har
 `Files/SKILLS` was listed in CLAUDE.md and in the old v0.2 plan but **never existed on disk** — the
 `.skill` LLM-Call-roles idea is still only a plan in `planning/physalia-primitives.md`. What remains
 is SYSTEM_PROMPTS/{PREAMBLE,SCHEMA}, CLUSTERS, PRESETS/{Physalia,User,Community},
-MEMORIES/{GLOBAL,LOCAL}, and `agent_guides` (the one exception: reference prose for the
-SchemaTranslator input, not read by code). The chat UI bundle does NOT ride this copy: as of 2026-06-29 it is embedded directly
+MEMORIES/{GLOBAL,LOCAL} — and nothing else. `agent_guides` went the same way on second look: the
+PhySchema spec it held documented the input of a **SchemaTranslator component deleted in `d053d6f`**
+("drop Prompter/PythonShortcut/SchemaTranslator"), and `PhySchema.json` + `Generation/PhySchema.cs`
+went in `8300690`. The whole PhySchema path is gone from the code. The chat UI bundle does NOT ride this copy: as of 2026-06-29 it is embedded directly
 into the `Physalia.GH` assembly (see chat-UI section below), so there is no `Files/UI/` folder.
 There is also NO `src/Physalia.GH/Files` folder; it was a committed duplicate, removed from git
 2026-06-23 (commits `1e2b7e8` + `32ab1be`). The old "empty-diff EOL noise on
@@ -39,6 +41,19 @@ There is also NO `src/Physalia.GH/Files` folder; it was a committed duplicate, r
   `Condition="'$(TargetFramework)' != ''"` so it only runs in the inner per-TFM build (where
   `$(TargetDir)` correctly points at bin). Diagnose empty TargetDir with
   `dotnet msbuild <proj> -getProperty:TargetDir` (returns "" on a `TargetFrameworks` project).
+
+**Doc comments are compiler-validated (`GenerateDocumentationFile`, added 2026-08-21).** All three
+projects set it, with `CS1591` suppressed because StyleCop's SA1600 already enforces that members
+are documented. The point is not the `.xml` output — it is that without the flag every
+`<see cref>`, `<param>` and `<paramref>` is unchecked prose. It had never been on, and switching it
+on surfaced 16 silent defects in one pass: crefs to renamed or unimported members, `<param>` tags
+for parameters that no longer existed, a `<paramref>` on a class (which has no parameters), and
+unqualified crefs to a nested type on a generic base. Two traps worth knowing: a record's
+base-passed primary-constructor parameter is NOT a property of the derived record (cref
+`ModelConfig.ApiKey`, never `OpenAIProtocolConfig.ApiKey`), and a cref only resolves if the type's
+namespace is imported in that file — several pointed at Grasshopper types the file never imported.
+**When filtering build output for doc warnings, match `warning CS1[45678]` AND `CS0419`
+(ambiguous cref) — a narrower pattern misses the CS173x family and CS0419 entirely.**
 
 **Rhino holding the `.gha` fails the BUILD, not the COMPILE (seen 2026-08-11).** With Rhino 8 (or
 VS) running with the plug-in loaded, `dotnet build` ends in

@@ -16,7 +16,7 @@ namespace Physalia.GH.Parameters;
 /// is data: what the canvas computed arrives inside the harness on the same paths it left on.</para>
 ///
 /// <para>It exists as its own type for one reason: <see cref="InletId"/>. The proxy's inputs are
-/// derived from the harness's contents and are rebuilt as Receivers come and go, so each one has to
+/// derived from the harness's contents and are rebuilt as Harness In nodes come and go, so each one has to
 /// remember WHICH Harness In it belongs to — through a save and reload, and across a reorder. Binding
 /// by position instead would hand one node's data to another as soon as the nodes inside were
 /// moved; rebuilding a parameter that already exists would drop the wire feeding it.</para>

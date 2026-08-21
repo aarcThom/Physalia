@@ -449,7 +449,8 @@ public static class GhPythonBridge
     /// without removing or re-registering any parameter.
     /// <para>This exists because the GH Python Script component auto-declares its parameters
     /// item-access whenever it has no compiled instance, which is the case on the first push of
-    /// every freshly generated script — silently overriding the access set by <see cref="SetOutputs"/>.
+    /// every freshly generated script — silently overriding the access set by
+    /// <see cref="SetOutputs(IGH_DocumentObject, IEnumerable{GhParamSpec})"/>.
     /// Restructuring the parameter set (as <c>UpdateOutputParameters</c> does) re-invalidates the
     /// instance and re-triggers that clobber, but an in-place access change after the component has
     /// solved once leaves the instance intact, so the engine honours the explicit access. Call this

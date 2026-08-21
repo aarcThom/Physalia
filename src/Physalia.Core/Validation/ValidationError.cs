@@ -4,11 +4,6 @@
 namespace Physalia.Core.Validation;
 
 /// <summary>
-/// A single schema constraint violation.
-/// </summary>
-/// <param name="Path">JSON Pointer path to the violating node (e.g. <c>/components/0/id</c>).</param>
-/// <param name="Message">Human-readable description of the violation.</param>
-/// <summary>
 /// What kind of defect a violation describes. Only the distinctions the pipeline acts on are
 /// modelled — everything else is <see cref="Other"/>.
 /// </summary>
@@ -27,7 +22,10 @@ public enum SchemaViolationKind
     DisallowedProperty,
 }
 
-/// <param name="Path">JSON Pointer to the offending location in the instance.</param>
+/// <summary>
+/// A single schema constraint violation.
+/// </summary>
+/// <param name="Path">JSON Pointer to the offending location in the instance (e.g. <c>/components/0/id</c>).</param>
 /// <param name="Message">Human-readable description of the defect.</param>
 public record SchemaViolation(string Path, string Message)
 {

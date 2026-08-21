@@ -286,8 +286,12 @@ public static class JsonExtractor
     /// <param name="raw">Raw LLM output string.</param>
     /// <param name="start">Index of the opening brace or bracket.</param>
     /// <param name="end">Receives the index of the matching closer.</param>
-    /// <param name="ranOffEnd">Receives true when the input ended while the structure was still open — a truncated document rather than a mismatched one.</param>
-    /// <returns>True when the opener closes with matching nesting; false on mismatch or end of input.</returns>
+    /// <returns>
+    /// <see cref="ScanOutcome.Balanced"/> when the opener closes with matching nesting,
+    /// <see cref="ScanOutcome.RanOffEnd"/> when the input ended while the structure was still open
+    /// (a truncated document rather than a mismatched one), or <see cref="ScanOutcome.Mismatched"/>
+    /// when a closer arrives that does not pair with the innermost opener.
+    /// </returns>
     private static ScanOutcome ScanBalanced(string raw, int start, out int end)
     {
         end = -1;

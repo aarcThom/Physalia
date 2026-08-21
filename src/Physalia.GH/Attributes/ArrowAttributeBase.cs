@@ -108,11 +108,11 @@ public abstract class ArrowAttributeBase : BottomGripAttributes, IArrowHost
 
     /// <summary>
     /// Decides whether a left-button press starts a drag, and starts it if so. The default begins a
-    /// drag only when the press lands on the grip itself (<see cref="GripHitRegion"/>), carrying the
+    /// drag only when the press lands on the grip itself (<see cref="BottomGripAttributes.GripHitRegion"/>), carrying the
     /// Ctrl (disconnect) intent. Override to add alternative hit zones (e.g. grabbing an existing
     /// arrow tip).
     ///
-    /// <para>Deliberately NOT <see cref="GripBounds"/>, which is the whole node: testing that made
+    /// <para>Deliberately NOT <see cref="BottomGripAttributes.GripBounds"/>, which is the whole node: testing that made
     /// every press anywhere on the component pull out a wire, so the component could not be dragged
     /// around the canvas at all.</para>
     /// </summary>

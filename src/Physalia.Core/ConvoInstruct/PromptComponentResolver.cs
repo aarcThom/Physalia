@@ -15,7 +15,7 @@ namespace Physalia.Core.ConvoInstruct;
 /// component) against the grounded component catalog, so by submit time it names a real component; this
 /// normalizes it so the model reaches for that exact component. The <c>&lt;tab&gt;</c> segment is
 /// navigational only — it is skipped here; resolution matches the component name (case-insensitive,
-/// longest-first) against <paramref name="componentNames"/>. A token that does not resolve is left as
+/// longest-first) against the component names the caller supplies. A token that does not resolve is left as
 /// literal text.
 ///
 /// <para>Only the exact marker "/c/" triggers this — "/cl/" (clusters) and "/t/" (tools) are matched

@@ -81,9 +81,8 @@ public class HarnessNotes : PhyBase
     /// Opens a multi-line prompt on the notes text and stores what comes back.
     ///
     /// <para>A dialog rather than an in-place editor: an editable text box on the canvas is a
-    /// WinForms surface with its own focus and lifetime problems (the reason the old Prompter panel was
-    /// awkward on Mac), and notes are written once and read often. Shows a dialog, so it must run on
-    /// the UI thread.</para>
+    /// WinForms surface with its own focus and lifetime problems — awkward on Mac especially — and
+    /// notes are written once and read often. Shows a dialog, so it must run on the UI thread.</para>
     /// </summary>
     public void EditNotes()
     {

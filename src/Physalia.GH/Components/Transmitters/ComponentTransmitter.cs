@@ -101,7 +101,7 @@ public class ComponentTransmitter : TransmitterComponentBase
 
     /// <summary>
     /// Stores the placement-target arrow tip, dropped anywhere on the host canvas, as an offset
-    /// from <see cref="ArrowAnchor"/> so it travels with the node the arrow hangs off.
+    /// from <see cref="TransmitterComponentBase.ArrowAnchor"/> so it travels with the node the arrow hangs off.
     /// </summary>
     /// <param name="canvasPoint">The drop point in host-canvas coordinates.</param>
     public void SetPlacementTarget(PointF canvasPoint)

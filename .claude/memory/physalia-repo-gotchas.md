@@ -8,21 +8,24 @@ metadata:
   modified: 2026-08-12T05:45:19.596Z
 ---
 
-CLAUDE.md has stale paths:
-- The solution file is `src/Physalia.slnx`, not repo-root `Physalia.slnx` — build with
-  `dotnet build src/Physalia.slnx`.
-- `docs/physalia-primitives.md` and `docs/ghjson-implementation.md` actually live in
-  `planning/` (`planning/physalia-primitives.md`).
-
-**Why:** following CLAUDE.md verbatim fails (MSB1009) or misses the doc.
-**How to apply:** use the `src/` and `planning/` paths; consider fixing CLAUDE.md when touching it.
+The solution file is `src/Physalia.slnx`, not repo-root — build with
+`dotnet build src/Physalia.slnx`. The planning docs live in `planning/`, not `docs/`. (CLAUDE.md
+used to give both wrong and has since been corrected; kept here because the wrong guesses are the
+natural ones.)
 
 **Files-folder build pipeline (single source of truth = repo-root `Physalia\Files`):**
 `Physalia.GH.csproj`'s `CopyLibraryFiles` target (`AfterTargets=Build`) includes
 `$(MSBuildProjectDirectory)\..\..\Files\**\*` (= repo-root `Files`) and copies it into
 `$(TargetDir)Files` (= `bin/<Config>/<TFM>/Files`). `Files` is for USER-ALTERABLE content only
-(presets, system prompts, schemas, API-key config) — it deliberately holds NO compiled plugin
-components. The chat UI bundle does NOT ride this copy: as of 2026-06-29 it is embedded directly
+(presets, system prompts, clusters, memories, API-key config) — it deliberately holds NO compiled
+plugin components, and **every folder in it is read by code**. Audited 2026-08-21: `Files/PROMPTS`
+and `Files/RECEIVERS` were deleted (empty `.gitkeep`-only leftovers from the first commit, zero code
+references, and the "Receiver" concept is retired — the harness inlet is **Harness In**);
+`Files/SKILLS` was listed in CLAUDE.md and in the old v0.2 plan but **never existed on disk** — the
+`.skill` LLM-Call-roles idea is still only a plan in `planning/physalia-primitives.md`. What remains
+is SYSTEM_PROMPTS/{PREAMBLE,SCHEMA}, CLUSTERS, PRESETS/{Physalia,User,Community},
+MEMORIES/{GLOBAL,LOCAL}, and `agent_guides` (the one exception: reference prose for the
+SchemaTranslator input, not read by code). The chat UI bundle does NOT ride this copy: as of 2026-06-29 it is embedded directly
 into the `Physalia.GH` assembly (see chat-UI section below), so there is no `Files/UI/` folder.
 There is also NO `src/Physalia.GH/Files` folder; it was a committed duplicate, removed from git
 2026-06-23 (commits `1e2b7e8` + `32ab1be`). The old "empty-diff EOL noise on
@@ -36,7 +39,6 @@ There is also NO `src/Physalia.GH/Files` folder; it was a committed duplicate, r
   `Condition="'$(TargetFramework)' != ''"` so it only runs in the inner per-TFM build (where
   `$(TargetDir)` correctly points at bin). Diagnose empty TargetDir with
   `dotnet msbuild <proj> -getProperty:TargetDir` (returns "" on a `TargetFrameworks` project).
-  Related: [[trigger-state-machine-status]].
 
 **Rhino holding the `.gha` fails the BUILD, not the COMPILE (seen 2026-08-11).** With Rhino 8 (or
 VS) running with the plug-in loaded, `dotnet build` ends in

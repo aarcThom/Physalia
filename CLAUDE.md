@@ -413,16 +413,14 @@ Other: `Colour`
         data-marshalling.md      ← signals + lifecycle (authoritative)
         physalia-primitives.md   ← component spec
         api_research.md
-    /Files
+    /Files                       ← user-alterable runtime content ONLY; every folder here is read by code
         API_KEY_CONFIG.YAML (+ .example)
-        /SKILLS           ← .skill files (LLM Call instructions)
-        /SYSTEM_PROMPTS
-        /PROMPTS
-        /RECEIVERS        ← .receiver files
+        /SYSTEM_PROMPTS   ← /PREAMBLE + /SCHEMA, resolved by name from the System Prompt component
+        /CLUSTERS         ← .ghcluster files + clusters.json manifest (Cluster Grounding)
         /PRESETS          ← preset harnesses (.gh — a saved harness sub-document)
             /Physalia     ← shipped with the plug-in
             /User         ← written by "Save Harness as Preset…"
             /Community    ← reserved, not populated yet
         /MEMORIES         ← memory tool: /GLOBAL and /LOCAL/<document-key>
-        /agent_guides
+        /agent_guides     ← PhySchema spec for the SchemaTranslator input (reference, not read by code)
 ```

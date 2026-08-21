@@ -138,7 +138,7 @@
 	  <EmbeddedResource Include="Resources\emoji\*.png" />
 	</ItemGroup>
 
-	<!-- Copy the Files folder (skills, schemas, clusters, receivers, API keys) to the output directory.
+	<!-- Copy the Files folder (system prompts, clusters, presets, memories, API keys) to the output directory.
 	     UpToDateCheckBuilt (with Original=) pairs each copied output back to its source so the VS
 	     fast up-to-date check rebuilds when a Files entry changes — without this, editing a schema
 	     while the C# is unchanged leaves a stale copy in the output.

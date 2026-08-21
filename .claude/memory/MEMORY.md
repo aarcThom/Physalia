@@ -45,11 +45,8 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 
 ## Architecture & Lifecycle
 - [v2 Core architecture](v2-core-architecture.md) — full Core decisions locked 2026-05-03. Specs: `planning/physalia-primitives.md`, `planning/api_research.md`.
-- [v2 planned architecture](v2-architecture.md) — the older v0.2 pipeline-decomposition plan the above superseded; historical context only.
-- [Signal lifecycle summary](signal-lifecycle-summary.md) — what the rework DELETED + the multimodal ContentBlocks extension. Authoritative: `planning/data-marshalling.md`.
+- [Signal lifecycle summary](signal-lifecycle-summary.md) — what the 2026-06 rework DELETED (never reintroduce), the one-schedule-timer root cause, the locked decisions, and the multimodal ContentBlocks extension. Authoritative: `planning/data-marshalling.md`.
 - [Signal carrier discipline](signal-carrier-discipline.md) — PhySignal carries exactly Payload + ContentBlocks + Instructions; never add carrier fields (god-object guard).
-- [Trigger state machine status](trigger-state-machine-status.md) — marshalling history + the locked decisions not to relitigate.
-- [Routing trigger system](routing-trigger-system.md) — pre-PhySignal routing/trigger design, kept only as a non-repo leftover; superseded, don't build on it.
 - [Conversation compaction](conversation-compaction.md) — window/prune/summarize in `Core/Compaction/`; Instructions ride the signal, inline `Conversation Log → Compactor → LLM Call`.
 - [Component reorg 2026-07](component-reorg-2026-07.md) — ribbon sections + folders; GH_Exposure forces intra-tab order (tab order itself is alphabetical).
 - [Plain-spoken rename](component-rename-plainspoken.md) — Chatbox→Chat, Composer→System Prompt, Reasoner→LLM Call, Recorder→Conversation Log (GUIDs pinned).

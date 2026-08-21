@@ -28,4 +28,4 @@ Flow: `Prompter → Conversation Log → [Compactor] → LLM Call`; response bac
 
 Report `planning/conversation-compaction.md` (full research + impl). Deferred: server-side Anthropic compact/clear_tool_uses passthrough, layered pipeline, disk offload, dedup, external memory/RAG. Skipped: importance-scoring eviction.
 
-Related: [[v2-architecture]], signal lifecycle (`planning/data-marshalling.md`).
+Related: [[v2-core-architecture]], signal lifecycle (`planning/data-marshalling.md`).

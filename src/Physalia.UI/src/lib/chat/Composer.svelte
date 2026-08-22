@@ -12,6 +12,7 @@
 	// tokens are composer-only scaffolding, stripped before send (images travel as real image blocks).
 	import { onMount, tick } from 'svelte';
 	import XIcon from '@lucide/svelte/icons/x';
+	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import BoxIcon from '@lucide/svelte/icons/box';
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
@@ -42,6 +43,10 @@
 		/** True when a View Snapshot human tool is wired in attach mode — its own image lane
 		 *  (addViewSnapshot), independent of both the Add Image tool and the geometry snapshot's lane. */
 		viewSnapshotAttachWired?: boolean;
+		/** True when an Image Mark Up human tool is wired — each attached image grows an edit button on
+		 *  its thumbnail, which asks the app to open it in the image editor. Grants no image lane of its
+		 *  own: it can only mark up an image some other tool already let in. */
+		markUpToolWired?: boolean;
 		/** Names of clusters the model may use, for the "/cl/" reference autocomplete. */
 		clusterNames?: string[];
 		/** Names of tools currently in use, for the "/t/" reference autocomplete. */
@@ -51,6 +56,10 @@
 		onsend: (message: SubmitMessage) => void;
 		/** Called with the pasted API key when in apiKeyProvider mode. */
 		onsavekey?: (providerId: string, key: string) => void;
+		/** The edit button on an attached image's thumbnail: asks the app to open that image in the
+		 *  image editor. The app hands the result back through replaceImage, keyed by the same id — the
+		 *  strip can be edited while the editor is open in principle, so position would not survive. */
+		onedit?: (image: { id: number; base64: string; mediaType: string }) => void;
 	}
 
 	let {
@@ -62,11 +71,13 @@
 		imageToolWired = false,
 		snapshotAttachWired = false,
 		viewSnapshotAttachWired = false,
+		markUpToolWired = false,
 		clusterNames = [],
 		toolNames = [],
 		componentTabs = [],
 		onsend,
-		onsavekey
+		onsavekey,
+		onedit
 	}: Props = $props();
 
 	interface PendingImage {
@@ -689,6 +700,19 @@
 		dropImagesAt(new Set([index]));
 	}
 
+	// Swap a pending image's bytes for the marked-up version the image editor produced. Keyed by id,
+	// not position, and the [image#N] tokens are untouched: this is the same attachment, redrawn — the
+	// lane that admitted it (and so the tool that can revoke it) does not change either. The editor
+	// always flattens to PNG, so the media type follows.
+	export function replaceImage(id: number, base64: string) {
+		if (!base64) {
+			return;
+		}
+		pending = pending.map((image) =>
+			image.id === id ? { ...image, base64, mediaType: 'image/png' } : image
+		);
+	}
+
 	// Drops the pending images at the given positions, deleting their [image#N] tokens and renumbering
 	// the survivors so the tokens stay 1..N. Returns early on an empty set — which also keeps `text`
 	// out of the calling effect's dependencies, so typing does not re-run the stale-attachment scan.
@@ -832,6 +856,19 @@
 				>
 					<XIcon class="size-3" />
 				</button>
+				{#if markUpToolWired}
+					<!-- The Image Mark Up tool's only mark on the composer: draw on this before it goes. Sits
+					     opposite the remove button so the two are never mistaken for each other. -->
+					<button
+						type="button"
+						onclick={() =>
+							onedit?.({ id: image.id, base64: image.base64, mediaType: image.mediaType })}
+						title="Draw on this image"
+						class="neu-btn text-muted-foreground hover:text-foreground absolute -bottom-1.5 -left-1.5 flex size-4 items-center justify-center rounded-full"
+					>
+						<PencilIcon class="size-2.5" />
+					</button>
+				{/if}
 			</div>
 		{/each}
 	</div>

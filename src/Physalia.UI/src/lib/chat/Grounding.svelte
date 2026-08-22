@@ -31,6 +31,7 @@
 	import CodeIcon from '@lucide/svelte/icons/code';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import ActivityIcon from '@lucide/svelte/icons/activity';
+	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import HappyFace from '$lib/chat/HappyFace.svelte';
 	import type {
 		ClusterInfo,
@@ -96,6 +97,8 @@
 		exportToolWired: boolean;
 		/** True when a Signal Trace human tool is wired (shows its row in the Human Tools section). */
 		signalTraceToolWired: boolean;
+		/** True when an Image Mark Up human tool is wired (shows its row in the Human Tools section). */
+		markUpToolWired: boolean;
 		/** Applies a new component selection (host action). all=true returns to include-everything. */
 		onapply: (payload: GroundingSelectionPayload) => void;
 		/** Toggles typed component signatures in the grounded system prompt (host action). */
@@ -145,6 +148,7 @@
 		imageToolWired,
 		exportToolWired,
 		signalTraceToolWired,
+		markUpToolWired,
 		onapply,
 		onapplysignatures,
 		onapplyclusters,
@@ -522,7 +526,7 @@
 			     this window (snapshot buttons, image attachments), never folded into the prompt or
 			     advertised to the model. Each appears only while its component is wired into the
 			     Conversation Log's Human Tools input. -->
-			{#if snapshotWired || viewSnapshotWired || imageToolWired || exportToolWired || signalTraceToolWired}
+			{#if snapshotWired || viewSnapshotWired || imageToolWired || exportToolWired || signalTraceToolWired || markUpToolWired}
 				<div class="border-muted-foreground/20 mt-5 border-t pt-4">
 					<h3 class="text-sm font-semibold">Human Tools</h3>
 					<p class="text-muted-foreground mt-1 text-xs">
@@ -585,6 +589,18 @@
 								<DownloadIcon class="text-muted-foreground size-4 shrink-0" />
 								<span class="flex-1">Export conversation</span>
 								<span class="text-muted-foreground text-xs">Enabled</span>
+							</div>
+						{/if}
+						{#if markUpToolWired}
+							<!-- Read-only: the editor itself holds every control. Worth stating WHERE it appears,
+							     since unlike the others this tool adds no button of its own. -->
+							<div
+								class="neu-raised-sm flex items-center gap-2 rounded-md px-3 py-2.5 text-sm"
+								title="Snapshots open in the image editor before they are sent, and attached images grow an edit button on their thumbnail"
+							>
+								<PencilIcon class="text-muted-foreground size-4 shrink-0" />
+								<span class="flex-1">Image mark-up</span>
+								<span class="text-muted-foreground text-xs">Snapshots &amp; attachments</span>
 							</div>
 						{/if}
 						{#if signalTraceToolWired}

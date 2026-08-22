@@ -62,6 +62,13 @@ public class ChatWindow : Form
     // InstanceGuids and harness keys are either a guid or empty.
     private const string HomeId = "home";
 
+    // The two snapshot kinds a submit payload can declare, marking a capture that went out to the
+    // image editor in send mode and came back marked up. Shared with the page (bridge.ts), which
+    // receives the kind on markUpSnapshot and hands the same string back on the way in.
+    private const string SnapshotKindGeometry = "geometry-snapshot";
+    private const string SnapshotKindView = "view-snapshot";
+
+
     private static readonly JsonSerializerOptions WriteOpts =
         new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -407,6 +414,13 @@ public class ChatWindow : Form
                 // snapshot and hand it to the prompt box as an attachment instead of sending it.
                 HandleAttachSnapshot();
                 break;
+            case "marksnapshot":
+                // The geometry button in send mode with an Image Mark Up tool wired: capture the
+                // snapshot and hand it to the window's image editor rather than sending it. What
+                // comes back (or nothing, if the human cancels) arrives as a marked-snapshot submit.
+                HandleMarkSnapshot(geometry: true);
+                break;
+
             case "setviewsnapshotmessage":
                 HandleSetViewSnapshotMessage(uri);
                 break;
@@ -423,6 +437,12 @@ public class ChatWindow : Form
                 // hand it to the prompt box as an attachment instead of sending it.
                 HandleAttachViewSnapshot();
                 break;
+            case "markviewsnapshot":
+                // The view button in send mode with an Image Mark Up tool wired — the view twin of
+                // marksnapshot: capture, then hand it to the image editor instead of sending it.
+                HandleMarkSnapshot(geometry: false);
+                break;
+
             case "exportconversation":
                 // The export button (an Export Conversation human tool is wired): write the viewed
                 // conversation to a plain-text transcript.
@@ -498,6 +518,29 @@ public class ChatWindow : Form
         PushAttachment("attachViewSnapshot", png);
     }
 
+    // Captures a snapshot and hands it to the page's image editor instead of sending it — the send-mode
+    // path taken when an Image Mark Up tool is wired. Nothing is minted here: the human draws on the
+    // capture and the marked-up image comes back as a submit payload carrying its snapshot kind (see
+    // SubmitJsonPayload), or does not come back at all when they cancel. `geometry` picks which
+    // snapshot tool's capture to take; each capture helper already refuses when its tool is unwired.
+    private void HandleMarkSnapshot(bool geometry)
+    {
+        byte[]? png;
+        bool captured = geometry
+            ? _component.TryCaptureGeneratedGeometryPng(out png)
+            : _component.TryCaptureViewPng(out png);
+        if (!captured || png is null)
+        {
+            return;
+        }
+
+
+        string json = JsonSerializer.Serialize(
+            new UiImage(Convert.ToBase64String(png), "image/png"), WriteOpts);
+        string kind = geometry ? SnapshotKindGeometry : SnapshotKindView;
+        Exec($"window.physalia&&window.physalia.markUpSnapshot&&window.physalia.markUpSnapshot({json},'{kind}');");
+    }
+
     // Hands a captured PNG to the page through the named host hook, which drops it into the composer's
     // pending attachments on the lane belonging to the tool that captured it.
     private void PushAttachment(string hook, byte[] png)
@@ -506,6 +549,7 @@ public class ChatWindow : Form
             new UiImage(Convert.ToBase64String(png), "image/png"), WriteOpts);
         Exec($"window.physalia&&window.physalia.{hook}&&window.physalia.{hook}({json});");
     }
+
 
     // Cancels the active inference on the wired pipeline's LLM Call(s). Fired by the chat window's
     // cancel button, which the UI enables only while the pipeline is busy. Runs on the UI thread.
@@ -976,7 +1020,7 @@ public class ChatWindow : Form
     }
 #endif
 
-    // Parses a {text, images[]} JSON payload (from the postMessage channel, or the pull
+    // Parses a {text, images[], kind} JSON payload (from the postMessage channel, or the pull
     // fallback) into interleaved content blocks (text first, then images) and submits it.
     private void SubmitJsonPayload(string raw)
     {
@@ -985,6 +1029,15 @@ public class ChatWindow : Form
         {
             return;
         }
+
+        // A marked-up snapshot returning from the image editor in send mode: not a prompt at all, so
+        // it takes its own path — the wired tool's message rides it, not anything the page typed.
+        if (message.Kind is SnapshotKindGeometry or SnapshotKindView)
+        {
+            SubmitMarkedSnapshot(message);
+            return;
+        }
+
 
         string msgText = NormalizeRefs(message.Text ?? string.Empty);
         IReadOnlyList<SubmitImage> images = message.Images ?? (IReadOnlyList<SubmitImage>)Array.Empty<SubmitImage>();
@@ -1030,6 +1083,40 @@ public class ChatWindow : Form
         }
 
         _component.SubmitFromWindow(msgText, blocks);
+    }
+
+    // Sends a snapshot that came back from the image editor with the human's mark-up flattened into
+    // it, as its own user message carrying the wired tool's message — the send-mode tail of the
+    // geometry/view button when an Image Mark Up tool is wired (HandleMarkSnapshot is its head).
+    //
+    // The grant is checked here as well as at capture time, for the same reason the prompt path
+    // re-checks its images: the wire can change between the capture and the confirm, and no image may
+    // reach the model without the tool that admitted it still being wired. Exactly one image is
+    // expected — a snapshot is one capture — so anything else is a payload we did not send.
+    private void SubmitMarkedSnapshot(SubmitMessage message)
+    {
+        ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(_component, 0);
+        if (conversationLog?.HasImageMarkUpTool != true)
+        {
+            return;
+        }
+
+        if (message.Images is not { Count: 1 } images || string.IsNullOrEmpty(images[0].Base64))
+        {
+            return;
+        }
+
+        byte[] png;
+        try
+        {
+            png = Convert.FromBase64String(images[0].Base64);
+        }
+        catch
+        {
+            return;
+        }
+
+        _component.SendMarkedSnapshotFromWindow(png, message.Kind == SnapshotKindGeometry);
     }
 
     // Saves the viewed conversation as a plain-text transcript — the raw material for a bug
@@ -1417,12 +1504,19 @@ public class ChatWindow : Form
         bool exportToolWired = conversationLog?.HasExportTool == true;
         bool signalTraceToolWired = conversationLog?.HasSignalTraceTool == true;
 
+        // Another marker tool, but this one changes what the two snapshot buttons do rather than adding
+        // one of its own: with it wired, every capture detours through the window's image editor, and
+        // each image already in the prompt box grows an edit button.
+        bool markUpToolWired = conversationLog?.HasImageMarkUpTool == true;
+
+
         // Cheap proxy for availableComponents in the signature (serializing the full list every tick
         // would churn); the tree/selection already trigger a push, this just catches a catalog resize.
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired }, WriteOpts);
+
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
             || needsSetup != _lastNeedsSetup || status != _lastStatus || configuredJson != _lastConfigured
@@ -1441,7 +1535,8 @@ public class ChatWindow : Form
             // would answer a question the user did not ask.
             bool home = _home;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, home, status, configuredProviders, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired }, WriteOpts);
+                new { connected, busy, ready, needsSetup, home, status, configuredProviders, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired }, WriteOpts);
+
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
 
@@ -2479,7 +2574,12 @@ public class ChatWindow : Form
 
     private sealed record SubmitImage(string Base64, string MediaType, string Filename);
 
-    private sealed record SubmitMessage(string Text, List<SubmitImage>? Images);
+    // An outgoing message from the page. Kind is absent (or "prompt") for a typed prompt; the two
+    // snapshot kinds mark a capture that went out to the image editor in send mode and came back
+    // marked up — it carries no text, because the message that speaks for it is read from the wired
+    // tool host-side (see SubmitJsonPayload).
+    private sealed record SubmitMessage(string Text, List<SubmitImage>? Images, string? Kind);
+
 
     // Grounding selection pushed from the window: all=true clears to include-everything; otherwise
     // leaves is a list of [category, subCategory] pairs to include.

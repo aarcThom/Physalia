@@ -143,7 +143,17 @@ export interface UiState {
 	/** True when a Signal Trace human tool is wired into the Conversation Log — shows the header's
 	 *  trace button, which opens the session's signal-trace window. */
 	signalTraceToolWired: boolean;
+	/** True when an Image Mark Up human tool is wired into the Conversation Log. Unlike the other
+	 *  marker tools this adds no button of its own: it puts the image editor in front of every image
+	 *  the human sends — a snapshot capture detours through it instead of going straight out, and each
+	 *  image in the prompt box grows an edit button on its thumbnail. */
+	markUpToolWired: boolean;
 }
+
+/** Which snapshot tool a capture came from. Sent to the page with a send-mode capture bound for the
+ *  image editor, and handed straight back on the submit payload so the host knows whose message the
+ *  marked-up image rides — the page never carries that text itself. */
+export type SnapshotKind = 'geometry-snapshot' | 'view-snapshot';
 
 /** One tab (category) and its panels (sub-categories) in the grounding selector. */
 export interface GroundingCategory {
@@ -287,6 +297,11 @@ export interface PhysaliaHost {
 	 *  switched off). Its own lane, granted by its own tool: it lands in the composer's attachment strip
 	 *  like a pasted image and leaves on the user's own turn. */
 	attachViewSnapshot(image: UiImage): void;
+	/** A capture from a snapshot tool in SEND mode with an Image Mark Up tool wired: it opens in the
+	 *  image editor instead of being sent. Confirming sends it (marked up) under its `kind`; cancelling
+	 *  abandons it — in send mode there is no plain attachment to fall back to, so there is nothing to
+	 *  keep. */
+	markUpSnapshot(image: UiImage, kind: SnapshotKind): void;
 }
 
 /** Strips a `data:<mime>;base64,` prefix, returning the raw base64 payload. The
@@ -309,6 +324,9 @@ export interface SubmitImage {
 export interface SubmitMessage {
 	text: string;
 	images: SubmitImage[];
+	/** Absent for a typed prompt. A snapshot kind marks a send-mode capture coming back from the image
+	 *  editor: the host reads the message that rides it off the wired tool, so `text` stays empty. */
+	kind?: SnapshotKind;
 }
 
 declare global {

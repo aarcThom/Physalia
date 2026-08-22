@@ -93,3 +93,24 @@ public sealed record ExportConversationTool : HumanTool;
 /// nothing to configure here.
 /// </summary>
 public sealed record SignalTraceTool : HumanTool;
+
+/// <summary>
+/// Enables the chat window's image editor: a mark-up surface — freehand pen, text notes, arrows,
+/// an eraser for the mark-up alone — laid over an image before it leaves for the model. Every
+/// image the human can send passes through it while this tool is wired:
+/// <list type="bullet">
+/// <item><description>
+/// A capture from any snapshot tool (<see cref="GeometrySnapshotTool"/>, <see cref="ViewSnapshotTool"/>,
+/// and any future one) opens in the editor rather than going straight out. In attach mode, cancelling
+/// still attaches the plain capture — only the mark-up is discarded. In send-with-default-message mode
+/// there is nothing to fall back to, so cancelling abandons the capture entirely.
+/// </description></item>
+/// <item><description>
+/// An image already in the prompt box (pasted, dropped, or picked, so an <see cref="AddImageTool"/>
+/// is wired too) grows an edit button on its thumbnail, which reopens it in the editor.
+/// </description></item>
+/// </list>
+/// A marker record: the mark-up is flattened into the image the human sends, so nothing about it
+/// survives to configure. Without this tool wired, images travel exactly as captured.
+/// </summary>
+public sealed record ImageMarkUpTool : HumanTool;

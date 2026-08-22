@@ -108,6 +108,7 @@ public class ConversationLog : StatefulComponentBase
     private bool _hasAddImageTool;
     private bool _hasExportTool;
     private bool _hasSignalTraceTool;
+    private bool _hasImageMarkUpTool;
 
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
@@ -318,6 +319,13 @@ public class ConversationLog : StatefulComponentBase
     /// can show the button that opens the signal-trace window).
     /// </summary>
     public bool HasSignalTraceTool => _hasSignalTraceTool;
+
+    /// <summary>
+    /// Gets a value indicating whether an Image Mark Up human tool is currently wired (so the chat UI
+    /// opens every snapshot capture in its image editor, and puts an edit button on each attached
+    /// image's thumbnail).
+    /// </summary>
+    public bool HasImageMarkUpTool => _hasImageMarkUpTool;
 
     /// <summary>
     /// Gets a value indicating whether the wired Geometry Snapshot tool sends its snapshot
@@ -996,6 +1004,7 @@ public class ConversationLog : StatefulComponentBase
         // window's header (a transcript export, a door onto the session's signal trace).
         _hasExportTool = tools.OfType<ExportConversationTool>().Any();
         _hasSignalTraceTool = tools.OfType<SignalTraceTool>().Any();
+        _hasImageMarkUpTool = tools.OfType<ImageMarkUpTool>().Any();
     }
 
     // The tools advertised to the model. No narrowing happens here any more: each tool node carries

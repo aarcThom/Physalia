@@ -254,6 +254,45 @@ public class Chat : StatefulComponentBase
     }
 
     /// <summary>
+    /// Sends an already-captured snapshot as its own user message — the tail of the send-mode
+    /// geometry/view button when an Image Mark Up tool is wired, so the capture went out to the chat
+    /// window's image editor and came back with the human's mark-up flattened into it. The turn is
+    /// identical to the one the un-edited path mints: the wired tool's message plus the image.
+    /// <para>
+    /// The message is re-read from the wired tool here rather than echoed back by the page — the page
+    /// is handed an image to draw on, never the text that will speak for it. Quietly does nothing when
+    /// that tool has since been unwired.
+    /// </para>
+    /// </summary>
+    /// <param name="png">The marked-up PNG bytes returned by the chat window's image editor.</param>
+    /// <param name="geometry">True for the Geometry Snapshot tool's capture, false for the View Snapshot tool's.</param>
+    public void SendMarkedSnapshotFromWindow(byte[] png, bool geometry)
+    {
+        if (png is null || png.Length == 0)
+        {
+            return;
+        }
+
+        Rhino.RhinoApp.InvokeOnUiThread(new Action(() =>
+        {
+            ConversationLog? conversationLog = PromptPipelineView.FindConversationLog(this, 0);
+            if (conversationLog is null || !conversationLog.HasImageMarkUpTool)
+            {
+                return;
+            }
+
+            if (geometry ? !conversationLog.HasGeometrySnapshotTool : !conversationLog.HasViewSnapshotTool)
+            {
+                return;
+            }
+
+            LatchSnapshotTurn(
+                geometry ? conversationLog.GeometrySnapshotMessage : conversationLog.ViewSnapshotMessage,
+                png);
+        }));
+    }
+
+    /// <summary>
     /// Captures a viewport snapshot of the transmitter-generated geometry and hands back the PNG
     /// bytes without minting anything — the attach half of the geometry button, used when the wired
     /// Geometry Snapshot tool has "Send With Default Message" unchecked. The image is pushed into the

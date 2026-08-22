@@ -10,6 +10,7 @@
 	import AssistantTurnGroup from '$lib/chat/AssistantTurnGroup.svelte';
 	import FeedbackTurn from '$lib/chat/FeedbackTurn.svelte';
 	import Composer from '$lib/chat/Composer.svelte';
+	import ImageEditor from '$lib/chat/ImageEditor.svelte';
 	import Setup from '$lib/chat/Setup.svelte';
 	import Preset from '$lib/chat/Preset.svelte';
 	import Grounding from '$lib/chat/Grounding.svelte';
@@ -44,6 +45,8 @@
 		PythonFunctionInfo,
 		ReferencedGeometryInfo,
 		SetupResult,
+		SnapshotKind,
+		UiImage,
 		SnapshotMessagePayload,
 		SubmitMessage,
 		ToolsSelectionPayload,
@@ -126,6 +129,23 @@
 	let exportToolWired = $state(false);
 	let signalTraceToolWired = $state(false);
 
+	// The Image Mark Up tool adds no button of its own — it puts the image editor in front of every
+	// image the human sends. `markUp` is that editor's whole state: the image being drawn on plus where
+	// the result must go when it is confirmed. Null = the editor is closed.
+	let markUpToolWired = $state(false);
+	let markUp = $state<{
+		base64: string;
+		mediaType: string;
+		label: string;
+		/** Where the confirmed image goes. A capture on its way to the prompt box (`attach`) still lands
+		 *  there if the human cancels — only the mark-up is discarded. A capture in send mode (`send`) has
+		 *  no plain fallback, so cancelling abandons it. `pending` is an image already in the strip. */
+		target:
+			| { kind: 'pending'; id: number }
+			| { kind: 'attach'; lane: 'snapshot' | 'viewsnapshot' }
+			| { kind: 'send'; snapshot: SnapshotKind };
+	} | null>(null);
+
 	// The grounding button opens the panel whenever any grounding kind — or human tool — is wired.
 	let groundingAvailable = $derived(
 		groundingWired ||
@@ -138,7 +158,8 @@
 			viewSnapshotWired ||
 			imageToolWired ||
 			exportToolWired ||
-			signalTraceToolWired
+			signalTraceToolWired ||
+			markUpToolWired
 	);
 
 	// The cluster names currently exposed to the model (selection applied), for the "/c/" autocomplete.
@@ -231,6 +252,7 @@
 				imageToolWired = next.imageToolWired ?? false;
 				exportToolWired = next.exportToolWired ?? false;
 				signalTraceToolWired = next.signalTraceToolWired ?? false;
+				markUpToolWired = next.markUpToolWired ?? false;
 			},
 			setSetupResult: (result) => {
 				setupResult = result;
@@ -246,12 +268,26 @@
 			},
 			attachSnapshot: (image) => {
 				// Attach mode: the host captured a snapshot and hands it here instead of sending it —
-				// it joins the composer's attachment strip and rides the message the user types.
-				void composer?.addSnapshot(image?.base64 ?? '', image?.mediaType ?? 'image/png');
+				// it joins the composer's attachment strip and rides the message the user types. With an
+				// Image Mark Up tool wired it stops at the editor on the way.
+				attachCapture(image, 'snapshot', 'Geometry snapshot');
 			},
 			attachViewSnapshot: (image) => {
 				// The view button's attach mode — its own lane in the composer, same treatment.
-				void composer?.addViewSnapshot(image?.base64 ?? '', image?.mediaType ?? 'image/png');
+				attachCapture(image, 'viewsnapshot', 'View snapshot');
+			},
+			markUpSnapshot: (image, kind) => {
+				// A send-mode capture, held back for mark-up: nothing has been sent yet, and nothing will
+				// be unless the human confirms (see confirmMarkUp / cancelMarkUp).
+				if (!image?.base64) {
+					return;
+				}
+				markUp = {
+					base64: image.base64,
+					mediaType: image.mediaType ?? 'image/png',
+					label: kind === 'geometry-snapshot' ? 'Geometry snapshot' : 'View snapshot',
+					target: { kind: 'send', snapshot: kind }
+				};
 			}
 		};
 
@@ -294,6 +330,82 @@
 		// Fallback (non-WebView2, e.g. Mac WKWebView): stash + navigate; host pulls it back.
 		window.__physaliaPending = json;
 		window.location.href = `${BRIDGE_SCHEME}://submit?images=1`;
+	}
+
+	// A capture bound for the prompt box. With an Image Mark Up tool wired it opens in the editor
+	// first; otherwise it goes straight into the strip. `lane` is the composer lane the granting tool
+	// owns, so a capture is still revoked by its own tool after being drawn on.
+	function attachCapture(
+		image: UiImage | undefined,
+		lane: 'snapshot' | 'viewsnapshot',
+		label: string
+	) {
+		const base64 = image?.base64 ?? '';
+		const mediaType = image?.mediaType ?? 'image/png';
+		if (!base64) {
+			return;
+		}
+		if (markUpToolWired) {
+			markUp = { base64, mediaType, label, target: { kind: 'attach', lane } };
+			return;
+		}
+		putInStrip(base64, mediaType, lane);
+	}
+
+	// Hand an image to the composer on the lane its tool granted. The lane is not cosmetic: it decides
+	// which tool being unwired takes the attachment back down with it.
+	function putInStrip(base64: string, mediaType: string, lane: 'snapshot' | 'viewsnapshot') {
+		if (lane === 'snapshot') {
+			void composer?.addSnapshot(base64, mediaType);
+		} else {
+			void composer?.addViewSnapshot(base64, mediaType);
+		}
+	}
+
+	// Open the image editor on an image already in the prompt box (its thumbnail's edit button).
+	function editPendingImage(image: { id: number; base64: string; mediaType: string }) {
+		markUp = {
+			base64: image.base64,
+			mediaType: image.mediaType,
+			label: 'Attached image',
+			target: { kind: 'pending', id: image.id }
+		};
+	}
+
+	// Confirm: the mark-up is flattened into `base64` and the image goes where it was always going.
+	function confirmMarkUp(base64: string) {
+		const open = markUp;
+		markUp = null;
+		if (!open || !base64) {
+			return;
+		}
+		if (open.target.kind === 'pending') {
+			composer?.replaceImage(open.target.id, base64);
+			return;
+		}
+		if (open.target.kind === 'attach') {
+			putInStrip(base64, 'image/png', open.target.lane);
+			return;
+		}
+		// Send mode: this IS the send. The text is left empty deliberately — the message that speaks for
+		// the snapshot is read from the wired tool host-side, never carried by the page.
+		send({
+			text: '',
+			images: [{ base64, mediaType: 'image/png', filename: `${open.target.snapshot}.png` }],
+			kind: open.target.snapshot
+		});
+	}
+
+	// Cancel: the mark-up is discarded. What happens to the IMAGE depends on where it was headed — an
+	// attachment or an already-attached image survives untouched (cancel means "not this drawing", not
+	// "not this picture"), but a send-mode capture has no plain fallback to fall back to: it was never
+	// attached anywhere, so abandoning the mark-up abandons the capture.
+	function cancelMarkUp() {
+		const open = markUp;
+		markUp = null;
+		if (open?.target.kind === 'attach') {
+			putInStrip(open.base64, open.mediaType, open.target.lane);
+		}
 	}
 
 	// Ask the host to cancel the active inference on the wired pipeline's LLM Call. The composer's
@@ -395,6 +507,12 @@
 	// message carrying the predefined message, or attach it to the prompt box (the host pushes the
 	// image back through window.physalia.attachSnapshot) for the user to caption themselves.
 	function sendSnapshot() {
+		if (snapshotSendsMessage && markUpToolWired) {
+			// Mark-up first: the host captures and hands the image back rather than sending it, and it
+			// only leaves if the editor is confirmed.
+			window.location.href = `${BRIDGE_SCHEME}://marksnapshot`;
+			return;
+		}
 		window.location.href = snapshotSendsMessage
 			? `${BRIDGE_SCHEME}://sendsnapshot`
 			: `${BRIDGE_SCHEME}://attachsnapshot`;
@@ -417,6 +535,10 @@
 	// the geometry button — sent straight off with its predefined message, or pushed back through
 	// window.physalia.attachViewSnapshot for the user to caption.
 	function sendViewSnapshot() {
+		if (viewSnapshotSendsMessage && markUpToolWired) {
+			window.location.href = `${BRIDGE_SCHEME}://markviewsnapshot`;
+			return;
+		}
 		window.location.href = viewSnapshotSendsMessage
 			? `${BRIDGE_SCHEME}://sendviewsnapshot`
 			: `${BRIDGE_SCHEME}://attachviewsnapshot`;
@@ -473,11 +595,13 @@
 	}
 
 	// The composer instance, for the rail buttons that drive it from outside the box: the submit
-	// arrow calls its exported submit(), the Add Image human tool its exported openPicker(), and a
-	// host-captured snapshot in attach mode its exported addSnapshot() / addViewSnapshot().
+	// arrow calls its exported submit(), the Add Image human tool its exported openPicker(), a
+	// host-captured snapshot in attach mode its exported addSnapshot() / addViewSnapshot(), and the
+	// image editor its exported replaceImage() once a marked-up attachment comes back.
 	let composer = $state<{
 		submit: () => void;
 		openPicker: () => void;
+		replaceImage: (id: number, base64: string) => void;
 		addSnapshot: (base64: string, mediaType: string) => Promise<void>;
 		addViewSnapshot: (base64: string, mediaType: string) => Promise<void>;
 	} | null>(null);
@@ -710,6 +834,7 @@
 					{imageToolWired}
 					{exportToolWired}
 					{signalTraceToolWired}
+					{markUpToolWired}
 					onapply={setGrounding}
 					onapplysignatures={setSignatures}
 					onapplyclusters={setClusters}
@@ -821,11 +946,13 @@
 				{imageToolWired}
 				snapshotAttachWired={snapshotWired && !snapshotSendsMessage}
 			viewSnapshotAttachWired={viewSnapshotWired && !viewSnapshotSendsMessage}
+				{markUpToolWired}
 				clusterNames={includedClusterNames}
 				toolNames={includedToolNames}
 				componentTabs={availableComponents}
 				onsend={send}
 				onsavekey={saveKey}
+				onedit={editPendingImage}
 			/>
 		</div>
 
@@ -927,3 +1054,18 @@
 		</div>
 	{/if}
 </main>
+
+<!-- The image editor sits OUTSIDE <main>, above everything, and only while an image is actually being
+     marked up. Keyed on the image so re-opening the editor on a second picture starts a fresh mark-up
+     history rather than inheriting the last one's. -->
+{#if markUp}
+	{#key markUp.base64}
+		<ImageEditor
+			base64={markUp.base64}
+			mediaType={markUp.mediaType}
+			label={markUp.label}
+			onconfirm={confirmMarkUp}
+			oncancel={cancelMarkUp}
+		/>
+	{/key}
+{/if}

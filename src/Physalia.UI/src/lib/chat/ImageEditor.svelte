@@ -77,7 +77,12 @@
 	// The arrow tool's first click. The arrow previews from here to the cursor until the second click.
 	let arrowStart = $state<Point | null>(null);
 	let cursor = $state<Point | null>(null);
-	// An open text note: where it goes and what has been typed so far.
+	// An open text note: where it goes and what has been typed so far. It is drawn ON the canvas by the
+	// same code that draws a committed note, and typed through this component's own key handler — there
+	// is deliberately no <input> element. An overlaid input has to be focused to receive a keystroke, has
+	// to be positioned by offsetParent arithmetic, and is clipped by the frame's overflow-hidden; any one
+	// of those failing leaves a text tool that silently does nothing, which is what it did in Rhino's
+	// WebView. Drawing on the canvas cannot fail differently from the pen.
 	let typing = $state<{ at: Point; value: string } | null>(null);
 	// Whether the eraser gesture in progress has already taken its history snapshot. One gesture is one
 	// undo step, and a gesture that rubs out nothing takes none at all — an undo that visibly does
@@ -90,10 +95,10 @@
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let frameWidth = $state(0);
 	let frameHeight = $state(0);
-	let textInput = $state<HTMLInputElement | null>(null);
 
-	// Image pixels per CSS pixel on screen. 1 until the image and its frame are both measured, and
-	// never allowed to reach 0 — every stored size divides by it.
+	// How far the picture is scaled down to fit its frame — the canvas's DISPLAY size and nothing else.
+	// Mark sizes come from imagePerCss() instead, off the live rect. 1 until both are measured, and never
+	// allowed to reach 0.
 	let scale = $derived.by(() => {
 		if (!naturalWidth || !naturalHeight || !frameWidth || !frameHeight) {
 			return 1;
@@ -132,8 +137,22 @@
 				e.preventDefault();
 				return;
 			}
+			// An open note takes the keyboard: Enter places it, Backspace rubs out a character, and any
+			// single printable key (space included) appends. Every one is consumed, so nothing leaks
+			// through to the chat window behind. No IME composition and no caret movement — a mark-up
+			// note is a few words, not a document.
 			if (typing) {
-				return; // the note's own input handles its keys
+				if (e.key === 'Enter') {
+					commitTyping();
+					e.preventDefault();
+				} else if (e.key === 'Backspace') {
+					typing = { ...typing, value: typing.value.slice(0, -1) };
+					e.preventDefault();
+				} else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+					typing = { ...typing, value: typing.value + e.key };
+					e.preventDefault();
+				}
+				return;
 			}
 			const ctrl = e.ctrlKey || e.metaKey;
 			if (ctrl && e.key.toLowerCase() === 'z') {
@@ -190,6 +209,18 @@
 		const sx = rect.width ? naturalWidth / rect.width : 1;
 		const sy = rect.height ? naturalHeight / rect.height : 1;
 		return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
+	}
+
+	// Image pixels per CSS pixel, read from the canvas's LIVE rect — the same measurement `at()` maps
+	// pointers with. Every stored size goes through this rather than through `scale`, which is derived
+	// from a clientWidth binding and can lag a frame behind the rect during a resize: a mark whose width
+	// disagrees with the coordinates it was drawn at is a mark in the wrong place at the wrong size.
+	function imagePerCss(): number {
+		const rect = canvas?.getBoundingClientRect();
+		if (!rect || !rect.width || !naturalWidth) {
+			return 1;
+		}
+		return naturalWidth / rect.width;
 	}
 
 	function distanceToSegment(p: Point, a: Point, b: Point): number {
@@ -326,12 +357,33 @@
 			list.push({
 				kind: 'arrow',
 				colour,
-				width: PEN_WIDTH_CSS / scale,
+				width: PEN_WIDTH_CSS * imagePerCss(),
 				from: arrowStart,
 				to: cursor
 			});
 		}
+		// The note being typed, drawn exactly as it will be committed.
+		const pending: (Mark & { kind: 'text' }) | null = typing
+			? {
+					kind: 'text',
+					colour,
+					size: TEXT_SIZE_CSS * imagePerCss(),
+					text: typing.value,
+					at: typing.at
+				}
+			: null;
+		if (pending) {
+			list.push(pending);
+		}
 		paint(context, list);
+		// A caret, so an empty note still shows the human that the click landed and the keyboard is
+		// theirs. Drawn here rather than in paint(), which is also what the confirm flattens.
+		if (pending) {
+			context.fillStyle = pending.colour;
+			const x = pending.at.x + measureText(pending);
+			const bar = Math.max(1, pending.size * 0.08);
+			context.fillRect(x + bar, pending.at.y - pending.size * 0.8, bar, pending.size);
+		}
 	});
 
 	// ---- pointer -------------------------------------------------------------------------------
@@ -340,8 +392,11 @@
 		if (!image || e.button !== 0) {
 			return;
 		}
+		// Cancel the press's default action — the compatibility mouse events, and with them the native
+		// drag/select the OS would start on an image-bearing element. A drawing surface wants none of it.
+		e.preventDefault();
 		// An open note commits on the next click anywhere — the same gesture that would start the next
-		// mark. Doing it here (and not on blur alone) keeps a half-typed note from being lost.
+		// mark, so a note is never left hanging by carrying on drawing.
 		if (typing) {
 			commitTyping();
 			return;
@@ -350,7 +405,7 @@
 		capturePointer(e.pointerId);
 
 		if (tool === 'pen') {
-			drafting = { kind: 'stroke', colour, width: PEN_WIDTH_CSS / scale, points: [point] };
+			drafting = { kind: 'stroke', colour, width: PEN_WIDTH_CSS * imagePerCss(), points: [point] };
 			return;
 		}
 		if (tool === 'arrow') {
@@ -361,7 +416,7 @@
 				const arrow: Mark = {
 					kind: 'arrow',
 					colour,
-					width: PEN_WIDTH_CSS / scale,
+					width: PEN_WIDTH_CSS * imagePerCss(),
 					from: arrowStart,
 					to: point
 				};
@@ -371,9 +426,9 @@
 			return;
 		}
 		if (tool === 'text') {
+			// Nothing to focus and nothing to lay out: the note appears on the canvas (with a caret) and
+			// the keyboard handler above feeds it.
 			typing = { at: point, value: '' };
-			// The input is created by this state change, so focus has to wait for it to exist.
-			void Promise.resolve().then(() => textInput?.focus());
 			return;
 		}
 		erasedThisGesture = false;
@@ -418,7 +473,7 @@
 	}
 
 	function erase(point: Point) {
-		const radius = ERASER_RADIUS_CSS / scale;
+		const radius = ERASER_RADIUS_CSS * imagePerCss();
 		const kept = marks.filter((mark) => !hits(mark, point, radius));
 		if (kept.length === marks.length) {
 			return;
@@ -441,18 +496,8 @@
 		if (value) {
 			commit([
 				...marks,
-				{ kind: 'text', colour, size: TEXT_SIZE_CSS / scale, text: value, at: where }
+				{ kind: 'text', colour, size: TEXT_SIZE_CSS * imagePerCss(), text: value, at: where }
 			]);
-		}
-	}
-
-	function onTextKey(e: KeyboardEvent) {
-		if (e.key === 'Enter') {
-			commitTyping();
-			e.preventDefault();
-		} else if (e.key === 'Escape') {
-			typing = null;
-			e.preventDefault();
 		}
 	}
 
@@ -510,7 +555,9 @@
 			{#if tool === 'arrow'}
 				{arrowStart ? 'Click again to place the arrow head.' : 'Click where the arrow starts.'}
 			{:else if tool === 'text'}
-				Click where the note goes, type it, then press Enter.
+				{typing
+					? 'Type the note — Enter places it, Escape drops it.'
+					: 'Click where the note goes, then type.'}
 			{:else if tool === 'eraser'}
 				Drag over your marks to rub them out — the picture underneath stays.
 			{:else}
@@ -612,20 +659,6 @@
 				onpointercancel={onPointerUp}
 				class={`touch-none rounded-md ${tool === 'text' ? 'cursor-text' : 'cursor-crosshair'}`}
 			></canvas>
-
-			{#if typing && canvas}
-				<!-- The note is typed in a real input positioned over the click, at the on-screen size the
-				     committed text will have — so what is typed is what lands. -->
-				<input
-					bind:this={textInput}
-					bind:value={typing.value}
-					onkeydown={onTextKey}
-					onblur={commitTyping}
-					placeholder="note"
-					style={`left:${canvas.offsetLeft + typing.at.x * scale}px;top:${canvas.offsetTop + typing.at.y * scale - TEXT_SIZE_CSS}px;color:${colour};font-size:${TEXT_SIZE_CSS}px;font-family:${FONT_STACK}`}
-					class="absolute min-w-24 rounded border border-[var(--neu-accent)] bg-white/85 px-1 leading-tight outline-none"
-				/>
-			{/if}
 		</div>
 	</div>
 </div>

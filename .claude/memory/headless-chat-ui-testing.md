@@ -13,7 +13,8 @@ bundle is one self-contained `dist/index.html`, so stub `window.physalia` yourse
 No puppeteer/playwright on this box — Chrome's own flags are enough
 (`C:\Program Files\Google\Chrome\Application\chrome.exe`).
 
-Recipe (working script: scratchpad `build_preview.py` pattern):
+Recipe (working scripts: `tools/uitest/` — `build_preview.py` builds the stubbed page,
+`test_text_canvas.py` and `test_all_tools.py` drive it):
 1. Copy `dist/index.html`, and insert a `<script>` **before the LAST `</body>`**.
 2. In it: install an error collector, stub `window.chrome.webview.postMessage` to capture outgoing
    payloads instead of navigating, then call `window.physalia.setState({...})` / `setHistory([])` —
@@ -35,5 +36,25 @@ Recipe (working script: scratchpad `build_preview.py` pattern):
 
 Also: `.fixed.inset-0.z-50` is not a unique selector — streamdown ships a link-safety modal with the
 same classes. Select the editor by "the fixed overlay containing a canvas".
+
+**Synthetic events are not enough, and trusting them cost a false pass.** `dispatchEvent(new
+PointerEvent(...))` runs no DEFAULT ACTION, so it can neither reproduce nor disprove anything about
+focus, selection or the compatibility mouse events — the image editor's text tool passed that harness
+and was broken in Rhino. For anything input-shaped, inject **trusted** events over CDP instead:
+`tools/uitest/cdp.py` (in the repo, with a README and the two driver scripts) is a ~120-line client
+(hand-rolled WebSocket frames — no websocket library on this box) exposing `launch()`, `js()`, `click()`, `drag()`, `type_keys()`, `key()`, `screenshot()` against
+`chrome --headless=new --remote-debugging-port=9333`, reading the target from
+`http://127.0.0.1:9333/json`. `Input.dispatchKeyEvent` needs `text` on the keyDown to insert a
+character; `Input.insertText` bypasses the keyboard entirely and hides key-handler bugs.
+
+**Assert on pixels, not on elements, whenever the feature draws.** `getImageData` on the live canvas
+and count the mark-up colour: a caret appearing, a count growing as you type and shrinking on
+backspace, an eraser drag zeroing one region while another survives. That harness is indifferent to
+HOW the feature is built, so it survived the text tool being rewritten from an `<input>` to canvas
+drawing — a DOM-shaped assertion would have had to be rewritten with it.
+
+**Run the control.** Build the PRE-fix bundle and drive it too. That is what showed the first fix was
+treating the wrong cause: the "broken" build passed in Chrome, which is how the failure was pinned as
+WebView-only rather than logic.
 
 Used to verify [[image-mark-up-tool]]. Complements [[core-console-harness]] (same idea for Core).

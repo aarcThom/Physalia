@@ -30,6 +30,19 @@ page (`markUpSnapshot`) minting NOTHING, and a confirm comes back as a submit pa
 attach mode / an already-attached image → the plain image survives, only the mark-up is discarded;
 send mode → there is no plain attachment to fall back to, so cancelling abandons the capture.
 
+**The text tool has no `<input>`, and that is the fix, not an optimisation** (2026-08-21, reported
+from Rhino: "the text tool does not work" — no box appeared at all). An overlaid input has to be
+FOCUSED to receive a keystroke, positioned by `offsetParent` arithmetic, and kept clear of the frame's
+`overflow-hidden`; any one of those failing in an embedded WebView leaves a tool that silently does
+nothing. A note is now typed through the editor's own window keydown handler and drawn ON the canvas
+with a caret, by the same path as a pen stroke — so it cannot fail differently from the pen. Cost:
+no IME composition and no caret movement inside a note, which a few words of mark-up does not need.
+
+Same fix, second lesson: **mark sizes are computed from the canvas's LIVE `getBoundingClientRect`**
+(`imagePerCss()`), the same measurement pointer positions are mapped with — not from the `clientWidth`
+binding, which can lag a frame during a resize and put a mark at the wrong size for the coordinates it
+was drawn at.
+
 **Editor design rules worth keeping:**
 - Marks are OBJECTS in the image's own pixel space, flattened only on confirm. That is what lets the
   eraser lift a mark off the picture underneath (object-level: one stroke/note/arrow is one mark),
@@ -39,10 +52,12 @@ send mode → there is no plain attachment to fall back to, so cancelling abando
 - One eraser gesture is one undo step, and a gesture that hits nothing takes none — an undo that
   visibly does nothing is worse than no undo.
 
-**Verified by driving the built bundle in headless Chrome** (no Rhino needed): stub `window.physalia`,
-open the editor on a synthetic capture, dispatch synthetic PointerEvents per tool, then read a
-`data-diag` attribute back via `--dump-dom`. All four tools draw, the confirm posts
-`kind:"geometry-snapshot"` with one PNG, and the overlay closes. See
-[[headless-chat-ui-testing]] for the harness and its two traps. **Not yet run in Rhino.**
+**Verified by driving the built bundle in headless Chrome** — but the FIRST harness gave a false pass
+on the text tool, because synthetic `dispatchEvent` events run no default actions and so can say
+nothing about focus. The harness now injects **trusted** input over CDP and asserts on canvas PIXELS
+(a caret appears on click, typing grows the red count, backspace shrinks it, an eraser drag removes
+the stroke and leaves the arrow and note). See [[headless-chat-ui-testing]]. Chrome passed the
+input-based version too, pre-fix — the failure was WebView-only, so **the input-free text tool is
+still unconfirmed in Rhino**, as is everything else here.
 
 Related: [[view-snapshot-human-tool]], [[human-tools-split]], [[settings-ownership]].

@@ -398,3 +398,22 @@ Does an owned, `Enabled = true` document run its own `ScheduleSolution` timer wh
 document? The entire signal lifecycle is scheduler-driven. If it does not, the fallback is small: route
 `StatefulComponentBase.ScheduleAt` (the single funnel) to `PhyDocuments.Host(this)` and have
 `HarnessComponent.SolveInstance` forward with `_inner.NewSolution(false)`.
+
+## A harness document arrives UNSOLVED — the proxy has to prime it (2026-08-21)
+
+A placed preset's human tools (image button, snapshot buttons, export, signal trace) and grounding
+pages were all switched OFF until the user stepped inside the harness. Nothing was broken in the
+pipeline: **nothing on the host canvas solves the sub-document.** `ExpireSolution` on the proxy runs
+the HOST's solution, and the harness is a separate document with its own solver — so the Conversation
+Log had never read its Human Tools / Grounding inputs, and the chat window read those flags off it.
+Entering the harness fixed it only because `OpenInCanvas` ends in `inner.NewSolution(false)`.
+
+Fix: `HarnessComponent.PrimeInner()`, called from the proxy's `SolveInstance` next to `ReviveInner()`,
+guarded by a `_primed` flag that `Adopt` resets. It schedules ONE solution on `_inner` (deferred, same
+reason `PushInlets` defers — a sub-document solution must not start inside the host's) whose delegate
+marks the contents expired. Because it hangs off `Adopt`, it covers **every** arrival path at once:
+preset placement, empty placement, `Read` (file open / paste), and `Replace` (Load Harness from .gh).
+
+Generalise: **anything a harness-resident component publishes for the UI is a solve behind until the
+sub-document has solved once.** The chat window's 0.15 s tick then notices and pushes, so the visible
+cost is one tick of stale state, not a visit.

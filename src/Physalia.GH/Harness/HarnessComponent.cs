@@ -76,6 +76,10 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
 
     private bool _syncHooked;
 
+    // False until the contents currently held have been given their first solution. Reset by Adopt,
+    // because a replacement arrives unsolved exactly as the original did.
+    private bool _primed;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="HarnessComponent"/> class.
     /// </summary>
@@ -680,6 +684,7 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
         // Deliberately sets no Message: the component count used to ride under the node as GH's black
         // message tag, which said little that mattered and cluttered the canvas.
         ReviveInner();
+        PrimeInner();
 
         PushInlets(DA);
 
@@ -1047,6 +1052,7 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
 
         document.Enabled = true;
         _inner = document;
+        _primed = false;
 
         // The inputs are derived from what is in here, and adopting raises no ObjectsAdded — the
         // objects were already in the document when it arrived.
@@ -1067,6 +1073,44 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
     {
         Attributes?.ExpireLayout();
         Instances.RedrawCanvas();
+    }
+
+    // Gives freshly adopted contents their FIRST solution, once, from the proxy's own solve.
+    //
+    // A harness document arrives UNSOLVED — built in memory by a placement, or read out of a preset
+    // archive — and nothing that happens on the host canvas solves it: expiring the proxy runs the
+    // HOST's solution, and the harness is a separate document with its own solver. Until it has run,
+    // every component in there is holding nothing, and the part of that the user actually sees is the
+    // chat window: the Conversation Log has not read its Human Tools or Grounding inputs yet, so a
+    // preset opens with its image button, snapshot buttons, export, signal trace and grounding pages
+    // all switched off. That used to come right only when the user stepped INSIDE the harness, since
+    // entering runs a solution (see OpenInCanvas) — the pipeline was fine all along, but everything it
+    // offers the human was a visit behind. This is that same solution, run when the harness is placed
+    // rather than when it is first visited; the chat window's own tick notices the new state and
+    // pushes it.
+    //
+    // Deferred for the same reason PushInlets defers, and the delegate marks the contents expired for
+    // the same reason it does there: GH flushes scheduled delegates at the start of the solution it is
+    // about to run, so expiring inside the callback is exactly enough to make that solution solve
+    // something. Objects fresh from an archive are already expired, so this is belt-and-braces for a
+    // document that arrived some other way.
+    private void PrimeInner()
+    {
+        if (_primed || _inner is null)
+        {
+            return;
+        }
+
+        _primed = true;
+
+        GH_Document inner = _inner;
+        inner.ScheduleSolution(1, _ =>
+        {
+            foreach (IGH_ActiveObject obj in inner.Objects.OfType<IGH_ActiveObject>())
+            {
+                obj.ExpireSolution(false);
+            }
+        });
     }
 
     // Re-asserts the inner document's enabled state unless it is the one currently on the canvas,

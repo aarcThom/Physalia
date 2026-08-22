@@ -20,7 +20,7 @@
 	const base =
 		'neu-raised inline-flex items-center rounded-md px-3 py-1.5 text-sm font-medium text-[#2f0857]';
 	const interactive =
-		'cursor-pointer transition active:[box-shadow:var(--neu-inset)]';
+		'cursor-pointer transition hover:bg-[var(--neu-hover)] active:[box-shadow:var(--neu-inset)]';
 </script>
 
 {#if onclick}

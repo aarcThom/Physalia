@@ -19,7 +19,7 @@
 
 <Collapsible.Root bind:open class="neu-raised not-prose my-3 w-full rounded-md">
 	<Collapsible.Trigger
-		class="hover:bg-black/5 flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm"
+		class="transition-colors hover:bg-[var(--neu-hover)] flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm"
 	>
 		<span class="text-muted-foreground flex items-center gap-2">
 			<BracesIcon class="size-4 shrink-0" />

@@ -900,7 +900,7 @@
 							box.active
 								? 'bg-[var(--neu-accent)]/15 shadow-[var(--neu-shadow-sm)]'
 								: box.hasHistory || box.home
-									? 'opacity-100 group-hover:bg-muted-foreground/10'
+									? 'opacity-100 group-hover:bg-[var(--neu-hover)]'
 									: 'opacity-40 group-hover:opacity-70'
 						)}
 					>

@@ -631,7 +631,7 @@
 
 		<button
 			type="button"
-			class="neu-raised-sm hover:bg-muted-foreground/10 mt-3 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm"
+			class="neu-raised-sm transition-colors hover:bg-[var(--neu-hover)] mt-3 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm"
 			title="Folds each included component's full input/output signature (parameter nicknames and types) into the system prompt instead of just its name. This makes the prompt much larger — useful for models without tool calling but with large context windows. Prefer the search_components tool when tool calling is available."
 			onclick={toggleSignatures}
 		>
@@ -664,7 +664,7 @@
 						</button>
 						<button
 							type="button"
-							class="hover:bg-muted-foreground/10 flex flex-1 items-center gap-1 rounded px-1 py-0.5 text-left text-sm font-medium"
+							class="transition-colors hover:bg-[var(--neu-hover)] flex flex-1 items-center gap-1 rounded px-1 py-0.5 text-left text-sm font-medium"
 							onclick={() => toggleExpanded(cat.category)}
 						>
 							{#if expanded.has(cat.category)}
@@ -683,7 +683,7 @@
 								{@const on = included.has(leafKey(cat.category, sub))}
 								<button
 									type="button"
-									class="hover:bg-muted-foreground/10 flex items-center gap-2 rounded px-1 py-1 text-left text-sm"
+									class="transition-colors hover:bg-[var(--neu-hover)] flex items-center gap-2 rounded px-1 py-1 text-left text-sm"
 									onclick={() => toggleLeaf(cat.category, sub)}
 								>
 									{#if on}
@@ -720,7 +720,7 @@
 				{@const on = includedClusters.has(cluster.name)}
 				<button
 					type="button"
-					class="hover:bg-muted-foreground/10 flex items-start gap-2 rounded px-2 py-1.5 text-left text-sm"
+					class="transition-colors hover:bg-[var(--neu-hover)] flex items-start gap-2 rounded px-2 py-1.5 text-left text-sm"
 					onclick={() => toggleCluster(cluster.name)}
 				>
 					{#if on}
@@ -762,7 +762,7 @@
 				{@const on = includedTools.has(tool)}
 				<button
 					type="button"
-					class="hover:bg-muted-foreground/10 flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm"
+					class="transition-colors hover:bg-[var(--neu-hover)] flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm"
 					onclick={() => toggleTool(tool)}
 				>
 					{#if on}
@@ -846,7 +846,7 @@
 		     lives there, so flipping it here also moves the checkmark on the canvas. -->
 		<button
 			type="button"
-			class="neu-raised-sm hover:bg-muted-foreground/10 mt-3 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm"
+			class="neu-raised-sm transition-colors hover:bg-[var(--neu-hover)] mt-3 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm"
 			title="On: the snapshot is sent immediately as its own message, carrying the text below. Off: the snapshot is attached to the prompt box like a pasted image, for you to write your own message."
 			onclick={toggleSnapshotSends}
 		>
@@ -912,7 +912,7 @@
 		     lives there, so flipping it here also moves the checkmark on the canvas. -->
 		<button
 			type="button"
-			class="neu-raised-sm hover:bg-muted-foreground/10 mt-3 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm"
+			class="neu-raised-sm transition-colors hover:bg-[var(--neu-hover)] mt-3 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm"
 			title="On: the capture is sent immediately as its own message, carrying the text below. Off: the capture is attached to the prompt box like a pasted image, for you to write your own message."
 			onclick={toggleViewSnapshotSends}
 		>

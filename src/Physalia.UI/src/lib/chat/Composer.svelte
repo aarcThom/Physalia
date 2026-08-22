@@ -847,8 +847,8 @@
 			{#each refMatches as item, i (item)}
 				<button
 					type="button"
-					class={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm ${
-						i === refActiveIndex ? 'bg-muted-foreground/15' : 'hover:bg-muted-foreground/10'
+					class={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors ${
+						i === refActiveIndex ? 'bg-[var(--neu-selected)]' : 'hover:bg-[var(--neu-hover)]'
 					}`}
 					onmousedown={(e) => {
 						e.preventDefault();

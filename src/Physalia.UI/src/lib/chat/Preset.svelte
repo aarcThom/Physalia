@@ -175,7 +175,7 @@
 
 	{#if tip}
 		<div
-			class="neu-raised text-foreground pointer-events-none fixed z-50 overflow-hidden rounded-md px-3 py-2 text-xs whitespace-pre-wrap"
+			class="neu-popover text-foreground pointer-events-none fixed z-50 overflow-hidden rounded-md px-3 py-2 text-xs whitespace-pre-wrap"
 			style:left="{tip.left}px"
 			style:width="{tip.width}px"
 			style:top={tip.top === null ? undefined : `${tip.top}px`}

@@ -64,6 +64,16 @@
 	--neu-bg: oklch(0.978 0.01 230);
 	--neu-light: oklch(0.999 0.003 230);
 	--neu-dark: oklch(0.9 0.025 236);
+	/* Hover: a pressable surface goes a shade lighter as well as deepening its shadow, so the lift
+	   is felt on the flat variants too (a ghost button has no shadow to deepen). The base sits at
+	   L 97.8% already, so "lighter" can only mean nearer white — hence a white mix, the same trick
+	   the message bubble uses, and the reason every hover in the UI lightens rather than greys. */
+	--neu-hover: color-mix(in srgb, white 50%, var(--neu-bg));
+	/* The accent chip (Send) lightens in its own hue on hover — it must never wash out to white. */
+	--neu-accent-hover: oklch(0.68 0.13 250);
+	/* The keyboard-selected row in a menu (the composer's reference list). One step lighter than
+	   hover, so pointing at a row and having it selected stay tellable apart. */
+	--neu-selected: color-mix(in srgb, white 85%, var(--neu-bg));
 	/* User (human) message bubble: a touch lighter than the page so it lifts off the surface;
 	   paired with the Physalia purple text (matches the pills, see Pill.svelte). */
 	--neu-bubble: color-mix(in srgb, white 50%, oklch(0.993 0.006 230) 50%);
@@ -77,6 +87,9 @@
 	--neu-feedback-light: color-mix(in srgb, var(--neu-light) 80%, var(--neu-feedback-tone) 20%);
 	--neu-feedback-dark: color-mix(in srgb, var(--neu-dark) 65%, var(--neu-feedback-tone) 35%);
 	--neu-feedback-shadow: 4px 4px 10px var(--neu-feedback-dark), -4px -4px 10px var(--neu-feedback-light);
+	/* The collapsed feedback turn's header is pressable, so it lightens on hover like everything
+	   else — within its own pink, not towards the page's blue-white. */
+	--neu-feedback-hover: color-mix(in srgb, white 50%, var(--neu-feedback));
 	/* The one accent: the primary call-to-action (Send) reads as a raised blue chip. */
 	--neu-accent: oklch(0.62 0.13 250);
 
@@ -281,6 +294,14 @@
 		background-color: var(--neu-bg);
 		box-shadow: var(--neu-shadow-sm);
 	}
+	/* A popover laid over a list of buttons (the preset descriptions). Deliberately the SAME tone as
+	   the hovered button that opened it — the two belong to one gesture, and the panel reading as a
+	   third, lighter surface made it look like a separate control rather than that button's own
+	   description. The full raise is what separates it from the list, not a lighter fill. */
+	.neu-popover {
+		background-color: var(--neu-hover);
+		box-shadow: var(--neu-shadow);
+	}
 	/* Inset wells — pressed into the background (text inputs, code/JSON blocks). */
 	.neu-well {
 		background-color: var(--neu-bg);
@@ -324,6 +345,7 @@
 		box-shadow: var(--neu-shadow-sm);
 	}
 	.neu-btn:hover {
+		background-color: var(--neu-hover);
 		box-shadow: var(--neu-shadow);
 	}
 	.neu-btn:active,
@@ -339,7 +361,7 @@
 		box-shadow: none;
 	}
 	.neu-ghost:hover {
-		background-color: var(--neu-bg);
+		background-color: var(--neu-hover);
 		box-shadow: var(--neu-shadow-sm);
 	}
 	.neu-ghost:active,

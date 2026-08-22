@@ -31,7 +31,7 @@
 	<!-- The header wears the same pink bubble palette as the body (app.css --neu-feedback*), so a
 	     collapsed feedback turn still reads as one at a glance. -->
 	<Collapsible.Trigger
-		class="flex max-w-full min-w-0 items-center gap-2 rounded-lg bg-[var(--neu-feedback)] px-3 py-2 text-left text-sm text-[var(--neu-feedback-text)] [box-shadow:var(--neu-feedback-shadow)]"
+		class="flex max-w-full min-w-0 items-center gap-2 rounded-lg bg-[var(--neu-feedback)] transition-colors hover:bg-[var(--neu-feedback-hover)] px-3 py-2 text-left text-sm text-[var(--neu-feedback-text)] [box-shadow:var(--neu-feedback-shadow)]"
 	>
 		{#each items as source, i (i)}
 			{#if i > 0}

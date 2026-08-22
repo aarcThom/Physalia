@@ -5,6 +5,7 @@ using System;
 using System.Windows.Forms;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Physalia.Core.Grounding;
 using Physalia.Core.Grounding.Components;
 using Physalia.GH.Generation;
 using Physalia.GH.Goo;
@@ -29,6 +30,18 @@ public class ComponentCatalogGrounder : PhyBase
     // right-click toggle brings them back. Persisted, since it is configuration. Obscure-exposure
     // components (e.g. Mass Multiplication) are demoted but genuinely useful, and are kept.
     private bool _includeLegacy;
+
+    // Which tabs and panels of this catalog the model is told about. Null = the never-configured
+    // default (every leaf holding native components; plug-in tabs stay listed but unchecked until
+    // opted in). Edited from the chat window's grounding page, which reaches it through the
+    // Conversation Log; it lives HERE so it travels with the component — copy this grounder into
+    // another harness, or ship it inside a preset, and the selection comes along.
+    private GroundingSelection? _selection;
+
+    // Whether every included component carries its typed input/output signature into the prompt,
+    // rather than only the curated common set (the hybrid default). For models without tool calling
+    // but with large contexts. Same ownership story as _selection.
+    private bool _exposeSignatures;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ComponentCatalogGrounder"/> class.
@@ -67,10 +80,41 @@ public class ComponentCatalogGrounder : PhyBase
             @checked: _includeLegacy);
     }
 
+    /// <summary>
+    /// Gets the selection of tabs and panels the model is told about, or null for the
+    /// never-configured default (native components only).
+    /// </summary>
+    public GroundingSelection? Selection => _selection;
+
+    /// <summary>
+    /// Gets a value indicating whether every included component carries its typed signature into the
+    /// prompt, rather than only the curated common set.
+    /// </summary>
+    public bool ExposeSignatures => _exposeSignatures;
+
+    /// <summary>
+    /// Sets which tabs and panels the model is told about. Called from the chat window (through the
+    /// Conversation Log) on the UI thread; does not re-solve, because the catalog on the wire is
+    /// unaffected — the Conversation Log reads this selection live on its own next solve, which the
+    /// caller triggers.
+    /// </summary>
+    /// <param name="selection">The new selection, or null to return to the default.</param>
+    public void SetSelection(GroundingSelection? selection) => _selection = selection;
+
+    /// <summary>
+    /// Sets whether typed signatures are folded in for every included component. Called from the chat
+    /// window (through the Conversation Log) on the UI thread; see <see cref="SetSelection"/> for why
+    /// it does not re-solve.
+    /// </summary>
+    /// <param name="on">True to fold signatures in for every included component.</param>
+    public void SetExposeSignatures(bool on) => _exposeSignatures = on;
+
     /// <inheritdoc/>
     public override bool Write(GH_IWriter writer)
     {
         writer.SetBoolean("IncludeLegacy", _includeLegacy);
+        writer.SetBoolean("ExposeSignatures", _exposeSignatures);
+        SettingArchive.WriteOptionalLeaves(writer, "GroundingSelection", _selection?.Leaves);
         return base.Write(writer);
     }
 
@@ -78,6 +122,10 @@ public class ComponentCatalogGrounder : PhyBase
     public override bool Read(GH_IReader reader)
     {
         _includeLegacy = reader.ItemExists("IncludeLegacy") && reader.GetBoolean("IncludeLegacy");
+        _exposeSignatures = reader.ItemExists("ExposeSignatures") && reader.GetBoolean("ExposeSignatures");
+        _selection = SettingArchive.ReadOptionalLeaves(reader, "GroundingSelection") is { } leaves
+            ? GroundingSelection.FromLeaves(leaves)
+            : null;
         return base.Read(reader);
     }
 

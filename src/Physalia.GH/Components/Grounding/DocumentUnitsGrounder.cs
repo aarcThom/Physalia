@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
+using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Grounding;
 using Physalia.GH.Goo;
@@ -18,6 +19,13 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class DocumentUnitsGrounder : PhyBase
 {
+    // The unit text handed to the model instead of the document's own. Null = use the live document
+    // units (the default). The document is NEVER changed either way — this only rewrites what the
+    // model is told, which is how you make a model reason in metres about a millimetre file. Edited
+    // from the chat window's units pill, which reaches it through the Conversation Log; it lives HERE
+    // so it travels with the component and ships inside a preset.
+    private string? _override;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="DocumentUnitsGrounder"/> class.
     /// </summary>
@@ -39,6 +47,36 @@ public class DocumentUnitsGrounder : PhyBase
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
         pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "This document's unit system, spelled out for the model. Wire into a Conversation Log's Grounding input.", GH_ParamAccess.item);
+    }
+
+    /// <summary>
+    /// Gets the unit text handed to the model in place of the document's own, or null when the live
+    /// document units are used.
+    /// </summary>
+    public string? Override => _override;
+
+    /// <summary>
+    /// Sets the unit text handed to the model, or clears it back to the document's own units. Called
+    /// from the chat window (through the Conversation Log) on the UI thread; does not re-solve,
+    /// because the grounding on the wire still carries the document's real units — the substitution
+    /// happens where the prompt is assembled, on the Conversation Log's own next solve.
+    /// </summary>
+    /// <param name="units">The override unit text, or null (or blank) to use the live document units.</param>
+    public void SetOverride(string? units) =>
+        _override = string.IsNullOrWhiteSpace(units) ? null : units;
+
+    /// <inheritdoc/>
+    public override bool Write(GH_IWriter writer)
+    {
+        SettingArchive.WriteOptionalString(writer, "UnitsOverride", _override);
+        return base.Write(writer);
+    }
+
+    /// <inheritdoc/>
+    public override bool Read(GH_IReader reader)
+    {
+        _override = SettingArchive.ReadOptionalString(reader, "UnitsOverride");
+        return base.Read(reader);
     }
 
     /// <inheritdoc/>

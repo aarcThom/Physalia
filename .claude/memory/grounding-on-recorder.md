@@ -1,6 +1,6 @@
 ---
 name: grounding-on-recorder
-description: Grounding moved from System Prompt to Conversation Log + a chat-UI two-level selector; opt-in nullable selection serialized on the Conversation Log
+description: Grounding moved from System Prompt to Conversation Log + a chat-UI two-level selector; the opt-in nullable selection now lives on the grounder, not the log (see settings-ownership)
 metadata: 
   node_type: memory
   type: project
@@ -13,7 +13,7 @@ Grounding input moved **off System Prompt onto the Conversation Log** (2026-06-2
 
 **Core (pure):** the whole catalog namespace was moved `Physalia.Core.Catalog` → **`Physalia.Core.Grounding.Components`** (folder `Physalia.Core/Grounding/Components/`: ComponentCatalog, CatalogEntry, CatalogCategory, ComponentMatcher) so it nests under Grounding (resolves the old Catalog↔Grounding circular using; `ComponentCatalog` sees `GroundingSelection` via the enclosing namespace, no using). New: `Components/CatalogCategory.cs` (tab→panels record); `Grounding/GroundingSelection.cs` (All/FromLeaves/Includes/With/Leaves); `ComponentCatalog` gained `CategoryTree` (lazy) + `Filtered(selection)` (null ⇒ same instance). Tests under `Physalia.Core.Tests/Grounding/Components/ComponentCatalogTests.cs` + `Grounding/GroundingSelectionTests.cs`.
 
-**Conversation Log** (`Components/Core/ConversationLog.cs`): new `Grounding` input at index 1 — second input, right after System Prompt, before the four signal inputs (list, optional); reads it every solve, caches `_liveCatalog`/`_liveGroundings`; at mint, filters only `ComponentCatalogGrounding` via `_selection` then `GroundingComposer.Append`. Public: `AvailableGroundingTree`, `HasComponentGrounding`, `GroundingSelectionOrNull`, `SetGroundingSelection`. **Now overrides Write/Read** (it serialized nothing before) — persists selection with a `GroundingSelectionSet` bool to keep null-vs-empty distinct; `OnCleared` deliberately leaves `_selection` (config, not conversation).
+**Conversation Log** (`Components/Core/ConversationLog.cs`): new `Grounding` input at index 1 — second input, right after System Prompt, before the four signal inputs (list, optional); reads it every solve, caches `_liveCatalog`/`_liveGroundings`; at mint, filters only `ComponentCatalogGrounding` via `_selection` then `GroundingComposer.Append`. Public: `AvailableGroundingTree`, `HasComponentGrounding`, `GroundingSelectionOrNull`, `SetGroundingSelection`. **Now overrides Write/Read** (it serialized nothing before) — persists selection with a `GroundingSelectionSet` bool to keep null-vs-empty distinct; `OnCleared` deliberately leaves `_selection` (config, not conversation). **SUPERSEDED 2026-08-21:** the selection moved onto `ComponentCatalogGrounder` and the log became a façade that walks its input sources; its old keys are read once for migration and never written again — see [[settings-ownership]].
 
 **System Prompt** (`Components/Core/SystemPrompt.cs`): grounding input + `GroundingComposer.Append` block removed; outputs unchanged. Bundled presets needed **no** re-wiring (they route the Component Catalog to tool components, not grounding; no connection ever targeted System Prompt's old input 2).
 

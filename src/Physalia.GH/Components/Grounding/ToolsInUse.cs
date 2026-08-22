@@ -23,6 +23,12 @@ namespace Physalia.GH.Components;
 /// actually dispatch to it. The list refreshes live as tools are wired, unwired, added, or removed —
 /// the component watches the document's solution end and re-solves itself only when the in-use set
 /// actually changes, so the new definitions reach the Conversation Log without a runaway solve loop.</para>
+///
+/// <para>Each tool node also carries its own "Advertise To The Model" switch, and this grounding
+/// reports only the nodes that have it on. The switch lives on the node (so it travels with it and is
+/// saved in the file) rather than as a name-keyed selection here, so this component keeps no settings
+/// of its own — it merely reads theirs. <see cref="ScannedTools"/> is the full in-use set, flags
+/// included, which is what the chat window's tools page lists and edits.</para>
 /// </summary>
 public class ToolsInUse : PhyBase
 {
@@ -72,13 +78,27 @@ public class ToolsInUse : PhyBase
         pManager.AddParameter(new Param_Grounding(), "Grounding", "Gnd", "Every tool currently reachable through a Router, described so the model knows when each one is worth calling. Wire into a Conversation Log's Grounding input.", GH_ParamAccess.item);
     }
 
+    /// <summary>
+    /// Gets every tool node currently in use — wired into a Router — whether or not it is advertised
+    /// to the model. Read live off the document, so it is current without this component having
+    /// solved. The chat window's tools page renders this list and flips each node's own advertise
+    /// switch; the grounding on the wire carries only the advertised subset.
+    /// </summary>
+    public IReadOnlyList<LlmToolComponentBase> ScannedTools => InUseTools(OnPingDocument()).ToList();
+
     /// <inheritdoc/>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
         var tools = InUseTools(OnPingDocument()).ToList();
         _lastSignature = Signature(tools);
 
-        var definitions = tools.Select(t => t.AdvertisedDefinition).ToList();
+        // Only the advertised nodes are described to the model. A parked tool stays wired and able to
+        // answer — it is simply never mentioned, so it is never called.
+        var definitions = tools
+            .Where(t => t.Advertise)
+            .Select(t => t.AdvertisedDefinition)
+            .ToList();
+
         DA.SetData(OutTools, new GH_Grounding(new ToolsGrounding(definitions)));
     }
 
@@ -124,14 +144,18 @@ public class ToolsInUse : PhyBase
     }
 
     /// <summary>
-    /// Builds a stable, order-independent signature of the in-use set — each tool's instance id plus
-    /// its advertised name — so a change (wire, add/remove, or a renamed tool) is detected without
-    /// re-solving when nothing changed.
+    /// Builds a stable, order-independent signature of the in-use set — each tool's instance id, its
+    /// advertised name, and whether it is advertised at all — so a change (wire, add/remove, a renamed
+    /// tool, or a flipped advertise switch) is detected without re-solving when nothing changed.
     /// </summary>
     /// <param name="tools">The in-use tool nodes.</param>
     /// <returns>A signature string.</returns>
     private static string Signature(IEnumerable<LlmToolComponentBase> tools) =>
-        string.Join("|", tools.Select(t => $"{t.InstanceGuid:N}:{t.AdvertisedDefinition.Name}").OrderBy(s => s, StringComparer.Ordinal));
+        string.Join(
+            "|",
+            tools
+                .Select(t => $"{t.InstanceGuid:N}:{t.AdvertisedDefinition.Name}:{(t.Advertise ? '1' : '0')}")
+                .OrderBy(s => s, StringComparer.Ordinal));
 
     private void OnDocumentSolutionEnd(object sender, GH_SolutionEventArgs e)
     {

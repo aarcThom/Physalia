@@ -3,6 +3,7 @@
 
 using System;
 using System.Windows.Forms;
+using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Physalia.Core.Grounding;
 using Physalia.Core.Grounding.Clusters;
@@ -21,6 +22,12 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class ClusterGrounder : PhyBase
 {
+    // Which of the available clusters the model may use. Null = the never-configured default, meaning
+    // every cluster in the folder. Edited from the chat window's cluster page, which reaches it
+    // through the Conversation Log; it lives HERE so it travels with the component — the selection
+    // survives a copy into another harness, and a preset ships with the clusters its author chose.
+    private ClusterSelection? _selection;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="ClusterGrounder"/> class.
     /// </summary>
@@ -50,6 +57,36 @@ public class ClusterGrounder : PhyBase
         base.AppendAdditionalMenuItems(menu);
         Menu_AppendSeparator(menu);
         Menu_AppendItem(menu, "Refresh clusters", OnRefresh);
+    }
+
+    /// <summary>
+    /// Gets the selection of clusters the model may use, or null for the never-configured default
+    /// (every cluster in the folder).
+    /// </summary>
+    public ClusterSelection? Selection => _selection;
+
+    /// <summary>
+    /// Sets which clusters the model may use. Called from the chat window (through the Conversation
+    /// Log) on the UI thread; does not re-solve, because the catalog on the wire is unaffected — the
+    /// Conversation Log applies this selection on its own next solve, which the caller triggers.
+    /// </summary>
+    /// <param name="selection">The new selection, or null to offer every cluster.</param>
+    public void SetSelection(ClusterSelection? selection) => _selection = selection;
+
+    /// <inheritdoc/>
+    public override bool Write(GH_IWriter writer)
+    {
+        SettingArchive.WriteOptionalNames(writer, "ClusterSelection", _selection?.Names);
+        return base.Write(writer);
+    }
+
+    /// <inheritdoc/>
+    public override bool Read(GH_IReader reader)
+    {
+        _selection = SettingArchive.ReadOptionalNames(reader, "ClusterSelection") is { } names
+            ? ClusterSelection.FromNames(names)
+            : null;
+        return base.Read(reader);
     }
 
     /// <inheritdoc/>

@@ -9,9 +9,13 @@ namespace Physalia.GH.Components;
 /// Base class for the two snapshot human tools — Geometry Snapshot and View Snapshot. Both arm a
 /// button in the chat window that captures the Rhino viewport, and both let the human choose what
 /// happens to that capture: send it immediately as its own message carrying the tool's default text,
-/// or attach it to the prompt box like a pasted image and caption it themselves. That choice is the
-/// only state a snapshot tool carries, so it lives here; what gets captured (and whether the button
-/// needs arming) is the subclass's business.
+/// or attach it to the prompt box like a pasted image and caption it themselves. That choice, and the
+/// wording that rides with the capture, are the whole of what a snapshot tool carries, so both live
+/// here; what gets captured (and whether the button needs arming) is the subclass's business.
+///
+/// <para>Both are settings, so both are serialized on the component rather than held by the
+/// Conversation Log: a configured snapshot tool is meant to travel — copied into another harness, or
+/// shipped inside a preset — with its wording intact.</para>
 /// </summary>
 public abstract class SnapshotToolComponentBase : HumanToolComponentBase
 {
@@ -21,6 +25,12 @@ public abstract class SnapshotToolComponentBase : HumanToolComponentBase
     // presence on the Conversation Log's Human Tools input. The chat window's snapshot page drives the
     // same field through SetSendWithMessage, so the two surfaces never disagree.
     private bool _sendWithMessage = true;
+
+    // The text that rides with the capture instead of the tool's built-in default. Null = use the
+    // default (the common case). Edited from this tool's page in the chat window, which reaches it
+    // through the Conversation Log; it lives HERE, beside the send-or-attach flag it belongs with, so
+    // a configured snapshot tool carries its wording into another harness and into a preset.
+    private string? _messageOverride;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SnapshotToolComponentBase"/> class.
@@ -38,6 +48,22 @@ public abstract class SnapshotToolComponentBase : HumanToolComponentBase
     /// tool's default text, rather than attached to the prompt box for the human to caption.
     /// </summary>
     protected bool SendWithMessage => _sendWithMessage;
+
+    /// <summary>
+    /// Gets the text that rides with the capture in place of the tool's default message, or null when
+    /// the default is used.
+    /// </summary>
+    public string? MessageOverride => _messageOverride;
+
+    /// <summary>
+    /// Sets the text that rides with the capture, or clears it back to the tool's default message.
+    /// Called from the chat window (through the Conversation Log) on the UI thread; does not re-solve,
+    /// because the tool on the wire still advertises its default — the substitution happens where the
+    /// message is composed, and the Conversation Log reads this on its own next solve.
+    /// </summary>
+    /// <param name="message">The override text, or null (or blank) to use the tool's default message.</param>
+    public void SetMessageOverride(string? message) =>
+        _messageOverride = string.IsNullOrWhiteSpace(message) ? null : message;
 
     /// <summary>
     /// Sets whether the snapshot is sent with the default message or attached to the prompt box, and
@@ -81,6 +107,7 @@ public abstract class SnapshotToolComponentBase : HumanToolComponentBase
     public override bool Write(GH_IO.Serialization.GH_IWriter writer)
     {
         writer.SetBoolean("SendWithMessage", _sendWithMessage);
+        SettingArchive.WriteOptionalString(writer, "MessageOverride", _messageOverride);
         return base.Write(writer);
     }
 
@@ -89,6 +116,7 @@ public abstract class SnapshotToolComponentBase : HumanToolComponentBase
     {
         // Absent key = a file written before the toggle existed: keep the send-immediately behaviour.
         _sendWithMessage = !reader.ItemExists("SendWithMessage") || reader.GetBoolean("SendWithMessage");
+        _messageOverride = SettingArchive.ReadOptionalString(reader, "MessageOverride");
         return base.Read(reader);
     }
 }

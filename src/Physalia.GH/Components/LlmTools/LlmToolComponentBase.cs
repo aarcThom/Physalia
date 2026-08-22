@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
@@ -55,6 +56,14 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
 
     private PhySignal? _resultSignal;
 
+    // Whether this node is advertised to the model. True (the default) means the wired Tools Present
+    // grounder lists it, so the model may call it; false leaves the node wired and working but unseen
+    // — the way to switch a tool off without unwiring it. A menu item AND the chat window's tools
+    // page drive this same field, and it is serialized here rather than as a name-keyed selection on
+    // the Conversation Log: the setting belongs to the node, so it survives a copy into another
+    // harness, ships inside a preset, and cannot be confused with a second node of the same tool.
+    private bool _advertise = true;
+
     // Async-path state (RunsAsync only): a batch is running; the completed result is staged by the
     // background task and emitted on the solve that _doEmit (set only by our own scheduled callback)
     // marshals back onto.
@@ -86,6 +95,12 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
     /// it directly off the canvas without relying on the node having solved.
     /// </summary>
     public LlmToolDefinition AdvertisedDefinition => Definition;
+
+    /// <summary>
+    /// Gets a value indicating whether this node is advertised to the model. False keeps it wired and
+    /// able to answer, but leaves it out of what the model is told exists — so it is never called.
+    /// </summary>
+    public bool Advertise => _advertise;
 
     /// <summary>
     /// Gets a value indicating whether this tool runs its calls asynchronously off the solve thread.
@@ -327,6 +342,67 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
             });
 
         _resultSignal = PhySignal.Mint(SignalOutcome.Success, batch.Payload, InstanceGuid, Name, batch.Blocks);
+    }
+
+    /// <summary>
+    /// Sets whether this node is advertised to the model, and re-solves.
+    ///
+    /// <para>Re-solving this node is what makes the change land: a Tools Present grounder is not
+    /// wired to the tool nodes it reports, it SCANS for them, and it re-reads the canvas at the end of
+    /// any solution whose result differs from what it last emitted. So expiring this node is enough to
+    /// get the new advertised set to the Conversation Log — see <c>ToolsInUse</c>.</para>
+    /// </summary>
+    /// <param name="on">True to advertise this tool to the model; false to keep it wired but unseen.</param>
+    public void SetAdvertise(bool on)
+    {
+        if (_advertise == on)
+        {
+            return;
+        }
+
+        _advertise = on;
+        ExpireSolution(true);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Unchecking "Advertise To The Model" is how you park a tool: the node stays wired to its Router
+    /// and would still answer a call, but the model is never told it exists, so no call comes. The same
+    /// switch is on the chat window's tools page.
+    /// </remarks>
+    public override void AppendAdditionalMenuItems(ToolStripDropDown menu)
+    {
+        base.AppendAdditionalMenuItems(menu);
+        Menu_AppendItem(
+            menu,
+            "Advertise To The Model",
+            (_, _) => SetAdvertise(!_advertise),
+            enabled: true,
+            @checked: _advertise);
+    }
+
+    /// <summary>
+    /// Restores the advertise flag WITHOUT re-solving — for a setting being migrated out of an older
+    /// file, where a solution is already on its way and starting one is not allowed. The change still
+    /// reaches the model, because a Tools Present grounder folds this flag into the signature it
+    /// compares at the end of every solution, and re-emits when it differs.
+    /// </summary>
+    /// <param name="on">True to advertise this tool to the model.</param>
+    internal void RestoreAdvertise(bool on) => _advertise = on;
+
+    /// <inheritdoc/>
+    public override bool Write(GH_IO.Serialization.GH_IWriter writer)
+    {
+        writer.SetBoolean("Advertise", _advertise);
+        return base.Write(writer);
+    }
+
+    /// <inheritdoc/>
+    public override bool Read(GH_IO.Serialization.GH_IReader reader)
+    {
+        // Absent key = a file written before the toggle existed: a wired tool was always advertised.
+        _advertise = !reader.ItemExists("Advertise") || reader.GetBoolean("Advertise");
+        return base.Read(reader);
     }
 
     /// <summary>

@@ -50,46 +50,28 @@ public class ConversationLog : StatefulComponentBase
 
     private const int OutSignal = 0;
 
+    // How far to walk upstream through bare relay parameters when looking for the component that owns
+    // a setting. Four hops is more indirection than any sane canvas has, and it bounds the walk.
+    private const int MaxRelayDepth = 4;
+
     private Conversation _conversation = Conversation.Empty;
 
-    // Grounding settings. Null = include everything (default for a never-configured Conversation Log);
-    // a non-null selection narrows which component-catalog tabs/panels are folded into the prompt.
-    // This is configuration, NOT conversation state — it survives Clear and is serialized.
-    private GroundingSelection? _selection;
-
-    // Cluster grounding settings, mirroring the component-catalog selection above. Null = include
-    // every available cluster (default); a non-null selection narrows which clusters are folded into
-    // the prompt. Configuration, not conversation state — survives Clear and is serialized.
-    private ClusterSelection? _clusterSelection;
-
-    // Tools selection, mirroring the cluster selection above. Null = advertise every tool present on
-    // the canvas (default); a non-null selection narrows which tools are advertised to the model, so
-    // the user can disable an on-canvas tool. Configuration, not conversation state — survives Clear
-    // and is serialized.
-    private ToolsSelection? _toolsSelection;
-
-    // Document-units override. Null = use the live document units carried by the wired
-    // DocumentUnitsGrounding (default); a non-null value is the unit text handed to the model instead
-    // (the document itself is never changed). Configuration, not conversation state — survives Clear
-    // and is serialized.
-    private string? _unitsOverride;
-
-    // Geometry-snapshot message override. Null = use the default message carried by the wired
-    // GeometrySnapshotTool (default); a non-null value is the text sent alongside the snapshot
-    // image instead. Configuration, not conversation state — survives Clear and is serialized.
-    private string? _snapshotMessageOverride;
-
-    // View-snapshot message override — the same contract as _snapshotMessageOverride, kept separate
-    // because the two tools are independent affordances with their own text. Null = use the default
-    // message carried by the wired ViewSnapshotTool. Survives Clear and is serialized.
-    private string? _viewSnapshotMessageOverride;
-
-    // Expose-signatures flag. False = hybrid component grounding (default): the curated common set
-    // (CommonComponents.Names) carries typed input/output signatures, the long tail stays
-    // names-only. True widens signatures to EVERY included component — for models without tool
-    // calling but with large contexts. Configuration, not conversation state — survives Clear and
-    // is serialized.
-    private bool _exposeSignatures;
+    // Legacy settings, read out of a file written before each of them moved onto the component that
+    // owns it — the component-catalog selection and signature toggle onto Component Catalog, the
+    // cluster selection onto Cluster Grounding, the units override onto Document Units Grounding, the
+    // snapshot wording onto each snapshot tool, the tool on/off selection onto the tool nodes
+    // themselves. Applied once, on the first solve after the read (the first moment the wired owners
+    // are known) and then dropped. Nothing is ever written back under these keys: the components are
+    // the only home now, which is what lets a configured grounder or tool travel with a copy and ship
+    // inside a preset.
+    private bool _legacyPending;
+    private GroundingSelection? _legacySelection;
+    private ClusterSelection? _legacyClusterSelection;
+    private ToolsSelection? _legacyToolsSelection;
+    private string? _legacyUnitsOverride;
+    private string? _legacySnapshotMessage;
+    private string? _legacyViewSnapshotMessage;
+    private bool _legacyExposeSignatures;
 
     // Caches of the live grounding wired in this solve, for the prompt build and for the chat UI to
     // read. _liveCatalog is the merged catalog across all wired ComponentCatalogGroundings;
@@ -104,6 +86,12 @@ public class ConversationLog : StatefulComponentBase
     // Lifted onto the Instructions minted for inference so the LLM Call advertises them to the model,
     // and their names feed the chat input's "/t/" reference. Empty when no tools grounding is wired.
     private IReadOnlyList<LlmToolDefinition> _liveTools = Array.Empty<LlmToolDefinition>();
+
+    // Whether a tools grounding is wired at all — separate from _liveTools being non-empty, because
+    // parking every tool empties the advertised set while the Tools Present grounder is still there.
+    // The chat window gates its tools page on THIS, or switching the last tool off would hide the page
+    // that switches it back on.
+    private bool _hasToolsGrounding;
 
     // Caches of the other grounding kinds wired this solve, so every kind has a live read for the chat
     // UI's grounding pages: whether a canvas-state grounding is wired, the Rhino-referenced geometry
@@ -172,7 +160,8 @@ public class ConversationLog : StatefulComponentBase
     /// Gets the current grounding selection, or <see langword="null"/> for the default — only the
     /// leaves holding native components; plug-in tabs stay listed but unchecked until opted in.
     /// </summary>
-    public GroundingSelection? GroundingSelectionOrNull => _selection;
+    public GroundingSelection? GroundingSelectionOrNull =>
+        Owners<ComponentCatalogGrounder>().LastOrDefault()?.Selection;
 
     /// <summary>
     /// Gets the selection actually applied to the component catalog: the user's explicit selection
@@ -180,7 +169,8 @@ public class ConversationLog : StatefulComponentBase
     /// when no catalog grounding is wired. The chat UI renders THIS (never null-as-all), so plug-in
     /// tabs show unchecked by default instead of silently checked.
     /// </summary>
-    public GroundingSelection? EffectiveGroundingSelection => _selection ?? _liveCatalog?.NativeSelection();
+    public GroundingSelection? EffectiveGroundingSelection =>
+        GroundingSelectionOrNull ?? _liveCatalog?.NativeSelection();
 
     /// <summary>
     /// Gets the clusters wired into the Grounding input, merged across every wired cluster grounding.
@@ -201,20 +191,51 @@ public class ConversationLog : StatefulComponentBase
     /// Present grounder). For the chat input's <c>/t/</c> prompt autocomplete — updated every solve.
     /// Empty when no tools grounding is wired.
     /// </summary>
-    public IReadOnlyList<string> AvailableToolNames =>
-        _liveTools.Select(t => t.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.Ordinal).ToList();
+    public IReadOnlyList<string> AvailableToolNames
+    {
+        get
+        {
+            // Every tool in use, PARKED ONES INCLUDED — the chat window's tools page has to list a
+            // switched-off tool or there would be nothing to switch back on. Falls back to the
+            // advertised set when no Tools Present grounder is reachable from this input (a grounding
+            // arriving through something other than the grounder itself), so the list is never emptier
+            // than what the model was told.
+            IReadOnlyList<LlmToolComponentBase> scanned = ScannedToolNodes();
+            IEnumerable<string> names = scanned.Count > 0
+                ? scanned.Select(t => t.AdvertisedDefinition.Name)
+                : _liveTools.Select(t => t.Name);
+
+            return names.Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.Ordinal).ToList();
+        }
+    }
 
     /// <summary>
     /// Gets a value indicating whether any tools grounding is currently wired (so the chat UI can
     /// enable/grey its tool affordance).
     /// </summary>
-    public bool HasToolsGrounding => _liveTools.Count > 0;
+    public bool HasToolsGrounding => _hasToolsGrounding;
 
     /// <summary>
     /// Gets the current tools selection, or <see langword="null"/> for the default (include every tool
     /// present on the canvas).
     /// </summary>
-    public ToolsSelection? ToolsSelectionOrNull => _toolsSelection;
+    public ToolsSelection? ToolsSelectionOrNull
+    {
+        get
+        {
+            // Derived from the nodes, never stored: each tool node owns its own advertise switch, so
+            // "the selection" is just which of them are on. Null when they all are, which is the
+            // include-everything default the chat window renders as a full set of ticks.
+            IReadOnlyList<LlmToolComponentBase> scanned = ScannedToolNodes();
+            if (scanned.Count == 0 || scanned.All(t => t.Advertise))
+            {
+                return null;
+            }
+
+            return ToolsSelection.FromNames(
+                scanned.Where(t => t.Advertise).Select(t => t.AdvertisedDefinition.Name));
+        }
+    }
 
     /// <summary>
     /// Gets the parameters on the canvas that reference live Rhino geometry (detected from the
@@ -244,7 +265,8 @@ public class ConversationLog : StatefulComponentBase
     /// <summary>
     /// Gets the current cluster selection, or <see langword="null"/> for the default (include all).
     /// </summary>
-    public ClusterSelection? ClusterSelectionOrNull => _clusterSelection;
+    public ClusterSelection? ClusterSelectionOrNull =>
+        Owners<ClusterGrounder>().LastOrDefault()?.Selection;
 
     /// <summary>
     /// Gets a value indicating whether a document-units grounding is currently wired (so the chat UI
@@ -263,13 +285,15 @@ public class ConversationLog : StatefulComponentBase
     /// Gets the current document-units override, or <see langword="null"/> when the live document
     /// units are used (the default).
     /// </summary>
-    public string? UnitsOverrideOrNull => _unitsOverride;
+    public string? UnitsOverrideOrNull =>
+        Owners<DocumentUnitsGrounder>().LastOrDefault()?.Override;
 
     /// <summary>
     /// Gets a value indicating whether the component grounding folds typed input/output signatures
     /// into the prompt for every included component, rather than only the curated common set.
     /// </summary>
-    public bool ExposeComponentSignatures => _exposeSignatures;
+    public bool ExposeComponentSignatures =>
+        Owners<ComponentCatalogGrounder>().Any(g => g.ExposeSignatures);
 
     /// <summary>
     /// Gets a value indicating whether a Geometry Snapshot human tool is currently wired (so the
@@ -312,13 +336,14 @@ public class ConversationLog : StatefulComponentBase
     /// Gets the current snapshot-message override, or <see langword="null"/> when the wired
     /// tool's default message is used.
     /// </summary>
-    public string? SnapshotMessageOverrideOrNull => _snapshotMessageOverride;
+    public string? SnapshotMessageOverrideOrNull =>
+        Owners<GeometrySnapshot>().LastOrDefault()?.MessageOverride;
 
     /// <summary>
     /// Gets the text sent alongside the snapshot image: the override when set, else the wired
     /// tool's default. Empty when no Geometry Snapshot tool is wired.
     /// </summary>
-    public string GeometrySnapshotMessage => _snapshotMessageOverride ?? GeometrySnapshotDefaultMessage;
+    public string GeometrySnapshotMessage => SnapshotMessageOverrideOrNull ?? GeometrySnapshotDefaultMessage;
 
     /// <summary>
     /// Gets a value indicating whether a View Snapshot human tool is currently wired (so the chat UI
@@ -344,13 +369,14 @@ public class ConversationLog : StatefulComponentBase
     /// Gets the current view-snapshot message override, or <see langword="null"/> when the wired
     /// tool's default message is used.
     /// </summary>
-    public string? ViewSnapshotMessageOverrideOrNull => _viewSnapshotMessageOverride;
+    public string? ViewSnapshotMessageOverrideOrNull =>
+        Owners<ViewSnapshot>().LastOrDefault()?.MessageOverride;
 
     /// <summary>
     /// Gets the text sent alongside the view capture: the override when set, else the wired tool's
     /// default. Empty when no View Snapshot tool is wired.
     /// </summary>
-    public string ViewSnapshotMessage => _viewSnapshotMessageOverride ?? ViewSnapshotDefaultMessage;
+    public string ViewSnapshotMessage => ViewSnapshotMessageOverrideOrNull ?? ViewSnapshotDefaultMessage;
 
     /// <summary>
     /// Gets a value indicating whether images may ride a submitted prompt. The Add Image tool is the
@@ -367,13 +393,23 @@ public class ConversationLog : StatefulComponentBase
     protected override string ClearMenuText => "Clear Conversation";
 
     /// <summary>
-    /// Sets the grounding selection (null = include everything) and re-solves so the change takes
-    /// effect on the next minted Instructions. Called from the chat window on the UI thread.
+    /// Sets the grounding selection (null = include everything) on every wired Component Catalog
+    /// grounder and re-solves so the change takes effect on the next minted Instructions. Called from
+    /// the chat window on the UI thread.
+    ///
+    /// <para>The selection is stored on the grounder, not here — the chat window's page and the
+    /// component are two views of one setting, so nothing has to be reconciled and it is saved with the
+    /// component that owns it. Every wired grounder is set, matching the read (the last one wins), so
+    /// two of them can never disagree.</para>
     /// </summary>
     /// <param name="selection">The new selection, or null to include everything.</param>
     public void SetGroundingSelection(GroundingSelection? selection)
     {
-        _selection = selection;
+        foreach (ComponentCatalogGrounder grounder in Owners<ComponentCatalogGrounder>())
+        {
+            grounder.SetSelection(selection);
+        }
+
         ExpireSolution(true);
     }
 
@@ -385,19 +421,31 @@ public class ConversationLog : StatefulComponentBase
     /// <param name="selection">The new selection, or null to include every cluster.</param>
     public void SetClusterSelection(ClusterSelection? selection)
     {
-        _clusterSelection = selection;
+        foreach (ClusterGrounder grounder in Owners<ClusterGrounder>())
+        {
+            grounder.SetSelection(selection);
+        }
+
         ExpireSolution(true);
     }
 
     /// <summary>
-    /// Sets the tools selection (null = advertise every tool present on the canvas) and re-solves so
-    /// the change takes effect on the next minted Instructions. Called from the chat window on the UI
-    /// thread.
+    /// Switches each tool node in use on or off to match the given selection (null = advertise every
+    /// tool present on the canvas). Called from the chat window on the UI thread.
+    ///
+    /// <para>Nothing is stored here: the switch lives on the tool node, so it is saved with the node,
+    /// travels with a copy of it, and cannot be confused with a second node advertising the same tool
+    /// name. Flipping a node re-solves it, and the wired Tools Present grounder — which scans rather
+    /// than being wired to them — notices at the end of that solution and re-emits.</para>
     /// </summary>
-    /// <param name="selection">The new selection, or null to include every present tool.</param>
+    /// <param name="selection">The new selection, or null to advertise every tool in use.</param>
     public void SetToolsSelection(ToolsSelection? selection)
     {
-        _toolsSelection = selection;
+        foreach (LlmToolComponentBase tool in ScannedToolNodes())
+        {
+            tool.SetAdvertise(selection is null || selection.Includes(tool.AdvertisedDefinition.Name));
+        }
+
         ExpireSolution(true);
     }
 
@@ -409,7 +457,11 @@ public class ConversationLog : StatefulComponentBase
     /// <param name="units">The override unit text, or null to use the live document units.</param>
     public void SetUnitsOverride(string? units)
     {
-        _unitsOverride = string.IsNullOrWhiteSpace(units) ? null : units;
+        foreach (DocumentUnitsGrounder grounder in Owners<DocumentUnitsGrounder>())
+        {
+            grounder.SetOverride(units);
+        }
+
         ExpireSolution(true);
     }
 
@@ -419,11 +471,7 @@ public class ConversationLog : StatefulComponentBase
     /// window's geometry button. Called from the chat window on the UI thread.
     /// </summary>
     /// <param name="message">The override text, or null to use the tool's default message.</param>
-    public void SetSnapshotMessageOverride(string? message)
-    {
-        _snapshotMessageOverride = string.IsNullOrWhiteSpace(message) ? null : message;
-        ExpireSolution(true);
-    }
+    public void SetSnapshotMessageOverride(string? message) => SetSnapshotMessage<GeometrySnapshot>(message);
 
     /// <summary>
     /// Switches the wired Geometry Snapshot tool(s) between sending the snapshot as its own message
@@ -441,11 +489,7 @@ public class ConversationLog : StatefulComponentBase
     /// Called from the chat window on the UI thread.
     /// </summary>
     /// <param name="message">The override text, or null to use the tool's default message.</param>
-    public void SetViewSnapshotMessageOverride(string? message)
-    {
-        _viewSnapshotMessageOverride = string.IsNullOrWhiteSpace(message) ? null : message;
-        ExpireSolution(true);
-    }
+    public void SetViewSnapshotMessageOverride(string? message) => SetSnapshotMessage<ViewSnapshot>(message);
 
     /// <summary>
     /// Switches the wired View Snapshot tool(s) between sending the capture as its own message and
@@ -462,13 +506,24 @@ public class ConversationLog : StatefulComponentBase
     private void SetSnapshotSendsMessage<T>(bool on)
         where T : SnapshotToolComponentBase
     {
-        foreach (IGH_Param source in Params.Input[InHumanTools].Sources)
+        foreach (T snapshot in Owners<T>())
         {
-            if (source.Attributes?.GetTopLevel?.DocObject is T snapshot)
-            {
-                snapshot.SetSendWithMessage(on);
-            }
+            snapshot.SetSendWithMessage(on);
         }
+    }
+
+    // Sets the message that rides with one kind of snapshot's capture. The text lives on the tool
+    // component for the same reason its send-or-attach flag does — it is that tool's setting, and it is
+    // saved with it. Every wired tool of the kind is set, matching the read (the last one wins).
+    private void SetSnapshotMessage<T>(string? message)
+        where T : SnapshotToolComponentBase
+    {
+        foreach (T snapshot in Owners<T>())
+        {
+            snapshot.SetMessageOverride(message);
+        }
+
+        ExpireSolution(true);
     }
 
     /// <summary>
@@ -478,7 +533,11 @@ public class ConversationLog : StatefulComponentBase
     /// <param name="on">True to fold typed signatures in for every included component; false keeps the hybrid default (signatures for the curated common set only).</param>
     public void SetExposeSignatures(bool on)
     {
-        _exposeSignatures = on;
+        foreach (ComponentCatalogGrounder grounder in Owners<ComponentCatalogGrounder>())
+        {
+            grounder.SetExposeSignatures(on);
+        }
+
         ExpireSolution(true);
     }
 
@@ -526,6 +585,11 @@ public class ConversationLog : StatefulComponentBase
         // the live state. Cheap: this is just projecting goo references already on the wire.
         ReadGroundingInputs(DA);
         ReadHumanToolInputs(DA);
+
+        if (_legacyPending)
+        {
+            ScheduleLegacyMigration();
+        }
 
         // Observe every solve, even mid-run: events arriving while busy wait, latched on
         // their wires, and are serviced after the latch.
@@ -620,167 +684,229 @@ public class ConversationLog : StatefulComponentBase
     }
 
     /// <inheritdoc/>
-    public override bool Write(GH_IWriter writer)
-    {
-        // The null-vs-non-null distinction is load-bearing (null = include all), so persist it
-        // explicitly with a flag rather than inferring it from an empty leaf list.
-        writer.SetBoolean("GroundingSelectionSet", _selection is not null);
-        if (_selection is not null)
-        {
-            IReadOnlyList<(string Category, string SubCategory)> leaves = _selection.Leaves;
-            writer.SetInt32("GroundingLeafCount", leaves.Count);
-            for (int i = 0; i < leaves.Count; i++)
-            {
-                writer.SetString("GroundingLeafCategory", i, leaves[i].Category);
-                writer.SetString("GroundingLeafSubCategory", i, leaves[i].SubCategory);
-            }
-        }
-
-        // Cluster selection, persisted with the same null-vs-empty flag discipline.
-        writer.SetBoolean("ClusterSelectionSet", _clusterSelection is not null);
-        if (_clusterSelection is not null)
-        {
-            IReadOnlyList<string> names = _clusterSelection.Names;
-            writer.SetInt32("ClusterNameCount", names.Count);
-            for (int i = 0; i < names.Count; i++)
-            {
-                writer.SetString("ClusterName", i, names[i]);
-            }
-        }
-
-        // Tools selection, persisted with the same null-vs-empty flag discipline.
-        writer.SetBoolean("ToolsSelectionSet", _toolsSelection is not null);
-        if (_toolsSelection is not null)
-        {
-            IReadOnlyList<string> names = _toolsSelection.Names;
-            writer.SetInt32("ToolNameCount", names.Count);
-            for (int i = 0; i < names.Count; i++)
-            {
-                writer.SetString("ToolName", i, names[i]);
-            }
-        }
-
-        // Document-units override, persisted with the same null-vs-set flag discipline.
-        writer.SetBoolean("UnitsOverrideSet", _unitsOverride is not null);
-        if (_unitsOverride is not null)
-        {
-            writer.SetString("UnitsOverride", _unitsOverride);
-        }
-
-        // Geometry-snapshot message override, persisted with the same null-vs-set flag discipline.
-        writer.SetBoolean("SnapshotMessageSet", _snapshotMessageOverride is not null);
-        if (_snapshotMessageOverride is not null)
-        {
-            writer.SetString("SnapshotMessage", _snapshotMessageOverride);
-        }
-
-        // View-snapshot message override, same discipline under its own keys.
-        writer.SetBoolean("ViewSnapshotMessageSet", _viewSnapshotMessageOverride is not null);
-        if (_viewSnapshotMessageOverride is not null)
-        {
-            writer.SetString("ViewSnapshotMessage", _viewSnapshotMessageOverride);
-        }
-
-        writer.SetBoolean("ExposeComponentSignatures", _exposeSignatures);
-
-        return base.Write(writer);
-    }
-
-    /// <inheritdoc/>
+    /// <remarks>
+    /// Reads nothing of its own. Every setting the chat window edits now lives on the component that
+    /// owns it, so all this does is pick up the keys older files kept HERE and hand them on — see
+    /// <see cref="ApplyLegacySettings"/> for why that cannot happen until a solve has run. The keys are
+    /// never written again, so a file re-saved by this build has migrated for good.
+    /// </remarks>
     public override bool Read(GH_IReader reader)
     {
-        if (reader.ItemExists("GroundingSelectionSet") && reader.GetBoolean("GroundingSelectionSet"))
-        {
-            int count = reader.ItemExists("GroundingLeafCount") ? reader.GetInt32("GroundingLeafCount") : 0;
-            var leaves = new List<(string, string)>(count);
-            for (int i = 0; i < count; i++)
-            {
-                string category = reader.GetString("GroundingLeafCategory", i);
-                string subCategory = reader.GetString("GroundingLeafSubCategory", i);
-                leaves.Add((category, subCategory));
-            }
+        _legacySelection = ReadLegacyLeaves(reader);
+        _legacyClusterSelection = ReadLegacyNames(reader, "ClusterSelectionSet", "ClusterNameCount", "ClusterName") is { } clusters
+            ? ClusterSelection.FromNames(clusters)
+            : null;
+        _legacyToolsSelection = ReadLegacyNames(reader, "ToolsSelectionSet", "ToolNameCount", "ToolName") is { } tools
+            ? ToolsSelection.FromNames(tools)
+            : null;
+        _legacyUnitsOverride = ReadLegacyString(reader, "UnitsOverrideSet", "UnitsOverride");
+        _legacySnapshotMessage = ReadLegacyString(reader, "SnapshotMessageSet", "SnapshotMessage");
+        _legacyViewSnapshotMessage = ReadLegacyString(reader, "ViewSnapshotMessageSet", "ViewSnapshotMessage");
+        _legacyExposeSignatures = reader.ItemExists("ExposeComponentSignatures")
+            && reader.GetBoolean("ExposeComponentSignatures");
 
-            _selection = GroundingSelection.FromLeaves(leaves);
-        }
-        else
-        {
-            _selection = null;
-        }
-
-        if (reader.ItemExists("ClusterSelectionSet") && reader.GetBoolean("ClusterSelectionSet"))
-        {
-            int count = reader.ItemExists("ClusterNameCount") ? reader.GetInt32("ClusterNameCount") : 0;
-            var names = new List<string>(count);
-            for (int i = 0; i < count; i++)
-            {
-                names.Add(reader.GetString("ClusterName", i));
-            }
-
-            _clusterSelection = ClusterSelection.FromNames(names);
-        }
-        else
-        {
-            _clusterSelection = null;
-        }
-
-        if (reader.ItemExists("ToolsSelectionSet") && reader.GetBoolean("ToolsSelectionSet"))
-        {
-            int count = reader.ItemExists("ToolNameCount") ? reader.GetInt32("ToolNameCount") : 0;
-            var names = new List<string>(count);
-            for (int i = 0; i < count; i++)
-            {
-                names.Add(reader.GetString("ToolName", i));
-            }
-
-            _toolsSelection = ToolsSelection.FromNames(names);
-        }
-        else
-        {
-            _toolsSelection = null;
-        }
-
-        if (reader.ItemExists("UnitsOverrideSet") && reader.GetBoolean("UnitsOverrideSet"))
-        {
-            _unitsOverride = reader.ItemExists("UnitsOverride") ? reader.GetString("UnitsOverride") : null;
-        }
-        else
-        {
-            _unitsOverride = null;
-        }
-
-        if (reader.ItemExists("SnapshotMessageSet") && reader.GetBoolean("SnapshotMessageSet"))
-        {
-            _snapshotMessageOverride = reader.ItemExists("SnapshotMessage") ? reader.GetString("SnapshotMessage") : null;
-        }
-        else
-        {
-            _snapshotMessageOverride = null;
-        }
-
-        if (reader.ItemExists("ViewSnapshotMessageSet") && reader.GetBoolean("ViewSnapshotMessageSet"))
-        {
-            _viewSnapshotMessageOverride = reader.ItemExists("ViewSnapshotMessage") ? reader.GetString("ViewSnapshotMessage") : null;
-        }
-        else
-        {
-            _viewSnapshotMessageOverride = null;
-        }
-
-        // Missing key = false, so files written before the flag existed keep the names-only default.
-        _exposeSignatures = reader.ItemExists("ExposeComponentSignatures") && reader.GetBoolean("ExposeComponentSignatures");
+        _legacyPending = _legacySelection is not null
+            || _legacyClusterSelection is not null
+            || _legacyToolsSelection is not null
+            || _legacyUnitsOverride is not null
+            || _legacySnapshotMessage is not null
+            || _legacyViewSnapshotMessage is not null
+            || _legacyExposeSignatures;
 
         return base.Read(reader);
     }
 
+    // The component-catalog selection as older files stored it: a set flag, a count, and a
+    // category/sub-category pair per leaf.
+    private static GroundingSelection? ReadLegacyLeaves(GH_IReader reader)
+    {
+        if (!reader.ItemExists("GroundingSelectionSet") || !reader.GetBoolean("GroundingSelectionSet"))
+        {
+            return null;
+        }
+
+        int count = reader.ItemExists("GroundingLeafCount") ? reader.GetInt32("GroundingLeafCount") : 0;
+        var leaves = new List<(string, string)>(count);
+        for (int i = 0; i < count; i++)
+        {
+            leaves.Add((reader.GetString("GroundingLeafCategory", i), reader.GetString("GroundingLeafSubCategory", i)));
+        }
+
+        return GroundingSelection.FromLeaves(leaves);
+    }
+
+    // A name list as older files stored it. Returns null when the set flag says it was never
+    // configured, which is not the same as an empty list (that means "include nothing").
+    private static IReadOnlyList<string>? ReadLegacyNames(GH_IReader reader, string setKey, string countKey, string itemKey)
+    {
+        if (!reader.ItemExists(setKey) || !reader.GetBoolean(setKey))
+        {
+            return null;
+        }
+
+        int count = reader.ItemExists(countKey) ? reader.GetInt32(countKey) : 0;
+        var names = new List<string>(count);
+        for (int i = 0; i < count; i++)
+        {
+            names.Add(reader.GetString(itemKey, i));
+        }
+
+        return names;
+    }
+
+    // An optional string as older files stored it.
+    private static string? ReadLegacyString(GH_IReader reader, string setKey, string valueKey) =>
+        reader.ItemExists(setKey) && reader.GetBoolean(setKey) && reader.ItemExists(valueKey)
+            ? reader.GetString(valueKey)
+            : null;
+
     /// <inheritdoc/>
     protected override void OnCleared()
     {
-        // Conversation state resets; the grounding selection (_selection) is configuration, not
-        // conversation, so it is deliberately left intact across Clear.
+        // Conversation state resets. The settings are configuration, not conversation — and they do
+        // not live here at all any more, so Clear cannot touch them even by accident.
         _conversation = Conversation.Empty;
         _doLatch = false;
         _pendingOutcome = RecordOutcome.Nothing;
         _pendingUserText = string.Empty;
+    }
+
+    // The wired components this log holds settings on behalf of, type-filtered — every getter and
+    // setter goes through here. Last-one-wins on read, all-of-them on write, the same discipline the
+    // live grounding caches use.
+    //
+    // Walked LIVE on each call rather than cached on solve, and deliberately so: the wires are the
+    // truth, a rewire announces nothing, and callers arrive at moments when no solve has happened yet
+    // — the chat window's tick between solves, and a ghjson import restoring a selection onto
+    // components it has only just placed. A cache would be empty or stale in exactly those moments.
+    // The walk is a few wires deep; the tick reads it a dozen times per 0.15 s and it does not show.
+    private IEnumerable<T> Owners<T>()
+    {
+        var owners = new List<IGH_DocumentObject>();
+        CollectSourceComponents(Params.Input[InGrounding], owners, 0);
+        CollectSourceComponents(Params.Input[InHumanTools], owners, 0);
+        return owners.OfType<T>();
+    }
+
+    // Collects the components feeding an input, stepping THROUGH any bare parameter used as a relay:
+    // a generic param dropped in to tidy a long wire is common, and it would otherwise hide the
+    // grounder that owns the settings behind it. Depth-limited so a relay loop cannot spin, and
+    // de-duplicated by reference so a diamond of relays reports each component once.
+    private static void CollectSourceComponents(IGH_Param input, List<IGH_DocumentObject> found, int depth)
+    {
+        if (depth > MaxRelayDepth)
+        {
+            return;
+        }
+
+        foreach (IGH_Param source in input.Sources)
+        {
+            IGH_DocumentObject? owner = source.Attributes?.GetTopLevel?.DocObject;
+            if (owner is IGH_Component component)
+            {
+                if (!found.Contains(component))
+                {
+                    found.Add(component);
+                }
+
+                continue;
+            }
+
+            CollectSourceComponents(source, found, depth + 1);
+        }
+    }
+
+    // The tool nodes a wired Tools Present grounder can see — every node dispatched by a Router,
+    // advertised or parked. Read live off the grounder rather than cached, since a node can be wired,
+    // parked or deleted without this component solving.
+    private IReadOnlyList<LlmToolComponentBase> ScannedToolNodes() =>
+        Owners<ToolsInUse>().SelectMany(t => t.ScannedTools).Distinct().ToList();
+
+    // Hands the settings read out of an older file to the components that own them now, on the next
+    // solution rather than during this solve.
+    //
+    // Deferred because applying them touches other components — and because waiting for a solve is the
+    // whole point: the owners are only known once the wires have been read. Routed through the base's
+    // scheduling funnel rather than posting to the document directly, because Grasshopper keeps ONE
+    // document schedule and flushes every pending callback at the next solution: a raw post here would
+    // race whatever the latch has queued, and one of the two would be lost.
+    private void ScheduleLegacyMigration()
+    {
+        _legacyPending = false;
+        ScheduleStateSolve(1, ApplyLegacySettings);
+    }
+
+    // Applies each legacy setting to the component that owns it now. Only values that were actually
+    // configured are pushed: a legacy null means "never configured", which is already every
+    // component's default, so pushing it could only overwrite a setting the component itself carries.
+    private void ApplyLegacySettings()
+    {
+        if (_legacySelection is not null)
+        {
+            foreach (ComponentCatalogGrounder grounder in Owners<ComponentCatalogGrounder>())
+            {
+                grounder.SetSelection(_legacySelection);
+            }
+        }
+
+        if (_legacyExposeSignatures)
+        {
+            foreach (ComponentCatalogGrounder grounder in Owners<ComponentCatalogGrounder>())
+            {
+                grounder.SetExposeSignatures(true);
+            }
+        }
+
+        if (_legacyClusterSelection is not null)
+        {
+            foreach (ClusterGrounder grounder in Owners<ClusterGrounder>())
+            {
+                grounder.SetSelection(_legacyClusterSelection);
+            }
+        }
+
+        if (_legacyUnitsOverride is not null)
+        {
+            foreach (DocumentUnitsGrounder grounder in Owners<DocumentUnitsGrounder>())
+            {
+                grounder.SetOverride(_legacyUnitsOverride);
+            }
+        }
+
+        if (_legacySnapshotMessage is not null)
+        {
+            foreach (GeometrySnapshot snapshot in Owners<GeometrySnapshot>())
+            {
+                snapshot.SetMessageOverride(_legacySnapshotMessage);
+            }
+        }
+
+        if (_legacyViewSnapshotMessage is not null)
+        {
+            foreach (ViewSnapshot snapshot in Owners<ViewSnapshot>())
+            {
+                snapshot.SetMessageOverride(_legacyViewSnapshotMessage);
+            }
+        }
+
+        if (_legacyToolsSelection is { } tools)
+        {
+            // RestoreAdvertise, not SetAdvertise: this runs inside a scheduled callback, where asking a
+            // node for a solution of its own is exactly what must not happen. The flag is folded into
+            // the Tools Present signature, so the grounder picks the change up on its own.
+            foreach (LlmToolComponentBase tool in ScannedToolNodes())
+            {
+                tool.RestoreAdvertise(tools.Includes(tool.AdvertisedDefinition.Name));
+            }
+        }
+
+        _legacySelection = null;
+        _legacyClusterSelection = null;
+        _legacyToolsSelection = null;
+        _legacyUnitsOverride = null;
+        _legacySnapshotMessage = null;
+        _legacyViewSnapshotMessage = null;
+        _legacyExposeSignatures = false;
     }
 
     // Reads the Grounding input and caches it for the latch and the chat UI. The live catalog is the
@@ -814,8 +940,13 @@ public class ConversationLog : StatefulComponentBase
         // A document-units grounding carries a single value; if several are wired, the last one wins.
         _liveUnitsGrounding = _liveGroundings.OfType<DocumentUnitsGrounding>().LastOrDefault();
 
+        // Whether a Tools Present grounder is wired at all, which is not the same question as whether
+        // anything is advertised: parking every tool leaves the grounding in place carrying nothing.
+        _hasToolsGrounding = _liveGroundings.OfType<ToolsGrounding>().Any();
+
         // Tool definitions carried by every wired ToolsGrounding, merged (deduped by name — one Tools
-        // Present grounder is the norm, but two wired ones must not advertise a tool twice).
+        // Present grounder is the norm, but two wired ones must not advertise a tool twice). Parked
+        // tools are already absent: the grounder reports only what it advertises.
         _liveTools = _liveGroundings
             .OfType<ToolsGrounding>()
             .SelectMany(g => g.Tools ?? Array.Empty<LlmToolDefinition>())
@@ -867,11 +998,10 @@ public class ConversationLog : StatefulComponentBase
         _hasSignalTraceTool = tools.OfType<SignalTraceTool>().Any();
     }
 
-    // The tools advertised to the model: the live tools narrowed by the tools selection (null = all).
-    private IReadOnlyList<LlmToolDefinition> SelectedTools() =>
-        _toolsSelection is { } selection
-            ? _liveTools.Where(t => selection.Includes(t.Name)).ToList()
-            : _liveTools;
+    // The tools advertised to the model. No narrowing happens here any more: each tool node carries
+    // its own advertise switch and the wired Tools Present grounder reports only the ones that are on,
+    // so what arrives on the wire IS the advertised set.
+    private IReadOnlyList<LlmToolDefinition> SelectedTools() => _liveTools;
 
     // Folds the wired groundings into the system prompt, applying the component selection to
     // component-catalog groundings and the cluster selection to cluster groundings (other kinds
@@ -900,18 +1030,19 @@ public class ConversationLog : StatefulComponentBase
                     // expose-signatures toggle widens enrichment to the whole filtered catalog.
                     // No explicit selection = the native-only default: plug-in components stay out
                     // of the prompt until the user checks their tabs in the grounding selector.
-                    ComponentCatalog filteredCatalog = cc.Catalog.Filtered(_selection ?? cc.Catalog.NativeSelection());
+                    ComponentCatalog filteredCatalog =
+                        cc.Catalog.Filtered(GroundingSelectionOrNull ?? cc.Catalog.NativeSelection());
                     mapped.Add(new ComponentCatalogGrounding(
-                        _exposeSignatures
+                        ExposeComponentSignatures
                             ? ComponentSignatureProvider.EnrichWithSignatures(filteredCatalog)
                             : ComponentSignatureProvider.EnrichWithSignatures(filteredCatalog, CommonComponents.Names),
                         IncludeSignatures: true));
                     break;
                 case ClusterCatalogGrounding cl:
-                    mapped.Add(new ClusterCatalogGrounding(cl.Catalog.Filtered(_clusterSelection)));
+                    mapped.Add(new ClusterCatalogGrounding(cl.Catalog.Filtered(ClusterSelectionOrNull)));
                     break;
                 case DocumentUnitsGrounding du:
-                    mapped.Add(_unitsOverride is { } ov ? new DocumentUnitsGrounding(ov) : du);
+                    mapped.Add(UnitsOverrideOrNull is { } ov ? new DocumentUnitsGrounding(ov) : du);
                     break;
                 case ToolsGrounding:
                     // Collapse every wired tools grounding into ONE section listing the SELECTED tools

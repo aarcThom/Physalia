@@ -365,6 +365,16 @@ They share a shape, and it is the shape to copy for any future one:
   that the CLI holds the context, so only the newest user turn goes over. Anything that is not a
   clean one-user-message extension of what the session absorbed forces a fresh process — as does a
   changed model or system prompt, both of which are fixed at process/thread start.
+- **A seed is text PLUS its images** (`ConversationHelpers.ToSeedContent`, shared by both CLI
+  providers), never text alone. Rendering the history as a string turns a picture into
+  `[Image: image/png, N bytes]` — the model is told an image exists and shown nothing — so a snapshot
+  was silently invisible on exactly the turns that reseed, which is most of them in a real pipeline:
+  a tool round, a feedback turn, a compaction and a cold process all grow the conversation by more
+  than one user message. The transcript text is split around each image so the picture stays in the
+  turn that carried it; inline and URL images ride as real blocks, while a `ManagedImage` keeps its
+  text label, since a CLI cannot resolve another provider's file handle. A single-message
+  conversation still seeds with its raw blocks. The resend cost is the one the HTTP providers pay
+  every call.
 - **A plain text generator, not an agent**: the CLI's own tools are switched off, the workspace is an
   empty temp dir so nothing auto-discovers, and Physalia's system prompt REPLACES the agent's base
   prompt (`--system-prompt-file` / `baseInstructions`).

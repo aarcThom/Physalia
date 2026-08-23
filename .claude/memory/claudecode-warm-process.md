@@ -19,4 +19,25 @@ ClaudeCodeProvider was VERY SLOW because every inference cold-started a fresh `c
 
 **CORRECTION (2026-08-16):** the reason recorded above for ignoring the tools param — "the CLI can't surface Physalia tool calls back" — is FALSE as a general claim. The Codex CLI does exactly that through client-declared `dynamicTools`, with no change to how a canvas is wired ([[codex-dynamic-tools]]). Claude Code still ignores it because nobody has built the equivalent, not because it is impossible; the likely route is exposing Physalia's tools as an MCP server, which is untested and would need `--strict-mcp-config`/`--safe-mode` to make an exception. Consequence today: `ToolsGrounding` writes "the only tools available to you are…" into the system prompt even here, where no definitions are sent — a warning on LLM Call when `Instructions.Tools` is non-empty and the provider cannot carry them is the open follow-up.
 
+**A SEED MUST CARRY ITS IMAGES (2026-08-22, found in Rhino: "the LLM does not see the annotations").**
+Both CLI providers built their multi-turn seed with `ConversationHelpers.ToDisplayString`, so every
+picture in the history became `[Image: image/png, N bytes]` — the model was told an image existed and
+shown nothing. **The delta path was always fine** (it sends the newest turn's real blocks), which is
+what made this so quiet: it only bit on turns that RESEED, and a reseed is the common case, not the
+rare one — a tool round, a feedback turn, a compaction and a cold process all grow the conversation by
+more than one user message. So a marked-up snapshot arrived as pixels sometimes and as a byte count
+the rest of the time. New shared `ConversationHelpers.ToSeedContent(conversation, instruction)`
+returns interleaved blocks: the transcript text is flushed and split around each image so the picture
+stays in the turn that carried it, inline/URL images pass through as real blocks, a `ManagedImage`
+keeps its text label (a CLI cannot resolve another provider's file handle), and a history with no
+images still produces exactly one text block. `ClaudeCodeSession.BuildUserLine` already handled a
+multi-block array (nulls filtered, empty guarded), so nothing downstream needed touching.
+
+**Lesson for diagnosing this class of bug:** the chat window renders a sent turn from the SAME
+`ConversationMessage` the provider serialises, so "the marks show in the sent bubble" proves the UI,
+the host and the conversation are all correct and puts the fault downstream of them. Asking which
+provider answered was what narrowed it in one step — an HTTP provider would have shown the image fine.
+Confirmed against the live CLI with a console harness ([[core-console-harness]]): a three-message
+conversation on a fresh session, one image with red mark-up, and the model quoted the red text back.
+
 Files: `Providers/ClaudeCode/ClaudeCodeSession.cs` (new), `Providers/ClaudeCode/ClaudeCodeProvider.cs` (rewritten), `Models/ModelConfig.cs` (+SessionKey), `Components/Core/LlmCall.cs`. Note: net7.0 — `StreamWriter.FlushAsync(ct)` is .NET 8+, use `FlushAsync()`. Builds clean. Still UNVERIFIED in live Rhino (warm-vs-cold timing, teardown leak check) — see plan `radiant-dreaming-micali.md`. Relates to [[v2-core-architecture]] and the signal lifecycle [[signal-lifecycle-summary]].

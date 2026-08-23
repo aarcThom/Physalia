@@ -10,6 +10,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Design fork, then build through](design-fork-then-build-through.md) — investigate the whole path, ask the ONE question the code can't settle, then finish the entire vertical slice (Core→GH→UI, tests, docs) and say what hasn't run live. Confirmed good 2026-08-17.
 
 ## Latest
+- [CLI seeds carry their images](claudecode-warm-process.md) — 2026-08-22: a marked-up snapshot reached Claude Code as `[Image: …, N bytes]`. Both CLI providers stringified history on a RESEED — the common case (tool round, feedback turn, compaction, cold start); deltas were always fine. New `ConversationHelpers.ToSeedContent`. Verified live.
 - [Image Mark Up tool](image-mark-up-tool.md) — 2026-08-21: new human tool; snapshots and attached images open in an image editor. **Send mode had to invert** — capture goes OUT to the page, minting nothing, and a confirm comes back as a `kind`-tagged submit. Not run in Rhino.
 - [Headless chat-UI testing](headless-chat-ui-testing.md) — 2026-08-21: drive `dist/index.html` in headless Chrome, no Rhino. Traps: `</body>` occurs inside the inlined JS (use rpartition), and never assert on the DOM in the click’s own tick.
 - [Settings ownership](settings-ownership.md) — 2026-08-21: every user-set setting serializes on the component it configures, not the Conversation Log — a setting is only useful if it **ships inside a preset**. Tools on/off is now a per-node switch.

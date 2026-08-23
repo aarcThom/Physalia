@@ -328,20 +328,17 @@ public sealed class CodexProvider : ILlmProvider
 
     private static IReadOnlyList<MessageContent> BuildSeedContent(Conversation conversation)
     {
-        // A single-turn conversation seeds with its real content blocks (so images survive). A
-        // multi-turn history is serialised inline into one user message, since a fresh thread has
-        // no prior context to continue from.
+        // A single-turn conversation seeds with its real content blocks. A multi-turn history is
+        // serialised inline into one user message, since a fresh thread has no prior context to
+        // continue from — but as TEXT PLUS ITS IMAGES (see ToSeedContent): rendering the history as a
+        // string alone turned every picture into a byte count, which is why a snapshot went unseen on
+        // any turn that reseeded. BuildUserInput spools each one to a temp file from here.
         if (conversation.Count == 1)
         {
             return conversation.Messages[0].Content;
         }
 
-        string history = ConversationHelpers.ToDisplayString(conversation);
-        string seed = string.IsNullOrEmpty(history)
-            ? ContinuationInstruction
-            : $"{history}\n\n{ContinuationInstruction}";
-
-        return new MessageContent[] { new TextContent(seed) };
+        return ConversationHelpers.ToSeedContent(conversation, ContinuationInstruction);
     }
 
     private static Result<LlmResponseChunk, LlmError> Fail(LlmErrorKind kind, string message)

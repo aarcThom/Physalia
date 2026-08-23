@@ -282,20 +282,18 @@ public sealed class ClaudeCodeProvider : ILlmProvider
 
     private static IReadOnlyList<MessageContent> BuildSeedContent(Conversation conversation)
     {
-        // A single-turn conversation seeds with its real content blocks (so images survive). A
-        // multi-turn history is serialised inline into one user message, since a fresh process has
-        // no prior context to continue from.
+        // A single-turn conversation seeds with its real content blocks. A multi-turn history is
+        // serialised inline into one user message, since a fresh process has no prior context to
+        // continue from — but as TEXT PLUS ITS IMAGES, never text alone: a reseed that rendered the
+        // whole history as a string turned every picture into a byte count, so a snapshot was
+        // invisible on exactly the turns that reseed (a tool round, a feedback turn, a compaction,
+        // a cold process). The resend cost is the same one the HTTP providers pay every call.
         if (conversation.Count == 1)
         {
             return conversation.Messages[0].Content;
         }
 
-        string history = ConversationHelpers.ToDisplayString(conversation);
-        string seed = string.IsNullOrEmpty(history)
-            ? ContinuationInstruction
-            : $"{history}\n\n{ContinuationInstruction}";
-
-        return new MessageContent[] { new TextContent(seed) };
+        return ConversationHelpers.ToSeedContent(conversation, ContinuationInstruction);
     }
 
     private static Result<LlmResponseChunk, LlmError> Fail(LlmErrorKind kind, string message)

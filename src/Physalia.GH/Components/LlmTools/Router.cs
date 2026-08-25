@@ -18,7 +18,8 @@ namespace Physalia.GH.Components;
 /// Dispatches a LLM Call's tool calls to tool nodes and forwards both the model's request and the
 /// returned results back toward the Conversation Log. Each user-added output receives the calls whose name
 /// matches it; an output's name updates automatically to the tool it is wired into (the tool node's
-/// advertised <c>Tool Definition</c>), so dispatch matches without a manual rename. A fixed Feedback
+/// advertised <c>Tool Definition</c>), so dispatch matches without a manual rename. A newly placed
+/// Router starts with one such output already in place. A fixed Feedback
 /// output (always last) carries the assistant tool-call request and, later, the collected tool
 /// results — wire it through a Feedback component into a Feedback Collector and on to the Conversation Log's
 /// Tool input.
@@ -37,6 +38,12 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
 {
     private const int InToolCalls = 0;
     private const int InResults = 1;
+
+    // The tool output every freshly placed Router starts with, named as CreateParameter would name
+    // the first one the user added by hand.
+    private const string FirstToolNick = "T1";
+
+    private const string ToolOutputDescription = "Carries the calls for one tool. Wire it into a tool node's Signal input and this output takes that tool's name by itself.";
 
     // Latched dispatch signals keyed by the tool-output nickname they were sent to, plus the
     // current feedback signal. Keyed by nickname (not index) so they survive output add/remove.
@@ -101,12 +108,15 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Registers only the fixed Feedback output (always last). The user adds one signal output per
-    /// tool above it via the zoom +/- icons; each output's name then tracks the tool node it is
-    /// wired into, so no manual rename is required.
+    /// Registers one tool output — a Router with none can dispatch nothing, so the common first
+    /// move is always already made — followed by the fixed Feedback output (always last). The user
+    /// adds or removes further tool outputs above it via the zoom +/- icons; each output's name then
+    /// tracks the tool node it is wired into, so no manual rename is required. A saved file restores
+    /// its own archived output set, so this default only applies to a freshly placed Router.
     /// </remarks>
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
+        pManager.AddParameter(new Param_Signal(), FirstToolNick, FirstToolNick, ToolOutputDescription, GH_ParamAccess.item);
         pManager.AddParameter(new Param_Signal(), "Feedback", "F", "The request and its answers together, as the matched pair of turns the conversation needs. Wire through a Feedback into a Feedback Collector, then into a Conversation Log's LLM Tool Signal input.", GH_ParamAccess.item);
     }
 
@@ -126,7 +136,7 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
         {
             Name = nick,
             NickName = nick,
-            Description = "Carries the calls for one tool. Wire it into a tool node's Signal input and this output takes that tool's name by itself.",
+            Description = ToolOutputDescription,
             Access = GH_ParamAccess.item,
         };
     }

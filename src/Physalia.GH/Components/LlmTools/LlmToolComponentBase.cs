@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Physalia Contributors
+// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -101,6 +101,22 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
     /// able to answer, but leaves it out of what the model is told exists — so it is never called.
     /// </summary>
     public bool Advertise => _advertise;
+
+    /// <summary>
+    /// Gets a standing instruction about USING this tool, folded into the system prompt by the Tools
+    /// Present grounder alongside the list of tool names. Null (the default) for the great majority of
+    /// tools: the definition's own description says when the tool is worth calling, and the model is
+    /// trusted to decide.
+    ///
+    /// <para>Override it only where leaving the decision to the model is itself the failure — a tool
+    /// the model must call whether or not it thinks it needs to (its memory), or one whose result it
+    /// must treat as authoritative over its own reasoning. It rides in the prompt, not in the tool
+    /// definition, because a provider's tool description is read when the model is already
+    /// considering the call; a prompt directive is read before it decides. The directive appears only
+    /// while the node is advertised, so parking the tool takes its instruction out of the prompt with
+    /// it.</para>
+    /// </summary>
+    public virtual string? GroundingDirective => null;
 
     /// <summary>
     /// Gets a value indicating whether this tool runs its calls asynchronously off the solve thread.

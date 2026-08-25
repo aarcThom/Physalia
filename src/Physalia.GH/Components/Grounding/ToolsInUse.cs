@@ -24,6 +24,11 @@ namespace Physalia.GH.Components;
 /// the component watches the document's solution end and re-solves itself only when the in-use set
 /// actually changes, so the new definitions reach the Conversation Log without a runaway solve loop.</para>
 ///
+/// <para>Where a tool node carries a <c>GroundingDirective</c> — a standing instruction about using
+/// it, as the Memory tool does ("read your memory before you answer") — that text is collected
+/// alongside the definitions and folded into the same prompt section. It is what turns a tool the
+/// model <i>may</i> call into one it <i>must</i>.</para>
+///
 /// <para>Each tool node also carries its own "Advertise To The Model" switch, and this grounding
 /// reports only the nodes that have it on. The switch lives on the node (so it travels with it and is
 /// saved in the file) rather than as a name-keyed selection here, so this component keeps no settings
@@ -94,12 +99,19 @@ public class ToolsInUse : PhyBase
 
         // Only the advertised nodes are described to the model. A parked tool stays wired and able to
         // answer — it is simply never mentioned, so it is never called.
-        var definitions = tools
-            .Where(t => t.Advertise)
-            .Select(t => t.AdvertisedDefinition)
+        var advertised = tools.Where(t => t.Advertise).ToList();
+        var definitions = advertised.Select(t => t.AdvertisedDefinition).ToList();
+
+        // A few tools carry a standing instruction about USING them (the memory tool's "read it
+        // before you answer"). It is collected from the same advertised set as the definitions, so
+        // parking a tool takes its directive out of the prompt along with its name.
+        var directives = advertised
+            .Select(t => t.GroundingDirective)
+            .Where(d => !string.IsNullOrWhiteSpace(d))
+            .Select(d => d!)
             .ToList();
 
-        DA.SetData(OutTools, new GH_Grounding(new ToolsGrounding(definitions)));
+        DA.SetData(OutTools, new GH_Grounding(new ToolsGrounding(definitions, directives)));
     }
 
     /// <summary>

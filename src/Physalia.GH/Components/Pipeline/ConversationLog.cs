@@ -87,6 +87,13 @@ public class ConversationLog : StatefulComponentBase
     // and their names feed the chat input's "/t/" reference. Empty when no tools grounding is wired.
     private IReadOnlyList<LlmToolDefinition> _liveTools = Array.Empty<LlmToolDefinition>();
 
+    // The standing usage directives carried alongside those definitions (the Memory tool's "read your
+    // memory before you answer"). Held separately from _liveTools because they are not part of what a
+    // provider is told a tool IS — they are prompt text — but they must be kept for the same reason
+    // the definitions are: BuildGroundedSystemPrompt REBUILDS the tools grounding from what is cached
+    // here, so a directive not cached is a directive silently dropped on the way to the model.
+    private IReadOnlyList<string> _liveToolDirectives = Array.Empty<string>();
+
     // Whether a tools grounding is wired at all — separate from _liveTools being non-empty, because
     // parking every tool empties the advertised set while the Tools Present grounder is still there.
     // The chat window gates its tools page on THIS, or switching the last tool off would hide the page
@@ -985,6 +992,14 @@ public class ConversationLog : StatefulComponentBase
             .Select(g => g.First())
             .ToList();
 
+        // Directives from every wired grounding, deduped by text — two Tools Present grounders both
+        // reporting the Memory tool must not state its instruction twice.
+        _liveToolDirectives = _liveGroundings
+            .OfType<ToolsGrounding>()
+            .SelectMany(g => g.DirectiveTexts)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
         // Referenced Rhino geometry and python functions, cached so every grounding kind has a live
         // read for the chat UI's grounding pages. The referenced-geometry list comes straight from
         // the document (the params themselves are the registry), gated on a canvas-state grounding
@@ -1081,7 +1096,7 @@ public class ConversationLog : StatefulComponentBase
                     // (exactly what is advertised to the model), so the prompt constrains it to that set.
                     if (!toolsAdded)
                     {
-                        mapped.Add(new ToolsGrounding(SelectedTools()));
+                        mapped.Add(new ToolsGrounding(SelectedTools(), _liveToolDirectives));
                         toolsAdded = true;
                     }
 

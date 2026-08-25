@@ -151,6 +151,24 @@ export interface UiState {
 	/** True when a Token Count human tool is wired (shows its row in the Human Tools section). The
 	 *  number itself arrives separately, via setTokenCount. */
 	tokenCountToolWired: boolean;
+	/** True when a Read PDF human tool is wired into the Conversation Log — without it, PDF intake
+	 *  (the PDF button and drag-drop) is disabled and a dropped PDF is refused. Separate from
+	 *  imageToolWired: a PDF is not an image, never travels as one, and never reaches the editor. */
+	pdfToolWired: boolean;
+	/** PDFs attached but not yet announced in a turn — what the composer draws as chips. Summaries
+	 *  only; a PDF's bytes never cross the bridge from the host, because a drawing set can be
+	 *  hundreds of megabytes and the page has no use for the file itself. */
+	pendingPdfs: UiPdf[];
+}
+
+/** One attached PDF, as the composer draws it. */
+export interface UiPdf {
+	/** The short handle the model addresses this document by. */
+	alias: string;
+	/** The original file name, shown on the chip. */
+	name: string;
+	/** Page count, shown on the chip so the human can see the set is what they meant to attach. */
+	pages: number;
 }
 
 /** Which snapshot tool a capture came from. Sent to the page with a send-mode capture bound for the
@@ -328,9 +346,17 @@ export interface SubmitMessage {
 	text: string;
 	images: SubmitImage[];
 	/** Absent for a typed prompt. A snapshot kind marks a send-mode capture coming back from the image
-	 *  editor: the host reads the message that rides it off the wired tool, so `text` stays empty. */
-	kind?: SnapshotKind;
+	 *  editor: the host reads the message that rides it off the wired tool, so `text` stays empty.
+	 *  'pdf-drop' marks dropped PDF files rather than a message at all — the host registers them and
+	 *  returns, and they are announced with whatever prompt is sent next. */
+	kind?: SnapshotKind | PdfDropKind;
 }
+
+/** Marks a payload carrying dropped PDF bytes rather than a message. Drag-and-drop is the one PDF
+ *  intake path that cannot hand the host a real path — the DOM File API withholds it — so the bytes
+ *  come over and the host spools them to a temp file. The PDF *button* opens a native picker
+ *  host-side and moves nothing, which is what makes it the path for a large set. */
+export type PdfDropKind = 'pdf-drop';
 
 declare global {
 	interface Window {

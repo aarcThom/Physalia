@@ -23,6 +23,7 @@
 	import SquareMinusIcon from '@lucide/svelte/icons/square-minus';
 	import BoxIcon from '@lucide/svelte/icons/box';
 	import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
+	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import Axis3dIcon from '@lucide/svelte/icons/axis-3d';
 	import CameraIcon from '@lucide/svelte/icons/camera';
 	import RulerIcon from '@lucide/svelte/icons/ruler';
@@ -102,6 +103,8 @@
 		markUpToolWired: boolean;
 		/** True when a Token Count human tool is wired (shows its row in the Human Tools section). */
 		tokenCountToolWired: boolean;
+		/** True when a Read PDF human tool is wired — the PDF button and PDF drag-drop are enabled. */
+		pdfToolWired: boolean;
 		/** Applies a new component selection (host action). all=true returns to include-everything. */
 		onapply: (payload: GroundingSelectionPayload) => void;
 		/** Toggles typed component signatures in the grounded system prompt (host action). */
@@ -153,6 +156,7 @@
 		signalTraceToolWired,
 		markUpToolWired,
 		tokenCountToolWired,
+		pdfToolWired,
 		onapply,
 		onapplysignatures,
 		onapplyclusters,
@@ -448,7 +452,7 @@
 			below to refine what's included.
 		</p>
 
-		{#if tree.length > 0 || clusters.length > 0 || tools.length > 0 || referencedGeometry.length > 0 || pythonFunctions.length > 0 || unitsWired || snapshotWired || viewSnapshotWired || imageToolWired}
+		{#if tree.length > 0 || clusters.length > 0 || tools.length > 0 || referencedGeometry.length > 0 || pythonFunctions.length > 0 || unitsWired || snapshotWired || viewSnapshotWired || imageToolWired || pdfToolWired}
 			<div class="mt-4 flex flex-col gap-2">
 				{#if tree.length > 0}
 					<Button
@@ -530,7 +534,7 @@
 			     this window (snapshot buttons, image attachments), never folded into the prompt or
 			     advertised to the model. Each appears only while its component is wired into the
 			     Conversation Log's Human Tools input. -->
-			{#if snapshotWired || viewSnapshotWired || imageToolWired || exportToolWired || signalTraceToolWired || markUpToolWired || tokenCountToolWired}
+			{#if snapshotWired || viewSnapshotWired || imageToolWired || exportToolWired || signalTraceToolWired || markUpToolWired || tokenCountToolWired || pdfToolWired}
 				<div class="border-muted-foreground/20 mt-5 border-t pt-4">
 					<h3 class="text-sm font-semibold">Human Tools</h3>
 					<p class="text-muted-foreground mt-1 text-xs">
@@ -580,6 +584,20 @@
 							>
 								<ImagePlusIcon class="text-muted-foreground size-4 shrink-0" />
 								<span class="flex-1">Image attachments</span>
+								<span class="text-muted-foreground text-xs">Enabled</span>
+							</div>
+						{/if}
+						{#if pdfToolWired}
+							<!-- Read-only, like Add Image. Worth saying out loud that this is only half
+							     the pair: attaching a PDF puts a short summary in the conversation, and
+							     nothing can actually read one unless the Read PDF tool under LLM Tools
+							     is also wired to a Router. -->
+							<div
+								class="neu-raised-sm flex items-center gap-2 rounded-md px-3 py-2.5 text-sm"
+								title="PDFs can be dragged in or picked from disk. Attaching one adds a short summary to the conversation; the model reads pages on demand through the Read PDF tool, which must be wired to a Router."
+							>
+								<FileTextIcon class="text-muted-foreground size-4 shrink-0" />
+								<span class="flex-1">PDF attachments</span>
 								<span class="text-muted-foreground text-xs">Enabled</span>
 							</div>
 						{/if}

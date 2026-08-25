@@ -25,7 +25,10 @@ STATE = """
     snapshotGeometryPresent: true, snapshotSendsMessage: true, snapshotDefaultMessage: 'msg',
     snapshotMessage: null, viewSnapshotWired: false, viewSnapshotSendsMessage: true,
     viewSnapshotDefaultMessage: '', viewSnapshotMessage: null, imageToolWired: true,
-    exportToolWired: false, signalTraceToolWired: false, markUpToolWired: true
+    exportToolWired: false, signalTraceToolWired: false, markUpToolWired: true,
+    tokenCountToolWired: false, pdfToolWired: true,
+    pendingPdfs: [{ alias: 'a-101-floor-plans', name: 'A-101 Floor Plans.pdf', pages: 24 },
+                  { alias: 'site-survey', name: 'Site Survey.pdf', pages: 3 }]
 """
 
 DRIVE_JS = """

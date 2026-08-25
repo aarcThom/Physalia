@@ -7,6 +7,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using Physalia.Core.Common;
 using Rhino.Geometry;
 
 namespace Physalia.GH.Generation;
@@ -21,8 +22,12 @@ namespace Physalia.GH.Generation;
 /// </summary>
 internal static class ViewportSnapshot
 {
-    /// <summary>Longest-side pixel cap for the encoded snapshot, keeping the inline image bounded.</summary>
-    private const int MaxImageSide = 1568;
+    /// <summary>
+    /// Longest-side pixel cap for the encoded snapshot, keeping the inline image bounded. Defined
+    /// once in <see cref="ImageLimits"/> and shared with the PDF page rasterizer, so a picture
+    /// arrives at the same resolution whichever component produced it.
+    /// </summary>
+    private const int MaxImageSide = ImageLimits.MaxImageSide;
 
     /// <summary>
     /// Zooms the active viewport onto <paramref name="bounds"/> (when valid) and captures it as PNG

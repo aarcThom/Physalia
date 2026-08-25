@@ -126,3 +126,23 @@ public sealed record ImageMarkUpTool : HumanTool;
 /// </para>
 /// </summary>
 public sealed record TokenCountTool : HumanTool;
+
+/// <summary>
+/// Enables PDF intake in the chat window's prompt box — a button that opens a file picker, and
+/// drag-and-drop. Without this tool wired, a dropped PDF is refused.
+/// <para>
+/// A marker record, and pointedly NOT the tool that reads PDFs. Attaching one puts almost nothing
+/// in the conversation: the file is registered for the session and the turn carries a short
+/// descriptor — name, page count, sheet size, which pages have a text layer, the sheet numbers
+/// guessed off each title block. Every actual page of it is pulled on demand by the model-callable
+/// <c>read_pdf</c> tool, which is a separate component and has to be wired to a Router for any of
+/// this to be useful. The split is what keeps a four-hundred-sheet drawing set affordable to
+/// attach: the descriptor costs tens of tokens, and nothing else is spent until a question is
+/// asked that needs a specific page.
+/// </para>
+/// <para>
+/// The file itself is referenced where it sits and never copied, so it stays live — and a set moved
+/// or deleted after attaching reports itself as gone rather than silently serving stale pages.
+/// </para>
+/// </summary>
+public sealed record ReadPdfTool : HumanTool;

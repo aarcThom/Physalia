@@ -117,6 +117,7 @@ public class ConversationLog : StatefulComponentBase
     private bool _hasSignalTraceTool;
     private bool _hasImageMarkUpTool;
     private bool _hasTokenCountTool;
+    private bool _hasReadPdfTool;
 
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
@@ -315,6 +316,14 @@ public class ConversationLog : StatefulComponentBase
     /// can enable image attachments in the prompt box; without it image intake is fully disabled).
     /// </summary>
     public bool HasAddImageTool => _hasAddImageTool;
+
+    /// <summary>
+    /// Gets a value indicating whether a Read PDF human tool is currently wired (so the chat UI can
+    /// enable PDF intake in the prompt box; without it a dropped PDF is refused). Independent of
+    /// image intake: the two are separate grants because they are separate affordances, and a
+    /// pipeline may reasonably want one without the other.
+    /// </summary>
+    public bool HasReadPdfTool => _hasReadPdfTool;
 
     /// <summary>
     /// Gets a value indicating whether an Export Conversation human tool is currently wired (so the
@@ -1043,6 +1052,7 @@ public class ConversationLog : StatefulComponentBase
         _hasSignalTraceTool = tools.OfType<SignalTraceTool>().Any();
         _hasImageMarkUpTool = tools.OfType<ImageMarkUpTool>().Any();
         _hasTokenCountTool = tools.OfType<TokenCountTool>().Any();
+        _hasReadPdfTool = tools.OfType<ReadPdfTool>().Any();
     }
 
     // The tools advertised to the model. No narrowing happens here any more: each tool node carries

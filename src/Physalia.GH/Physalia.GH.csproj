@@ -62,6 +62,15 @@
     <PackageReference Include="System.Drawing.Common" Version="7.0.0" ExcludeAssets="runtime" GeneratePathProperty="true" />
     <PackageReference Include="GhJSON.Core" Version="1.1.1" />
     <PackageReference Include="GhJSON.Grasshopper" Version="1.1.1" />
+    <!-- PDF page rasterization for the read_pdf tool (Generation/PdfPageRenderer.cs). This is the
+         ONE dependency in the plug-in that is not pure-managed: it drags PDFium and Skia native
+         binaries, which is why the .gha is no longer fully self-contained — see the Build section
+         of CLAUDE.md and planning/pdf-tools.md. Both managed assemblies are DENYLISTED from
+         RepackGha below.
+         Pinned: 5.4.0 resolves lib/netstandard2.1 and its SkiaSharp 4.150.1 resolves ref/net6.0,
+         both compatible with our net7.0 TFM. Re-verify that on any bump — PDFtoImage's own
+         TargetFrameworks list starts at net8.0. -->
+    <PackageReference Include="PDFtoImage" Version="5.4.0" />
     <!-- Build-time only: merges the managed dependency DLLs into the .gha (see RepackGha target). -->
     <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.45" PrivateAssets="all" />
   </ItemGroup>
@@ -157,6 +166,18 @@
 	     TargetFrameworks (plural) MSBuild runs an outer build where $(TargetFramework)/$(TargetDir)
 	     are empty, so the unguarded target's "$(TargetDir)Files" destination resolves to a relative
 	     "Files" under the project dir and spawns a stray src/Physalia.GH/Files copy every build. -->
+	<!-- Drop the native debug symbols the PDF stack lays down. libSkiaSharp.pdb alone is ~89 MB —
+	     an order of magnitude larger than everything else Physalia ships put together — and it is of
+	     no use to anyone debugging THIS plug-in, since it describes Skia's own C++ internals. The
+	     .dll files beside it are left strictly alone: those are the binaries PdfNativeLibrary
+	     resolves, and they are the reason the .gha is no longer fully self-contained. -->
+	<Target Name="TrimNativePdbs" AfterTargets="Build" Condition="'$(TargetFramework)' != ''">
+		<ItemGroup>
+			<NativePdb Include="$(TargetDir)runtimes\**\native\*.pdb" />
+		</ItemGroup>
+		<Delete Files="@(NativePdb)" />
+	</Target>
+
 	<Target Name="CopyLibraryFiles" AfterTargets="Build" Condition="'$(TargetFramework)' != ''">
 		<ItemGroup>
 			<LibraryFiles Include="$(MSBuildProjectDirectory)\..\..\Files\**\*" />
@@ -245,6 +266,19 @@
 			<RepackDenyList Include="System.Text.Encodings.Web" />
 			<RepackDenyList Include="System.IO.Pipelines" />
 			<RepackDenyList Include="Microsoft.Bcl.AsyncInterfaces" />
+			<!-- The PDF rasterizer ships LOOSE, never merged — a DIFFERENT reason from the JSON
+			     stack's. Nothing here is a type-identity problem: PDFtoImage and SkiaSharp are
+			     P/Invoke shims over native binaries (pdfium, libSkiaSharp) that NuGet lays down
+			     under $(TargetDir)runtimes/<rid>/native/. Those natives survive the merge only
+			     because the RepackInputDll glob below is non-recursive; the MANAGED halves would
+			     be swept in and internalized, and a merged, renamed, internalized shim inside a
+			     .gha that Grasshopper loads with a plain Assembly.LoadFrom is exactly where native
+			     resolution stops being predictable. Left loose, they sit beside their runtimes/
+			     tree in the layout the packages were built for, and PdfNativeLibrary pins the
+			     lookup explicitly on top of that. PdfPig is NOT here: it is pure managed and
+			     merges fine. -->
+			<RepackDenyList Include="PDFtoImage" />
+			<RepackDenyList Include="SkiaSharp" />
 		</ItemGroup>
 		<ItemGroup>
 			<!-- Candidate deps = every DLL in the output dir, minus the denylist. -->

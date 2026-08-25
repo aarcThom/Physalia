@@ -57,8 +57,8 @@ public class ScriptIO : PhyBase, IGuidLinked
     /// </summary>
     public ScriptIO()
         : base(
-            "Script I/O",
-            "Script I/O",
+            "Set Script I/O",
+            "Set Script I/O",
             "Shows the model the exact inputs and outputs of the script component a transmitter writes into, and holds their names still — the model may correct a type or an access mode, but it cannot rename, add or drop a parameter, so your wires survive every push. Drag the bottom grip onto a Py or C# Transmitter. Disable the component to lift the hold without unlinking.",
             "Grounding")
     {
@@ -98,7 +98,7 @@ public class ScriptIO : PhyBase, IGuidLinked
             (_, _) =>
             {
                 _traceWatch = !_traceWatch;
-                Rhino.RhinoApp.WriteLine($"Script I/O interface-watch trace {(_traceWatch ? "ON" : "off")}.");
+                Rhino.RhinoApp.WriteLine($"Set Script I/O interface-watch trace {(_traceWatch ? "ON" : "off")}.");
             },
             enabled: true,
             @checked: _traceWatch);
@@ -551,7 +551,7 @@ public class ScriptIO : PhyBase, IGuidLinked
     {
         if (_traceWatch)
         {
-            Rhino.RhinoApp.WriteLine($"[Script I/O {InstanceGuid.ToString()[..8]}] {message}");
+            Rhino.RhinoApp.WriteLine($"[Set Script I/O {InstanceGuid.ToString()[..8]}] {message}");
         }
     }
 

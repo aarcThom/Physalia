@@ -21,17 +21,16 @@ public abstract record HumanTool;
 /// a geometry button; pressing it captures the Rhino viewport (framed on the generated
 /// geometry).
 /// <para>
-/// What happens next depends on <see cref="SendWithMessage"/>: when true (the default) the
-/// snapshot is sent immediately as its own user message carrying <see cref="Message"/> — a
-/// snapshot is never attached to a typed prompt automatically. When false the snapshot is
-/// instead attached to the prompt box like a pasted image and waits for the human to type
-/// their own message; <see cref="Message"/> is then unused (and the chat window hides its
-/// editor).
+/// What happens next depends on <see cref="SendWithMessage"/>: when false (the default) the
+/// snapshot is attached to the prompt box like a pasted image and waits for the human to type
+/// their own message, with <see cref="Message"/> unused (and the chat window hides its editor).
+/// When true the snapshot is instead sent immediately as its own user message carrying
+/// <see cref="Message"/> — a snapshot is never attached to a typed prompt automatically.
 /// </para>
 /// </summary>
 /// <param name="Message">The text sent alongside the snapshot image. Unused when SendWithMessage is false.</param>
 /// <param name="SendWithMessage">True to send the snapshot immediately as its own message carrying Message; false to attach it to the prompt box for the human to caption.</param>
-public sealed record GeometrySnapshotTool(string Message, bool SendWithMessage = true) : HumanTool
+public sealed record GeometrySnapshotTool(string Message, bool SendWithMessage = false) : HumanTool
 {
     /// <summary>
     /// The message sent with the snapshot unless the user edits it in the chat window's
@@ -50,15 +49,15 @@ public sealed record GeometrySnapshotTool(string Message, bool SendWithMessage =
 /// on an empty document, on referenced geometry Physalia never placed, and on a view the human has
 /// composed by hand.
 /// <para>
-/// <see cref="SendWithMessage"/> works exactly as it does on the geometry snapshot: true (the
-/// default) sends the capture immediately as its own user message carrying <see cref="Message"/>;
-/// false attaches it to the prompt box like a pasted image and waits for the human's own caption
-/// (<see cref="Message"/> is then unused and the chat window hides its editor).
+/// <see cref="SendWithMessage"/> works exactly as it does on the geometry snapshot: false (the
+/// default) attaches the capture to the prompt box like a pasted image and waits for the human's own
+/// caption, with <see cref="Message"/> unused (and the chat window hides its editor); true sends it
+/// immediately as its own user message carrying <see cref="Message"/>.
 /// </para>
 /// </summary>
 /// <param name="Message">The text sent alongside the view capture. Unused when SendWithMessage is false.</param>
 /// <param name="SendWithMessage">True to send the capture immediately as its own message carrying Message; false to attach it to the prompt box for the human to caption.</param>
-public sealed record ViewSnapshotTool(string Message, bool SendWithMessage = true) : HumanTool
+public sealed record ViewSnapshotTool(string Message, bool SendWithMessage = false) : HumanTool
 {
     /// <summary>
     /// The message sent with the view capture unless the user edits it in the chat window's

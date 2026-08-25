@@ -112,7 +112,7 @@
 	// wired (without it image intake is fully disabled in the composer).
 	let snapshotWired = $state(false);
 	let snapshotGeometryPresent = $state(false);
-	let snapshotSendsMessage = $state(true);
+	let snapshotSendsMessage = $state(false);
 	let snapshotDefaultMessage = $state('');
 	let snapshotMessage = $state<string | null>(null);
 	let imageToolWired = $state(false);
@@ -120,7 +120,7 @@
 	// View-snapshot state: the same shape minus any armed flag — a view capture needs nothing on the
 	// canvas and moves no camera, so its button is live from the moment the tool is wired.
 	let viewSnapshotWired = $state(false);
-	let viewSnapshotSendsMessage = $state(true);
+	let viewSnapshotSendsMessage = $state(false);
 	let viewSnapshotDefaultMessage = $state('');
 	let viewSnapshotMessage = $state<string | null>(null);
 
@@ -244,11 +244,11 @@
 				unitOptions = next.unitOptions ?? [];
 				snapshotWired = next.snapshotWired ?? false;
 				snapshotGeometryPresent = next.snapshotGeometryPresent ?? false;
-				snapshotSendsMessage = next.snapshotSendsMessage ?? true;
+				snapshotSendsMessage = next.snapshotSendsMessage ?? false;
 				snapshotDefaultMessage = next.snapshotDefaultMessage ?? '';
 				snapshotMessage = next.snapshotMessage ?? null;
 				viewSnapshotWired = next.viewSnapshotWired ?? false;
-				viewSnapshotSendsMessage = next.viewSnapshotSendsMessage ?? true;
+				viewSnapshotSendsMessage = next.viewSnapshotSendsMessage ?? false;
 				viewSnapshotDefaultMessage = next.viewSnapshotDefaultMessage ?? '';
 				viewSnapshotMessage = next.viewSnapshotMessage ?? null;
 				imageToolWired = next.imageToolWired ?? false;

@@ -30,6 +30,9 @@ public static class ArrowStyles
     /// <summary>Harness Out → the input it feeds: hot magenta to bright gold.</summary>
     public static readonly WireGradient HarnessOut = new(Color.FromArgb(255, 255, 0, 229), Color.FromArgb(255, 255, 214, 0));
 
+    /// <summary>Token Count → Token Estimator link: spring green to slate blue.</summary>
+    public static readonly WireGradient TokenCount = new(Color.SpringGreen, Color.SlateBlue);
+
     /// <summary>ZoomGuid → any component link: gold to royal blue.</summary>
     public static readonly WireGradient ZoomGuid = new(Color.Gold, Color.RoyalBlue);
 }

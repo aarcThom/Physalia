@@ -87,3 +87,22 @@ Technique that made it robust:
 - **PowerShell gotcha that cost a debug cycle:** the comma operator binds tighter than `-`, so
   `@($s, $i - 1)` parses as `($s,$i) - 1` and throws "does not contain a method named
   op_Subtraction". Parenthesize: `@($s, ($i - 1))`.
+
+
+---
+
+## Third case — a lone icon, DRAWN not generated (2026-08-24)
+
+`TokenCount.png` was added on its own. Do not regenerate a sheet for one icon: the bead size drifts
+between generations and the addition then reads as foreign. Draw it in `System.Drawing` instead —
+at 24 px the bead texture is not resolvable, so what has to match is a flat ~2 px line in the
+palette, which code hits exactly.
+
+Recipe (full write-up at the end of `planning/component-icon-prompts.md`):
+- Render at 20x on **pure black**, one bitmap PER COLOUR, downscale to 24 with HighQualityBicubic,
+  THEN key. Same order as the splitter, same reason.
+- Alpha per layer from that colour's own peak channel (navy 99, cyan 222); composite source-over
+  afterwards. Keying one mixed layer needs per-pixel chromaticity classification and the navy/cyan
+  boundary pixels classify wrong.
+- Nothing thinner than ~1.8 units on the 24 grid. Two 1.2-unit window-title dots came out as smears.
+- Same install contract as ever: drop `<ClassName>.png` in `Resources\`, rebuild, restart Rhino.

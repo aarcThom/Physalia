@@ -109,6 +109,7 @@ public class ConversationLog : StatefulComponentBase
     private bool _hasExportTool;
     private bool _hasSignalTraceTool;
     private bool _hasImageMarkUpTool;
+    private bool _hasTokenCountTool;
 
     // Set ONLY by our own scheduled callback so the latch runs after the visible delay.
     private bool _doLatch;
@@ -326,6 +327,27 @@ public class ConversationLog : StatefulComponentBase
     /// image's thumbnail).
     /// </summary>
     public bool HasImageMarkUpTool => _hasImageMarkUpTool;
+
+    /// <summary>
+    /// Gets a value indicating whether a Token Count human tool is currently wired (so the chat UI
+    /// can list it among the human tools). Whether a NUMBER actually appears is a further question
+    /// — see <see cref="LinkedTokenCountOrNull"/> — since the tool also has to be linked to a
+    /// Token Estimator.
+    /// </summary>
+    public bool HasTokenCountTool => _hasTokenCountTool;
+
+    /// <summary>
+    /// Gets the token count to show in the chat window's corner, or null when no counter should
+    /// appear: no Token Count tool wired, none of the wired ones linked to a Token Estimator, or
+    /// the linked estimator has no count yet.
+    ///
+    /// <para>Read live off the owning component (last one wins, the same discipline as every other
+    /// setting the log fronts), which in turn reads the estimator's output live. Nothing here is
+    /// cached on solve, because the chat window asks on its own tick and the count moves without
+    /// this component solving.</para>
+    /// </summary>
+    public int? LinkedTokenCountOrNull =>
+        Owners<TokenCount>().LastOrDefault(t => t.CurrentCount is not null)?.CurrentCount;
 
     /// <summary>
     /// Gets a value indicating whether the wired Geometry Snapshot tool sends its snapshot
@@ -1005,6 +1027,7 @@ public class ConversationLog : StatefulComponentBase
         _hasExportTool = tools.OfType<ExportConversationTool>().Any();
         _hasSignalTraceTool = tools.OfType<SignalTraceTool>().Any();
         _hasImageMarkUpTool = tools.OfType<ImageMarkUpTool>().Any();
+        _hasTokenCountTool = tools.OfType<TokenCountTool>().Any();
     }
 
     // The tools advertised to the model. No narrowing happens here any more: each tool node carries

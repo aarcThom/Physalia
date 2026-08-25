@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Types;
 using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
@@ -128,47 +127,6 @@ internal static class PromptPipelineView
                 {
                     return text;
                 }
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// The current estimate of the first Token Estimator on the forward signal spine of the
-    /// given ConversationLog, or null when no estimator is wired downstream of it — or when the
-    /// estimator has not produced a count yet. Read from the estimator's Token Count output
-    /// volatile data, so the value always matches what the canvas shows. Drives the chat
-    /// window's token counter, which renders nothing on null.
-    /// </summary>
-    /// <param name="conversationLog">The ConversationLog at the head of the spine.</param>
-    /// <returns>The estimated token count, or null.</returns>
-    public static int? GetDownstreamTokenCount(ConversationLog conversationLog)
-    {
-        foreach (IGH_Component comp in DownstreamSignalComponents(conversationLog))
-        {
-            if (comp is TokenEstimator estimator)
-            {
-                return ReadTokenCount(estimator);
-            }
-        }
-
-        return null;
-    }
-
-    // Reads the integer on the estimator's Token Count output, or null when it holds no data.
-    private static int? ReadTokenCount(TokenEstimator estimator)
-    {
-        if (estimator.Params.Output.Count == 0)
-        {
-            return null;
-        }
-
-        foreach (IGH_Goo goo in estimator.Params.Output[0].VolatileData.AllData(true))
-        {
-            if (goo is GH_Integer integer)
-            {
-                return integer.Value;
             }
         }
 

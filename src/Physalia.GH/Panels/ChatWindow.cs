@@ -1363,9 +1363,11 @@ public class ChatWindow : Form
             Exec($"window.physalia&&window.physalia.setStream({JsonSerializer.Serialize(stream)});");
         }
 
-        // Token counter: the estimate from a Token Estimator wired downstream of this chat's
-        // ConversationLog, or null (counter hidden) when none is wired or it has no count yet.
-        int? tokenCount = conversationLog is null ? null : PromptPipelineView.GetDownstreamTokenCount(conversationLog);
+        // Token counter: the count from the Token Estimator that a wired Token Count human tool is
+        // linked to, or null (counter hidden) when no such tool is wired, none of them is linked to
+        // an estimator, or the estimator has no count yet. Counting and showing the count are two
+        // components now — an estimator on its own puts nothing on screen.
+        int? tokenCount = conversationLog?.LinkedTokenCountOrNull;
         if (_forcePush || tokenCount != _lastTokenCount)
         {
             _lastTokenCount = tokenCount;
@@ -1509,13 +1511,18 @@ public class ChatWindow : Form
         // each image already in the prompt box grows an edit button.
         bool markUpToolWired = conversationLog?.HasImageMarkUpTool == true;
 
+        // Listed among the human tools, but its number is pushed on its own line above (the count
+        // changes far more often than the wiring does, and must not drag the whole grounding
+        // payload across with it every time it ticks).
+        bool tokenCountToolWired = conversationLog?.HasTokenCountTool == true;
+
 
         // Cheap proxy for availableComponents in the signature (serializing the full list every tick
         // would churn); the tree/selection already trigger a push, this just catches a catalog resize.
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired }, WriteOpts);
 
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
@@ -1535,7 +1542,7 @@ public class ChatWindow : Form
             // would answer a question the user did not ask.
             bool home = _home;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, home, status, configuredProviders, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired }, WriteOpts);
+                new { connected, busy, ready, needsSetup, home, status, configuredProviders, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired }, WriteOpts);
 
             Exec($"window.physalia&&window.physalia.setState({state});");
         }

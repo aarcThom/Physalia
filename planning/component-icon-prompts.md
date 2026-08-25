@@ -273,3 +273,29 @@ Two techniques in there worth keeping:
   chromaticity to the nearest palette entry and dividing by *that* entry's peak channel — navy
   peaks at 99 and cyan at 222, so a single luminance threshold would render every navy icon at
   39% opacity.
+
+---
+
+## Additions after the second pass — drawn, not generated
+
+A single new component does not justify a sheet: the bead language survives generation only when a
+whole sheet is made at once, and a lone regenerated cell comes back at a different bead size.
+Instead the icon is **drawn in code**, in the same palette, at 20× on pure black, and put through
+the same two-step keying the splitter uses (downscale first, then alpha from the palette entry's
+own peak channel — separately per colour layer, so navy and cyan never blend into one another's
+alpha). At 24 px the bead texture is not resolvable anyway: what survives is a ~2 px flat line, and
+matching that is what makes an addition sit in the set.
+
+| File | Component | Icon |
+|---|---|---|
+| `TokenCount.png` | Token Count | The chat-window frame — a rounded rectangle with a strip across its top, the same shape as `SignalTrace` and `ReadUrl` — containing a semicircular gauge arc with a needle. The needle is cyan. |
+
+The drawing script for it is not kept in the repo (it is fifty lines of `System.Drawing` and the
+recipe above is the part that matters). Two things to reuse if another one is drawn this way:
+
+- **One black-backed layer per colour, keyed by that colour's peak channel, composited afterwards.**
+  Keying a single mixed layer means classifying each pixel's chromaticity, and the pixels where
+  navy meets cyan classify wrong.
+- **Nothing thinner than about 1.8 units on the 24 grid.** Two 1.2-unit dots in the window's title
+  strip — drawn first, to echo `SignalTrace`'s title marks — came out as a pair of smears and were
+  dropped; an empty strip still reads as a window.

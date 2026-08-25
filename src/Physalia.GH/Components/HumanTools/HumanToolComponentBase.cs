@@ -58,5 +58,17 @@ public abstract class HumanToolComponentBase : PhyBase
     protected sealed override void SolveInstance(IGH_DataAccess DA)
     {
         DA.SetData(0, new GH_HumanTool(Tool));
+        OnSolveEnd();
+    }
+
+    /// <summary>
+    /// Runs after the tool has been emitted, for a tool that must report on state of its own —
+    /// a link to another component that is missing, say. The emission itself stays sealed: what a
+    /// human tool puts on its wire is its type and nothing else, so this hook can add a runtime
+    /// message and change no data. Called on the solve thread, so
+    /// <see cref="GH_ActiveObject.AddRuntimeMessage"/> is legal here. Does nothing by default.
+    /// </summary>
+    protected virtual void OnSolveEnd()
+    {
     }
 }

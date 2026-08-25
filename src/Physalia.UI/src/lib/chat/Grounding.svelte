@@ -32,6 +32,7 @@
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import ActivityIcon from '@lucide/svelte/icons/activity';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
+	import HashIcon from '@lucide/svelte/icons/hash';
 	import HappyFace from '$lib/chat/HappyFace.svelte';
 	import type {
 		ClusterInfo,
@@ -99,6 +100,8 @@
 		signalTraceToolWired: boolean;
 		/** True when an Image Mark Up human tool is wired (shows its row in the Human Tools section). */
 		markUpToolWired: boolean;
+		/** True when a Token Count human tool is wired (shows its row in the Human Tools section). */
+		tokenCountToolWired: boolean;
 		/** Applies a new component selection (host action). all=true returns to include-everything. */
 		onapply: (payload: GroundingSelectionPayload) => void;
 		/** Toggles typed component signatures in the grounded system prompt (host action). */
@@ -149,6 +152,7 @@
 		exportToolWired,
 		signalTraceToolWired,
 		markUpToolWired,
+		tokenCountToolWired,
 		onapply,
 		onapplysignatures,
 		onapplyclusters,
@@ -526,7 +530,7 @@
 			     this window (snapshot buttons, image attachments), never folded into the prompt or
 			     advertised to the model. Each appears only while its component is wired into the
 			     Conversation Log's Human Tools input. -->
-			{#if snapshotWired || viewSnapshotWired || imageToolWired || exportToolWired || signalTraceToolWired || markUpToolWired}
+			{#if snapshotWired || viewSnapshotWired || imageToolWired || exportToolWired || signalTraceToolWired || markUpToolWired || tokenCountToolWired}
 				<div class="border-muted-foreground/20 mt-5 border-t pt-4">
 					<h3 class="text-sm font-semibold">Human Tools</h3>
 					<p class="text-muted-foreground mt-1 text-xs">
@@ -601,6 +605,18 @@
 								<PencilIcon class="text-muted-foreground size-4 shrink-0" />
 								<span class="flex-1">Image mark-up</span>
 								<span class="text-muted-foreground text-xs">Snapshots &amp; attachments</span>
+							</div>
+						{/if}
+						{#if tokenCountToolWired}
+							<!-- Read-only: the counter's only setting is WHICH estimator it watches, and that
+							     is a wire on the canvas rather than a choice in here. -->
+							<div
+								class="neu-raised-sm flex items-center gap-2 rounded-md px-3 py-2.5 text-sm"
+								title="The running token count appears in the bottom-right corner of this window, read from the Token Estimator the tool is linked to"
+							>
+								<HashIcon class="text-muted-foreground size-4 shrink-0" />
+								<span class="flex-1">Token count</span>
+								<span class="text-muted-foreground text-xs">Bottom-right</span>
 							</div>
 						{/if}
 						{#if signalTraceToolWired}

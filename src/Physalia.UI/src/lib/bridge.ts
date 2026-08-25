@@ -148,6 +148,9 @@ export interface UiState {
 	 *  the human sends — a snapshot capture detours through it instead of going straight out, and each
 	 *  image in the prompt box grows an edit button on its thumbnail. */
 	markUpToolWired: boolean;
+	/** True when a Token Count human tool is wired (shows its row in the Human Tools section). The
+	 *  number itself arrives separately, via setTokenCount. */
+	tokenCountToolWired: boolean;
 }
 
 /** Which snapshot tool a capture came from. Sent to the page with a send-mode capture bound for the
@@ -282,8 +285,8 @@ export interface PhysaliaHost {
 	setStream(text: string | null): void;
 	setState(state: UiState): void;
 	setSetupResult(result: SetupResult | null): void;
-	/** Estimated token count from a Token Estimator wired downstream of the viewed Conversation Log,
-	 *  or null to hide the counter (no estimator wired, or no count produced yet). */
+	/** Token count from the Token Estimator a wired Token Count human tool is linked to, or null to
+	 *  hide the counter (no such tool wired, none linked to an estimator, or no count produced yet). */
 	setTokenCount(count: number | null): void;
 	/** Bundled preset harnesses (from Files/PRESETS) for the Add-preset page. */
 	setPresets(presets: UiPreset[]): void;

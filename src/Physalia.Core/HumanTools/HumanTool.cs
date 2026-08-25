@@ -114,3 +114,16 @@ public sealed record SignalTraceTool : HumanTool;
 /// survives to configure. Without this tool wired, images travel exactly as captured.
 /// </summary>
 public sealed record ImageMarkUpTool : HumanTool;
+
+/// <summary>
+/// Puts the live token count in the corner of the chat window. A marker record: the count itself
+/// is read off a Token Estimator on the canvas, and WHICH estimator is a canvas fact — the Token
+/// Count component grip-links to one — so there is nothing carried here.
+/// <para>
+/// The counter exists only while this tool is wired AND its component is linked to an estimator.
+/// The two halves are deliberately separate concerns: the Token Estimator counts, this says the
+/// human wants to see the number. Without the tool the estimator still counts for everything
+/// downstream of it (a Token Threshold, a compactor) and the window shows nothing.
+/// </para>
+/// </summary>
+public sealed record TokenCountTool : HumanTool;

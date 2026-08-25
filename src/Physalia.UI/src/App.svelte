@@ -133,6 +133,7 @@
 	// image the human sends. `markUp` is that editor's whole state: the image being drawn on plus where
 	// the result must go when it is confirmed. Null = the editor is closed.
 	let markUpToolWired = $state(false);
+	let tokenCountToolWired = $state(false);
 	let markUp = $state<{
 		base64: string;
 		mediaType: string;
@@ -159,7 +160,8 @@
 			imageToolWired ||
 			exportToolWired ||
 			signalTraceToolWired ||
-			markUpToolWired
+			markUpToolWired ||
+			tokenCountToolWired
 	);
 
 	// The cluster names currently exposed to the model (selection applied), for the "/c/" autocomplete.
@@ -253,6 +255,7 @@
 				exportToolWired = next.exportToolWired ?? false;
 				signalTraceToolWired = next.signalTraceToolWired ?? false;
 				markUpToolWired = next.markUpToolWired ?? false;
+				tokenCountToolWired = next.tokenCountToolWired ?? false;
 			},
 			setSetupResult: (result) => {
 				setupResult = result;
@@ -835,6 +838,7 @@
 					{exportToolWired}
 					{signalTraceToolWired}
 					{markUpToolWired}
+					{tokenCountToolWired}
 					onapply={setGrounding}
 					onapplysignatures={setSignatures}
 					onapplyclusters={setClusters}
@@ -1042,13 +1046,13 @@
 		</div>
 	{/if}
 
-	<!-- Token counter, pinned to the window's bottom-right corner. Shown only when a Token
-	     Estimator is wired downstream of this chat's ConversationLog — the host pushes null otherwise
-	     and the counter disappears. -->
+	<!-- Token counter, pinned to the window's bottom-right corner. Shown only when a Token Count
+	     human tool is wired AND linked to a Token Estimator — the host pushes null otherwise and the
+	     counter disappears. An estimator on its own counts for the pipeline, not for this window. -->
 	{#if tokenCount !== null && !showSetup}
 		<div
 			class="text-muted-foreground absolute right-3 bottom-2 text-[11px] tabular-nums select-none"
-			title="Estimated tokens (Token Estimator on this chat's pipeline)"
+			title="Estimated tokens, from the Token Estimator this chat's Token Count tool is linked to"
 		>
 			{tokenCount.toLocaleString()} tokens
 		</div>

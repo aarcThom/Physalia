@@ -10,6 +10,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Design fork, then build through](design-fork-then-build-through.md) — investigate the whole path, ask the ONE question the code can't settle, then finish the entire vertical slice (Core→GH→UI, tests, docs) and say what hasn't run live. Confirmed good 2026-08-17.
 
 ## Latest
+- [Token Count human tool](token-count-human-tool.md) — 2026-08-24: the chat window's token counter moved off the Token Estimator onto its own grip-linked human tool. The downstream-walk fallback is **deleted** — an estimator alone now shows nothing. `HumanToolComponentBase` gained `OnSolveEnd()`. Not run in Rhino.
 - [CLI seeds carry their images](claudecode-warm-process.md) — 2026-08-22: a marked-up snapshot reached Claude Code as `[Image: …, N bytes]`. Both CLI providers stringified history on a RESEED — the common case (tool round, feedback turn, compaction, cold start); deltas were always fine. New `ConversationHelpers.ToSeedContent`. Verified live.
 - [Image Mark Up tool](image-mark-up-tool.md) — 2026-08-21: new human tool; snapshots and attached images open in an image editor. **Send mode had to invert** — capture goes OUT to the page, minting nothing, and a confirm comes back as a `kind`-tagged submit. Not run in Rhino.
 - [Headless chat-UI testing](headless-chat-ui-testing.md) — 2026-08-21: drive `dist/index.html` in headless Chrome, no Rhino. Traps: `</body>` occurs inside the inlined JS (use rpartition), and never assert on the DOM in the click’s own tick.
@@ -82,7 +83,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [UI design: neumorphism](ui-design-neumorphism.md) — `--neu-*` tokens + `.neu-*` helpers; the two edge-shadow gotchas (gutter clip, overflow-hidden clips child shadows).
 - [Chatbox switcher row](chatbox-switcher-row.md) — bottom circles switch the one window between Chat components; `selectchatbox` bridge verb.
 - [Chatbox emoji identity](chatbox-emoji-identity.md) — random ocean emoji as canvas icon + switcher dot (TextRenderer colour emoji, deduped, persisted).
-- [Chat token counter](chat-token-counter.md) — mirrors the TokenEstimator downstream of the viewed chat's Conversation Log; hidden when none wired.
+- [Chat token counter](chat-token-counter.md) — **superseded** by [[token-count-human-tool]]; the downstream walk is gone.
 - [GH no-preview Hidden palette](gh-nopreview-hidden-palette.md) — to tint a signal-only component via GH_Skin, swap the **Hidden** palette: GH forces non-preview nodes onto `GH_Palette.Hidden`.
 - [Resources tab + Image Gatherer](resources-tab-image-gatherer.md) — ImageResource goo, path-only persistence, and the Eto/WPF GridView edit-commit gotcha (two crashes).
 - [Prompter image references](prompter-image-references.md) — `/<alias>` inline images: the Core parser (still live), alias rules, and where the feature went when Prompter was deleted.

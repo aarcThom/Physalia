@@ -27,9 +27,10 @@ namespace Physalia.GH.Harness;
 /// canvas": canvas-state grounding, component placement, geometry and health reports, fidelity
 /// checks, and Rhino references.</description></item>
 /// <item><description><b>The harness</b> (<see cref="Harness(IGH_DocumentObject)"/>) — anything
-/// belonging to one line of work rather than to a file: the master group a pipeline writes into,
-/// and the local memory folder, which is keyed by the harness's NAME so the model's notes travel
-/// with the pipeline instead of with whatever document it was dropped into.</description></item>
+/// belonging to one line of work rather than to a document: the master group a pipeline writes
+/// into, the canvas frame the model is reading. Note that a harness's identity is its instance id,
+/// never its nickname: "Harness" is the nickname until someone changes it, so anything keyed on the
+/// name silently lumps every unrenamed pipeline together.</description></item>
 /// </list>
 /// </summary>
 internal static class PhyDocuments

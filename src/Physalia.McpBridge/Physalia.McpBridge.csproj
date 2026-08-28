@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- net8.0, NOT net7.0: this is what lets the bridge exist at all. The official MCP SDK cannot
+         run inside Rhino (the .NET 8 shared runtime serves System.Text.Json 8.0.0 to every plug-in
+         and ignores app-local copies, while the SDK's netstandard2.0 asset needs .NET 10 APIs). An
+         ordinary console app resolves its dependencies from its OWN deps.json, so here the pinned
+         System.Text.Json below actually wins. net8.0 also means no extra runtime to install: Rhino 8
+         already brings it. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Physalia.McpBridge</AssemblyName>
+    <RootNamespace>Physalia.McpBridge</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- The bridge is a leaf executable, never referenced by the plug-in. -->
+    <IsPublishable>true</IsPublishable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.Core" Version="2.2.0" />
+    <!-- Explicit, and load-bearing: the SDK's Microsoft.Extensions.AI dependency calls
+         JsonElement.Parse(ReadOnlySpan<byte>, JsonDocumentOptions), added in .NET 10. Without this
+         pin the app would bind to the shared framework's 8.0.0 and throw MissingMethodException —
+         exactly the failure that rules the SDK out inside Rhino. -->
+    <PackageReference Include="System.Text.Json" Version="10.0.10" />
+  </ItemGroup>
+
+</Project>

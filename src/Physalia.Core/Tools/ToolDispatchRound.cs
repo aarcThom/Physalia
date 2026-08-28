@@ -20,6 +20,19 @@ public sealed record ToolDispatchGroup(
     string Payload);
 
 /// <summary>
+/// One Router output and the tool names it answers for.
+/// </summary>
+/// <remarks>
+/// Almost every tool node advertises exactly one tool, so its slot carries one name and dispatch is
+/// the plain name match it always was. An MCP Server node advertises the whole tool set of the
+/// server it is connected to, so its slot carries many names under one output — which is why
+/// matching is set membership rather than equality on the output's own name.
+/// </remarks>
+/// <param name="OutputName">The Router output's name, used as the dispatch key.</param>
+/// <param name="ToolNames">Every tool name this output answers for.</param>
+public sealed record ToolOutputSlot(string OutputName, IReadOnlyList<string> ToolNames);
+
+/// <summary>
 /// The plan for dispatching one assistant turn's tool calls: how the calls group onto outputs, the
 /// ids whose results must be gathered before the round completes, synthetic error results for calls
 /// with no matching output, and any warnings to surface.
@@ -55,8 +68,24 @@ public static class ToolDispatchRound
         IReadOnlyList<ToolCallContent> calls,
         IReadOnlyList<string> availableOutputNames)
     {
-        ArgumentNullException.ThrowIfNull(calls);
         ArgumentNullException.ThrowIfNull(availableOutputNames);
+
+        return Plan(calls, availableOutputNames.Select(n => new ToolOutputSlot(n, new[] { n })).ToList());
+    }
+
+    /// <summary>
+    /// Plans how the given tool calls dispatch onto the available outputs, where an output may answer
+    /// for several tool names.
+    /// </summary>
+    /// <param name="calls">The tool calls from the assistant turn, in order.</param>
+    /// <param name="slots">The router's tool outputs and the names each one serves (excluding Feedback).</param>
+    /// <returns>The dispatch plan.</returns>
+    public static ToolDispatchPlan Plan(
+        IReadOnlyList<ToolCallContent> calls,
+        IReadOnlyList<ToolOutputSlot> slots)
+    {
+        ArgumentNullException.ThrowIfNull(calls);
+        ArgumentNullException.ThrowIfNull(slots);
 
         var orderedNames = new List<string>();
         var groupedCalls = new Dictionary<string, List<ToolCallContent>>(StringComparer.OrdinalIgnoreCase);
@@ -66,18 +95,21 @@ public static class ToolDispatchRound
 
         // The names the model may actually call, for the error given to an unmatched call so it can
         // correct itself (e.g. a model that invents "fetch_url" is told the real tool is "read_url").
-        string availableList = availableOutputNames.Count > 0
-            ? "The available tools are: " + string.Join(", ", availableOutputNames) + "."
+        // These are TOOL names, not output names: with an MCP node the two differ, and naming the
+        // output would tell the model to call something that does not exist.
+        var callableNames = slots.SelectMany(s => s.ToolNames).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        string availableList = callableNames.Count > 0
+            ? "The available tools are: " + string.Join(", ", callableNames) + "."
             : "No tools are available.";
 
         foreach (ToolCallContent call in calls)
         {
             string? matchedName = null;
-            foreach (string name in availableOutputNames)
+            foreach (ToolOutputSlot slot in slots)
             {
-                if (string.Equals(name, call.Name, StringComparison.OrdinalIgnoreCase))
+                if (slot.ToolNames.Any(n => string.Equals(n, call.Name, StringComparison.OrdinalIgnoreCase)))
                 {
-                    matchedName = name;
+                    matchedName = slot.OutputName;
                     break;
                 }
             }

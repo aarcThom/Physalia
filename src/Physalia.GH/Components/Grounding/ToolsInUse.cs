@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -96,7 +96,7 @@ public class ToolsInUse : PhyBase
         // answer — it is simply never mentioned, so it is never called.
         var definitions = tools
             .Where(t => t.Advertise)
-            .Select(t => t.AdvertisedDefinition)
+            .SelectMany(t => t.AdvertisedDefinitions)
             .ToList();
 
         DA.SetData(OutTools, new GH_Grounding(new ToolsGrounding(definitions)));
@@ -154,7 +154,7 @@ public class ToolsInUse : PhyBase
         string.Join(
             "|",
             tools
-                .Select(t => $"{t.InstanceGuid:N}:{t.AdvertisedDefinition.Name}:{(t.Advertise ? '1' : '0')}")
+                .Select(t => $"{t.InstanceGuid:N}:{string.Join(',', t.AdvertisedDefinitions.Select(d => d.Name))}:{(t.Advertise ? '1' : '0')}")
                 .OrderBy(s => s, StringComparer.Ordinal));
 
     private void OnDocumentSolutionEnd(object sender, GH_SolutionEventArgs e)

@@ -427,6 +427,7 @@ terminology.md
 
 # Physalia — API keys (never commit)
 **/API_KEY_CONFIG.YAML
+**/MCP_SERVERS.YAML
 /.serena/project.yml
 /.serena
 /Images/scratch

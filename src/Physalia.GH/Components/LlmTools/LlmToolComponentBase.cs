@@ -88,13 +88,27 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
     /// Gets the tool definition advertised to the model — its name, when-to-call description, and
     /// argument JSON Schema. The name is what the model emits and what a Router output is matched to.
     /// </summary>
-    protected abstract LlmToolDefinition Definition { get; }
+    /// <remarks>
+    /// Virtual rather than abstract only so a node advertising a whole SET of tools can override
+    /// <see cref="Definitions"/> instead. Every node advertising exactly one tool — which is all of
+    /// them but the MCP Server — overrides this and nothing else changes for it.
+    /// </remarks>
+    protected virtual LlmToolDefinition Definition =>
+        throw new NotSupportedException(
+            $"{GetType().Name} advertises a set of tools; read {nameof(Definitions)} instead of {nameof(Definition)}.");
 
     /// <summary>
-    /// Gets the tool definition this node advertises. Public so a Tools In Use scanner can collect
-    /// it directly off the canvas without relying on the node having solved.
+    /// Gets every tool definition this node advertises. Defaults to the single
+    /// <see cref="Definition"/>; override instead of <see cref="Definition"/> when the set is
+    /// discovered at runtime, as an MCP server's is.
     /// </summary>
-    public LlmToolDefinition AdvertisedDefinition => Definition;
+    protected virtual IReadOnlyList<LlmToolDefinition> Definitions => new[] { Definition };
+
+    /// <summary>
+    /// Gets the tool definitions this node advertises. Public so a Tools In Use scanner can collect
+    /// them directly off the canvas without relying on the node having solved.
+    /// </summary>
+    public IReadOnlyList<LlmToolDefinition> AdvertisedDefinitions => Definitions;
 
     /// <summary>
     /// Gets a value indicating whether this node is advertised to the model. False keeps it wired and
@@ -200,7 +214,7 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
     /// <inheritdoc/>
     protected sealed override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
-        pManager.AddParameter(new Param_LlmToolDefinition(), "Tool", "T", ToolOutputDescription, GH_ParamAccess.item);
+        pManager.AddParameter(new Param_LlmToolDefinition(), "Tool", "T", ToolOutputDescription, GH_ParamAccess.list);
         pManager.AddParameter(new Param_Signal(), "Result", "R", ResultOutputDescription, GH_ParamAccess.item);
         RegisterAdditionalOutputs(pManager);
     }
@@ -208,8 +222,9 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
     /// <inheritdoc/>
     protected sealed override void SolveInstance(IGH_DataAccess DA)
     {
-        // Always advertise the tool so the LLM Call sees it regardless of run state.
-        DA.SetData(OutTool, new GH_LlmToolDefinition(Definition));
+        // Always advertise the tools so the LLM Call sees them regardless of run state. A list, not
+        // an item, because an MCP Server node stands for its server's whole tool set.
+        DA.SetDataList(OutTool, Definitions.Select(d => new GH_LlmToolDefinition(d)));
 
         OnSolveTick(DA);
         ObserveSignalInputs(DA, InSignal);

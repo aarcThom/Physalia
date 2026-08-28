@@ -77,6 +77,18 @@
                       SkipGetTargetFrameworkProperties="true"
                       UndefineProperties="TargetFramework"
                       Private="false" />
+    <!-- Build-ordering only (no assembly): the MCP bridge is a net8.0 EXECUTABLE this net7.0
+         plug-in launches as a subprocess and never links against. It exists because the official
+         MCP SDK cannot run inside Rhino (the .NET 8 shared runtime serves System.Text.Json 8.0.0 to
+         plug-ins and ignores app-local copies, while the SDK needs .NET 10 APIs), so remote,
+         OAuth-protected servers are reached through a process that CAN host it. Never merged by
+         ILRepack: it is staged into a Bridge subfolder and RepackInputDll only globs $(TargetDir)
+         itself. -->
+    <ProjectReference Include="..\Physalia.McpBridge\Physalia.McpBridge.csproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true"
+                      UndefineProperties="TargetFramework"
+                      Private="false" />
   </ItemGroup>
 
 	<ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
@@ -157,6 +169,21 @@
 	     TargetFrameworks (plural) MSBuild runs an outer build where $(TargetFramework)/$(TargetDir)
 	     are empty, so the unguarded target's "$(TargetDir)Files" destination resolves to a relative
 	     "Files" under the project dir and spawns a stray src/Physalia.GH/Files copy every build. -->
+	<!-- Stage the MCP bridge next to the .gha as Bridge/Physalia.McpBridge.exe, where
+	     McpServer.BridgeExecutable() looks for it. A missing bridge is not an error: local stdio
+	     servers work without it, and only a remote entry reports that it is absent. -->
+	<Target Name="CopyMcpBridge" AfterTargets="Build" Condition="'$(TargetFramework)' != ''">
+		<ItemGroup>
+			<McpBridgeFiles Include="$(MSBuildProjectDirectory)\..\Physalia.McpBridge\bin\$(Configuration)\net8.0\**\*" />
+		</ItemGroup>
+		<Copy
+			SourceFiles="@(McpBridgeFiles)"
+			DestinationFiles="@(McpBridgeFiles->'$(TargetDir)Bridge\%(RecursiveDir)%(Filename)%(Extension)')"
+			SkipUnchangedFiles="true"
+			OverwriteReadOnlyFiles="true"
+			Condition="'@(McpBridgeFiles)' != ''" />
+	</Target>
+
 	<Target Name="CopyLibraryFiles" AfterTargets="Build" Condition="'$(TargetFramework)' != ''">
 		<ItemGroup>
 			<LibraryFiles Include="$(MSBuildProjectDirectory)\..\..\Files\**\*" />

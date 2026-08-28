@@ -244,13 +244,20 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
 
         // The pure policy decides grouping (parallel calls to one tool ride together as one dispatch),
         // synthetic errors for unmatched calls, and the awaited id set. Names exclude the Feedback output.
-        var availableNames = new List<string>(FeedbackIndex);
+        var slots = new List<ToolOutputSlot>(FeedbackIndex);
         for (int i = 0; i < FeedbackIndex; i++)
         {
-            availableNames.Add(Params.Output[i].NickName);
+            IGH_Param output = Params.Output[i];
+            ToolConnection conn = InspectConnection(output);
+
+            // Falling back to the output's own name preserves the pre-MCP behaviour for an output
+            // whose tool node has not published its definition yet.
+            slots.Add(new ToolOutputSlot(
+                output.NickName,
+                conn.ToolNames.Count > 0 ? conn.ToolNames : new[] { output.NickName }));
         }
 
-        ToolDispatchPlan plan = ToolDispatchRound.Plan(calls, availableNames);
+        ToolDispatchPlan plan = ToolDispatchRound.Plan(calls, slots);
 
         foreach (string warning in plan.Warnings)
         {
@@ -343,6 +350,11 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     private bool SyncToolOutputNames()
     {
         bool changed = false;
+
+        // Output names are the dispatch keys, so they must stay distinct even when two nodes carry
+        // the same nickname.
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         for (int i = 0; i < FeedbackIndex; i++)
         {
             IGH_Param output = Params.Output[i];
@@ -350,17 +362,31 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
 
             string? desired = conn switch
             {
-                { ToolName: { } name } => name,        // resolved to a live tool name
-                { ConnectedToTool: true } => null,     // a tool node, not yet solved — leave as is
-                _ => $"T{i + 1}",                       // not wired to a tool — default name
+                // Exactly one tool: the output IS that tool, named after it, as it always was.
+                { ToolNames.Count: 1 } => conn.ToolNames[0],
+
+                // A whole set behind one output (an MCP server): no single tool name fits, so the
+                // output takes the node's nickname and dispatch matches the set instead.
+                { ToolNames.Count: > 1 } => conn.NodeNickName is { Length: > 0 } nick ? nick : $"T{i + 1}",
+
+                // A tool node that has not solved yet — leave the name alone, it resolves next pass.
+                { ConnectedToTool: true } => null,
+
+                _ => $"T{i + 1}",
             };
 
-            if (desired is not null && !string.Equals(output.NickName, desired, StringComparison.Ordinal))
+            if (desired is not null)
             {
-                output.Name = desired;
-                output.NickName = desired;
-                changed = true;
+                desired = Distinct(desired, taken);
+                if (!string.Equals(output.NickName, desired, StringComparison.Ordinal))
+                {
+                    output.Name = desired;
+                    output.NickName = desired;
+                    changed = true;
+                }
             }
+
+            taken.Add(output.NickName);
         }
 
         return changed;
@@ -373,6 +399,8 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     private static ToolConnection InspectConnection(IGH_Param output)
     {
         bool connectedToTool = false;
+        var names = new List<string>();
+        string? nickName = null;
 
         foreach (IGH_Param recipient in output.Recipients)
         {
@@ -389,18 +417,40 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
                 }
 
                 connectedToTool = true;
+                nickName ??= component.NickName;
+
+                // EVERY definition, not the first: an MCP Server node publishes its server's whole
+                // tool set on this one output, and dispatch matches by membership of that set.
                 foreach (IGH_Goo goo in toolParam.VolatileData.AllData(true))
                 {
                     if (goo is GH_LlmToolDefinition def && def.Value is { } definition &&
                         !string.IsNullOrWhiteSpace(definition.Name))
                     {
-                        return new ToolConnection(true, definition.Name);
+                        names.Add(definition.Name);
                     }
                 }
             }
         }
 
-        return new ToolConnection(connectedToTool, null);
+        return new ToolConnection(connectedToTool, names, nickName);
+    }
+
+    // Keeps an output name unique among those already assigned this pass.
+    private static string Distinct(string desired, HashSet<string> taken)
+    {
+        if (!taken.Contains(desired))
+        {
+            return desired;
+        }
+
+        for (int suffix = 2; ; suffix++)
+        {
+            string candidate = $"{desired} {suffix}";
+            if (!taken.Contains(candidate))
+            {
+                return candidate;
+            }
+        }
     }
 
     private static string NextAvailableNick(string prefix, IEnumerable<string> existing)
@@ -417,9 +467,16 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     }
 
     /// <summary>
-    /// What an output's wiring tells us about the tool it serves.
+    /// What an output's wiring tells us about the tools it serves.
     /// </summary>
     /// <param name="ConnectedToTool">True when the output feeds a tool node (a component with a Tool Definition output).</param>
-    /// <param name="ToolName">The advertised tool name when it has solved and is available; otherwise null.</param>
-    private readonly record struct ToolConnection(bool ConnectedToTool, string? ToolName);
+    /// <param name="ToolNames">
+    /// Every advertised tool name the wired node answers for, empty when it has not solved yet. One
+    /// name for an ordinary tool node; a whole server's worth for an MCP Server node.
+    /// </param>
+    /// <param name="NodeNickName">The wired node's nickname, used to label an output serving many tools.</param>
+    private readonly record struct ToolConnection(
+        bool ConnectedToTool,
+        IReadOnlyList<string> ToolNames,
+        string? NodeNickName);
 }

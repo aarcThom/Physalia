@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -204,7 +204,7 @@ public class ConversationLog : StatefulComponentBase
             // than what the model was told.
             IReadOnlyList<LlmToolComponentBase> scanned = ScannedToolNodes();
             IEnumerable<string> names = scanned.Count > 0
-                ? scanned.Select(t => t.AdvertisedDefinition.Name)
+                ? scanned.SelectMany(t => t.AdvertisedDefinitions).Select(d => d.Name)
                 : _liveTools.Select(t => t.Name);
 
             return names.Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.Ordinal).ToList();
@@ -235,7 +235,7 @@ public class ConversationLog : StatefulComponentBase
             }
 
             return ToolsSelection.FromNames(
-                scanned.Where(t => t.Advertise).Select(t => t.AdvertisedDefinition.Name));
+                scanned.Where(t => t.Advertise).SelectMany(t => t.AdvertisedDefinitions).Select(d => d.Name));
         }
     }
 
@@ -473,7 +473,7 @@ public class ConversationLog : StatefulComponentBase
     {
         foreach (LlmToolComponentBase tool in ScannedToolNodes())
         {
-            tool.SetAdvertise(selection is null || selection.Includes(tool.AdvertisedDefinition.Name));
+            tool.SetAdvertise(selection is null || tool.AdvertisedDefinitions.Any(d => selection.Includes(d.Name)));
         }
 
         ExpireSolution(true);
@@ -926,7 +926,7 @@ public class ConversationLog : StatefulComponentBase
             // the Tools Present signature, so the grounder picks the change up on its own.
             foreach (LlmToolComponentBase tool in ScannedToolNodes())
             {
-                tool.RestoreAdvertise(tools.Includes(tool.AdvertisedDefinition.Name));
+                tool.RestoreAdvertise(tool.AdvertisedDefinitions.Any(d => tools.Includes(d.Name)));
             }
         }
 

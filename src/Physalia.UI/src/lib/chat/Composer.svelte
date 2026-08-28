@@ -18,7 +18,8 @@
 	import WrenchIcon from '@lucide/svelte/icons/wrench';
 	import ShapesIcon from '@lucide/svelte/icons/shapes';
 	import BrainIcon from '@lucide/svelte/icons/brain';
-	import { stripDataUrl, type ComponentTabInfo, type SubmitMessage } from '$lib/bridge';
+	import FileTextIcon from '@lucide/svelte/icons/file-text';
+	import { stripDataUrl, type ComponentTabInfo, type SubmitMessage, type UiPdf } from '$lib/bridge';
 
 	interface Props {
 		/** No Conversation Log wired — shown as a hint, but the box stays usable (sending
@@ -47,6 +48,12 @@
 		 *  its thumbnail, which asks the app to open it in the image editor. Grants no image lane of its
 		 *  own: it can only mark up an image some other tool already let in. */
 		markUpToolWired?: boolean;
+		/** True when a Read PDF human tool is wired — enables the PDF button and PDF drag-drop.
+		 *  Independent of imageToolWired: a PDF is not an image and never reaches the image editor. */
+		pdfToolWired?: boolean;
+		/** PDFs attached but not yet announced in a turn, owned by the host. Summaries only — a PDF's
+		 *  bytes never come across, so these are drawn as chips rather than thumbnails. */
+		pendingPdfs?: UiPdf[];
 		/** Names of clusters the model may use, for the "/cl/" reference autocomplete. */
 		clusterNames?: string[];
 		/** Names of tools currently in use, for the "/t/" reference autocomplete. */
@@ -56,6 +63,13 @@
 		onsend: (message: SubmitMessage) => void;
 		/** Called with the pasted API key when in apiKeyProvider mode. */
 		onsavekey?: (providerId: string, key: string) => void;
+		/** The PDF button: asks the host to open a native file picker. Host-side on purpose — it is
+		 *  the only intake path that learns the file's real path, and it moves no bytes. */
+		onaddpdf?: () => void;
+		/** The X on a PDF chip: asks the host to drop that attachment before it is announced. */
+		onremovepdf?: (alias: string) => void;
+		/** PDFs dropped on the window. Bytes, because a drop cannot give us a path. */
+		onpdfdrop?: (files: File[]) => void;
 		/** The edit button on an attached image's thumbnail: asks the app to open that image in the
 		 *  image editor. The app hands the result back through replaceImage, keyed by the same id — the
 		 *  strip can be edited while the editor is open in principle, so position would not survive. */
@@ -72,12 +86,17 @@
 		snapshotAttachWired = false,
 		viewSnapshotAttachWired = false,
 		markUpToolWired = false,
+		pdfToolWired = false,
+		pendingPdfs = [],
 		clusterNames = [],
 		toolNames = [],
 		componentTabs = [],
 		onsend,
 		onsavekey,
-		onedit
+		onedit,
+		onaddpdf,
+		onremovepdf,
+		onpdfdrop
 	}: Props = $props();
 
 	interface PendingImage {
@@ -169,7 +188,7 @@
 	// Whole-window drag-and-drop. Listeners exist only while the Add Image tool is wired — the
 	// reactive dep detaches them live, so an unwired window rejects drops at the browser level.
 	$effect(() => {
-		if (!imageToolWired) {
+		if (!imageToolWired && !pdfToolWired) {
 			return;
 		}
 		let onDragOver = (e: DragEvent) => {
@@ -182,7 +201,10 @@
 				e.preventDefault();
 			}
 			if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+				// One drop can carry both kinds; each is routed by the tool that grants it, so a
+				// dropped PDF is refused when only Add Image is wired and vice versa.
 				void addImages(e.dataTransfer.files);
+				addPdfs(e.dataTransfer.files);
 			}
 		};
 		document.addEventListener('dragover', onDragOver);
@@ -659,6 +681,21 @@
 		}
 	}
 
+	// The PDF counterpart of addImages, and deliberately not part of it: a PDF does not enter the
+	// `pending` image strip, never becomes an [image#N] token, and never reaches the image editor.
+	// It goes straight to the host, which registers it and owns the chip list from then on.
+	function addPdfs(files: FileList | File[] | null | undefined) {
+		if (!files || !pdfToolWired) {
+			return;
+		}
+		let pdfs = Array.from(files).filter(
+			(f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
+		);
+		if (pdfs.length > 0) {
+			onpdfdrop?.(pdfs);
+		}
+	}
+
 	// Attaches a viewport snapshot captured by the host's geometry button (attach mode), landing it in
 	// the strip with an [image#N] token exactly like a pasted image — the user then types the message
 	// it belongs to. Invoked from outside via bind:this, so it re-checks its own gate: the Geometry
@@ -828,6 +865,14 @@
 
 	// Opens the image file picker. Invoked from outside via bind:this — the Add Image button
 	// lives in App's right-hand rail — while the picker's <input> stays here with the intake logic.
+	// The PDF button's counterpart to openPicker. The dialog itself is opened by the HOST, not here:
+	// a browser picker yields bytes and no path, and PDFs are referenced where they sit.
+	export function openPdfPicker() {
+		if (pdfToolWired) {
+			onaddpdf?.();
+		}
+	}
+
 	export function openPicker() {
 		fileInputRef?.click();
 	}
@@ -869,6 +914,33 @@
 						<PencilIcon class="size-2.5" />
 					</button>
 				{/if}
+			</div>
+		{/each}
+	</div>
+{/if}
+
+<!-- Attached PDFs. A separate strip from the image thumbnails on purpose: the host never sends a
+     PDF's bytes, so there is nothing to draw a thumbnail from, and a PDF must never pick up the
+     mark-up pencil — the image editor loads its source by assigning Image.src and structurally
+     cannot open one. The list is owned by the host; this only renders it. -->
+{#if pendingPdfs.length > 0}
+	<div class="flex flex-wrap gap-2 pb-2">
+		{#each pendingPdfs as pdf (pdf.alias)}
+			<div
+				class="neu-raised-sm relative flex items-center gap-2 rounded-md py-1.5 pr-5 pl-2 text-xs"
+				title={`${pdf.name} — ${pdf.pages} page${pdf.pages === 1 ? '' : 's'}`}
+			>
+				<FileTextIcon class="text-muted-foreground size-3.5 shrink-0" />
+				<span class="max-w-40 truncate">{pdf.name}</span>
+				<span class="text-muted-foreground shrink-0">{pdf.pages}p</span>
+				<button
+					type="button"
+					onclick={() => onremovepdf?.(pdf.alias)}
+					title="Remove PDF"
+					class="neu-btn text-muted-foreground hover:text-foreground absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full"
+				>
+					<XIcon class="size-3" />
+				</button>
 			</div>
 		{/each}
 	</div>

@@ -206,7 +206,7 @@ public class SystemPrompt : PhyBase, IPickableValuesSource
 
         if (!string.IsNullOrWhiteSpace(schema))
         {
-            parts.Add("Your response must be valid JSON that conforms exactly to the following schema:");
+            parts.Add("When your response carries the work itself — a definition, a patch, or a script — it must be valid JSON that conforms exactly to the following schema. A response that only answers a question or talks to the user carries no JSON and is not measured against this schema:");
             parts.Add(schema.Trim());
         }
 

@@ -27,6 +27,7 @@
 	import MenuIcon from '@lucide/svelte/icons/menu';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
+	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import Axis3dIcon from '@lucide/svelte/icons/axis-3d';
 	import CameraIcon from '@lucide/svelte/icons/camera';
 	import DownloadIcon from '@lucide/svelte/icons/download';
@@ -52,6 +53,7 @@
 		ToolsSelectionPayload,
 		UiChat,
 		UiMessage,
+		UiPdf,
 		UiPreset,
 		UiState,
 		UnitsOverridePayload
@@ -112,7 +114,7 @@
 	// wired (without it image intake is fully disabled in the composer).
 	let snapshotWired = $state(false);
 	let snapshotGeometryPresent = $state(false);
-	let snapshotSendsMessage = $state(true);
+	let snapshotSendsMessage = $state(false);
 	let snapshotDefaultMessage = $state('');
 	let snapshotMessage = $state<string | null>(null);
 	let imageToolWired = $state(false);
@@ -120,7 +122,7 @@
 	// View-snapshot state: the same shape minus any armed flag — a view capture needs nothing on the
 	// canvas and moves no camera, so its button is live from the moment the tool is wired.
 	let viewSnapshotWired = $state(false);
-	let viewSnapshotSendsMessage = $state(true);
+	let viewSnapshotSendsMessage = $state(false);
 	let viewSnapshotDefaultMessage = $state('');
 	let viewSnapshotMessage = $state<string | null>(null);
 
@@ -133,6 +135,8 @@
 	// image the human sends. `markUp` is that editor's whole state: the image being drawn on plus where
 	// the result must go when it is confirmed. Null = the editor is closed.
 	let markUpToolWired = $state(false);
+	let pdfToolWired = $state(false);
+	let pendingPdfs = $state<UiPdf[]>([]);
 	let tokenCountToolWired = $state(false);
 	let markUp = $state<{
 		base64: string;
@@ -161,6 +165,7 @@
 			exportToolWired ||
 			signalTraceToolWired ||
 			markUpToolWired ||
+			pdfToolWired ||
 			tokenCountToolWired
 	);
 
@@ -244,17 +249,19 @@
 				unitOptions = next.unitOptions ?? [];
 				snapshotWired = next.snapshotWired ?? false;
 				snapshotGeometryPresent = next.snapshotGeometryPresent ?? false;
-				snapshotSendsMessage = next.snapshotSendsMessage ?? true;
+				snapshotSendsMessage = next.snapshotSendsMessage ?? false;
 				snapshotDefaultMessage = next.snapshotDefaultMessage ?? '';
 				snapshotMessage = next.snapshotMessage ?? null;
 				viewSnapshotWired = next.viewSnapshotWired ?? false;
-				viewSnapshotSendsMessage = next.viewSnapshotSendsMessage ?? true;
+				viewSnapshotSendsMessage = next.viewSnapshotSendsMessage ?? false;
 				viewSnapshotDefaultMessage = next.viewSnapshotDefaultMessage ?? '';
 				viewSnapshotMessage = next.viewSnapshotMessage ?? null;
 				imageToolWired = next.imageToolWired ?? false;
 				exportToolWired = next.exportToolWired ?? false;
 				signalTraceToolWired = next.signalTraceToolWired ?? false;
 				markUpToolWired = next.markUpToolWired ?? false;
+				pdfToolWired = next.pdfToolWired ?? false;
+				pendingPdfs = next.pendingPdfs ?? [];
 				tokenCountToolWired = next.tokenCountToolWired ?? false;
 			},
 			setSetupResult: (result) => {
@@ -331,6 +338,57 @@
 		}
 
 		// Fallback (non-WebView2, e.g. Mac WKWebView): stash + navigate; host pulls it back.
+		window.__physaliaPending = json;
+		window.location.href = `${BRIDGE_SCHEME}://submit?images=1`;
+	}
+
+	// The PDF button: asks the host to open a native file picker. Deliberately host-side — a browser
+	// picker hands back bytes and no path, and PDFs are referenced where they sit rather than copied,
+	// which is what makes attaching a several-hundred-megabyte drawing set free.
+	function addPdf() {
+		window.location.href = `${BRIDGE_SCHEME}://addpdf`;
+	}
+
+	// The X on a PDF chip.
+	function removePdf(alias: string) {
+		window.location.href = `${BRIDGE_SCHEME}://removepdf?alias=${encodeURIComponent(alias)}`;
+	}
+
+	// Dropped PDFs. This is the one intake path that has to move bytes: a drop gives us a File and
+	// the DOM withholds its path, so the base64 goes over and the host spools it to a temp file. It
+	// rides the same envelope as a submit, marked with a kind so the host registers it instead of
+	// treating it as a message. The host caps the size and says so; anything larger wants the button.
+	async function sendPdfDrop(files: File[]) {
+		const encoded = await Promise.all(
+			files.map(
+				(file) =>
+					new Promise<{ base64: string; mediaType: string; filename: string } | null>((resolve) => {
+						const reader = new FileReader();
+						reader.onload = () =>
+							resolve({
+								base64: stripDataUrl(reader.result as string),
+								mediaType: 'application/pdf',
+								filename: file.name || 'dropped.pdf'
+							});
+						reader.onerror = () => resolve(null);
+						reader.readAsDataURL(file);
+					})
+			)
+		);
+
+		const images = encoded.filter((f): f is NonNullable<typeof f> => f !== null);
+		if (images.length === 0) {
+			return;
+		}
+
+		const json = JSON.stringify({ text: '', images, kind: 'pdf-drop' });
+		const webview = (window as unknown as { chrome?: { webview?: { postMessage?: (m: string) => void } } })
+			.chrome?.webview;
+		if (webview?.postMessage) {
+			webview.postMessage(json);
+			return;
+		}
+
 		window.__physaliaPending = json;
 		window.location.href = `${BRIDGE_SCHEME}://submit?images=1`;
 	}
@@ -717,6 +775,22 @@
 			</Button>
 		{/if}
 
+		{#if pdfToolWired}
+			<!-- Add-PDF button: appears only while a Read PDF human tool is wired. Opens a native
+			     picker host-side, because that is the only intake path that learns where the file
+			     actually lives — and attaching costs almost nothing, since only a short descriptor
+			     reaches the conversation and the model pulls pages on demand. -->
+			<Button
+				variant="outline"
+				size="icon-lg"
+				onclick={() => composer?.openPdfPicker()}
+				disabled={composerInert || !!keyProvider}
+				title="Attach PDF"
+			>
+				<FileTextIcon class="size-4" />
+			</Button>
+		{/if}
+
 		{#if snapshotWired}
 			<!-- Geometry-snapshot button: appears the moment a Geometry Snapshot human tool is
 			     wired, but stays greyed until a transmitter has generated geometry (snapshotArmed).
@@ -839,6 +913,7 @@
 					{signalTraceToolWired}
 					{markUpToolWired}
 					{tokenCountToolWired}
+					{pdfToolWired}
 					onapply={setGrounding}
 					onapplysignatures={setSignatures}
 					onapplyclusters={setClusters}
@@ -951,12 +1026,17 @@
 				snapshotAttachWired={snapshotWired && !snapshotSendsMessage}
 			viewSnapshotAttachWired={viewSnapshotWired && !viewSnapshotSendsMessage}
 				{markUpToolWired}
+				{pdfToolWired}
+				{pendingPdfs}
 				clusterNames={includedClusterNames}
 				toolNames={includedToolNames}
 				componentTabs={availableComponents}
 				onsend={send}
 				onsavekey={saveKey}
 				onedit={editPendingImage}
+				onaddpdf={addPdf}
+				onremovepdf={removePdf}
+				onpdfdrop={(files) => void sendPdfDrop(files)}
 			/>
 		</div>
 

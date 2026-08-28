@@ -173,7 +173,7 @@ internal static class Program
 
     // Opens the user's browser at the authorization URL and waits for the provider to redirect back
     // to the loopback listener, handing the SDK the code/state/iss it needs to finish the exchange.
-    private static async Task<AuthorizationResult> CaptureAuthorizationAsync(
+    private static async Task<AuthorizationResult?> CaptureAuthorizationAsync(
         AuthorizationCallbackContext context,
         Uri redirect,
         CancellationToken ct)

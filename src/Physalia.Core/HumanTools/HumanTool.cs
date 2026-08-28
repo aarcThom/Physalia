@@ -21,17 +21,16 @@ public abstract record HumanTool;
 /// a geometry button; pressing it captures the Rhino viewport (framed on the generated
 /// geometry).
 /// <para>
-/// What happens next depends on <see cref="SendWithMessage"/>: when true (the default) the
-/// snapshot is sent immediately as its own user message carrying <see cref="Message"/> — a
-/// snapshot is never attached to a typed prompt automatically. When false the snapshot is
-/// instead attached to the prompt box like a pasted image and waits for the human to type
-/// their own message; <see cref="Message"/> is then unused (and the chat window hides its
-/// editor).
+/// What happens next depends on <see cref="SendWithMessage"/>: when false (the default) the
+/// snapshot is attached to the prompt box like a pasted image and waits for the human to type
+/// their own message, with <see cref="Message"/> unused (and the chat window hides its editor).
+/// When true the snapshot is instead sent immediately as its own user message carrying
+/// <see cref="Message"/> — a snapshot is never attached to a typed prompt automatically.
 /// </para>
 /// </summary>
 /// <param name="Message">The text sent alongside the snapshot image. Unused when SendWithMessage is false.</param>
 /// <param name="SendWithMessage">True to send the snapshot immediately as its own message carrying Message; false to attach it to the prompt box for the human to caption.</param>
-public sealed record GeometrySnapshotTool(string Message, bool SendWithMessage = true) : HumanTool
+public sealed record GeometrySnapshotTool(string Message, bool SendWithMessage = false) : HumanTool
 {
     /// <summary>
     /// The message sent with the snapshot unless the user edits it in the chat window's
@@ -50,15 +49,15 @@ public sealed record GeometrySnapshotTool(string Message, bool SendWithMessage =
 /// on an empty document, on referenced geometry Physalia never placed, and on a view the human has
 /// composed by hand.
 /// <para>
-/// <see cref="SendWithMessage"/> works exactly as it does on the geometry snapshot: true (the
-/// default) sends the capture immediately as its own user message carrying <see cref="Message"/>;
-/// false attaches it to the prompt box like a pasted image and waits for the human's own caption
-/// (<see cref="Message"/> is then unused and the chat window hides its editor).
+/// <see cref="SendWithMessage"/> works exactly as it does on the geometry snapshot: false (the
+/// default) attaches the capture to the prompt box like a pasted image and waits for the human's own
+/// caption, with <see cref="Message"/> unused (and the chat window hides its editor); true sends it
+/// immediately as its own user message carrying <see cref="Message"/>.
 /// </para>
 /// </summary>
 /// <param name="Message">The text sent alongside the view capture. Unused when SendWithMessage is false.</param>
 /// <param name="SendWithMessage">True to send the capture immediately as its own message carrying Message; false to attach it to the prompt box for the human to caption.</param>
-public sealed record ViewSnapshotTool(string Message, bool SendWithMessage = true) : HumanTool
+public sealed record ViewSnapshotTool(string Message, bool SendWithMessage = false) : HumanTool
 {
     /// <summary>
     /// The message sent with the view capture unless the user edits it in the chat window's
@@ -127,3 +126,23 @@ public sealed record ImageMarkUpTool : HumanTool;
 /// </para>
 /// </summary>
 public sealed record TokenCountTool : HumanTool;
+
+/// <summary>
+/// Enables PDF intake in the chat window's prompt box — a button that opens a file picker, and
+/// drag-and-drop. Without this tool wired, a dropped PDF is refused.
+/// <para>
+/// A marker record, and pointedly NOT the tool that reads PDFs. Attaching one puts almost nothing
+/// in the conversation: the file is registered for the session and the turn carries a short
+/// descriptor — name, page count, sheet size, which pages have a text layer, the sheet numbers
+/// guessed off each title block. Every actual page of it is pulled on demand by the model-callable
+/// <c>read_pdf</c> tool, which is a separate component and has to be wired to a Router for any of
+/// this to be useful. The split is what keeps a four-hundred-sheet drawing set affordable to
+/// attach: the descriptor costs tens of tokens, and nothing else is spent until a question is
+/// asked that needs a specific page.
+/// </para>
+/// <para>
+/// The file itself is referenced where it sits and never copied, so it stays live — and a set moved
+/// or deleted after attaching reports itself as gone rather than silently serving stale pages.
+/// </para>
+/// </summary>
+public sealed record ReadPdfTool : HumanTool;

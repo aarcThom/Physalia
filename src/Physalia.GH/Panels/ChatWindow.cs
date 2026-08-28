@@ -25,6 +25,7 @@ using Physalia.Core.Grounding;
 using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
 using Physalia.Core.Grounding.Tools;
+using Physalia.Core.Pdf;
 using Physalia.GH.Components;
 
 namespace Physalia.GH.Panels;
@@ -67,6 +68,12 @@ public class ChatWindow : Form
     // receives the kind on markUpSnapshot and hands the same string back on the way in.
     private const string SnapshotKindGeometry = "geometry-snapshot";
     private const string SnapshotKindView = "view-snapshot";
+
+    // A PDF arriving by drag-and-drop. It rides the same envelope as a submit, because drag-and-drop
+    // is the one intake path that cannot hand us a real path — the DOM File API withholds it — so
+    // the bytes come over and are spooled to temp. The file PICKER, which is the path for anything
+    // large, opens host-side and never moves a byte across the bridge.
+    private const string PdfDropKind = "pdf-drop";
 
 
     private static readonly JsonSerializerOptions WriteOpts =
@@ -397,6 +404,12 @@ public class ChatWindow : Form
                 break;
             case "setunits":
                 HandleSetUnits(uri);
+                break;
+            case "addpdf":
+                HandleAddPdf();
+                break;
+            case "removepdf":
+                HandleRemovePdf(uri);
                 break;
             case "setsnapshotmessage":
                 HandleSetSnapshotMessage(uri);
@@ -1038,9 +1051,22 @@ public class ChatWindow : Form
             return;
         }
 
+        // A dropped PDF is an attachment, not a prompt: it registers and waits for the next send.
+        if (message.Kind == PdfDropKind)
+        {
+            ReceiveDroppedPdfs(message);
+            return;
+        }
+
 
         string msgText = NormalizeRefs(message.Text ?? string.Empty);
         IReadOnlyList<SubmitImage> images = message.Images ?? (IReadOnlyList<SubmitImage>)Array.Empty<SubmitImage>();
+
+        // Announce any PDFs attached since the last send, by PREPENDING their descriptor to the
+        // text rather than adding a block of its own. On the text it becomes the signal's payload
+        // and flows through WithPayloadText like any other prompt, which also means a PDF sent with
+        // no typed message still produces a turn with something in it.
+        msgText = PrependPdfDescriptor(msgText);
 
         // Image intake is gated on the human tools that grant it: Add Image (paste/drop/picker) and
         // either snapshot tool in attach mode, whose capture rides the prompt box. The UI disables the
@@ -1516,13 +1542,23 @@ public class ChatWindow : Form
         // payload across with it every time it ticks).
         bool tokenCountToolWired = conversationLog?.HasTokenCountTool == true;
 
+        // PDF intake. Deliberately a separate grant from imageToolWired: a PDF is not an image, it
+        // does not travel as one, and it never reaches the image editor. `pendingPdfs` is what the
+        // composer draws as chips — the files picked but not yet announced in a turn. Bytes never
+        // cross the bridge for a PDF, only these summaries: a drawing set can be hundreds of
+        // megabytes and base64 through postMessage is not a place to put it.
+        bool pdfToolWired = conversationLog?.HasReadPdfTool == true;
+        var pendingPdfs = (PdfSessionFor(conversationLog)?.Pending() ?? (IReadOnlyList<PdfDescriptor>)Array.Empty<PdfDescriptor>())
+            .Select(d => new UiPdf(d.Alias, d.DisplayName, d.PageCount))
+            .ToList();
+
 
         // Cheap proxy for availableComponents in the signature (serializing the full list every tick
         // would churn); the tree/selection already trigger a push, this just catches a catalog resize.
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs }, WriteOpts);
 
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
@@ -1542,7 +1578,7 @@ public class ChatWindow : Form
             // would answer a question the user did not ask.
             bool home = _home;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, home, status, configuredProviders, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired }, WriteOpts);
+                new { connected, busy, ready, needsSetup, home, status, configuredProviders, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs }, WriteOpts);
 
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
@@ -2562,6 +2598,210 @@ public class ChatWindow : Form
         }
     }
 
+    // ---- PDF intake -----------------------------------------------------------------------
+    //
+    // Attaching a PDF puts almost nothing in the conversation. The file is registered for the
+    // session and the turn carries a short descriptor; every page of it is pulled on demand by the
+    // model-callable read_pdf tool. That split is what makes a four-hundred-sheet drawing set
+    // affordable to attach at all.
+    //
+    // Files are referenced where they sit and never copied — which is why the PICKER matters: it
+    // runs host-side and yields a real path, where a browser drop can only ever give us bytes.
+
+    // The most a dropped PDF may weigh. Drops carry their bytes across the bridge as base64, so
+    // this is a real ceiling rather than a tidiness rule; the picker has no such limit because it
+    // moves nothing.
+    private const int MaxDroppedPdfBytes = 100 * 1024 * 1024;
+
+    /// <summary>
+    /// The PDF session for a pipeline, scoped to the document its Conversation Log lives in — the
+    /// same document the Read PDF tool node resolves, which is what connects the two components.
+    /// </summary>
+    /// <param name="log">The Conversation Log being viewed.</param>
+    /// <returns>The session, or null when nothing is wired.</returns>
+    private static PdfSession? PdfSessionFor(ConversationLog? log) =>
+        PdfRegistry.For(log?.OnPingDocument());
+
+    /// <summary>
+    /// The PDF session for the pipeline this window is attached to.
+    /// </summary>
+    /// <returns>The session, or null when nothing is wired.</returns>
+    private PdfSession? CurrentPdfSession() =>
+        PdfSessionFor(PromptPipelineView.FindConversationLog(_component, 0));
+
+    /// <summary>
+    /// Whether a Read PDF human tool is wired, which is the grant every intake path here checks.
+    /// </summary>
+    /// <returns>True when PDF intake is enabled.</returns>
+    private bool PdfIntakeGranted() =>
+        PromptPipelineView.FindConversationLog(_component, 0)?.HasReadPdfTool == true;
+
+    /// <summary>
+    /// Opens a native file picker and registers whatever is chosen. Host-side on purpose: this is
+    /// the only intake path that learns a file's real location, and so the one to use for a set too
+    /// large to hand across the bridge.
+    /// </summary>
+    private void HandleAddPdf()
+    {
+        // Re-checked here and not only in the UI: the wire can change between the button being
+        // drawn and being pressed.
+        if (!PdfIntakeGranted())
+        {
+            return;
+        }
+
+        PdfSession? session = CurrentPdfSession();
+        if (session is null)
+        {
+            return;
+        }
+
+        using var dialog = new OpenFileDialog { MultiSelect = true, Title = "Attach PDFs" };
+        dialog.Filters.Add(new FileFilter("PDF", ".pdf"));
+
+        if (dialog.ShowDialog(this) != DialogResult.Ok)
+        {
+            return;
+        }
+
+        foreach (string path in dialog.Filenames)
+        {
+            RegisterPdf(session, path);
+        }
+    }
+
+    /// <summary>
+    /// Drops one queued PDF, for the X on its chip.
+    /// </summary>
+    /// <param name="uri">The bridge URI, carrying the alias.</param>
+    private void HandleRemovePdf(Uri uri)
+    {
+        string alias = GetQueryValue(uri.Query, "alias");
+        if (!string.IsNullOrWhiteSpace(alias))
+        {
+            CurrentPdfSession()?.RemovePending(alias);
+        }
+    }
+
+    /// <summary>
+    /// Receives PDFs dropped onto the prompt box. A drop hands us bytes and a file name and no
+    /// path, so the bytes are spooled to a temp file and referenced from there.
+    /// </summary>
+    /// <param name="message">The drop payload.</param>
+    private void ReceiveDroppedPdfs(SubmitMessage message)
+    {
+        if (!PdfIntakeGranted())
+        {
+            return;
+        }
+
+        PdfSession? session = CurrentPdfSession();
+        if (session is null || message.Images is null)
+        {
+            return;
+        }
+
+        foreach (SubmitImage file in message.Images)
+        {
+            if (string.IsNullOrEmpty(file.Base64))
+            {
+                continue;
+            }
+
+            byte[] bytes;
+            try
+            {
+                bytes = Convert.FromBase64String(file.Base64);
+            }
+            catch (FormatException)
+            {
+                continue;
+            }
+
+            if (bytes.Length > MaxDroppedPdfBytes)
+            {
+                ShowPdfProblem(
+                    $"\"{file.Filename}\" is too large to drop ({bytes.Length / (1024 * 1024)} MB). " +
+                    "Use the PDF button instead — it reads the file where it sits, at any size.");
+                continue;
+            }
+
+            try
+            {
+                string dir = Path.Combine(Path.GetTempPath(), "Physalia", "dropped-pdfs");
+                Directory.CreateDirectory(dir);
+
+                string name = string.IsNullOrWhiteSpace(file.Filename) ? "dropped.pdf" : file.Filename;
+                foreach (char c in Path.GetInvalidFileNameChars())
+                {
+                    name = name.Replace(c, '-');
+                }
+
+                string path = Path.Combine(dir, Guid.NewGuid().ToString("N").Substring(0, 8) + "-" + name);
+                File.WriteAllBytes(path, bytes);
+                RegisterPdf(session, path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                ShowPdfProblem($"\"{file.Filename}\" could not be saved: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Probes and registers one file, reporting anything that makes it unreadable rather than
+    /// letting it fail later inside a tool call.
+    /// </summary>
+    /// <param name="session">The session to register into.</param>
+    /// <param name="path">The file to register.</param>
+    private void RegisterPdf(PdfSession session, string path)
+    {
+        try
+        {
+            session.Add(path);
+        }
+        catch (Exception ex)
+        {
+            // Probing opens and walks the document, so a corrupt or encrypted file fails HERE,
+            // while somebody is looking at it — much better than surfacing three turns later as an
+            // unexplained tool error.
+            ShowPdfProblem($"\"{Path.GetFileName(path)}\" could not be read: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Reports a PDF problem to the user.
+    /// </summary>
+    /// <param name="text">The message to show.</param>
+    private void ShowPdfProblem(string text) =>
+        MessageBox.Show(this, text, "Read PDF", MessageBoxButtons.OK, MessageBoxType.Warning);
+
+    /// <summary>
+    /// Prepends the descriptor for any PDFs attached since the last send, and clears the queue so
+    /// each attachment is announced exactly once.
+    /// </summary>
+    /// <param name="text">The prompt text.</param>
+    /// <returns>The prompt text with the descriptor in front of it.</returns>
+    private string PrependPdfDescriptor(string text)
+    {
+        PdfSession? session = CurrentPdfSession();
+        if (session is null)
+        {
+            return text;
+        }
+
+        // Drained even when the grant has gone, so an unwired tool leaves no stale queue behind to
+        // surface on some later turn.
+        IReadOnlyList<PdfDescriptor> attached = session.DrainPending();
+        if (attached.Count == 0 || !PdfIntakeGranted())
+        {
+            return text;
+        }
+
+        string descriptor = PdfReports.DescribeAttachments(attached);
+        return string.IsNullOrEmpty(text) ? descriptor : descriptor + "\n\n" + text;
+    }
+
     private sealed record UiImage(string Base64, string MediaType);
 
     private sealed record UiTool(string Id, string Name, string State, object? Input, string? Output, string? ErrorText);
@@ -2580,6 +2820,11 @@ public class ChatWindow : Form
     private sealed record UiSource(string Name, string? Icon);
 
     private sealed record SubmitImage(string Base64, string MediaType, string Filename);
+
+    // One attached PDF as the composer draws it. A summary only — never bytes: a drawing set runs
+    // to hundreds of megabytes and the page has no use for the file itself.
+    private sealed record UiPdf(string Alias, string Name, int Pages);
+
 
     // An outgoing message from the page. Kind is absent (or "prompt") for a typed prompt; the two
     // snapshot kinds mark a capture that went out to the image editor in send mode and came back

@@ -603,9 +603,21 @@ public sealed record ScriptInterfaceGrounding(
 /// the canvas (one it recalls from earlier in the conversation, or a built-in it might otherwise reach
 /// for). The Conversation Log renders this from the <i>selected</i> (advertised) tools, so the list always
 /// matches what the model can actually call.
+///
+/// <para>A tool node may also contribute a <b>directive</b> — a standing instruction about using it,
+/// carried here and appended after the list. It exists for the tools where leaving the call to the
+/// model's judgement is itself the failure mode (the memory tool: a memory the model never opens is
+/// worse than none, because it answers from nothing while the notes that would have corrected it sit
+/// unread). Directives ride in the prompt rather than in the tool description because a description
+/// is read once the model is already weighing the call, and a prompt is read before it decides. They
+/// are carried per advertised tool, so parking a tool takes its directive out of the prompt with
+/// it.</para>
 /// </summary>
 /// <param name="Tools">The definitions of every tool in use.</param>
-public sealed record ToolsGrounding(IReadOnlyList<LlmToolDefinition> Tools) : Grounding
+/// <param name="Directives">Standing usage instructions contributed by those tools, in wire order.</param>
+public sealed record ToolsGrounding(
+    IReadOnlyList<LlmToolDefinition> Tools,
+    IReadOnlyList<string>? Directives = null) : Grounding
 {
     /// <inheritdoc/>
     public override string ToSystemPromptSection()
@@ -616,10 +628,27 @@ public sealed record ToolsGrounding(IReadOnlyList<LlmToolDefinition> Tools) : Gr
             return string.Empty;
         }
 
-        return "The only tools available to you are the ones listed here. Call ONLY these tools — never "
+        string section = "The only tools available to you are the ones listed here. Call ONLY these tools — never "
             + "invent a tool, and never attempt to call a tool that is not in this list:\n"
             + string.Join(", ", names);
+
+        var directives = DirectiveTexts.ToList();
+        return directives.Count == 0
+            ? section
+            : section + "\n\n" + string.Join("\n\n", directives);
     }
+
+    /// <summary>
+    /// Gets the carried directives, trimmed and deduplicated in first-appearance order — two wired
+    /// Tools Present grounders reporting the same tool must not state its instruction twice.
+    /// </summary>
+    public IEnumerable<string> DirectiveTexts =>
+        Directives is null
+            ? Enumerable.Empty<string>()
+            : Directives
+                .Where(d => !string.IsNullOrWhiteSpace(d))
+                .Select(d => d.Trim())
+                .Distinct(StringComparer.Ordinal);
 
     /// <summary>
     /// Gets the names of the carried tools, for the chat input's <c>/t/&lt;toolname&gt;</c> reference.

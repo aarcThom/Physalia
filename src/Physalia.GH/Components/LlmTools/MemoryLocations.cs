@@ -5,9 +5,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Security.Cryptography;
 using System.Text;
-using Grasshopper.Kernel;
 using Physalia.Core.Memory;
 
 namespace Physalia.GH.Components;
@@ -15,9 +13,23 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Resolves the physical directories the <see cref="MemoryTool"/> reads and writes, under
 /// <c>Files/MEMORIES</c> beside the plug-in (the same <c>Files</c> tree the rest of Physalia keeps
-/// user-alterable content in). The global memory is a single shared folder; each Grasshopper document
-/// gets its own local folder keyed by its file so per-document memory follows the .gh file across
-/// sessions.
+/// user-alterable content in). The global memory is a single shared folder; the local memory lives in
+/// a folder the user NAMES, on the Memory tool's own Memory Folder input.
+///
+/// <para><b>Why it is named and not derived.</b> Two derivations were tried and both failed the same
+/// way — silently, by defaulting. Keying on the .gh file meant memory followed the document rather
+/// than the pipeline, so a harness saved out as a preset left its notes behind. Keying on the
+/// harness's name looked better but a harness is called "Harness" until someone renames it, so every
+/// unrenamed pipeline quietly shared one folder called <c>Harness</c> and nobody could see that it
+/// had happened. A derived key is only as good as the thing it derives from, and both of those things
+/// have defaults that no one notices. So the name is now typed in, it travels with the node (it is
+/// ordinary internalized param data, saved in the file and carried inside a preset), and the fallback
+/// when nothing is typed is the node's own instance id — unique, stable across save/load, and
+/// obviously not a name, so it cannot be mistaken for one or collide with anybody else's.</para>
+///
+/// <para>The name is a folder name, so it is sanitized here and nowhere else: path separators,
+/// invalid characters and whitespace become dashes, and leading/trailing dots and dashes are trimmed,
+/// which is also what keeps <c>..</c> from walking out of the memory root.</para>
 ///
 /// <para>These are the folder names on disk only. The model addresses memory through a virtual
 /// <c>/memories/global</c> and <c>/memories/local</c> scheme (see <c>MemoryStore</c>), which is
@@ -25,21 +37,37 @@ namespace Physalia.GH.Components;
 /// </summary>
 internal static class MemoryLocations
 {
-    private const string UntitledKey = "untitled";
+    // Last-resort folder for a key that sanitizes away to nothing (a name of only dots or slashes).
+    // Unreachable in normal use: the Memory tool always passes its instance id when the input is
+    // blank, and a guid survives sanitizing untouched.
+    private const string UnnamedKey = "unnamed";
 
     /// <summary>
-    /// Returns the global and local memory directories for the given document. The local directory is
-    /// keyed by the document's file so it persists per .gh file; an unsaved document shares an
-    /// "untitled" folder for the session.
+    /// Returns the global and local memory directories, the local one named by the given folder key.
     /// </summary>
-    /// <param name="document">The document the memory is scoped to, or null.</param>
+    /// <param name="folderName">
+    /// The user's Memory Folder value, or the caller's fallback when they left it blank. Sanitized
+    /// into a single folder name; never a path.
+    /// </param>
     /// <returns>The resolved global and local memory roots.</returns>
-    internal static MemoryRoots ResolveRoots(GH_Document? document)
+    internal static MemoryRoots ResolveRoots(string? folderName)
     {
         string root = MemoriesRoot();
         string global = Path.Combine(root, "GLOBAL");
-        string local = Path.Combine(root, "LOCAL", DocumentKey(document));
+        string local = Path.Combine(root, "LOCAL", FolderKey(folderName));
         return new MemoryRoots(global, local);
+    }
+
+    /// <summary>
+    /// Reduces a user-typed memory folder name to a single safe folder name. Exposed so a caller can
+    /// show the user the folder their name actually resolves to.
+    /// </summary>
+    /// <param name="folderName">The typed name, which may be null, blank or full of nonsense.</param>
+    /// <returns>The folder name used on disk.</returns>
+    internal static string FolderKey(string? folderName)
+    {
+        string key = Sanitize(folderName ?? string.Empty);
+        return key.Length == 0 ? UnnamedKey : key;
     }
 
     // Files/MEMORIES beside the executing assembly. Falls back to a "MEMORIES" folder in the current
@@ -52,26 +80,10 @@ internal static class MemoryLocations
             : Path.Combine(assemblyDir, "Files", "MEMORIES");
     }
 
-    // A stable, filesystem-safe key for the document's local memory folder: the sanitized file name
-    // plus a short hash of the full path (so identically named files in different folders never share
-    // a memory). Unsaved documents share the "untitled" folder for the session.
-    private static string DocumentKey(GH_Document? document)
-    {
-        string? path = document?.FilePath;
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return UntitledKey;
-        }
-
-        string name = Sanitize(Path.GetFileNameWithoutExtension(path));
-        if (name.Length == 0)
-        {
-            name = UntitledKey;
-        }
-
-        return $"{name}-{ShortHash(path!)}";
-    }
-
+    // Anything that cannot be in a Windows file name — the path separators included, which is what
+    // makes this a containment guard as well as a tidy-up — becomes a dash. Dots survive in the
+    // middle ("v1.2" stays readable) but are trimmed off the ends, so ".." and "." cannot address a
+    // parent and a trailing dot cannot produce a name Windows refuses to create.
     private static string Sanitize(string value)
     {
         var invalid = Path.GetInvalidFileNameChars();
@@ -81,20 +93,6 @@ internal static class MemoryLocations
             sb.Append(invalid.Contains(c) || char.IsWhiteSpace(c) ? '-' : c);
         }
 
-        return sb.ToString().Trim('-');
-    }
-
-    // First 8 hex chars of the SHA-256 of the normalized path — deterministic across sessions (unlike
-    // string.GetHashCode, which is randomized per process in .NET Core).
-    private static string ShortHash(string value)
-    {
-        byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value.Replace('\\', '/').ToLowerInvariant()));
-        var sb = new StringBuilder(8);
-        for (int i = 0; i < 4; i++)
-        {
-            sb.Append(bytes[i].ToString("x2"));
-        }
-
-        return sb.ToString();
+        return sb.ToString().Trim('-', '.');
     }
 }

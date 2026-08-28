@@ -25,6 +25,14 @@
          packages' own JsonSchema.Net dependency when bumping either. -->
     <PackageReference Include="JsonSchema.Net" Version="7.2.2" />
     <PackageReference Include="SharpToken" Version="2.0.6" />
+    <!-- PDF text extraction, page probing and letter-level bounding boxes (Physalia.Core/Pdf).
+         Apache-2.0 and 100% managed IL, so it merges cleanly into the .gha via RepackGha and needs
+         no denylist entry — unlike the RASTERIZER (PDFtoImage), which is native and lives on
+         Physalia.GH. Pinned: 0.1.16 resolves its lib/net6.0 assets on our net7.0 TFM, which matters
+         because the netstandard2.0 flavour of a package is exactly the shape that produced the
+         MissingMethodException-on-IsExternalInit failure documented on the JSON stack's denylist.
+         Verify that flavour still wins before bumping. -->
+    <PackageReference Include="PdfPig" Version="0.1.16" />
   </ItemGroup>
 
 </Project>

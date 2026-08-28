@@ -8,10 +8,12 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Base class for the two snapshot human tools — Geometry Snapshot and View Snapshot. Both arm a
 /// button in the chat window that captures the Rhino viewport, and both let the human choose what
-/// happens to that capture: send it immediately as its own message carrying the tool's default text,
-/// or attach it to the prompt box like a pasted image and caption it themselves. That choice, and the
-/// wording that rides with the capture, are the whole of what a snapshot tool carries, so both live
-/// here; what gets captured (and whether the button needs arming) is the subclass's business.
+/// happens to that capture: attach it to the prompt box like a pasted image and caption it themselves
+/// (the default), or send it immediately as its own message carrying the tool's default text. That
+/// choice, and the wording that rides with the capture, are the whole of what a snapshot tool carries,
+/// so both live here; what gets captured (and whether the button needs arming) is the subclass's
+/// business. Every future snapshot tool inherits the default from this field, not from its own
+/// constructor.
 ///
 /// <para>Both are settings, so both are serialized on the component rather than held by the
 /// Conversation Log: a configured snapshot tool is meant to travel — copied into another harness, or
@@ -19,12 +21,15 @@ namespace Physalia.GH.Components;
 /// </summary>
 public abstract class SnapshotToolComponentBase : HumanToolComponentBase
 {
-    // Whether the captured snapshot is sent immediately with the tool's default message (true, the
-    // default) or attached to the prompt box for the human to caption (false). A menu item, not an
-    // input: HumanToolComponentBase seals RegisterInputParams — a human tool's whole contract is its
-    // presence on the Conversation Log's Human Tools input. The chat window's snapshot page drives the
-    // same field through SetSendWithMessage, so the two surfaces never disagree.
-    private bool _sendWithMessage = true;
+    // Whether the captured snapshot is sent immediately with the tool's default message (true) or
+    // attached to the prompt box for the human to caption (false, the default). Attaching is the
+    // default because a snapshot is nearly always context for a particular question: sending it on
+    // its own with standing wording spends a turn saying nothing the human meant to say, and the
+    // human has to wait for that turn before asking what they were actually looking at. A menu item,
+    // not an input: HumanToolComponentBase seals RegisterInputParams — a human tool's whole contract
+    // is its presence on the Conversation Log's Human Tools input. The chat window's snapshot page
+    // drives the same field through SetSendWithMessage, so the two surfaces never disagree.
+    private bool _sendWithMessage;
 
     // The text that rides with the capture instead of the tool's built-in default. Null = use the
     // default (the common case). Edited from this tool's page in the chat window, which reaches it
@@ -114,8 +119,10 @@ public abstract class SnapshotToolComponentBase : HumanToolComponentBase
     /// <inheritdoc/>
     public override bool Read(GH_IO.Serialization.GH_IReader reader)
     {
-        // Absent key = a file written before the toggle existed: keep the send-immediately behaviour.
-        _sendWithMessage = !reader.ItemExists("SendWithMessage") || reader.GetBoolean("SendWithMessage");
+        // Absent key = a file written before the toggle existed, so it never expressed a preference:
+        // it gets the current default (attach) like a freshly placed tool, not the behaviour that
+        // happened to be hard-wired at the time.
+        _sendWithMessage = reader.ItemExists("SendWithMessage") && reader.GetBoolean("SendWithMessage");
         _messageOverride = SettingArchive.ReadOptionalString(reader, "MessageOverride");
         return base.Read(reader);
     }

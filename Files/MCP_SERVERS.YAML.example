@@ -44,6 +44,23 @@ mcpServers:
 
   # notion:
   #   url: https://mcp.notion.com/mcp
+  #
+  # Most hosted servers sign you in over OAuth: the bridge opens a browser the first time the server
+  # is reached, so there is nothing to put here beyond the URL.
+  #
+  # A server that wants a static token instead takes it as a header. Use ${VAR} for the token itself
+  # so it stays out of this file:
+  #
+  # internal:
+  #   url: https://mcp.example.com/mcp
+  #   headers:
+  #     Authorization: Bearer ${INTERNAL_MCP_TOKEN}
+  #
+  # `scope` narrows what the OAuth sign-in asks for; omit it to let the server's own metadata decide.
+  #
+  # linear:
+  #   url: https://mcp.linear.app/mcp
+  #   scope: read write
 
   # ---------------------------------------------------------------- credentials via the environment
   # github:
@@ -53,7 +70,9 @@ mcpServers:
   #     GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_TOKEN}
 
   # ---------------------------------------------------------------- other recognised keys
-  #   cwd:  working directory for a local server
-  #   env:  environment variables overlaid on the inherited ones
+  #   cwd:      working directory for a local server
+  #   env:      environment variables overlaid on the inherited ones
+  #   headers:  extra HTTP headers for a remote server (ignored on a local one)
+  #   scope:    OAuth scopes for a remote server, space-separated (ignored on a local one)
   # Keys meant for other MCP hosts are ignored rather than rejected, so one shared config file can
   # serve several clients.

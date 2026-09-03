@@ -337,9 +337,16 @@ public class McpServer : LlmToolComponentBase, IPickableValuesSource
         ExpireSolution(true);
     }
 
-    // Where the bridge lives when one has been built. Absent is not an error until a remote server
-    // is actually asked for, which is what makes a stdio-only install perfectly usable.
-    private static string? BridgeExecutable()
+    /// <summary>
+    /// Locates the MCP bridge executable, or null when it was not built.
+    /// </summary>
+    /// <returns>The absolute path to the bridge, or null.</returns>
+    /// <remarks>
+    /// Absent is not an error until a remote server is actually asked for, which is what makes a
+    /// stdio-only install perfectly usable. Internal rather than private because the chat window's
+    /// MCP page connects on its own, to run the OAuth sign-in at setup time.
+    /// </remarks>
+    internal static string? BridgeExecutable()
     {
         string? assemblyDir = System.IO.Path.GetDirectoryName(
             System.Reflection.Assembly.GetExecutingAssembly().Location);

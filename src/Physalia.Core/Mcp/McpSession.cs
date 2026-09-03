@@ -480,6 +480,21 @@ public sealed class McpSession : IDisposable
             startInfo.FileName = bridgeExecutable;
             startInfo.ArgumentList.Add("--url");
             startInfo.ArgumentList.Add(Definition.Url!);
+
+            // Headers and scope reach the remote server only through the bridge, so they are added
+            // here and nowhere else; a local entry has no HTTP request to put them on and its
+            // credentials belong in the environment instead.
+            foreach (KeyValuePair<string, string> header in Definition.Headers)
+            {
+                startInfo.ArgumentList.Add("--header");
+                startInfo.ArgumentList.Add($"{header.Key}={header.Value}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(Definition.Scope))
+            {
+                startInfo.ArgumentList.Add("--scope");
+                startInfo.ArgumentList.Add(Definition.Scope);
+            }
         }
         else
         {

@@ -32,13 +32,24 @@ namespace Physalia.Core.Mcp;
 /// stdio transport in-process, so a remote entry is reached by launching the Physalia MCP bridge
 /// pointed at this URL.
 /// </param>
+/// <param name="Headers">
+/// Extra HTTP headers sent to a remote server, which is where a static bearer token goes. Ignored
+/// for a local entry, whose credentials belong in <see cref="Environment"/> instead. Most hosted
+/// servers need none of this: the bridge signs in over OAuth, so the usual case is an empty set.
+/// </param>
+/// <param name="Scope">
+/// OAuth scopes requested when signing in to a remote server, space-separated, or null to let the
+/// server's own metadata decide. Ignored for a local entry.
+/// </param>
 public sealed record McpServerDefinition(
     string Name,
     string? Command,
     IReadOnlyList<string> Arguments,
     IReadOnlyDictionary<string, string> Environment,
     string? WorkingDirectory,
-    string? Url)
+    string? Url,
+    IReadOnlyDictionary<string, string> Headers,
+    string? Scope)
 {
     /// <summary>
     /// Gets a value indicating whether this entry names a remote endpoint rather than a local
@@ -58,8 +69,9 @@ public sealed record McpServerDefinition(
     /// </summary>
     /// <remarks>
     /// Deliberately excludes <see cref="Name"/>: two entries differing only in their key are the
-    /// same server and should not be launched twice. Environment values are folded in because a
-    /// changed token must not be served from a warm process that authenticated with the old one.
+    /// same server and should not be launched twice. Environment values and headers are folded in
+    /// because a changed token must not be served from a warm process that authenticated with the
+    /// old one.
     /// </remarks>
     public string Identity
     {
@@ -81,6 +93,15 @@ public sealed record McpServerDefinition(
                 builder.Append(pair.Key).Append('=').Append(pair.Value).Append(Sep);
             }
 
+            // Folded in for the same reason as the environment: a header is usually a credential,
+            // and a warm process authenticated with the old one must not serve the new definition.
+            foreach (KeyValuePair<string, string> pair in Headers.OrderBy(p => p.Key, StringComparer.Ordinal))
+            {
+                builder.Append(pair.Key).Append(':').Append(pair.Value).Append(Sep);
+            }
+
+            builder.Append(Scope ?? string.Empty).Append(Sep);
+
             return builder.ToString();
         }
     }
@@ -96,5 +117,7 @@ public sealed record McpServerDefinition(
         Arguments: Array.Empty<string>(),
         Environment: new Dictionary<string, string>(StringComparer.Ordinal),
         WorkingDirectory: null,
-        Url: null);
+        Url: null,
+        Headers: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+        Scope: null);
 }

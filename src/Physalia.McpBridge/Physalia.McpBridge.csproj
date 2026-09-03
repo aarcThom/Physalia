@@ -21,6 +21,10 @@
 
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol.Core" Version="2.2.0" />
+    <!-- DPAPI, for encrypting the cached OAuth tokens at rest (FileTokenCache). Windows-only
+         by nature; the package is safe to reference everywhere and the code branches on the
+         platform. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <!-- Explicit, and load-bearing: the SDK's Microsoft.Extensions.AI dependency calls
          JsonElement.Parse(ReadOnlySpan<byte>, JsonDocumentOptions), added in .NET 10. Without this
          pin the app would bind to the shared framework's 8.0.0 and throw MissingMethodException —

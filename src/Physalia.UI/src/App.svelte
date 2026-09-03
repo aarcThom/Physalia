@@ -15,6 +15,7 @@
 	import Preset from '$lib/chat/Preset.svelte';
 	import Grounding from '$lib/chat/Grounding.svelte';
 	import ConnectOptions from '$lib/chat/ConnectOptions.svelte';
+	import McpServers from '$lib/chat/McpServers.svelte';
 	import {
 		DropdownMenu,
 		DropdownMenuTrigger,
@@ -45,6 +46,10 @@
 		PythonFunctionInfo,
 		ReferencedGeometryInfo,
 		SetupResult,
+		McpConfig,
+		McpResult,
+		McpServerPayload,
+		UiMcpServer,
 		SnapshotKind,
 		UiImage,
 		SnapshotMessagePayload,
@@ -188,7 +193,13 @@
 
 	// Other full-screen pages opened from the header menu (mutually exclusive with the chat view
 	// and with setup). null = none open.
-	let panel = $state<'preset' | 'grounding' | null>(null);
+	let panel = $state<'preset' | 'grounding' | 'mcp' | null>(null);
+
+	// MCP config state, pushed by the host whenever Files/MCP_SERVERS.YAML changes — from this page,
+	// from another window, or from the user editing the file by hand.
+	let mcpServers = $state<UiMcpServer[]>([]);
+	let mcpReadOnlyReason = $state<string | null>(null);
+	let mcpResult = $state<McpResult | null>(null);
 	// Estimated token count from a Token Estimator wired downstream of the viewed ConversationLog,
 	// pushed by the host; null = no estimator wired (or no count yet) → the counter hides.
 	let tokenCount = $state<number | null>(null);
@@ -271,6 +282,13 @@
 			},
 			setPresets: (next) => {
 				presets = next ?? [];
+			},
+			setMcpServers: (next: McpConfig) => {
+				mcpServers = next?.servers ?? [];
+				mcpReadOnlyReason = next?.readOnlyReason ?? null;
+			},
+			setMcpResult: (result) => {
+				mcpResult = result;
 			},
 			setChats: (next) => {
 				chats = next ?? [];
@@ -642,12 +660,37 @@
 		setupResult = null;
 	}
 
-	// Open one of the pages (preset / grounding), leaving setup.
-	function openPanel(which: 'preset' | 'grounding') {
+	// Write one MCP server entry to Files/MCP_SERVERS.YAML. The whole entry rides as one JSON blob in
+	// the query — small enough for a URL, unlike the image payloads that needed the postMessage
+	// channel — and the host answers on setMcpResult, then re-pushes the list.
+	function saveMcpServer(entry: McpServerPayload) {
+		mcpResult = null;
+		// The sign-in flag rides ON the save verb rather than being a second call: the host has to read
+		// the entry back off disk to connect, and the page cannot know when the write landed.
+		const signIn = entry.signIn ? '&signin=1' : '';
+		window.location.href =
+			`${BRIDGE_SCHEME}://savemcpserver?entry=${encodeURIComponent(JSON.stringify(entry))}${signIn}`;
+	}
+
+	// Connect to an already-saved server, which for a remote one opens the browser sign-in.
+	function signInMcpServer(name: string) {
+		mcpResult = null;
+		window.location.href = `${BRIDGE_SCHEME}://signinmcpserver?name=${encodeURIComponent(name)}`;
+	}
+
+	function deleteMcpServer(name: string) {
+		mcpResult = null;
+		window.location.href = `${BRIDGE_SCHEME}://deletemcpserver?name=${encodeURIComponent(name)}`;
+	}
+
+	// Open one of the pages (preset / grounding / mcp), leaving setup.
+	function openPanel(which: 'preset' | 'grounding' | 'mcp') {
 		panel = which;
 		manualSetup = false;
 		selectedProviderId = null;
 		setupResult = null;
+		// A result belongs to the visit that produced it; a reopened page starts clean.
+		mcpResult = null;
 	}
 
 	function closePanel() {
@@ -737,6 +780,9 @@
 			<DropdownMenuContent align="start" class="w-60">
 				<DropdownMenuItem class="whitespace-nowrap" onSelect={openSetup}>
 					Set up providers…
+				</DropdownMenuItem>
+				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('mcp')}>
+					MCP connections…
 				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuItem
@@ -880,6 +926,16 @@
 				/>
 			{:else if panel === 'preset'}
 				<Preset {presets} onplace={placePreset} onclose={closePanel} />
+			{:else if panel === 'mcp'}
+				<McpServers
+					servers={mcpServers}
+					readOnlyReason={mcpReadOnlyReason}
+					result={mcpResult}
+					onsave={saveMcpServer}
+					ondelete={deleteMcpServer}
+					onsignin={signInMcpServer}
+					onclose={closePanel}
+				/>
 			{:else if panel === 'grounding'}
 				<Grounding
 					tree={groundingTree}
@@ -925,6 +981,7 @@
 						onpreset={() => openPanel('preset')}
 						onemptyharness={placeEmptyHarness}
 						onconfigure={openSetup}
+						onconfiguremcp={() => openPanel('mcp')}
 						{home}
 					/>
 			{/if}

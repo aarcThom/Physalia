@@ -48,8 +48,14 @@ public static class McpServerLibrary
     /// Parses configuration content. Pure — no file access.
     /// </summary>
     /// <param name="content">The file's text, in either the JSON or the YAML form.</param>
+    /// <param name="expandEnvironment">
+    /// True to substitute <c>${NAME}</c> references, which is what a connection needs. False keeps
+    /// every value exactly as written, which is what an EDITOR needs: reading expanded values and
+    /// writing them back would bake the resolved secret into the file the reference existed to keep
+    /// it out of.
+    /// </param>
     /// <returns>One definition per entry, in the order they appear.</returns>
-    public static IReadOnlyList<McpServerDefinition> Parse(string content)
+    public static IReadOnlyList<McpServerDefinition> Parse(string content, bool expandEnvironment = true)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -57,8 +63,8 @@ public static class McpServerLibrary
         }
 
         return content.TrimStart().StartsWith("{", StringComparison.Ordinal)
-            ? ParseJson(content)
-            : ParseYaml(content);
+            ? ParseJson(content, expandEnvironment)
+            : ParseYaml(content, expandEnvironment);
     }
 
     /// <summary>
@@ -105,7 +111,7 @@ public static class McpServerLibrary
         return result.ToString();
     }
 
-    private static IReadOnlyList<McpServerDefinition> ParseJson(string content)
+    private static IReadOnlyList<McpServerDefinition> ParseJson(string content, bool expand)
     {
         var servers = new List<McpServerDefinition>();
 
@@ -123,7 +129,7 @@ public static class McpServerLibrary
 
             foreach (JsonProperty entry in block.EnumerateObject())
             {
-                servers.Add(FromJsonEntry(entry.Name, entry.Value));
+                servers.Add(FromJsonEntry(entry.Name, entry.Value, expand));
             }
         }
         catch (JsonException)
@@ -134,7 +140,7 @@ public static class McpServerLibrary
         return servers;
     }
 
-    private static McpServerDefinition FromJsonEntry(string name, JsonElement body)
+    private static McpServerDefinition FromJsonEntry(string name, JsonElement body, bool expand)
     {
         if (body.ValueKind != JsonValueKind.Object)
         {
@@ -147,7 +153,7 @@ public static class McpServerLibrary
         {
             foreach (JsonElement item in argsElement.EnumerateArray())
             {
-                args.Add(ExpandEnvironment(item.ToString()));
+                args.Add(Expand(item.ToString(), expand));
             }
         }
 
@@ -157,28 +163,42 @@ public static class McpServerLibrary
         {
             foreach (JsonProperty pair in envElement.EnumerateObject())
             {
-                env[pair.Name] = ExpandEnvironment(pair.Value.ToString());
+                env[pair.Name] = Expand(pair.Value.ToString(), expand);
+            }
+        }
+
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (body.TryGetProperty("headers", out JsonElement headersElement) &&
+            headersElement.ValueKind == JsonValueKind.Object)
+        {
+            foreach (JsonProperty pair in headersElement.EnumerateObject())
+            {
+                headers[pair.Name] = Expand(pair.Value.ToString(), expand);
             }
         }
 
         return new McpServerDefinition(
             name,
-            ReadJsonString(body, "command"),
+            ReadJsonString(body, "command", expand),
             args,
             env,
-            ReadJsonString(body, "cwd") ?? ReadJsonString(body, "workingDirectory"),
-            ReadJsonString(body, "url"));
+            ReadJsonString(body, "cwd", expand) ?? ReadJsonString(body, "workingDirectory", expand),
+            ReadJsonString(body, "url", expand),
+            headers,
+            ReadJsonString(body, "scope", expand));
     }
 
-    private static string? ReadJsonString(JsonElement body, string property) =>
+    private static string? ReadJsonString(JsonElement body, string property, bool expand) =>
         body.TryGetProperty(property, out JsonElement value) && value.ValueKind == JsonValueKind.String
-            ? ExpandEnvironment(value.GetString() ?? string.Empty)
+            ? Expand(value.GetString() ?? string.Empty, expand)
             : null;
+
+    private static string Expand(string value, bool expand) => expand ? ExpandEnvironment(value) : value;
 
     // Hand-rolled rather than taking a YAML dependency, matching Config/Api.cs. Only the shapes the
     // standard mcpServers block actually uses are supported: nested maps, inline and block
     // sequences, quoted and bare scalars, '#' comments.
-    private static IReadOnlyList<McpServerDefinition> ParseYaml(string content)
+    private static IReadOnlyList<McpServerDefinition> ParseYaml(string content, bool expand)
     {
         var servers = new List<McpServerDefinition>();
 
@@ -186,8 +206,10 @@ public static class McpServerLibrary
         string? command = null;
         string? url = null;
         string? workingDirectory = null;
+        string? scope = null;
         var args = new List<string>();
         var env = new Dictionary<string, string>(StringComparer.Ordinal);
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         // Which multi-line field the following deeper-indented lines belong to.
         string? openField = null;
@@ -204,15 +226,19 @@ public static class McpServerLibrary
                     args.ToList(),
                     new Dictionary<string, string>(env, StringComparer.Ordinal),
                     workingDirectory,
-                    url));
+                    url,
+                    new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase),
+                    scope));
             }
 
             name = null;
             command = null;
             url = null;
             workingDirectory = null;
+            scope = null;
             args.Clear();
             env.Clear();
+            headers.Clear();
             openField = null;
         }
 
@@ -254,7 +280,7 @@ public static class McpServerLibrary
             {
                 if (openField == "args")
                 {
-                    args.Add(Unquote(trimmed.Length > 1 ? trimmed.Substring(1).Trim() : string.Empty));
+                    args.Add(Expand(Unquote(trimmed.Length > 1 ? trimmed.Substring(1).Trim() : string.Empty), expand));
                 }
 
                 continue;
@@ -277,7 +303,13 @@ public static class McpServerLibrary
             // Deeper than a field means it is a member of the currently open map field.
             if (openField == "env" && indent > FieldIndent(serverIndent))
             {
-                env[key] = ExpandEnvironment(Unquote(value));
+                env[key] = Expand(Unquote(value), expand);
+                continue;
+            }
+
+            if (openField == "headers" && indent > FieldIndent(serverIndent))
+            {
+                headers[key] = Expand(Unquote(value), expand);
                 continue;
             }
 
@@ -286,19 +318,19 @@ public static class McpServerLibrary
             switch (key.ToLowerInvariant())
             {
                 case "command":
-                    command = ExpandEnvironment(Unquote(value));
+                    command = Expand(Unquote(value), expand);
                     break;
                 case "url":
-                    url = ExpandEnvironment(Unquote(value));
+                    url = Expand(Unquote(value), expand);
                     break;
                 case "cwd":
                 case "workingdirectory":
-                    workingDirectory = ExpandEnvironment(Unquote(value));
+                    workingDirectory = Expand(Unquote(value), expand);
                     break;
                 case "args":
                     if (value.StartsWith("[", StringComparison.Ordinal))
                     {
-                        args.AddRange(SplitFlowSequence(value).Select(ExpandEnvironment));
+                        args.AddRange(SplitFlowSequence(value).Select(v => Expand(v, expand)));
                     }
                     else
                     {
@@ -309,9 +341,15 @@ public static class McpServerLibrary
                 case "env":
                     openField = "env";
                     break;
+                case "headers":
+                    openField = "headers";
+                    break;
+                case "scope":
+                    scope = Expand(Unquote(value), expand);
+                    break;
                 default:
-                    // Unknown key (disabled, type, headers…) — ignored rather than rejected, so a
-                    // config carrying settings for another host still loads here.
+                    // Unknown key (disabled, type…) — ignored rather than rejected, so a config
+                    // carrying settings for another host still loads here.
                     break;
             }
         }

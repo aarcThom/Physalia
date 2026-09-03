@@ -25,6 +25,7 @@ using Physalia.Core.Grounding;
 using Physalia.Core.Grounding.Clusters;
 using Physalia.Core.Grounding.Components;
 using Physalia.Core.Grounding.Tools;
+using Physalia.Core.Mcp;
 using Physalia.Core.Pdf;
 using Physalia.GH.Components;
 
@@ -169,6 +170,11 @@ public class ChatWindow : Form
     private string? _lastStatus;
     private string? _lastConfigured;
     private string? _lastPresetSignature;
+
+    // Last seen (write time, length) of MCP_SERVERS.YAML, so the MCP page refreshes when the file
+    // changes — from this window, from another one, or from the user editing it by hand — without
+    // reading it on every 0.15 s tick.
+    private string? _lastMcpSignature;
     private string? _lastChats;
     private string? _lastGroundingSignature;
     private int? _lastTokenCount;
@@ -465,6 +471,19 @@ public class ChatWindow : Form
                 // The signal-trace button (a Signal Trace human tool is wired): open the session's
                 // trace window. The log is process-wide, so this is a door, not a per-chat view.
                 SignalTraceWindow.ShowOrFocus();
+                break;
+            case "savemcpserver":
+                // The MCP page's save button: write one entry into Files/MCP_SERVERS.YAML.
+                HandleSaveMcpServer(uri);
+                break;
+            case "deletemcpserver":
+                HandleDeleteMcpServer(uri);
+                break;
+            case "signinmcpserver":
+                // Connect to a configured server now, which is what runs a remote one's OAuth
+                // sign-in — so the browser handshake happens during setup rather than on the first
+                // solve of a node the user has not placed yet.
+                BeginMcpSignIn(GetQueryValue(uri.Query, "name"));
                 break;
             case "cancel":
                 HandleCancel();
@@ -1589,6 +1608,10 @@ public class ChatWindow : Form
         // Bundled presets for the "Add preset" page — pushed once and whenever the set changes.
         MaybePushPresets();
 
+        // The MCP server list for the "Configure MCP connections" page — same deal, keyed on the
+        // config file's own write time so a hand edit shows up too.
+        MaybePushMcpServers();
+
         // Switcher row: one circle per Chat on the canvas, pushed when the set/active changes.
         MaybePushChats();
     }
@@ -1630,6 +1653,337 @@ public class ChatWindow : Form
 
         string json = JsonSerializer.Serialize(presets, WriteOpts);
         Exec($"window.physalia&&window.physalia.setPresets&&window.physalia.setPresets({json});");
+    }
+
+    // Pushes the configured MCP servers to the page for the "Configure MCP connections" screen.
+    //
+    // Read only when Files/MCP_SERVERS.YAML actually changes (write time + length), like the preset
+    // library below — reading a file several times a second on the tick would be absurd, and this way
+    // a hand edit, or a save from another window, shows up on its own within a tick.
+    //
+    // Values go over UNEXPANDED (McpConfigEditor.ParseRaw): the page is an editor, so it must show
+    // and hand back "${GITHUB_TOKEN}" rather than the resolved token — otherwise the next save would
+    // write the secret into the file that the reference existed to keep it out of.
+    private void MaybePushMcpServers()
+    {
+        string path = McpServer.ConfigPath;
+
+        string signature;
+        try
+        {
+            var info = new FileInfo(path);
+            signature = info.Exists ? $"{info.LastWriteTimeUtc.Ticks}|{info.Length}" : "none";
+        }
+        catch (IOException)
+        {
+            signature = "unreadable";
+        }
+
+        if (signature == _lastMcpSignature)
+        {
+            return;
+        }
+
+        _lastMcpSignature = signature;
+
+        string content = ReadMcpConfig(path);
+        var servers = McpConfigEditor.ParseRaw(content)
+            .Select(d => new
+            {
+                name = d.Name,
+                transport = d.IsRemote ? "remote" : "local",
+                command = d.Command ?? string.Empty,
+                args = d.Arguments,
+                cwd = d.WorkingDirectory ?? string.Empty,
+                env = d.Environment.Select(pair => new[] { pair.Key, pair.Value }).ToList(),
+                url = d.Url ?? string.Empty,
+                headers = d.Headers.Select(pair => new[] { pair.Key, pair.Value }).ToList(),
+                scope = d.Scope ?? string.Empty,
+                runnable = d.IsRunnable,
+            })
+            .ToList();
+
+        string json = JsonSerializer.Serialize(
+            new { servers, readOnlyReason = McpConfigEditor.DescribeWriteBlock(content) },
+            WriteOpts);
+
+        Exec($"window.physalia&&window.physalia.setMcpServers&&window.physalia.setMcpServers({json});");
+    }
+
+    // Writes one server entry into MCP_SERVERS.YAML, creating the file if it is not there yet.
+    private void HandleSaveMcpServer(Uri uri)
+    {
+        string raw = GetQueryValue(uri.Query, "entry");
+        if (string.IsNullOrEmpty(raw))
+        {
+            return;
+        }
+
+        McpServerPayload? payload;
+        try
+        {
+            payload = JsonSerializer.Deserialize<McpServerPayload>(raw, ReadOpts);
+        }
+        catch (JsonException)
+        {
+            PushMcpResult(false, "Physalia could not read that server definition.");
+            return;
+        }
+
+        if (payload is null || string.IsNullOrWhiteSpace(payload.Name))
+        {
+            PushMcpResult(false, "Give the server a name.");
+            return;
+        }
+
+        bool remote = string.Equals(payload.Transport, "remote", StringComparison.OrdinalIgnoreCase);
+
+        if (remote && string.IsNullOrWhiteSpace(payload.Url))
+        {
+            PushMcpResult(false, "A remote server needs a URL.");
+            return;
+        }
+
+        if (!remote && string.IsNullOrWhiteSpace(payload.Command))
+        {
+            PushMcpResult(false, "A local server needs a command to launch (npx, uvx, node...).");
+            return;
+        }
+
+        string path = McpServer.ConfigPath;
+        string content = ReadMcpConfig(path);
+
+        if (McpConfigEditor.DescribeWriteBlock(content) is { } blocked)
+        {
+            PushMcpResult(false, blocked);
+            return;
+        }
+
+        var definition = new McpServerDefinition(
+            payload.Name.Trim(),
+            remote ? null : payload.Command?.Trim(),
+            remote ? Array.Empty<string>() : CleanList(payload.Args),
+            remote
+                ? new Dictionary<string, string>(StringComparer.Ordinal)
+                : CleanPairs(payload.Env, StringComparer.Ordinal),
+            remote ? null : NullIfBlank(payload.Cwd),
+            remote ? payload.Url?.Trim() : null,
+            remote
+                ? CleanPairs(payload.Headers, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            remote ? NullIfBlank(payload.Scope) : null);
+
+        try
+        {
+            EnsureMcpConfigFileExists(path);
+            string updated = McpConfigEditor.Upsert(ReadMcpConfig(path), definition, NullIfBlank(payload.Replacing));
+            File.WriteAllText(path, updated);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            PushMcpResult(false, $"Could not save: {ex.Message}");
+            return;
+        }
+
+        // Drop the signature so the next tick re-reads and re-pushes: the list must reflect the save
+        // straight away, and the file's own write time is not what the page is waiting on.
+        _lastMcpSignature = null;
+
+        // "Save & sign in": connect straight away so a remote server's browser handshake happens
+        // here, while the user is still setting up. Saving and connecting are ONE bridge verb rather
+        // than two calls from the page, because the connection has to read the entry back off disk
+        // and the page cannot know when the write landed.
+        if (QueryFlagSet(uri.Query, "signin"))
+        {
+            BeginMcpSignIn(definition.Name);
+            return;
+        }
+
+        PushMcpResult(true, $"Saved '{definition.Name}' to MCP_SERVERS.YAML.");
+    }
+
+    // Opens a connection to one configured server, which for a remote entry runs the OAuth sign-in
+    // (the bridge opens a browser and waits for the loopback redirect). Doubles as a connection test:
+    // what comes back is the tool count, so a wrong URL or a bad command is caught here rather than
+    // on the first solve.
+    //
+    // The token survives this process — the bridge caches it per user under LocalApplicationData,
+    // DPAPI-encrypted on Windows — which is what makes signing in at setup time worth anything at
+    // all. Without that cache the credential would die with the pooled session ten minutes later.
+    private void BeginMcpSignIn(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        // Read EXPANDED here, unlike everywhere else on this page: this is a connection, not an
+        // edit, so a ${VAR} must resolve to the credential it names.
+        McpServerDefinition? definition = McpServerLibrary
+            .Read(McpServer.ConfigPath)
+            .FirstOrDefault(d => string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase));
+
+        if (definition is null)
+        {
+            PushMcpResult(false, $"'{name}' is not in MCP_SERVERS.YAML.");
+            return;
+        }
+
+        if (!definition.IsRunnable)
+        {
+            PushMcpResult(false, $"'{name}' has neither a command nor a URL, so there is nothing to connect to.");
+            return;
+        }
+
+        Task.Run(async () =>
+        {
+            bool ok;
+            string message;
+
+            try
+            {
+                // Generous, because a browser sign-in runs at human speed — the two-minute discovery
+                // timeout an MCP Server node uses would expire mid-consent-screen.
+                using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+
+                Result<McpSession, LlmError> connection = await McpConnections
+                    .GetAsync(definition, McpServer.BridgeExecutable(), timeout.Token)
+                    .ConfigureAwait(false);
+
+                if (connection.IsErr(out LlmError? error, out McpSession? session))
+                {
+                    ok = false;
+                    message = error.Message;
+                }
+                else
+                {
+                    Result<IReadOnlyList<LlmToolDefinition>, LlmError> listed =
+                        await session.ListToolsAsync(timeout.Token).ConfigureAwait(false);
+
+                    if (listed.IsErr(out LlmError? listError, out IReadOnlyList<LlmToolDefinition>? tools))
+                    {
+                        ok = false;
+                        message = listError.Message;
+                    }
+                    else
+                    {
+                        ok = true;
+                        message = tools.Count == 1
+                            ? $"Connected to '{name}' — 1 tool available."
+                            : $"Connected to '{name}' — {tools.Count} tools available.";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                message = ex.Message;
+            }
+
+            // Back to the UI thread: this is a background task and Exec drives the WebView.
+            Application.Instance.AsyncInvoke(() => PushMcpResult(ok, message));
+        });
+    }
+
+    // Removes one server entry from MCP_SERVERS.YAML.
+    private void HandleDeleteMcpServer(Uri uri)
+    {
+        string name = GetQueryValue(uri.Query, "name");
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        string path = McpServer.ConfigPath;
+        string content = ReadMcpConfig(path);
+
+        if (McpConfigEditor.DescribeWriteBlock(content) is { } blocked)
+        {
+            PushMcpResult(false, blocked);
+            return;
+        }
+
+        try
+        {
+            File.WriteAllText(path, McpConfigEditor.Remove(content, name));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PushMcpResult(false, $"Could not save: {ex.Message}");
+            return;
+        }
+
+        _lastMcpSignature = null;
+        PushMcpResult(true, $"Removed '{name}'. Any MCP Server node still naming it will say so.");
+    }
+
+    private static string ReadMcpConfig(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+        }
+        catch (IOException)
+        {
+            return string.Empty;
+        }
+    }
+
+    // Seeds a first-run MCP_SERVERS.YAML from the shipped template, exactly as the API-key config
+    // does, so the file the user later opens by hand still carries its commentary — the ${VAR}
+    // convention above all, which the UI form can mention but not teach.
+    private static void EnsureMcpConfigFileExists(string path)
+    {
+        if (File.Exists(path))
+        {
+            return;
+        }
+
+        string? dir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        string example = path + ".example";
+        if (File.Exists(example))
+        {
+            File.Copy(example, path);
+        }
+    }
+
+    private static List<string> CleanList(List<string>? values) =>
+        (values ?? new List<string>())
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v.Trim())
+            .ToList();
+
+    // Pair rows arrive as [key, value]; a row with no key is a half-filled form field, not a setting.
+    // The value is trimmed but otherwise untouched — it may well be a "${VAR}" reference, and this is
+    // the last place that could accidentally resolve one.
+    private static Dictionary<string, string> CleanPairs(List<List<string>>? pairs, StringComparer comparer)
+    {
+        var result = new Dictionary<string, string>(comparer);
+
+        foreach (List<string> pair in pairs ?? new List<List<string>>())
+        {
+            if (pair is { Count: >= 1 } && !string.IsNullOrWhiteSpace(pair[0]))
+            {
+                result[pair[0].Trim()] = (pair.Count > 1 ? pair[1] ?? string.Empty : string.Empty).Trim();
+            }
+        }
+
+        return result;
+    }
+
+    private static string? NullIfBlank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    // One-shot push of an MCP save/delete outcome to the page.
+    private void PushMcpResult(bool ok, string message)
+    {
+        string json = JsonSerializer.Serialize(new { ok, message }, WriteOpts);
+        Exec($"window.physalia&&window.physalia.setMcpResult&&window.physalia.setMcpResult({json});");
     }
 
     // Pushes the switcher list — one entry per Chat on the canvas, in left-to-right canvas order —
@@ -2852,4 +3206,20 @@ public class ChatWindow : Form
     // Geometry-snapshot message override pushed from the window: reset=true clears to the wired
     // grounding's default message; otherwise message is the text sent alongside the snapshot image.
     private sealed record SnapshotMessagePayload(bool Reset, string? Message);
+
+    // One MCP server entry pushed from the window's MCP page. Transport picks which half matters:
+    // "local" reads Command/Args/Cwd/Env, "remote" reads Url/Headers/Scope. Replacing carries the
+    // entry's previous name when a rename is being saved, so it is edited in place rather than
+    // added alongside the original.
+    private sealed record McpServerPayload(
+        string Name,
+        string? Transport,
+        string? Command,
+        List<string>? Args,
+        string? Cwd,
+        List<List<string>>? Env,
+        string? Url,
+        List<List<string>>? Headers,
+        string? Scope,
+        string? Replacing);
 }

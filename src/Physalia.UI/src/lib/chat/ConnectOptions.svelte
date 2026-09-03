@@ -23,11 +23,13 @@
 		onemptyharness: () => void;
 		/** Opens the LLM-provider setup screen. */
 		onconfigure: () => void;
+		/** Opens the MCP connections page. */
+		onconfiguremcp: () => void;
 		/** True on the Home screen, which is the only place the options are offered. */
 		home: boolean;
 	}
 
-	let { onpreset, onemptyharness, onconfigure, home }: Props = $props();
+	let { onpreset, onemptyharness, onconfigure, onconfiguremcp, home }: Props = $props();
 </script>
 
 <div class="mx-auto flex w-full max-w-xl flex-col items-center gap-6 px-4 py-6">
@@ -40,6 +42,10 @@
 			<Pill onclick={onemptyharness} class="w-full justify-start py-3">Place empty harness</Pill>
 
 			<Pill onclick={onconfigure} class="w-full justify-start py-3">Configure LLM providers</Pill>
+
+			<Pill onclick={onconfiguremcp} class="w-full justify-start py-3">
+				Configure MCP connections
+			</Pill>
 		</div>
 	{/if}
 </div>

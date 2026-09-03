@@ -321,6 +321,65 @@ Grounding (not built); **prompts** → System Prompt's `Additional Prompt` (not 
   why servers live in a file and not on the component — a definition serialized onto a node would
   ship inside every preset made from it. What DOES live on the node: which server is picked and which
   of its tools are advertised (see Settings ownership).
+- **Six recognised keys, in two transport-shaped halves** — `command`/`args`/`cwd`/`env` for a local
+  stdio server, `url`/`headers`/`scope` for a remote one. The local half is what nearly every
+  published server is, so anything offering "a URL and a key" would refuse most of the ecosystem.
+  `headers` is where a **static bearer token** for a remote server goes and `scope` narrows the OAuth
+  sign-in; both are ignored on a local entry, whose credentials belong in `env`. Both are folded into
+  `McpServerDefinition.Identity` for the same reason `env` is — a warm bridge process authenticated
+  with the old token must not serve the new definition — and both reach the server ONLY through the
+  bridge's `--header Name=Value` / `--scope` arguments, added in `McpSession.StartProcess`'s remote
+  branch. Most hosted servers need neither: the bridge signs in over OAuth, so blank is the normal
+  case, not the exception.
+- **OAuth tokens are cached on disk by the bridge, and that is what makes an early sign-in worth
+  anything.** `ClientOAuthOptions.TokenCache` was unset, so the SDK kept tokens *with the transport*
+  — and the bridge is short-lived by design (`McpConnections` reaps an idle session after ten
+  minutes; every Rhino restart kills the pool), so the user faced a browser sign-in on nearly every
+  cold start. `FileTokenCache` (bridge-side) stores them under
+  `%LOCALAPPDATA%/Physalia/mcp-auth/<sha256 of endpoint+scope>.tok`, **DPAPI-encrypted with
+  `DataProtectionScope.CurrentUser`** on Windows and plaintext-with-owner-only-mode elsewhere (DPAPI
+  is Windows-only). **The `ClientId` must be persisted alongside the refresh token, not just the
+  tokens** — it is what the dynamic client registration produced, and the SDK restores it from the
+  cache so a cold start can redeem the refresh token without re-registering *and without prompting*;
+  dropping that field silently reintroduces the sign-in it was meant to remove. `GetTokensAsync` is
+  on the request hot path ("invoked for every request"), so the disk read and DPAPI decrypt happen
+  ONCE and are held in memory. Every failure path returns "no cached token" rather than throwing — an
+  unreadable cache is exactly as recoverable as no cache, while an exception would take down a
+  connection that was otherwise fine. The file name is a HASH so a directory listing does not leak
+  which services the user has connected to.
+- **Two Mac-port items live in this stack, and only one is a break** (noted 2026-09-03; memory note
+  `mac-port-mcp-gaps`). **`McpServer.BridgeExecutable()` hardcodes `Physalia.McpBridge.exe`**, but a
+  net8.0 console app's apphost on macOS is `Physalia.McpBridge` with **no extension** — so the probe
+  fails, the method returns null, and EVERY remote server reports the bridge missing on a build that
+  is otherwise healthy. Local stdio servers keep working, which is what will make it look like a
+  server-specific fault rather than a platform one; it needs to probe both names (or fall back to
+  `dotnet Physalia.McpBridge.dll`). The DPAPI token cache above is the *safe* one — it already
+  branches to plaintext + owner-only mode off Windows, and the proper Mac answer is the Keychain, so
+  do not "fix" it by dropping encryption on Windows to make the platforms match. Already Mac-safe and
+  not worth re-auditing: `McpExecutable.Resolve` guards PATHEXT behind `IsWindows`, `CopyMcpBridge`
+  globs `**\*` so it stages whatever the apphost is called, `LocalApplicationData` maps to
+  `~/.local/share`, and `UseShellExecute = true` opens a browser via `open`.
+- **The chat window's Home screen edits this file** ("Configure MCP connections", also on the header
+  menu). Two invariants there, both load-bearing. (1) **The file is EDITED, never regenerated** —
+  `McpConfigEditor` replaces only the edited entry's line range, so the shipped commentary, the
+  user's own notes, the entry order and the file's indentation style all survive; an entry's span
+  deliberately stops before any trailing blank/comment lines, because a comment describes the entry
+  BELOW it and deleting a server must not take its neighbour's documentation. (2) **The editor reads
+  values UNEXPANDED** (`McpConfigEditor.ParseRaw` → `McpServerLibrary.Parse(expandEnvironment:
+  false)`). Populating the form from expanded values and saving would write the resolved token into
+  the file that `${VAR}` existed to keep it out of — a silent credential leak on the user's next
+  unrelated edit. **The JSON form is read but never written**: it is a config shared with another MCP
+  host, so `DescribeWriteBlock` refuses it and the page goes read-only rather than converting it.
+- **The page also SIGNS IN**, which is the point of configuring a remote server there at all: "Save &
+  sign in" (and a connect button on each list row) calls `McpConnections.GetAsync` + `ListToolsAsync`
+  right then, so the browser handshake happens during setup instead of on the first solve of a node
+  the user has not placed yet. It doubles as a connection test — what comes back is the tool count,
+  so a wrong URL or an unresolvable command is caught immediately. Three details: the sign-in flag
+  rides **on the save verb** (`?signin=1`) rather than being a second call from the page, because
+  connecting has to read the entry back off disk and the page cannot know when the write landed; the
+  timeout is **five minutes, not the node's two**, because a consent screen runs at human speed; and
+  this is the ONE place on the page that reads values **expanded**, since it is a connection rather
+  than an edit and a `${VAR}` must resolve to the credential it names.
 - **`McpExecutable.Resolve` is load-bearing on Windows.** Practically every published config says
   `command: npx`, those are `.cmd` shims, and `CreateProcess` does **not** apply `PATHEXT` — bare
   `npx` throws `Win32Exception`. PATHEXT variants are tried **before** the bare name, because npm

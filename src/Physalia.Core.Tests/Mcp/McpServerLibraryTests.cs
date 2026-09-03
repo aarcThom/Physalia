@@ -123,6 +123,7 @@ public class McpServerLibraryTests
                 command: a
                 disabled: false
                 type: stdio
+                autoApprove: ["x"]
             """);
 
         Assert.Equal("a", Assert.Single(servers).Command);
@@ -168,7 +169,9 @@ public class McpServerLibraryTests
             new[] { arg },
             new Dictionary<string, string>(StringComparer.Ordinal) { ["T"] = token },
             WorkingDirectory: null,
-            Url: null);
+            Url: null,
+            Headers: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            Scope: null);
 
         string baseline = Make("npx", "a", "t1").Identity;
 
@@ -191,7 +194,9 @@ public class McpServerLibraryTests
             new[] { "a" },
             new Dictionary<string, string>(StringComparer.Ordinal),
             WorkingDirectory: null,
-            Url: null);
+            Url: null,
+            Headers: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            Scope: null);
 
         Assert.Equal(Make("one").Identity, Make("two").Identity);
     }
@@ -200,5 +205,104 @@ public class McpServerLibraryTests
     public void IsRunnable_FalseWhenNeitherCommandNorUrl()
     {
         Assert.False(McpServerDefinition.Unrunnable("broken").IsRunnable);
+    }
+
+    [Fact]
+    public void Parse_YamlHeadersAndScope_ReadOntoARemoteEntry()
+    {
+        IReadOnlyList<McpServerDefinition> servers = McpServerLibrary.Parse("""
+            mcpServers:
+              hosted:
+                url: https://example.com/mcp
+                scope: read write
+                headers:
+                  Authorization: Bearer abc123
+                  X-Tenant: acme
+              plain:
+                command: p
+            """);
+
+        McpServerDefinition hosted = servers[0];
+        Assert.Equal("Bearer abc123", hosted.Headers["Authorization"]);
+        Assert.Equal("acme", hosted.Headers["X-Tenant"]);
+        Assert.Equal("read write", hosted.Scope);
+
+        // Same leak check the env block gets: an open map field must close at the next entry.
+        Assert.Empty(servers[1].Headers);
+        Assert.Null(servers[1].Scope);
+    }
+
+    [Fact]
+    public void Parse_Headers_AreCaseInsensitive()
+    {
+        // HTTP header names are case-insensitive, so a config written `authorization:` must reach
+        // the same slot as one written `Authorization:`.
+        IReadOnlyList<McpServerDefinition> servers = McpServerLibrary.Parse("""
+            mcpServers:
+              hosted:
+                url: https://example.com/mcp
+                headers:
+                  authorization: Bearer t
+            """);
+
+        Assert.Equal("Bearer t", Assert.Single(servers).Headers["AUTHORIZATION"]);
+    }
+
+    [Fact]
+    public void Parse_HeadersExpandEnvironmentReferences()
+    {
+        Environment.SetEnvironmentVariable("PHYSALIA_TEST_HEADER", "secret");
+        try
+        {
+            IReadOnlyList<McpServerDefinition> servers = McpServerLibrary.Parse("""
+                mcpServers:
+                  hosted:
+                    url: https://example.com/mcp
+                    headers:
+                      Authorization: Bearer ${PHYSALIA_TEST_HEADER}
+                """);
+
+            Assert.Equal("Bearer secret", Assert.Single(servers).Headers["Authorization"]);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PHYSALIA_TEST_HEADER", null);
+        }
+    }
+
+    [Fact]
+    public void Parse_JsonHeadersAndScope_ReadTheSameShape()
+    {
+        IReadOnlyList<McpServerDefinition> servers = McpServerLibrary.Parse("""
+            {"mcpServers":{"hosted":{"url":"https://e.com/mcp","scope":"read","headers":{"Authorization":"Bearer j"}}}}
+            """);
+
+        McpServerDefinition server = Assert.Single(servers);
+        Assert.True(server.IsRemote);
+        Assert.Equal("Bearer j", server.Headers["Authorization"]);
+        Assert.Equal("read", server.Scope);
+    }
+
+    [Fact]
+    public void Identity_DiffersWhenAHeaderOrScopeChanges()
+    {
+        McpServerDefinition Make(string token, string? scope) => new(
+            "hosted",
+            Command: null,
+            Arguments: Array.Empty<string>(),
+            Environment: new Dictionary<string, string>(StringComparer.Ordinal),
+            WorkingDirectory: null,
+            Url: "https://example.com/mcp",
+            Headers: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Authorization"] = token },
+            Scope: scope);
+
+        string baseline = Make("t1", "read").Identity;
+
+        Assert.Equal(baseline, Make("t1", "read").Identity);
+
+        // A changed credential MUST fork the pool, exactly as a changed env value does: the warm
+        // bridge process authenticated with the old token.
+        Assert.NotEqual(baseline, Make("t2", "read").Identity);
+        Assert.NotEqual(baseline, Make("t1", "read write").Identity);
     }
 }

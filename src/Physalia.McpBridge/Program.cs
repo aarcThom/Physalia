@@ -70,7 +70,7 @@ internal static class Program
         {
             Endpoint = endpoint,
             Name = endpoint.Host,
-            OAuth = BuildOAuthOptions(args),
+            OAuth = BuildOAuthOptions(endpoint, args),
         };
 
         foreach ((string name, string value) in ReadHeaders(args))
@@ -140,7 +140,7 @@ internal static class Program
         }
     }
 
-    private static ClientOAuthOptions BuildOAuthOptions(string[] args)
+    private static ClientOAuthOptions BuildOAuthOptions(Uri endpoint, string[] args)
     {
         // A loopback listener on an OS-assigned port. Registering a fixed port would collide with
         // whatever else the user is running, and the redirect URI has to match what the listener
@@ -148,10 +148,18 @@ internal static class Program
         int port = FreeLoopbackPort();
         var redirect = new Uri($"http://127.0.0.1:{port}/callback");
 
+        string? scope = ReadOption(args, "--scope");
+
         var options = new ClientOAuthOptions
         {
             RedirectUri = redirect,
             AuthorizationCallbackHandler = (context, token) => CaptureAuthorizationAsync(context, redirect, token),
+
+            // Tokens outlive this process. Without a durable cache the SDK keeps them with the
+            // transport, and the bridge is short-lived by design (the connection pool reaps an idle
+            // session after ten minutes, and every Rhino restart kills the lot) — so the user would
+            // face a browser sign-in on nearly every cold start.
+            TokenCache = new FileTokenCache(endpoint, scope),
 
             // No ClientId is configured, so the SDK registers dynamically (RFC 7591) — which is how
             // a desktop client with no pre-provisioned credentials reaches a hosted server at all.
@@ -162,7 +170,6 @@ internal static class Program
             },
         };
 
-        string? scope = ReadOption(args, "--scope");
         if (!string.IsNullOrWhiteSpace(scope))
         {
             options.Scopes = scope.Split(' ', StringSplitOptions.RemoveEmptyEntries);

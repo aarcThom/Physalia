@@ -244,6 +244,63 @@ export interface SnapshotMessagePayload {
 	message: string;
 }
 
+/**
+ * One MCP server as Files/MCP_SERVERS.YAML has it, for the "Configure MCP connections" page.
+ *
+ * `transport` says which half of the record is meaningful: a local server is a subprocess
+ * (command/args/cwd/env), a remote one is a URL the Physalia bridge relays to (url/headers/scope).
+ * That split is the standard `mcpServers` shape, not something Physalia invented.
+ *
+ * Values arrive EXACTLY as written, so a "${VAR}" reference is still a reference here. The page must
+ * hand them back the same way: showing a resolved token and saving it would write the secret into
+ * the file the reference existed to keep it out of.
+ */
+export interface UiMcpServer {
+	name: string;
+	transport: 'local' | 'remote';
+	command: string;
+	args: string[];
+	cwd: string;
+	/** Environment pairs as [name, value], in file order. */
+	env: [string, string][];
+	url: string;
+	/** HTTP header pairs as [name, value], in file order. Remote servers only. */
+	headers: [string, string][];
+	scope: string;
+	/** False for an entry carrying neither a command nor a URL — it is listed, but cannot connect. */
+	runnable: boolean;
+}
+
+/** The MCP config as the page sees it, pushed by the host whenever the file changes. */
+export interface McpConfig {
+	servers: UiMcpServer[];
+	/** Why the file cannot be written from the UI (JSON form, or no `mcpServers:` wrapper), else null. */
+	readOnlyReason: string | null;
+}
+
+/** Outcome of an MCP save/delete, pushed back by the host after it writes the file. */
+export interface McpResult {
+	ok: boolean;
+	message: string;
+}
+
+/** One server entry sent back to the host to be written. Mirrors UiMcpServer, plus the rename hook. */
+export interface McpServerPayload {
+	name: string;
+	transport: 'local' | 'remote';
+	command: string;
+	args: string[];
+	cwd: string;
+	env: [string, string][];
+	url: string;
+	headers: [string, string][];
+	scope: string;
+	/** The entry's previous name when a rename is being saved (else ''), so the host edits it in place. */
+	replacing: string;
+	/** True to connect straight after saving — which is what runs a remote server's OAuth sign-in. */
+	signIn: boolean;
+}
+
 /** Outcome of a save-API-key request, pushed back by the host after it writes the config. */
 export interface SetupResult {
 	/** Provider id the result is for (matches a providers.ts id). */
@@ -308,6 +365,10 @@ export interface PhysaliaHost {
 	setTokenCount(count: number | null): void;
 	/** Bundled preset harnesses (from Files/PRESETS) for the Add-preset page. */
 	setPresets(presets: UiPreset[]): void;
+	/** The MCP servers in Files/MCP_SERVERS.YAML, for the Configure-MCP page. Pushed when the file changes. */
+	setMcpServers(config: McpConfig): void;
+	/** Outcome of the last MCP save/delete, or null to clear it. */
+	setMcpResult(result: McpResult | null): void;
 	/** Every Chat on the canvas, for the bottom switcher row. */
 	setChats(chats: UiChat[]): void;
 	/** A viewport snapshot captured by the geometry button in attach mode (the Geometry Snapshot

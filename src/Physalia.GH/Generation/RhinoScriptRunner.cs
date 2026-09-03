@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using Rhino;
 using Rhino.Runtime.Code;
 using Rhino.Runtime.Code.Diagnostics;
@@ -37,8 +38,16 @@ namespace Physalia.GH.Generation;
 /// </remarks>
 public static class RhinoScriptRunner
 {
-    // Python 3 loads lazily on first use, so a cold QueryLatest can come back null. One forced wait
-    // and one retry covers it; the cost lands on the first script of a session only.
+    // RhinoCodePlugin, which owns the script languages. It loads on demand, so it may not be loaded
+    // at all when the model's first tool call arrives — see TryGetPython3.
+    private static readonly Guid RhinoCodePluginId = new("c9cba87a-23ce-4f15-a918-97645c05cde7");
+
+    // How long to keep looking for the Python 3 engine after forcing the plug-in load, and how often.
+    private const int LanguageWaitMs = 15_000;
+    private const int LanguagePollMs = 200;
+
+    // Python 3 registers lazily, so a cold QueryLatest can come back null. Cached only on success:
+    // caching a miss would make one unlucky cold call poison the rest of the session.
     private static ILanguage? _python3;
 
     /// <summary>
@@ -159,12 +168,41 @@ public static class RhinoScriptRunner
 
         try
         {
+            // RhinoCodePlugin owns the language registry and loads ON DEMAND — normally the first
+            // time the Script Editor runs something. A Physalia tool call is easily the first script
+            // of a session, and an unforced query then finds only the four built-in text languages
+            // and reports Python 3 "not available" on an installation that has it. Measured: with
+            // the plug-in unloaded the registry holds no Python at all. Forcing the load is what
+            // makes this work from a cold Rhino; a refusal here is not fatal, the query below
+            // decides.
+            Rhino.PlugIns.PlugIn.LoadPlugIn(RhinoCodePluginId, loadQuietly: true, forceLoad: true);
+        }
+        catch (Exception)
+        {
+            // Deliberately swallowed: report on the query, not on the load attempt.
+        }
+
+        try
+        {
             _python3 = RhinoCode.Languages.QueryLatest(LanguageSpec.Python3);
+
             if (_python3 is null)
             {
-                // Cold start: the language registry loads engines in the background, so force the
-                // wait once and ask again before giving up.
-                RhinoCode.Languages.WaitStatusComplete(LanguageSpec.Python3);
+                // No spec: WaitStatusComplete only blocks on what the registry already knows about,
+                // and a just-loaded plug-in may not have enqueued its engines yet, so waiting on
+                // Python specifically can return instantly having waited for nothing.
+                RhinoCode.Languages.WaitStatusComplete();
+                _python3 = RhinoCode.Languages.QueryLatest(LanguageSpec.Python3);
+            }
+
+            // Registration finishes asynchronously, so poll rather than trusting one look. Pumping
+            // messages keeps Rhino responsive; the whole cost falls on the first call of a session
+            // and the result is cached for the rest of it.
+            DateTime deadline = DateTime.UtcNow.AddMilliseconds(LanguageWaitMs);
+            while (_python3 is null && DateTime.UtcNow < deadline)
+            {
+                RhinoApp.Wait();
+                Thread.Sleep(LanguagePollMs);
                 _python3 = RhinoCode.Languages.QueryLatest(LanguageSpec.Python3);
             }
         }
@@ -178,7 +216,9 @@ public static class RhinoScriptRunner
         language = _python3;
         if (language is null)
         {
-            error = "Rhino's Python 3 engine is not available in this Rhino installation.";
+            error = "Rhino's Python 3 engine did not become available. Running any script once from "
+                + "Rhino's Script Editor loads it; if that also fails, this Rhino installation is "
+                + "missing the Python 3 engine.";
             return false;
         }
 

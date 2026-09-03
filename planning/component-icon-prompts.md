@@ -302,9 +302,11 @@ recipe above is the part that matters). Two things to reuse if another one is dr
 
 ## Pending — no icon yet
 
-`RunRhinoScript` ships with **no `Resources/RunRhinoScript.png`**, so `PhyBase.Icon` falls back to
-the generic brain. It is not broken, only unlabelled; draw it in the next pass.
+`RunRhinoScript` and `RhinoDocumentGrounder` ship with no `Resources/<TypeName>.png`, so
+`PhyBase.Icon` falls back to the generic brain. Neither is broken, only unlabelled; draw them in the
+next pass.
 
 | File | Component | Prompt |
 |---|---|---|
 | `RunRhinoScript.png` | Run Rhino Script | A pair of curly braces with a small rightward play triangle between them, standing on a short horizontal ground line. The play triangle is cyan. Reads as "run this code" and stays distinct from `RhinoCommonSearch.png`, which puts a magnifier over braces rather than a triangle. |
+| `RhinoDocumentGrounder.png` | Rhino Document | A document page seen face-on with one folded corner, three stacked horizontal bars across its lower half standing for the layer rows, and a small solid cube resting on the topmost bar. The cube is cyan. Reads as "what is in the file" and stays distinct from `CanvasStateGrounder.png`, which is about the Grasshopper canvas rather than the Rhino document. |

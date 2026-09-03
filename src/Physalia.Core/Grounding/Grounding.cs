@@ -192,6 +192,120 @@ public sealed record DocumentUnitsGrounding(string Units) : Grounding
 }
 
 /// <summary>
+/// One layer of the Rhino document, as the model is told about it.
+/// </summary>
+/// <param name="Name">The layer's full path name (e.g. <c>House::Roof</c>).</param>
+/// <param name="ObjectCount">How many objects sit on it.</param>
+/// <param name="Hidden">Whether the layer is turned off.</param>
+/// <param name="Locked">Whether the layer is locked.</param>
+public sealed record RhinoLayerSummary(string Name, int ObjectCount, bool Hidden, bool Locked);
+
+/// <summary>
+/// Grounds the model with what is already IN the Rhino document — how much, of what kind, on which
+/// layers, over what extents, and what the user has selected. The Rhino-side counterpart of
+/// <see cref="CanvasStateGrounding"/>, which describes the Grasshopper canvas.
+/// </summary>
+/// <remarks>
+/// <para>This exists to remove a round trip. A model that can run scripts will otherwise open every
+/// session by running one to find out where it is — the layer table, the object count, the rough
+/// scale of things — and that probe costs a whole turn to learn facts that never change within it.
+/// Stating them in the prompt means the first script it writes can be the one that does the
+/// work.</para>
+/// <para>Deliberately NOT here: the unit system, which is
+/// <see cref="DocumentUnitsGrounding"/>'s job and would otherwise be told to the model twice in two
+/// voices. Deliberately not here either: anything per-object. A document holding ten thousand
+/// objects must contribute a section of roughly the same size as one holding ten, so this
+/// summarises and lets the model ask for specifics by writing a script.</para>
+/// </remarks>
+/// <param name="ObjectCount">Total objects in the document.</param>
+/// <param name="ObjectTypes">Per-type counts, already rendered (e.g. <c>12 Curve</c>), commonest first.</param>
+/// <param name="Layers">The layers worth naming, by object count then name.</param>
+/// <param name="LayersOmitted">How many further layers were left out of <paramref name="Layers"/>.</param>
+/// <param name="Extents">The document's overall bounding box, already rendered, or null when empty.</param>
+/// <param name="SelectedCount">How many objects are selected right now.</param>
+public sealed record RhinoDocumentGrounding(
+    int ObjectCount,
+    IReadOnlyList<string> ObjectTypes,
+    IReadOnlyList<RhinoLayerSummary> Layers,
+    int LayersOmitted,
+    string? Extents,
+    int SelectedCount) : Grounding
+{
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Live document state, so it is rewritten whenever the document changes and must sort behind
+    /// the stable sections rather than invalidating a provider's cached prefix.
+    /// </remarks>
+    public override bool IsVolatile => true;
+
+    /// <inheritdoc/>
+    public override string ToSystemPromptSection()
+    {
+        var lines = new List<string>();
+
+        // An empty document is worth saying out loud. Silence would read as "no information", and
+        // the model would go and look — which is the round trip this grounding exists to remove.
+        if (ObjectCount <= 0)
+        {
+            lines.Add("The Rhino document is currently EMPTY — it contains no objects.");
+        }
+        else
+        {
+            string types = ObjectTypes is { Count: > 0 }
+                ? $" ({string.Join(", ", ObjectTypes)})"
+                : string.Empty;
+            lines.Add($"The Rhino document currently contains {ObjectCount} object(s){types}.");
+
+            if (!string.IsNullOrWhiteSpace(Extents))
+            {
+                lines.Add($"Everything in it fits within {Extents}.");
+            }
+        }
+
+        if (Layers is { Count: > 0 })
+        {
+            lines.Add("Layers:");
+            foreach (RhinoLayerSummary layer in Layers)
+            {
+                var notes = new List<string>();
+                if (layer.Hidden)
+                {
+                    notes.Add("hidden");
+                }
+
+                if (layer.Locked)
+                {
+                    notes.Add("locked");
+                }
+
+                string suffix = notes.Count > 0 ? $", {string.Join(" and ", notes)}" : string.Empty;
+                lines.Add($"  - {layer.Name} — {layer.ObjectCount} object(s){suffix}");
+            }
+
+            if (LayersOmitted > 0)
+            {
+                lines.Add($"  - (and {LayersOmitted} further layer(s), not listed)");
+            }
+        }
+
+        if (SelectedCount > 0)
+        {
+            lines.Add(
+                $"The user currently has {SelectedCount} object(s) SELECTED. If they refer to "
+                + "\"these\", \"the selected\" or \"this\", that is what they mean.");
+        }
+
+        lines.Add(
+            "This is a summary as of the start of this turn, not a live feed: anything you change "
+            + "makes it stale, and the counts you get back from a script are the current truth. "
+            + "Ask for specifics — names, ids, positions — by printing them from a script rather "
+            + "than assuming them.");
+
+        return string.Join("\n", lines);
+    }
+}
+
+/// <summary>
 /// Grounds the model with a python function available for use.
 /// </summary>
 /// <param name="Signature">The function signature (e.g. <c>def foo(a, b) -> float</c>).</param>

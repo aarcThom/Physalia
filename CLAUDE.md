@@ -313,6 +313,21 @@ Grounding (not built); **prompts** → System Prompt's `Additional Prompt` (not 
 - **Router dispatch matches a SET**: `ToolOutputSlot(OutputName, ToolNames)`, and an unmatched call is
   told the **tool** names, never the output names. An output serving one tool is still named after
   it; one serving many takes the node's nickname, de-duplicated because the name is the dispatch key.
+- **`Router.InspectConnection` must read `LlmToolComponentBase.AdvertisedDefinitions`, NEVER the Tool
+  output's `VolatileData`** (fixed 2026-09-03 off a signal trace; it read VolatileData originally).
+  Volatile data is cleared at the start of every solution and refilled only when the node itself
+  re-solves — but a signal-driven dispatch expires the **Router**, not the tool node upstream of it.
+  So `SyncToolOutputNames`, which also runs at SolutionEnd just after the node solved, saw the whole
+  set, while `DispatchToolCalls` in the next scheduled solve saw NOTHING and fell back to
+  `new[] { output.NickName }`. **That fallback is right by coincidence for a one-tool node** — the
+  output has already been named after its tool — which is why this survived until MCP, the one node
+  advertising many: there the output is named after the NODE, so every call was answered
+  *"The tool `notion__notion-fetch` does not exist. The available tools are: MCP Server."* — handing
+  the model an output name, the exact thing `ToolDispatchRound` takes care never to do. **The pure
+  layer was innocent and fully tested throughout** (`McpDispatchSlotTests` even asserts that error
+  names tools, not outputs), so no Core test could have caught it: the policy was correct and the GH
+  adapter fed it wrong data. The general lesson for any component reading a PEER's output: within a
+  signal-driven solve that peer has not re-solved, so ask the component, not the solver.
 - **`Files/MCP_SERVERS.YAML`** holds the servers, in the **standard `mcpServers` block** (JSON form
   accepted too, so a `claude_desktop_config.json` pastes in whole). **Physalia ships zero server
   definitions** — a catalog is explicitly not this plug-in's job. `${VAR}` expands from the

@@ -5,11 +5,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Types;
+using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Signals;
 using Physalia.Core.Tools;
-using Physalia.GH.Goo;
 using Physalia.GH.Parameters;
 
 namespace Physalia.GH.Components;
@@ -393,9 +392,29 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
     }
 
     /// <summary>
-    /// Inspects an output's recipients for a tool node, reporting whether it feeds one and, when
-    /// available, the name that node advertises through its Tool Definition output.
+    /// Inspects an output's recipients for a tool node, reporting whether it feeds one and which
+    /// tool names that node advertises.
     /// </summary>
+    /// <param name="output">The Router output to inspect.</param>
+    /// <returns>What the output is wired into.</returns>
+    /// <remarks>
+    /// <para><b>Read from the component, never from its Tool output's <c>VolatileData</c>.</b> That
+    /// was the original source and it is empty at exactly the moment this matters: volatile data is
+    /// cleared at the start of every solution and refilled only when the node itself re-solves, but a
+    /// signal-driven dispatch expires the ROUTER, not the tool node upstream of it. So
+    /// <see cref="SyncToolOutputNames"/> — which also runs at SolutionEnd, when the node has just
+    /// solved — saw the whole set, while <see cref="DispatchToolCalls"/> half a second later saw
+    /// nothing and fell back to the output's nickname.</para>
+    /// <para>That fallback is right by coincidence for a node advertising ONE tool, because
+    /// <see cref="SyncToolOutputNames"/> has already named the output after that tool — which is why
+    /// this went unnoticed until MCP, the one node that advertises many. There the output is named
+    /// after the NODE, so dispatch looked for a tool called "MCP Server", matched nothing, and
+    /// answered every call with "the tool does not exist. The available tools are: MCP Server" —
+    /// telling the model to call an output name, the exact thing <see cref="ToolDispatchRound"/> is
+    /// careful never to do.</para>
+    /// <para><see cref="LlmToolComponentBase.AdvertisedDefinitions"/> is the node's own live answer
+    /// and owes nothing to the solver, so it reads the same in any solve.</para>
+    /// </remarks>
     private static ToolConnection InspectConnection(IGH_Param output)
     {
         bool connectedToTool = false;
@@ -404,30 +423,22 @@ public class Router : StatefulComponentBase, IGH_VariableParameterComponent
 
         foreach (IGH_Param recipient in output.Recipients)
         {
-            if (recipient.Attributes?.GetTopLevel?.DocObject is not IGH_Component component)
+            if (recipient.Attributes?.GetTopLevel?.DocObject is not LlmToolComponentBase toolNode)
             {
                 continue;
             }
 
-            foreach (IGH_Param toolParam in component.Params.Output)
+            connectedToTool = true;
+            nickName ??= toolNode.NickName;
+
+            // EVERY definition, not the first: an MCP Server node publishes its server's whole tool
+            // set, and dispatch matches by membership of that set. It reports only the ADVERTISED
+            // ones, which is what dispatch wants — a parked tool was never offered to the model.
+            foreach (LlmToolDefinition definition in toolNode.AdvertisedDefinitions)
             {
-                if (toolParam is not Param_LlmToolDefinition)
+                if (!string.IsNullOrWhiteSpace(definition.Name))
                 {
-                    continue;
-                }
-
-                connectedToTool = true;
-                nickName ??= component.NickName;
-
-                // EVERY definition, not the first: an MCP Server node publishes its server's whole
-                // tool set on this one output, and dispatch matches by membership of that set.
-                foreach (IGH_Goo goo in toolParam.VolatileData.AllData(true))
-                {
-                    if (goo is GH_LlmToolDefinition def && def.Value is { } definition &&
-                        !string.IsNullOrWhiteSpace(definition.Name))
-                    {
-                        names.Add(definition.Name);
-                    }
+                    names.Add(definition.Name);
                 }
             }
         }

@@ -1,6 +1,6 @@
 <script lang="ts">
-	// The Physalia critter — the project's only logo mark, shared by the setup, connect, preset,
-	// manual-definition and grounding screens. Inlined from Images/phy_critter.svg; the source's
+	// The Physalia critter — the project's only logo mark, shared by the setup, connect, preset
+	// and grounding screens. Inlined from Images/phy_critter.svg; the source's
 	// single .st0 style class became the root fill below, since every shape is the same colour.
 	// Keeping it in one place keeps the screens identical. Scaled to fit a 120x120 box (the portrait
 	// mark renders ~85x120, centred by the default preserveAspectRatio).

@@ -14,7 +14,6 @@
 	import Setup from '$lib/chat/Setup.svelte';
 	import Preset from '$lib/chat/Preset.svelte';
 	import Grounding from '$lib/chat/Grounding.svelte';
-	import ManualDefinition from '$lib/chat/ManualDefinition.svelte';
 	import ConnectOptions from '$lib/chat/ConnectOptions.svelte';
 	import {
 		DropdownMenu,
@@ -189,7 +188,7 @@
 
 	// Other full-screen pages opened from the header menu (mutually exclusive with the chat view
 	// and with setup). null = none open.
-	let panel = $state<'preset' | 'manualdef' | 'grounding' | null>(null);
+	let panel = $state<'preset' | 'grounding' | null>(null);
 	// Estimated token count from a Token Estimator wired downstream of the viewed ConversationLog,
 	// pushed by the host; null = no estimator wired (or no count yet) → the counter hides.
 	let tokenCount = $state<number | null>(null);
@@ -505,7 +504,7 @@
 	// the default screen when it has none), or Home. The next state tick re-pushes what to show.
 	//
 	// Any open page is closed on the way. Picking an entry is a request to LOOK at something, and the
-	// preset gallery / manual-definition / setup pages all render in front of the conversation — Home
+	// preset gallery / grounding / setup pages all render in front of the conversation — Home
 	// especially would otherwise appear to do nothing while the gallery that led there stayed up.
 	function selectChat(entry: UiChat) {
 		panel = null;
@@ -643,8 +642,8 @@
 		setupResult = null;
 	}
 
-	// Open one of the pages (preset / manual definition / grounding), leaving setup.
-	function openPanel(which: 'preset' | 'manualdef' | 'grounding') {
+	// Open one of the pages (preset / grounding), leaving setup.
+	function openPanel(which: 'preset' | 'grounding') {
 		panel = which;
 		manualSetup = false;
 		selectedProviderId = null;
@@ -753,10 +752,6 @@
 				</DropdownMenuItem>
 				<DropdownMenuItem class="whitespace-nowrap" onSelect={placeEmptyHarness}>
 					Add empty harness
-				</DropdownMenuItem>
-				<DropdownMenuSeparator />
-				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('manualdef')}>
-					Add new manual definition
 				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
@@ -925,8 +920,6 @@
 					onapplyviewsnapshotsends={setViewSnapshotSends}
 					onclose={closePanel}
 				/>
-			{:else if panel === 'manualdef'}
-				<ManualDefinition onclose={closePanel} />
 			{:else}
 				<ConnectOptions
 						onpreset={() => openPanel('preset')}

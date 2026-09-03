@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -24,6 +24,7 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
 {
     private string _lastFetchKey = string.Empty;
     private List<string> _availableModels = new();
+    private bool _modelsSettled;
     private string? _fetchWarning;
     private CancellationTokenSource? _cts;
 
@@ -44,7 +45,7 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
 
     /// <inheritdoc/>
     public IReadOnlyList<PickableInput> Inputs =>
-        new[] { new PickableInput("Model", _availableModels) };
+        new[] { new PickableInput("Model", _availableModels, _modelsSettled) };
 
     /// <inheritdoc/>
     public void SetValues(string inputName, IEnumerable<string> values)
@@ -54,7 +55,15 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
     }
 
     /// <inheritdoc/>
-    public void ResetValues() => _availableModels.Clear();
+    /// <remarks>
+    /// Clearing also marks the list unsettled: it is emptied because a fetch is about to replace
+    /// it, and until that lands a wired Picker must keep the choice it was restored with.
+    /// </remarks>
+    public void ResetValues()
+    {
+        _availableModels.Clear();
+        _modelsSettled = false;
+    }
 
     /// <summary>
     /// When dropped onto the canvas, auto-place a Picker wired to the Model input.
@@ -153,6 +162,10 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
             {
                 _fetchWarning = $"Could not reach endpoint: {err.Message}";
             }
+
+            // The list is now as good as it will get — on failure it stays empty, which offers a
+            // Picker nothing to fall back on, so a restored pick survives an unreachable endpoint.
+            _modelsSettled = true;
 
             OnPingDocument()?.ScheduleSolution(1, _ =>
             {

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System.Drawing;
@@ -99,7 +99,7 @@ public class PickerAttrib : PhyComponentAttributes
     private void ShowSelectionMenu()
     {
         var picker = (Picker)Owner;
-        var values = picker.AvailableValues;
+        var values = picker.MenuValues;
         if (values.Count == 0) return;
 
         var menu = new ContextMenuStrip();

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -36,6 +36,7 @@ public class TokenEstimator : PhyBase, IPickableValuesSource
     private CancellationTokenSource? _cts;
 
     private List<string> _tiktokenNames = new() { "N/A" };
+    private bool _tiktokenNamesSettled;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TokenEstimator"/> class.
@@ -54,7 +55,7 @@ public class TokenEstimator : PhyBase, IPickableValuesSource
 
     /// <inheritdoc/>
     public IReadOnlyList<PickableInput> Inputs =>
-        new[] { new PickableInput("Tiktoken Name", _tiktokenNames) };
+        new[] { new PickableInput("Tiktoken Name", _tiktokenNames, _tiktokenNamesSettled) };
 
     /// <inheritdoc/>
     public void SetValues(string inputName, IEnumerable<string> values)
@@ -64,7 +65,11 @@ public class TokenEstimator : PhyBase, IPickableValuesSource
     }
 
     /// <inheritdoc/>
-    public void ResetValues() => _tiktokenNames.Clear();
+    public void ResetValues()
+    {
+        _tiktokenNames.Clear();
+        _tiktokenNamesSettled = false;
+    }
 
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
@@ -271,6 +276,11 @@ public class TokenEstimator : PhyBase, IPickableValuesSource
         {
             SetValues("Tiktoken Name", new[] { "N/A" });
         }
+
+        // Until the technique is known the seed list is a guess, and a Picker solves before this
+        // component: without this a saved encoding pick is snapped onto the seed's "N/A" on the
+        // first solve after the file opens, and lost.
+        _tiktokenNamesSettled = true;
 
         OnPingDocument()?.ScheduleSolution(1, _ =>
         {

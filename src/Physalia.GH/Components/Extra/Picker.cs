@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -43,6 +43,26 @@ public class Picker : PhyBase
         }
     }
 
+    /// <summary>
+    /// Gets the values to offer in the selection menus: everything on offer, with the current
+    /// selection prepended when the source is not offering it. A remembered pick the source cannot
+    /// currently list — because its list is still provisional, or the endpoint could not be
+    /// reached — must stay visible and checked, or the menu says the choice was never made.
+    /// </summary>
+    internal IReadOnlyList<string> MenuValues
+    {
+        get
+        {
+            var values = AvailableValues;
+            if (string.IsNullOrEmpty(_selectedValue) || values.Contains(_selectedValue))
+                return values;
+
+            var withCurrent = new List<string>(values.Count + 1) { _selectedValue };
+            withCurrent.AddRange(values);
+            return withCurrent;
+        }
+    }
+
     /// <summary>Sets the selected value (called from <see cref="PickerAttrib"/> on menu selection).</summary>
     /// <param name="value">The newly selected value.</param>
     internal void SetSelectedValue(string value) => _selectedValue = value;
@@ -79,14 +99,26 @@ public class Picker : PhyBase
 
         var values = pickable.Values;
 
-        if (values.Count == 0)
+        // Falling back to the first offer is only safe once the source's list is AUTHORITATIVE.
+        // A Picker solves before the component it feeds, so on the first solve after a file opens
+        // a provisional list (the seed a component shows while its real list is being fetched) is
+        // all there is; snapping onto it would swap the restored pick for the seed's first entry —
+        // and, since the snap writes back to _selectedValue, lose the saved choice for good. An
+        // empty list is treated the same way: nothing on offer is not evidence the pick is wrong.
+        if (!string.IsNullOrEmpty(_selectedValue) && !values.Contains(_selectedValue))
         {
-            DA.SetData(0, string.Empty);
-            return;
+            if (pickable.IsSettled && values.Count > 0)
+            {
+                AddRuntimeMessage(
+                    GH_RuntimeMessageLevel.Remark,
+                    $"'{_selectedValue}' is no longer offered here — using '{values[0]}'.");
+                _selectedValue = values[0];
+            }
         }
-
-        if (string.IsNullOrEmpty(_selectedValue) || !values.Contains(_selectedValue))
+        else if (string.IsNullOrEmpty(_selectedValue) && pickable.IsSettled && values.Count > 0)
+        {
             _selectedValue = values[0];
+        }
 
         DA.SetData(0, _selectedValue);
     }
@@ -101,7 +133,7 @@ public class Picker : PhyBase
 
         Menu_AppendSeparator(menu);
 
-        foreach (var value in pickable.Values)
+        foreach (var value in MenuValues)
         {
             var item = Menu_AppendItem(menu, value, OnValueSelected, true, value == _selectedValue);
             item.Tag = value;

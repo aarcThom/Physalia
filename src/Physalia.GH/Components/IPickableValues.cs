@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System.Collections.Generic;
@@ -10,7 +10,15 @@ namespace Physalia.GH.Components;
 /// </summary>
 /// <param name="Name">The input parameter name this set belongs to.</param>
 /// <param name="Values">The available string values for that input.</param>
-public record PickableInput(string Name, IReadOnlyList<string> Values);
+/// <param name="IsSettled">
+/// Whether <paramref name="Values"/> is the authoritative list. False marks a PROVISIONAL list —
+/// a seed shown while the real one is being fetched — which a Picker must never treat as the whole
+/// truth: a Picker solves BEFORE the component it feeds, so on the first solve after a file opens
+/// the seed is all there is, and snapping a restored pick onto it silently swaps the choice for
+/// the seed's first entry. Defaults to true, which is correct for any list built from a fixed set
+/// or read synchronously.
+/// </param>
+public record PickableInput(string Name, IReadOnlyList<string> Values, bool IsSettled = true);
 
 /// <summary>
 /// Read-only contract for upstream consumers (e.g. a Picker component).

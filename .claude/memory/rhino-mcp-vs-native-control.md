@@ -62,41 +62,26 @@ reach the room Physalia is standing in. One thing the router alone can do: drive
 class/file/nickname untouched — same discipline as the Set Script I/O rename. See
 [[component-rename-plainspoken]].
 
+## Two live findings about their server, both worth remembering
 
-## What shipped (2026-09-02)
+**`_router_quit_app` is advertised on the PUBLIC `/` endpoint.** So are
+`_router_spawn_listener` and `_router_close_listener`. If Physalia ever connects to this server
+directly and advertises everything `tools/list` returns, the model can close the user's Rhino
+mid-session. **Any direct connection must filter the `_router_` prefix.** Going through the router
+hides them (it exposes `spawn_slot`/`close_slot`/`list_slots` instead), so this is specific to the
+direct path.
 
-- **`src/Physalia.GH/Generation/RhinoScriptRunner.cs`** — the engine wrapper.
-  `RhinoCode.Languages.QueryLatest(LanguageSpec.Python3)` (with one forced `WaitStatusComplete` +
-  retry, because Python 3 loads lazily and a cold query returns null) then `ILanguage.CreateCode` +
-  `Code.Run(RunContext)`. `RunContext` is constructed with `defaultOutputStream/defaultErrorStream:
-  true` **and then assigned our own `MemoryStream`s** — the flags make the engine allocate, the
-  assignment points it at buffers we can read. Returns a `ScriptOutcome` record and **never throws
-  for a fault in the script**: `CompileException` (carries `.Diagnosis`), `ExecuteException`
-  (carries `.Position` + `.StackTrace`) and anything else all come back as data.
-- **`src/Physalia.GH/Components/LlmTools/RunRhinoScript.cs`** — the node. `RunsAsync => true`,
-  marshalled to `RhinoApp.Idle` with the same one-shot handler + `CancellationTokenRegistration`
-  pattern as `TakeSnapshot.CaptureOnIdleAsync`. `Last Script` output published from `OnSolveEnd`.
-  ComponentGuid `2F6A9C31-84D7-4B05-9E13-5C7A0D2E8B64`.
+**Their router can DoS itself on stale announcements.** A `rhino` MCP server in Claude Code timed
+out at 30s. Cause: ~300 stale `listeners/*.json` files, because `RhinoManager.ScanAnnouncements`
+gates staleness on `IsPortListening(ann.Port)` — the **port, not the pid**. With a live Rhino on
+10500 every dead-pid file for 10500 passed the liveness check and was adopted as its own slot, one
+SQLite write each, synchronously before `host.RunAsync()` could answer `initialize`. Draining the
+directory fixed it; the router then connects in 0.28s. Upstream fix would be to check the pid too and
+to get adoption off the handshake's critical path.
 
-**Three decisions worth not re-litigating:**
-1. **Undo is owned explicitly** (`doc.BeginUndoRecord`/`EndUndoRecord` around the run) with
-   `RunContext.RecordDocumentUndo = false`, not delegated to the engine — so the label is ours and
-   the behaviour does not depend on an engine default that was never verified.
-2. **The timeout bounds waiting for Idle to ARRIVE, not the script.** Once the handler runs the
-   script owns the UI thread and no token can take it back (a managed thread cannot be aborted). A
-   runaway script blocks Rhino exactly as it would in the Script Editor. Do not "fix" this with a
-   longer timeout or a worker thread — RhinoCommon mutation off the main thread is worse.
-3. **Object count before/after is reported on every path including failure.** A script that raises
-   half way through has already applied what it did; a model that assumes otherwise retries and
-   doubles the geometry.
+## Shipped in the same session
 
-**Not verified, needs a live Rhino test** — the whole point is behaviour the command line cannot
-show:
-- **Does the Python 3 engine actually write to `RunContext.OutputStream`?** This is the load-bearing
-  assumption. If `print` does not land in the buffer, the "print IS the read-back" design fails and
-  a `get_context`-style tool becomes necessary after all.
-- Whether `BeginUndoRecord` really collapses a multi-object script into one Ctrl+Z.
-- Whether `RhinoApp.Idle` fires promptly while a GH tool round is in flight (TakeSnapshot's
-  precedent says yes).
-- `RunRhinoScript.png` does not exist — the node wears the fallback brain icon. Prompt is recorded
-  in `planning/component-icon-prompts.md` under "Pending — no icon yet".
+The LLM tool node `RhinoGeometryTool` renamed "Rhino Geometry" -> **"Create/Ref. Rhino Geometry"**,
+display name only, `ComponentGuid 7D3F1A94-...8A21` pinned, class/file/nickname untouched — same
+discipline as the Set Script I/O rename. Two Rhino-facing tools now sit side by side and the old name
+no longer said which was which. See [[component-rename-plainspoken]].

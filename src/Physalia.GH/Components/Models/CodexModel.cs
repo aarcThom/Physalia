@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -30,6 +30,7 @@ public class CodexModel : PhyBase, IPickableValuesSource
     private List<string> _availableModels = new(CodexConfig.KnownModels);
     private CancellationTokenSource? _cts;
     private bool _fetchStarted;
+    private bool _modelsSettled;
     private string? _fetchWarning;
 
     /// <summary>
@@ -51,7 +52,7 @@ public class CodexModel : PhyBase, IPickableValuesSource
     public IReadOnlyList<PickableInput> Inputs =>
         new[]
         {
-            new PickableInput(ModelInputName, _availableModels),
+            new PickableInput(ModelInputName, _availableModels, _modelsSettled),
             new PickableInput(EffortInputName, CodexConfig.KnownReasoningEfforts),
         };
 
@@ -64,12 +65,23 @@ public class CodexModel : PhyBase, IPickableValuesSource
         }
     }
 
+    /// <summary>
+    /// Marks the model list authoritative. Called once the CLI has answered — or failed to, in
+    /// which case the seed list becomes the answer. Until then a wired Picker keeps whatever it
+    /// was restored with, since the seed is only a guess at the account's model set.
+    /// </summary>
+    private void SettleModels() => _modelsSettled = true;
+
     /// <inheritdoc/>
     /// <remarks>
     /// Resets to the seed list rather than to nothing, so a Picker is never left with an empty menu
     /// while the CLI is being asked.
     /// </remarks>
-    public void ResetValues() => _availableModels = new List<string>(CodexConfig.KnownModels);
+    public void ResetValues()
+    {
+        _availableModels = new List<string>(CodexConfig.KnownModels);
+        _modelsSettled = false;
+    }
 
     /// <summary>
     /// When dropped onto the canvas, auto-place a Picker wired to the model input.
@@ -172,6 +184,9 @@ public class CodexModel : PhyBase, IPickableValuesSource
             {
                 _fetchWarning = $"Could not read the Codex model list: {err.Message}. Showing known models.";
             }
+
+            // Either way the list is now as good as it will get, so a Picker may fall back on it.
+            SettleModels();
 
             // Refresh the Picker wired to the model input so its menu shows the live list.
             OnPingDocument()?.ScheduleSolution(1, _ =>

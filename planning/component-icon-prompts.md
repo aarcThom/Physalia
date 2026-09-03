@@ -299,3 +299,12 @@ recipe above is the part that matters). Two things to reuse if another one is dr
 - **Nothing thinner than about 1.8 units on the 24 grid.** Two 1.2-unit dots in the window's title
   strip — drawn first, to echo `SignalTrace`'s title marks — came out as a pair of smears and were
   dropped; an empty strip still reads as a window.
+
+## Pending — no icon yet
+
+`RunRhinoScript` ships with **no `Resources/RunRhinoScript.png`**, so `PhyBase.Icon` falls back to
+the generic brain. It is not broken, only unlabelled; draw it in the next pass.
+
+| File | Component | Prompt |
+|---|---|---|
+| `RunRhinoScript.png` | Run Rhino Script | A pair of curly braces with a small rightward play triangle between them, standing on a short horizontal ground line. The play triangle is cyan. Reads as "run this code" and stays distinct from `RhinoCommonSearch.png`, which puts a magnifier over braces rather than a triangle. |

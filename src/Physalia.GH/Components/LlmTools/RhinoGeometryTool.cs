@@ -72,7 +72,7 @@ public class RhinoGeometryTool : LlmToolComponentBase
     /// Initializes a new instance of the <see cref="RhinoGeometryTool"/> class.
     /// </summary>
     public RhinoGeometryTool()
-        : base("Rhino Geometry", "RhinoGeo", "Lets the model make Rhino geometry outright — baked into the document, with a parameter dropped on the canvas that points at it. For shapes that are easier made than described in a definition.")
+        : base("Create/Ref. Rhino Geometry", "RhinoGeo", "Lets the model make Rhino geometry outright — baked into the document, with a parameter dropped on the canvas that points at it. For shapes that are easier made than described in a definition.")
     {
     }
 

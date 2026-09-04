@@ -208,6 +208,14 @@
 
 		committing = true;
 		onsavecommand(command.trim());
+
+		// Back to the list, the way the manual form does it by dropping its draft. Committing is
+		// finished as far as this page is concerned: the entry is written and the outcome arrives in
+		// the banner above the list, which is also where the new server appears. Staying on the paste
+		// box would leave the command sitting there looking unsaved. `committing` is deliberately
+		// left set — it is cleared when the result lands, so re-entering the page before then cannot
+		// fire a second commit.
+		stage = 'list';
 	}
 
 	function startEdit(server: UiMcpServer) {

@@ -479,6 +479,15 @@ public class ChatWindow : Form
             case "deletemcpserver":
                 HandleDeleteMcpServer(uri);
                 break;
+            case "testmcpcommand":
+                // The automatic page's test button: parse a pasted CLI command and connect to what
+                // it describes, writing nothing.
+                HandleMcpCommand(uri, save: false);
+                break;
+            case "savemcpcommand":
+                // The automatic page's commit button: parse, write the entry, then connect.
+                HandleMcpCommand(uri, save: true);
+                break;
             case "testmcpserver":
                 // The MCP page's test button: connect to the entry as currently typed, writing
                 // nothing. Separate from the save verb because there is no file to read back.
@@ -1766,10 +1775,20 @@ public class ChatWindow : Form
 
         McpServerDefinition definition = BuildMcpDefinition(payload, remote, expand: false);
 
+        WriteMcpEntry(definition, NullIfBlank(payload.Replacing), QueryFlagSet(uri.Query, "signin"));
+    }
+
+    // Writes one entry and, optionally, connects to it. Shared by the manual form and the pasted-
+    // command path so both land in the file the same way — through McpConfigEditor, which replaces
+    // only that entry's lines and leaves the file's own commentary and ordering alone.
+    private void WriteMcpEntry(McpServerDefinition definition, string? replacing, bool connect)
+    {
+        string path = McpServer.ConfigPath;
+
         try
         {
             EnsureMcpConfigFileExists(path);
-            string updated = McpConfigEditor.Upsert(ReadMcpConfig(path), definition, NullIfBlank(payload.Replacing));
+            string updated = McpConfigEditor.Upsert(ReadMcpConfig(path), definition, replacing);
             File.WriteAllText(path, updated);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
@@ -1782,17 +1801,88 @@ public class ChatWindow : Form
         // straight away, and the file's own write time is not what the page is waiting on.
         _lastMcpSignature = null;
 
-        // "Save & sign in": connect straight away so a remote server's browser handshake happens
+        // "Save & connect": connect straight away so a remote server's browser handshake happens
         // here, while the user is still setting up. Saving and connecting are ONE bridge verb rather
         // than two calls from the page, because the connection has to read the entry back off disk
         // and the page cannot know when the write landed.
-        if (QueryFlagSet(uri.Query, "signin"))
+        if (connect)
         {
             BeginMcpSignIn(definition.Name);
             return;
         }
 
         PushMcpResult(true, $"Saved '{definition.Name}' to MCP_SERVERS.YAML.");
+    }
+
+    // Parses a setup command copied from another client's instructions and either connects to what
+    // it describes (test) or writes it and then connects (save).
+    //
+    // The parse lives in Core and is the SAME function either way, so a command that tests clean
+    // cannot save as something else. What the page sends is the raw text: parsing on the host keeps
+    // one implementation, unit-tested, rather than a second one in TypeScript that would drift.
+    private void HandleMcpCommand(Uri uri, bool save)
+    {
+        string command = GetQueryValue(uri.Query, "command");
+
+        if (McpCommandParser.Parse(command).IsErr(out string? parseError, out McpServerDefinition? parsed))
+        {
+            PushMcpResult(false, parseError);
+            return;
+        }
+
+        if (!parsed.IsRunnable)
+        {
+            PushMcpResult(false, "That command describes neither a URL nor a program to launch.");
+            return;
+        }
+
+        if (save)
+        {
+            if (McpConfigEditor.DescribeWriteBlock(ReadMcpConfig(McpServer.ConfigPath)) is { } blocked)
+            {
+                PushMcpResult(false, blocked);
+                return;
+            }
+
+            // Replacing by its own name, so pasting a refreshed command over an existing entry
+            // updates it in place rather than adding a second one beside it.
+            WriteMcpEntry(parsed, replacing: parsed.Name, connect: true);
+            return;
+        }
+
+        // A test connects to what was pasted, so ${VAR} must resolve — the same rule the sign-in
+        // path follows, and the reason it reads the file expanded.
+        ConnectAndReport(
+            ExpandMcpDefinition(parsed),
+            parsed.Name,
+            "Nothing has been saved — use Save & connect to keep it.");
+    }
+
+    // Resolves every ${VAR} in a definition. Values only, never keys, matching what
+    // McpServerLibrary expands when it reads the file.
+    private static McpServerDefinition ExpandMcpDefinition(McpServerDefinition definition)
+    {
+        Dictionary<string, string> Resolve(IReadOnlyDictionary<string, string> pairs, StringComparer comparer)
+        {
+            var resolved = new Dictionary<string, string>(comparer);
+            foreach (KeyValuePair<string, string> pair in pairs)
+            {
+                resolved[pair.Key] = McpServerLibrary.ExpandEnvironment(pair.Value);
+            }
+
+            return resolved;
+        }
+
+        return definition with
+        {
+            Command = definition.Command is null
+                ? null
+                : McpServerLibrary.ExpandEnvironment(definition.Command),
+            Arguments = definition.Arguments.Select(McpServerLibrary.ExpandEnvironment).ToList(),
+            Environment = Resolve(definition.Environment, StringComparer.Ordinal),
+            Url = definition.Url is null ? null : McpServerLibrary.ExpandEnvironment(definition.Url),
+            Headers = Resolve(definition.Headers, StringComparer.OrdinalIgnoreCase),
+        };
     }
 
     // Builds the definition one MCP page payload describes. `expand` is the whole reason this is

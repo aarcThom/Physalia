@@ -687,6 +687,21 @@
 			`${BRIDGE_SCHEME}://testmcpserver?entry=${encodeURIComponent(JSON.stringify(entry))}`;
 	}
 
+	// The automatic page's two actions. The raw command goes over as typed and the HOST parses it —
+	// one implementation, unit-tested in Core, rather than a second one here that would drift from
+	// the definition actually written to the file.
+	function testMcpCommand(command: string) {
+		mcpResult = null;
+		window.location.href =
+			`${BRIDGE_SCHEME}://testmcpcommand?command=${encodeURIComponent(command)}`;
+	}
+
+	function saveMcpCommand(command: string) {
+		mcpResult = null;
+		window.location.href =
+			`${BRIDGE_SCHEME}://savemcpcommand?command=${encodeURIComponent(command)}`;
+	}
+
 	function deleteMcpServer(name: string) {
 		mcpResult = null;
 		window.location.href = `${BRIDGE_SCHEME}://deletemcpserver?name=${encodeURIComponent(name)}`;
@@ -944,6 +959,8 @@
 					ondelete={deleteMcpServer}
 					onsignin={signInMcpServer}
 					ontest={testMcpServer}
+					ontestcommand={testMcpCommand}
+					onsavecommand={saveMcpCommand}
 					onclose={closePanel}
 				/>
 			{:else if panel === 'grounding'}

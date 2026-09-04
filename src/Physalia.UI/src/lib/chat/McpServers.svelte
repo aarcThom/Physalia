@@ -23,6 +23,9 @@
 	import GlobeIcon from '@lucide/svelte/icons/globe';
 	import LogInIcon from '@lucide/svelte/icons/log-in';
 	import PlugIcon from '@lucide/svelte/icons/plug';
+	import TerminalIcon from '@lucide/svelte/icons/terminal';
+	import SlidersIcon from '@lucide/svelte/icons/sliders-horizontal';
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import LoaderIcon from '@lucide/svelte/icons/loader-circle';
 	import HappyFace from '$lib/chat/HappyFace.svelte';
 	import type { McpResult, McpServerPayload, UiMcpServer } from '$lib/bridge';
@@ -40,9 +43,13 @@
 		onsignin: (name: string) => void;
 		/**
 		 * Connects to the entry being edited WITHOUT writing it, so a URL or a command can be
-		 * checked before it is committed to the file.
+		 * checked before it is committed.
 		 */
 		ontest: (entry: McpServerPayload) => void;
+		/** Parses a pasted setup command and connects to what it describes, writing nothing. */
+		ontestcommand: (command: string) => void;
+		/** Parses a pasted setup command, writes the entry it describes, then connects. */
+		onsavecommand: (command: string) => void;
 		onclose: () => void;
 	}
 
@@ -54,6 +61,8 @@
 		ondelete,
 		onsignin,
 		ontest,
+		ontestcommand,
+		onsavecommand,
 		onclose
 	}: Props = $props();
 
@@ -65,12 +74,41 @@
 	// showing the save button busy would suggest it had.
 	let testing = $state(false);
 
+	// Which screen the page is on. `draft` still owns the manual form — this covers the two screens
+	// in front of it: the choice between the two ways in, and the paste box.
+	let stage = $state<'list' | 'choose' | 'paste'>('list');
+
+	// Which client's command is expected. It selects the EXAMPLE only: the parser detects the
+	// grammar it is actually given, so pasting the other one is not a failure.
+	let flavour = $state<'claude' | 'codex'>('claude');
+	let command = $state('');
+
 	$effect(() => {
 		if (result) {
 			connecting = null;
 			testing = false;
 		}
 	});
+
+	// A parsed command is committed and connected in one host call, so the commit button has its own
+	// spinner rather than borrowing `connecting`, which is keyed by server name — a name this page
+	// has not read yet.
+	let committing = $state(false);
+
+	$effect(() => {
+		if (result) {
+			committing = false;
+		}
+	});
+
+	const EXAMPLES = {
+		claude:
+			'claude mcp add --transport http --header "Authorization: Bearer TOKEN" illustrator http://localhost:18412/v1/mcp',
+		codex:
+			'codex mcp add illustrator --url http://localhost:18412/v1/mcp --bearer-token-env-var TOKEN_VAR'
+	};
+
+	let hasCommand = $derived(command.trim().length > 0);
 
 	/** Editable pair rows. Kept as a list, not a map, so a half-typed key does not collapse a row. */
 	interface PairRow {
@@ -140,16 +178,47 @@
 
 	function startAdd() {
 		draft = blankDraft();
+		stage = 'list';
 		confirmingDelete = null;
+	}
+
+	function startChoose() {
+		stage = 'choose';
+		confirmingDelete = null;
+	}
+
+	function startPaste() {
+		stage = 'paste';
+		command = '';
+	}
+
+	function testCommand() {
+		if (!hasCommand || testing) {
+			return;
+		}
+
+		testing = true;
+		ontestcommand(command.trim());
+	}
+
+	function saveCommand() {
+		if (!hasCommand || committing) {
+			return;
+		}
+
+		committing = true;
+		onsavecommand(command.trim());
 	}
 
 	function startEdit(server: UiMcpServer) {
 		draft = draftOf(server);
+		stage = 'list';
 		confirmingDelete = null;
 	}
 
 	function cancel() {
 		draft = null;
+		stage = 'list';
 	}
 
 	// Keep exactly one empty row at the end: it grows when the last row is filled, and shrinks again
@@ -600,6 +669,122 @@
 				</p>
 			{/if}
 		</div>
+	{:else if stage === 'choose'}
+		<!-- ------------------------------------------------------------------- how to connect -->
+		<!-- Automatic leads because it is the shorter road AND the more reliable one: every host
+		     publishing an MCP server already hands out a ready-made command, and pasting it cannot
+		     swap a header's name for its value or mistake Claude Code's --scope for an OAuth scope.
+		     Manual is the same form as always, for a server whose details arrived as prose. -->
+		<div class="mt-5 flex flex-col gap-3">
+			<button
+				type="button"
+				class="neu-raised flex items-center gap-3 rounded-md p-4 text-left transition-transform active:scale-[0.99]"
+				onclick={startPaste}
+			>
+				<TerminalIcon class="text-muted-foreground size-5 shrink-0" />
+				<span class="min-w-0 flex-1">
+					<span class="block text-sm font-medium">Connect automatically</span>
+					<span class="text-muted-foreground block text-xs">
+						Paste the setup command the server gave you and Physalia reads the details out of it.
+					</span>
+				</span>
+				<ChevronRightIcon class="text-muted-foreground size-4 shrink-0" />
+			</button>
+
+			<button
+				type="button"
+				class="neu-raised flex items-center gap-3 rounded-md p-4 text-left transition-transform active:scale-[0.99]"
+				onclick={startAdd}
+			>
+				<SlidersIcon class="text-muted-foreground size-5 shrink-0" />
+				<span class="min-w-0 flex-1">
+					<span class="block text-sm font-medium">Connect manually</span>
+					<span class="text-muted-foreground block text-xs">
+						Fill in the URL or command, headers and scopes yourself.
+					</span>
+				</span>
+				<ChevronRightIcon class="text-muted-foreground size-4 shrink-0" />
+			</button>
+
+			<div class="flex justify-end">
+				<Button variant="ghost" size="sm" onclick={cancel}>Cancel</Button>
+			</div>
+		</div>
+	{:else if stage === 'paste'}
+		<!-- ---------------------------------------------------------------- paste a command -->
+		<div class="neu-raised mt-5 flex flex-col gap-4 rounded-md p-4">
+			<div class="flex flex-col gap-1.5">
+				<span class="text-xs font-medium">Command for</span>
+				<div class="flex gap-2">
+					<Button
+						variant={flavour === 'claude' ? 'default' : 'outline'}
+						size="sm"
+						class="flex-1"
+						onclick={() => (flavour = 'claude')}
+					>
+						Claude Code
+					</Button>
+					<Button
+						variant={flavour === 'codex' ? 'default' : 'outline'}
+						size="sm"
+						class="flex-1"
+						onclick={() => (flavour = 'codex')}
+					>
+						Codex
+					</Button>
+				</div>
+			</div>
+
+			<div class="flex flex-col gap-1.5">
+				<label class="text-xs font-medium" for="mcp-command-paste">Command</label>
+				<textarea
+					id="mcp-command-paste"
+					class="{FIELD} min-h-24 resize-y font-mono text-xs"
+					bind:value={command}
+					spellcheck="false"
+					placeholder={EXAMPLES[flavour]}
+				></textarea>
+				<p class="text-muted-foreground text-xs">
+					Paste a command in the form of
+					<code class="break-all">{EXAMPLES[flavour]}</code>
+				</p>
+			</div>
+
+			<div class="flex flex-wrap items-center justify-end gap-3">
+				<Button
+					variant="outline"
+					size="sm"
+					class="mr-auto gap-1.5"
+					disabled={!hasCommand || testing}
+					onclick={testCommand}
+				>
+					{#if testing}
+						<LoaderIcon class="size-3.5 animate-spin" />
+						Testing…
+					{:else}
+						<PlugIcon class="size-3.5" />
+						Test connection
+					{/if}
+				</Button>
+
+				<Button
+					size="sm"
+					class="gap-1.5"
+					disabled={!hasCommand || committing}
+					onclick={saveCommand}
+				>
+					{#if committing}
+						<LoaderIcon class="size-3.5 animate-spin" />
+						Connecting…
+					{:else}
+						<PlugIcon class="size-3.5" />
+						Save & connect
+					{/if}
+				</Button>
+
+				<Button variant="ghost" size="sm" onclick={cancel}>Cancel</Button>
+			</div>
+		</div>
 	{:else}
 		<!-- ------------------------------------------------------------------------- the list -->
 		{#if servers.length > 0}
@@ -674,7 +859,7 @@
 		{/if}
 
 		{#if !readOnlyReason}
-			<Button variant="outline" class="mt-4 h-auto w-full justify-start gap-2 py-2.5" onclick={startAdd}>
+			<Button variant="outline" class="mt-4 h-auto w-full justify-start gap-2 py-2.5" onclick={startChoose}>
 				<PlusIcon class="size-4 shrink-0" />
 				Add a server
 			</Button>

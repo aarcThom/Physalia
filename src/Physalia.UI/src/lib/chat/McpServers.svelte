@@ -4,9 +4,13 @@
 	// commentary and ordering survive.
 	//
 	// The form has TWO modes, and that is not decoration: the standard `mcpServers` shape covers two
-	// different transports. A local server is a subprocess (command + args + env + cwd) and is what
-	// almost every published server is; a remote one is a URL the Physalia bridge relays to. Offering
-	// a single "URL + key" box would refuse nearly everything people actually paste in.
+	// different transports. A `command` server is a subprocess (command + args + env + cwd) and is
+	// what almost every published server is; a `url` one is an HTTP endpoint the Physalia bridge
+	// relays to. Offering a single "URL + key" box would refuse nearly everything people actually
+	// paste in. The modes are LABELLED after those two keys rather than local/remote, because the
+	// distinction is the transport and not the machine — a URL server is very often on localhost.
+	// The `transport: 'local' | 'remote'` values in the code and on the wire are unchanged, and so
+	// are the YAML keys: a config pasted from any README must keep working verbatim.
 	//
 	// Nothing here resolves a ${VAR}: the host hands values over exactly as written and takes them back
 	// the same way, so a token stays in the environment where the user put it.
@@ -18,6 +22,7 @@
 	import ServerIcon from '@lucide/svelte/icons/server';
 	import GlobeIcon from '@lucide/svelte/icons/globe';
 	import LogInIcon from '@lucide/svelte/icons/log-in';
+	import PlugIcon from '@lucide/svelte/icons/plug';
 	import LoaderIcon from '@lucide/svelte/icons/loader-circle';
 	import HappyFace from '$lib/chat/HappyFace.svelte';
 	import type { McpResult, McpServerPayload, UiMcpServer } from '$lib/bridge';
@@ -176,6 +181,11 @@
 
 	let canSave = $derived(missing.length === 0);
 
+	// A URL server given a header of its own already carries its credential, so connecting to it can
+	// never open a browser: the SDK's OAuth path is reactive and fires only on a 401. Promising a
+	// sign-in that will not happen is worse than saying nothing, so the button renames itself.
+	let hasOwnCredential = $derived((draft?.headers ?? []).some((r) => r.key.trim().length > 0));
+
 	// A remote server's name is nearly always its host, so offer that rather than making the user
 	// invent one — but only until they type, and never over something they wrote. "mcp." prefixes are
 	// dropped because a server called "mcp" says nothing.
@@ -307,8 +317,12 @@
 				</p>
 			</div>
 
-			<!-- The transport switch. Local is first and default because it is what nearly every
-			     published server is. -->
+			<!-- The transport switch. Command is first and default because it is what nearly every
+			     published server is. The two options are named after the field each one asks for —
+			     which is also the YAML key it writes — because the real split is subprocess-vs-HTTP,
+			     NOT this-machine-vs-elsewhere: a desktop app exposing MCP on loopback (Illustrator,
+			     Photoshop) is a URL server running on your own computer, and calling that "Remote"
+			     reads as a bug. -->
 			<div class="flex flex-col gap-1.5">
 				<span class="text-xs font-medium">Transport</span>
 				<div class="flex gap-2">
@@ -319,7 +333,7 @@
 						onclick={() => draft && (draft.transport = 'local')}
 					>
 						<ServerIcon class="size-3.5" />
-						Local
+						Command
 					</Button>
 					<Button
 						variant={draft.transport === 'remote' ? 'default' : 'outline'}
@@ -328,7 +342,7 @@
 						onclick={() => draft && (draft.transport = 'remote')}
 					>
 						<GlobeIcon class="size-3.5" />
-						Remote
+						URL
 					</Button>
 				</div>
 			</div>
@@ -410,8 +424,17 @@
 						spellcheck="false"
 					/>
 					<p class="text-muted-foreground text-xs">
-						Reached through the Physalia MCP bridge, which handles Streamable HTTP and the OAuth
-						sign-in.
+						The web address the server answers on. Whoever runs the server gives you this — look
+						for a "copy URL" button, or a setup page telling you to paste a URL into your MCP
+						client.
+					</p>
+					<p class="text-muted-foreground text-xs">
+						An address starting <code>http://localhost</code> or <code>http://127.0.0.1</code> is
+						completely normal here, and it is not a mistake or a placeholder. It means the server
+						is a program already running on this computer — Illustrator and Photoshop both offer
+						their tools this way — and "localhost" is just how one program on your machine talks
+						to another. Nothing leaves your computer. Anything else is an ordinary
+						<code>https://</code> address out on the internet.
 					</p>
 				</div>
 
@@ -456,7 +479,8 @@
 						spellcheck="false"
 					/>
 					<p class="text-muted-foreground text-xs">
-						Space-separated. Leave empty to let the server's own metadata decide.
+						Space-separated. Leave empty to let the server's own metadata decide — and ignored
+						entirely by a server that takes a static token in a header instead.
 					</p>
 				</div>
 			{/if}
@@ -469,18 +493,25 @@
 				{/if}
 				<Button variant="ghost" size="sm" onclick={cancel}>Cancel</Button>
 
-				<!-- Remote servers get the sign-in path as the PRIMARY action: nearly all of them are
-				     OAuth-protected, and doing the browser handshake now is the whole point of setting
-				     one up here rather than discovering it on the first solve. Saving without connecting
-				     stays available beside it, for a server that is not ready yet. -->
+				<!-- URL servers get the connect path as the PRIMARY action: it is a connection test in
+				     every case, and for the OAuth-protected majority it also does the browser handshake
+				     now rather than on the first solve of a node the user has not placed yet. Saving
+				     without connecting stays available beside it, for a server that is not ready yet. -->
 				{#if draft.transport === 'remote'}
 					<Button variant="outline" size="sm" disabled={!canSave} onclick={() => save(false)}>
-						{draft.original ? 'Save' : 'Add without signing in'}
+						{draft.original
+							? 'Save'
+							: hasOwnCredential
+								? 'Add without connecting'
+								: 'Add without signing in'}
 					</Button>
 					<Button size="sm" class="gap-1.5" disabled={!canSave || connecting !== null} onclick={() => save(true)}>
 						{#if connecting !== null}
 							<LoaderIcon class="size-3.5 animate-spin" />
-							Waiting for sign-in…
+							{hasOwnCredential ? 'Connecting…' : 'Waiting for sign-in…'}
+						{:else if hasOwnCredential}
+							<PlugIcon class="size-3.5" />
+							Save & connect
 						{:else}
 							<LogInIcon class="size-3.5" />
 							Save & sign in
@@ -495,9 +526,14 @@
 
 			{#if draft.transport === 'remote'}
 				<p class="text-muted-foreground text-xs">
-					Signing in opens your browser. Physalia remembers the result for this Windows account, so
-					you should not be asked again — and the same button doubles as a connection test, since it
-					reports how many tools the server offers.
+					{#if hasOwnCredential}
+						Connecting checks that the server answers and reports how many tools it offers. Your
+						header is the credential, so no browser opens.
+					{:else}
+						Signing in opens your browser. Physalia remembers the result for this Windows account,
+						so you should not be asked again — and the same button doubles as a connection test,
+						since it reports how many tools the server offers.
+					{/if}
 				</p>
 			{/if}
 		</div>

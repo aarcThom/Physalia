@@ -3,6 +3,8 @@
 
 using System.Diagnostics;
 using System.Net;
+using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol;
@@ -26,6 +28,12 @@ namespace Physalia.McpBridge;
 /// </remarks>
 internal static class Program
 {
+    // Whether any server message ever reached stdout. A relay that ends having pumped nothing is a
+    // failure however cleanly the tasks completed, and that distinction is the only thing standing
+    // between "closed the connection" and a usable diagnosis.
+    private static bool _relayedAnything;
+
+
     private static async Task<int> Main(string[] args)
     {
         string? url = ReadOption(args, "--url");
@@ -66,23 +74,84 @@ internal static class Program
 
     private static async Task<int> RelayAsync(Uri endpoint, string[] args, CancellationToken ct)
     {
+        List<(string Name, string Value)> headers = ReadHeaders(args).ToList();
+
+        // A server given an Authorization header of its own is ALREADY authenticated, and asking the
+        // SDK for OAuth as well does not merely add a fallback — it BREAKS the header. Configuring
+        // OAuth installs ClientOAuthProvider as a delegating handler in front of every request, and
+        // that handler owns the Authorization header: with no token cached it sends the request
+        // unauthenticated, so the static credential in AdditionalHeaders never reaches the server.
+        // Against Illustrator that produced a 401, then an OAuth discovery attempt the server
+        // answers 404, and finally "POST response completed without a reply" — three failures deep,
+        // none of them mentioning the header that was quietly dropped at step one.
+        bool hasStaticAuthorization = headers.Any(
+            h => h.Name.Equals("Authorization", StringComparison.OrdinalIgnoreCase));
+
         var transportOptions = new HttpClientTransportOptions
         {
             Endpoint = endpoint,
             Name = endpoint.Host,
-            OAuth = BuildOAuthOptions(endpoint, args),
+            OAuth = hasStaticAuthorization ? null : BuildOAuthOptions(endpoint, args),
+
+            // The standalone GET stream is how a server pushes messages the client did not ask for,
+            // and the spec makes it OPTIONAL — a server with nothing to push answers 405. The SDK
+            // ends the session when that GET fails, so a server which declines it in any other way
+            // takes the whole connection down with it: Adobe Illustrator answers 404 with
+            // {"error":"Not found. Use POST /v1/mcp"}, and the relay died the instant it connected,
+            // silently, before a single message crossed. Probed rather than configured, because the
+            // user cannot be expected to know which kind of server they were handed — and left ON
+            // when the probe cannot tell, since a server that does offer the stream needs it for
+            // notifications.
+            EnableStandaloneGetStream = await OffersGetStreamAsync(endpoint, headers, ct)
+                .ConfigureAwait(false),
         };
 
-        foreach ((string name, string value) in ReadHeaders(args))
+        foreach ((string name, string value) in headers)
         {
             transportOptions.AdditionalHeaders ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             transportOptions.AdditionalHeaders[name] = value;
         }
 
-        await using var clientTransport = new HttpClientTransport(transportOptions);
+        // --trace logs the whole HTTP exchange to stderr. A relay has no other way to explain
+        // itself: everything it does happens between two pipes, and "the server closed the
+        // connection" is all Physalia can otherwise report.
+        bool trace = args.Any(a => a.Equals("--trace", StringComparison.OrdinalIgnoreCase));
+
+        // WE SUPPLY THE HttpClient WHENEVER OAUTH IS NOT IN PLAY, and it is not cosmetic.
+        //
+        // Adobe Illustrator's MCP server answers every response with `Connection: close`. Left to
+        // build its own client, the SDK gets .NET's SocketsHttpHandler, which retries a request
+        // whose connection died before any response byte arrived — and against this server the
+        // retried body lands on a socket the server is still reading, so it sees TWO JSON objects in
+        // one request and rejects the pair:
+        //
+        //   {"error":{"code":-32700,"message":"JSON parse error: ... at line 2, column 1:
+        //    unexpected '{'; expected end of input"},"id":null}
+        //
+        // which the transport reports as "POST response completed without a reply to request with
+        // ID: 1" — a message that names neither the retry nor the server's complaint. A plain
+        // HttpClientHandler does not do this, and the exchange succeeds. Measured both ways against
+        // the live server.
+        //
+        // The OAuth path keeps the SDK's own client, because ClientOAuthProvider is installed INTO
+        // the client the SDK builds; handing it one of ours would leave the handler out and break
+        // the browser sign-in, which this change has no evidence about either way. A server needing
+        // OAuth is not one carrying a static Authorization header, so the two cases do not overlap.
+        HttpClient? ownClient = transportOptions.OAuth is not null && !trace
+            ? null
+            : new HttpClient(trace
+                ? new StderrTraceHandler(new ContentLengthHandler())
+                : new ContentLengthHandler());
+
+        await using var clientTransport = ownClient is null
+            ? new HttpClientTransport(transportOptions)
+            : new HttpClientTransport(transportOptions, ownClient, null!, ownsHttpClient: true);
         await using ITransport transport = await clientTransport.ConnectAsync(ct).ConfigureAwait(false);
 
-        await Console.Error.WriteLineAsync($"bridge connected to {endpoint}").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync(
+            $"bridge connected to {endpoint} (auth: "
+            + $"{(hasStaticAuthorization ? "static header" : "OAuth")}, standalone GET stream: "
+            + $"{(transportOptions.EnableStandaloneGetStream ? "yes" : "no")})").ConfigureAwait(false);
 
         // No BOM, and an explicit flush per message: the reader on the other end is line-oriented.
         var stdout = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = false };
@@ -93,8 +162,180 @@ internal static class Program
 
         // Either direction closing ends the session: a half-open relay would leave Physalia waiting
         // on a reply that can never arrive.
-        await Task.WhenAny(inbound, outbound).ConfigureAwait(false);
+        Task finished = await Task.WhenAny(inbound, outbound).ConfigureAwait(false);
+
+        // SAY WHICH SIDE WENT, AND WHY. This used to `return 0` unconditionally, so a transport that
+        // died before relaying anything looked exactly like a clean shutdown: Physalia could only
+        // report "the server closed the connection" and echo whatever stderr happened to hold. An
+        // exit code and one line of diagnosis cost nothing and are the difference between a
+        // five-minute fix and an afternoon.
+        string side = ReferenceEquals(finished, inbound) ? "host" : "server";
+
+        if (finished.IsFaulted)
+        {
+            Exception? fault = finished.Exception?.GetBaseException();
+            await Console.Error.WriteLineAsync(
+                $"bridge: the {side} side failed: {fault?.GetType().Name}: {fault?.Message}")
+                .ConfigureAwait(false);
+            return 1;
+        }
+
+        if (!_relayedAnything)
+        {
+            await Console.Error.WriteLineAsync(
+                $"bridge: the {side} side ended before any message was relayed. The endpoint "
+                + "answered the handshake but the message stream closed immediately, which is what "
+                + "a server refusing the standalone GET stream with something other than 405 looks "
+                + "like.").ConfigureAwait(false);
+            return 1;
+        }
+
+        await Console.Error.WriteLineAsync($"bridge: the {side} side closed the relay.")
+            .ConfigureAwait(false);
         return 0;
+    }
+
+    // Sends the request body with a Content-Length instead of chunked.
+    //
+    // THIS IS WHAT MAKES ILLUSTRATOR WORK, and the diagnosis took a while because the symptom named
+    // nothing relevant. The SDK hands HttpClient a content whose length it does not know, so .NET
+    // frames the POST with `Transfer-Encoding: chunked` — and Adobe Illustrator's server cannot read
+    // a chunked request body. It parses the raw framing AS the body, which is why it answered:
+    //
+    //   -32700 JSON parse error: at line 2, column 1: unexpected '{'; expected end of input
+    //
+    // The hex chunk-size on line 1 is itself a valid JSON number, so the server read that as the
+    // whole message and then found an object on line 2 it had no use for. The transport turned all
+    // of that into "POST response completed without a reply to request with ID: 1", which sounds
+    // like silence from a server that was in fact complaining loudly.
+    //
+    // LoadIntoBufferAsync gives the content a known length, so the request goes out with a
+    // Content-Length and the server reads it. The cost is holding one JSON-RPC message in memory,
+    // which the relay does anyway.
+    private sealed class ContentLengthHandler : DelegatingHandler
+    {
+        public ContentLengthHandler()
+            : base(new SocketsHttpHandler())
+        {
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.Content is not null)
+            {
+                await request.Content.LoadIntoBufferAsync().ConfigureAwait(false);
+            }
+
+            return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    // Logs each request and response to stderr, headers included but credentials never. Used only
+    // under --trace.
+    private sealed class StderrTraceHandler : DelegatingHandler
+    {
+        public StderrTraceHandler(HttpMessageHandler inner)
+            : base(inner)
+        {
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            await Console.Error.WriteLineAsync($"trace >>> {request.Method} {request.RequestUri}")
+                .ConfigureAwait(false);
+
+            foreach (KeyValuePair<string, IEnumerable<string>> header in request.Headers)
+            {
+                string value = header.Key.Equals("Authorization", StringComparison.OrdinalIgnoreCase)
+                    ? "<redacted>"
+                    : string.Join(", ", header.Value);
+                await Console.Error.WriteLineAsync($"trace >>> {header.Key}: {value}").ConfigureAwait(false);
+            }
+
+            if (request.Content is not null)
+            {
+                await Console.Error.WriteLineAsync(
+                    "trace >>> " + await request.Content.ReadAsStringAsync(cancellationToken)
+                        .ConfigureAwait(false)).ConfigureAwait(false);
+            }
+
+            HttpResponseMessage response = await base.SendAsync(request, cancellationToken)
+                .ConfigureAwait(false);
+
+            await Console.Error.WriteLineAsync($"trace <<< {(int)response.StatusCode} {response.ReasonPhrase}")
+                .ConfigureAwait(false);
+
+            foreach (KeyValuePair<string, IEnumerable<string>> header in response.Headers)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"trace <<< {header.Key}: {string.Join(", ", header.Value)}").ConfigureAwait(false);
+            }
+
+            foreach (KeyValuePair<string, IEnumerable<string>> header in response.Content.Headers)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"trace <<< {header.Key}: {string.Join(", ", header.Value)}").ConfigureAwait(false);
+            }
+
+            // Buffered, so reading it here does not consume the stream the SDK still needs.
+            byte[] body = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+            await Console.Error.WriteLineAsync("trace <<< " + Encoding.UTF8.GetString(body)).ConfigureAwait(false);
+
+            var replacement = new ByteArrayContent(body);
+            foreach (KeyValuePair<string, IEnumerable<string>> header in response.Content.Headers)
+            {
+                replacement.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+
+            response.Content = replacement;
+            return response;
+        }
+    }
+
+    // True when the endpoint serves the optional standalone GET stream. Anything that is not an
+    // event-stream 200 counts as "does not offer it": 405 is the spec's answer, 404 is Illustrator's,
+    // and a server that simply has nothing to push may say either. A probe that cannot reach the
+    // endpoint at all reports TRUE, leaving the SDK's own behaviour untouched — the connect attempt
+    // that follows will produce a far better error than a guess made here.
+    private static async Task<bool> OffersGetStreamAsync(
+        Uri endpoint,
+        List<(string Name, string Value)> headers,
+        CancellationToken ct)
+    {
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+            request.Headers.TryAddWithoutValidation("Accept", "text/event-stream");
+
+            foreach ((string name, string value) in headers)
+            {
+                request.Headers.TryAddWithoutValidation(name, value);
+            }
+
+            using HttpResponseMessage response = await http
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct)
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                await Console.Error.WriteLineAsync(
+                    $"bridge: GET {endpoint} answered {(int)response.StatusCode}, so the standalone "
+                    + "stream is off for this session.").ConfigureAwait(false);
+                return false;
+            }
+
+            string? mediaType = response.Content.Headers.ContentType?.MediaType;
+            return string.Equals(mediaType, "text/event-stream", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return true;
+        }
     }
 
     private static async Task PumpStdinAsync(TextReader stdin, ITransport transport, CancellationToken ct)
@@ -134,6 +375,7 @@ internal static class Program
     {
         await foreach (JsonRpcMessage message in transport.MessageReader.ReadAllAsync(ct).ConfigureAwait(false))
         {
+            _relayedAnything = true;
             string line = JsonSerializer.Serialize(message, McpJsonUtilities.DefaultOptions);
             await stdout.WriteLineAsync(line).ConfigureAwait(false);
             await stdout.FlushAsync().ConfigureAwait(false);

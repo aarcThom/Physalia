@@ -38,18 +38,37 @@
 		ondelete: (name: string) => void;
 		/** Connects to a saved server — for a remote one, this is what opens the browser sign-in. */
 		onsignin: (name: string) => void;
+		/**
+		 * Connects to the entry being edited WITHOUT writing it, so a URL or a command can be
+		 * checked before it is committed to the file.
+		 */
+		ontest: (entry: McpServerPayload) => void;
 		onclose: () => void;
 	}
 
-	let { servers, readOnlyReason, result, onsave, ondelete, onsignin, onclose }: Props = $props();
+	let {
+		servers,
+		readOnlyReason,
+		result,
+		onsave,
+		ondelete,
+		onsignin,
+		ontest,
+		onclose
+	}: Props = $props();
 
 	// Which server a connection attempt is running for, so its row can show a spinner. The host always
 	// answers on setMcpResult (success or failure), and the effect below clears this when it does.
 	let connecting = $state<string | null>(null);
 
+	// Kept apart from `connecting` so the two buttons spin independently: a test writes nothing, and
+	// showing the save button busy would suggest it had.
+	let testing = $state(false);
+
 	$effect(() => {
 		if (result) {
 			connecting = null;
+			testing = false;
 		}
 	});
 
@@ -83,7 +102,9 @@
 			original: null,
 			name: '',
 			nameTouched: false,
-			transport: 'local',
+			// Matches the switch's leading option: the preselected mode and the leftmost button must
+			// be the same one, or the form contradicts its own reading order.
+			transport: 'remote',
 			command: '',
 			args: '',
 			cwd: '',
@@ -204,17 +225,11 @@
 		}
 	}
 
-	function save(signIn = false) {
-		if (!draft || !canSave) {
-			return;
-		}
-
-		const d = draft;
-		if (signIn) {
-			connecting = d.name.trim();
-		}
-
-		onsave({
+	// The wire form of whatever is in the form right now. Shared by save and test so the two can
+	// never disagree about what is being connected to — a test that checked a different shape from
+	// the one about to be written would be worse than no test at all.
+	function payload(d: Draft, signIn: boolean): McpServerPayload {
+		return {
 			name: d.name.trim(),
 			transport: d.transport,
 			command: d.transport === 'local' ? d.command.trim() : '',
@@ -234,9 +249,33 @@
 			// second one beside the original.
 			replacing: d.original ?? '',
 			signIn
-		});
+		};
+	}
+
+	function save(signIn = false) {
+		if (!draft || !canSave) {
+			return;
+		}
+
+		const d = draft;
+		if (signIn) {
+			connecting = d.name.trim();
+		}
+
+		onsave(payload(d, signIn));
 
 		draft = null;
+	}
+
+	// Connect to the form's contents without saving. The draft deliberately STAYS open: the point of
+	// a test is to fix what it reports, and closing the form would throw away the thing under test.
+	function testConnection() {
+		if (!draft || !canSave || testing) {
+			return;
+		}
+
+		testing = true;
+		ontest(payload(draft, false));
 	}
 
 	function signIn(name: string) {
@@ -317,24 +356,20 @@
 				</p>
 			</div>
 
-			<!-- The transport switch. Command is first and default because it is what nearly every
-			     published server is. The two options are named after the field each one asks for —
-			     which is also the YAML key it writes — because the real split is subprocess-vs-HTTP,
-			     NOT this-machine-vs-elsewhere: a desktop app exposing MCP on loopback (Illustrator,
-			     Photoshop) is a URL server running on your own computer, and calling that "Remote"
-			     reads as a bug. -->
+			<!-- The transport switch. URL leads, because a URL is what a server hands you: a hosted
+			     one gives you an https endpoint, and a desktop app exposing MCP on loopback
+			     (Illustrator, Photoshop) gives you a localhost one — in both cases there is nothing to
+			     install and nothing to look up. A Command entry is the one you have to assemble.
+			     The two options are named after the field each one asks for — which is also the YAML
+			     key it writes — because the real split is subprocess-vs-HTTP, NOT
+			     this-machine-vs-elsewhere: a loopback server is a URL server running on your own
+			     computer, and calling that "Remote" reads as a bug. URL is also the DEFAULT, because
+			     the leading button and the preselected one have to agree — an npx entry is the
+			     commoner one to add, but a switch whose highlight sits away from its first option
+			     reads as a stuck control rather than as a considered default. -->
 			<div class="flex flex-col gap-1.5">
 				<span class="text-xs font-medium">Transport</span>
 				<div class="flex gap-2">
-					<Button
-						variant={draft.transport === 'local' ? 'default' : 'outline'}
-						size="sm"
-						class="flex-1 gap-1.5"
-						onclick={() => draft && (draft.transport = 'local')}
-					>
-						<ServerIcon class="size-3.5" />
-						Command
-					</Button>
 					<Button
 						variant={draft.transport === 'remote' ? 'default' : 'outline'}
 						size="sm"
@@ -343,6 +378,15 @@
 					>
 						<GlobeIcon class="size-3.5" />
 						URL
+					</Button>
+					<Button
+						variant={draft.transport === 'local' ? 'default' : 'outline'}
+						size="sm"
+						class="flex-1 gap-1.5"
+						onclick={() => draft && (draft.transport = 'local')}
+					>
+						<ServerIcon class="size-3.5" />
+						Command
 					</Button>
 				</div>
 			</div>
@@ -485,27 +529,44 @@
 				</div>
 			{/if}
 
+			<!-- Test on the left, then the commit pair on the right. Testing writes nothing, so it is
+			     the one action here with no consequences and it sits away from the two that do.
+			     There is no save-without-connecting button: "Save & connect" writes the entry FIRST
+			     and reports the connection separately, so a server that is not running yet is still
+			     saved — the button that used to exist for that case was doing nothing extra. -->
 			<div class="flex flex-wrap items-center justify-end gap-3">
+				<Button
+					variant="outline"
+					size="sm"
+					class="mr-auto gap-1.5"
+					disabled={!canSave || testing}
+					onclick={testConnection}
+				>
+					{#if testing}
+						<LoaderIcon class="size-3.5 animate-spin" />
+						Testing…
+					{:else}
+						<PlugIcon class="size-3.5" />
+						Test connection
+					{/if}
+				</Button>
+
 				{#if missing.length > 0}
-					<p class="text-muted-foreground mr-auto text-xs">
+					<p class="text-muted-foreground text-xs">
 						Still needs {missing.join(' and ')}.
 					</p>
 				{/if}
-				<Button variant="ghost" size="sm" onclick={cancel}>Cancel</Button>
 
-				<!-- URL servers get the connect path as the PRIMARY action: it is a connection test in
-				     every case, and for the OAuth-protected majority it also does the browser handshake
-				     now rather than on the first solve of a node the user has not placed yet. Saving
-				     without connecting stays available beside it, for a server that is not ready yet. -->
+				<!-- URL servers commit through the connect path: it verifies the entry, and for the
+				     OAuth-protected majority it also does the browser handshake now rather than on the
+				     first solve of a node the user has not placed yet. -->
 				{#if draft.transport === 'remote'}
-					<Button variant="outline" size="sm" disabled={!canSave} onclick={() => save(false)}>
-						{draft.original
-							? 'Save'
-							: hasOwnCredential
-								? 'Add without connecting'
-								: 'Add without signing in'}
-					</Button>
-					<Button size="sm" class="gap-1.5" disabled={!canSave || connecting !== null} onclick={() => save(true)}>
+					<Button
+						size="sm"
+						class="gap-1.5"
+						disabled={!canSave || connecting !== null}
+						onclick={() => save(true)}
+					>
 						{#if connecting !== null}
 							<LoaderIcon class="size-3.5 animate-spin" />
 							{hasOwnCredential ? 'Connecting…' : 'Waiting for sign-in…'}
@@ -522,6 +583,8 @@
 						{draft.original ? 'Save changes' : 'Add server'}
 					</Button>
 				{/if}
+
+				<Button variant="ghost" size="sm" onclick={cancel}>Cancel</Button>
 			</div>
 
 			{#if draft.transport === 'remote'}

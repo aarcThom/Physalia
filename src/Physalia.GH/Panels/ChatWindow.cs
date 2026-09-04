@@ -479,6 +479,11 @@ public class ChatWindow : Form
             case "deletemcpserver":
                 HandleDeleteMcpServer(uri);
                 break;
+            case "testmcpserver":
+                // The MCP page's test button: connect to the entry as currently typed, writing
+                // nothing. Separate from the save verb because there is no file to read back.
+                HandleTestMcpServer(uri);
+                break;
             case "signinmcpserver":
                 // Connect to a configured server now, which is what runs a remote one's OAuth
                 // sign-in — so the browser handshake happens during setup rather than on the first
@@ -1759,19 +1764,7 @@ public class ChatWindow : Form
             return;
         }
 
-        var definition = new McpServerDefinition(
-            payload.Name.Trim(),
-            remote ? null : payload.Command?.Trim(),
-            remote ? Array.Empty<string>() : CleanList(payload.Args),
-            remote
-                ? new Dictionary<string, string>(StringComparer.Ordinal)
-                : CleanPairs(payload.Env, StringComparer.Ordinal),
-            remote ? null : NullIfBlank(payload.Cwd),
-            remote ? payload.Url?.Trim() : null,
-            remote
-                ? CleanPairs(payload.Headers, StringComparer.OrdinalIgnoreCase)
-                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-            remote ? NullIfBlank(payload.Scope) : null);
+        McpServerDefinition definition = BuildMcpDefinition(payload, remote, expand: false);
 
         try
         {
@@ -1800,6 +1793,105 @@ public class ChatWindow : Form
         }
 
         PushMcpResult(true, $"Saved '{definition.Name}' to MCP_SERVERS.YAML.");
+    }
+
+    // Builds the definition one MCP page payload describes. `expand` is the whole reason this is
+    // shared rather than duplicated: an EDIT keeps ${VAR} verbatim, because writing the resolved
+    // token into the file is the leak the reference existed to prevent, while a CONNECTION must
+    // resolve it to the credential it names. Values only, never keys — a header name or an
+    // environment variable's name is not a place a reference belongs, and McpServerLibrary expands
+    // exactly the same halves when it reads the file.
+    private static McpServerDefinition BuildMcpDefinition(McpServerPayload payload, bool remote, bool expand)
+    {
+        string? Resolve(string? value) =>
+            expand && value is not null ? McpServerLibrary.ExpandEnvironment(value) : value;
+
+        Dictionary<string, string> ResolveAll(Dictionary<string, string> pairs)
+        {
+            if (!expand)
+            {
+                return pairs;
+            }
+
+            var resolved = new Dictionary<string, string>(pairs.Comparer);
+            foreach (KeyValuePair<string, string> pair in pairs)
+            {
+                resolved[pair.Key] = McpServerLibrary.ExpandEnvironment(pair.Value);
+            }
+
+            return resolved;
+        }
+
+        return new McpServerDefinition(
+            payload.Name.Trim(),
+            remote ? null : Resolve(payload.Command?.Trim()),
+            remote
+                ? Array.Empty<string>()
+                : CleanList(payload.Args).Select(a => Resolve(a) !).ToList(),
+            remote
+                ? new Dictionary<string, string>(StringComparer.Ordinal)
+                : ResolveAll(CleanPairs(payload.Env, StringComparer.Ordinal)),
+            remote ? null : Resolve(NullIfBlank(payload.Cwd)),
+            remote ? Resolve(payload.Url?.Trim()) : null,
+            remote
+                ? ResolveAll(CleanPairs(payload.Headers, StringComparer.OrdinalIgnoreCase))
+                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            remote ? Resolve(NullIfBlank(payload.Scope)) : null);
+    }
+
+    // Connects to an entry the page has NOT saved, so a URL or a command can be checked before it is
+    // committed to the file. Nothing is written and the list is not re-pushed; the only outcome is
+    // the message.
+    private void HandleTestMcpServer(Uri uri)
+    {
+        string raw = GetQueryValue(uri.Query, "entry");
+        if (string.IsNullOrEmpty(raw))
+        {
+            return;
+        }
+
+        McpServerPayload? payload;
+        try
+        {
+            payload = JsonSerializer.Deserialize<McpServerPayload>(raw, ReadOpts);
+        }
+        catch (JsonException)
+        {
+            PushMcpResult(false, "Physalia could not read that server definition.");
+            return;
+        }
+
+        if (payload is null)
+        {
+            PushMcpResult(false, "Physalia could not read that server definition.");
+            return;
+        }
+
+        bool remote = string.Equals(payload.Transport, "remote", StringComparison.OrdinalIgnoreCase);
+
+        // A test needs something to connect TO, but not a name to file it under — so unlike the save
+        // path it does not insist on one, and stands in a label for the message instead.
+        if (remote && string.IsNullOrWhiteSpace(payload.Url))
+        {
+            PushMcpResult(false, "Fill in the URL first, then test it.");
+            return;
+        }
+
+        if (!remote && string.IsNullOrWhiteSpace(payload.Command))
+        {
+            PushMcpResult(false, "Fill in the command first, then test it.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(payload.Name))
+        {
+            payload = payload with { Name = remote ? "this URL" : "this command" };
+        }
+
+        ConnectAndReport(
+            BuildMcpDefinition(payload, remote, expand: true),
+            payload.Name.Trim(),
+            "Nothing has been saved — use Save & connect to keep it.");
     }
 
     // Opens a connection to one configured server, which for a remote entry runs the OAuth sign-in
@@ -1835,6 +1927,14 @@ public class ChatWindow : Form
             return;
         }
 
+        ConnectAndReport(definition, name, note: null);
+    }
+
+    // Connects, lists the tools, and pushes the outcome to the page. Shared by the sign-in path (a
+    // saved entry, read off disk) and the test path (an unsaved draft, built in memory) — the two
+    // differ only in where the definition came from and in what is worth saying afterwards.
+    private void ConnectAndReport(McpServerDefinition definition, string name, string? note)
+    {
         Task.Run(async () =>
         {
             bool ok;
@@ -1871,6 +1971,11 @@ public class ChatWindow : Form
                         message = tools.Count == 1
                             ? $"Connected to '{name}' — 1 tool available."
                             : $"Connected to '{name}' — {tools.Count} tools available.";
+
+                        if (note is not null)
+                        {
+                            message += " " + note;
+                        }
                     }
                 }
             }

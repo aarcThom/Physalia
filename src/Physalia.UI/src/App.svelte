@@ -678,6 +678,15 @@
 		window.location.href = `${BRIDGE_SCHEME}://signinmcpserver?name=${encodeURIComponent(name)}`;
 	}
 
+	// Connect to an entry that has NOT been written, so the form can be checked before it is
+	// committed. Same payload as a save — the host builds the definition in memory and touches no
+	// file — which is why this is its own verb rather than a flag on the save one.
+	function testMcpServer(entry: McpServerPayload) {
+		mcpResult = null;
+		window.location.href =
+			`${BRIDGE_SCHEME}://testmcpserver?entry=${encodeURIComponent(JSON.stringify(entry))}`;
+	}
+
 	function deleteMcpServer(name: string) {
 		mcpResult = null;
 		window.location.href = `${BRIDGE_SCHEME}://deletemcpserver?name=${encodeURIComponent(name)}`;
@@ -934,6 +943,7 @@
 					onsave={saveMcpServer}
 					ondelete={deleteMcpServer}
 					onsignin={signInMcpServer}
+					ontest={testMcpServer}
 					onclose={closePanel}
 				/>
 			{:else if panel === 'grounding'}

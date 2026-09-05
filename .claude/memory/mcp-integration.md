@@ -95,7 +95,14 @@ this OS platform". Hence `McpExecutable`.
 **Verified live** against `@modelcontextprotocol/server-everything` via a scratch console harness,
 both stdio and Streamable-HTTP-through-the-bridge: connect, tools/list, tools/call, image
 attachments (4033-byte PNG intact), pooling identity, teardown, and a clear error for a remote server
-with no bridge. **NOT yet run inside Rhino. OAuth is UNVERIFIED** — it needs a real protected server.
+with no bridge. **OAuth is still UNVERIFIED** — it needs a real protected server.
+
+**Update 2026-09-04.** A second real remote server — Adobe Illustrator's built-in one, static bearer
+token, 47 tools — now works through the bridge, but only after three defects were fixed; the
+chunked-request-body one affects EVERY remote server, so treat the earlier server-everything result
+as necessary and not sufficient. See [[mcp-bridge-chunked-body]]. The chat window's setup flow was
+rebuilt at the same time (landing page + a parser for pasted CLI setup commands) and **CLAUDE.md's
+MCP section is stale on it** — see [[mcp-setup-page]].
 
 ## Consequence: the bridge is the plan
 Physalia implements **only the stdio MCP client** in-process (~300 lines on the `CodexProvider` /

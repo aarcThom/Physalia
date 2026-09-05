@@ -49,4 +49,9 @@ reads `bin/Debug/net7.0-windows/Files/MCP_SERVERS.YAML` — not the repo's `File
 a **subprocess**, so a bridge-only fix needs no `.gha` rebuild; retrying the connection picks it up
 even with Rhino open and holding the `.gha` lock.
 
-Related: [[mcp-integration]], [[core-console-harness]].
+Committed as `057a0d7` ("a bridge that says what went wrong, not one that exits zero in silence").
+Fixed and verified OUTSIDE Rhino, through the staged bridge driven by a PowerShell probe that holds
+stdin open — an EOF on stdin ends the relay by itself, so a probe that closes the pipe proves
+nothing. The full path through Physalia in Rhino is still unconfirmed.
+
+Related: [[mcp-integration]], [[mcp-setup-page]], [[core-console-harness]].

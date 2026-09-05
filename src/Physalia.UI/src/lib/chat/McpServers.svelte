@@ -1,5 +1,5 @@
 <script lang="ts">
-	// "Configure MCP connections" page. Lists what MCP_SERVERS.YAML holds and edits it one entry
+	// "Configure MCP connections" page. Lists the configured MCP servers and edits them one entry
 	// at a time through the bridge — the host rewrites only that entry's lines, so the file's own
 	// commentary and ordering survive.
 	//
@@ -31,10 +31,9 @@
 	import type { McpResult, McpServerPayload, UiMcpServer } from '$lib/bridge';
 
 	interface Props {
-		/** Servers read from MCP_SERVERS.YAML, values verbatim (${VAR} intact). */
+		/** Servers read from the store, values verbatim (${VAR} intact). */
 		servers: UiMcpServer[];
 		/** Why the file cannot be written from here (JSON form, no wrapper), or null when it can. */
-		readOnlyReason: string | null;
 		/** Outcome of the last save/delete, or null. */
 		result: McpResult | null;
 		onsave: (entry: McpServerPayload) => void;
@@ -55,7 +54,6 @@
 
 	let {
 		servers,
-		readOnlyReason,
 		result,
 		onsave,
 		ondelete,
@@ -392,7 +390,7 @@
 	<h2 class="text-lg font-semibold">MCP connections</h2>
 	<p class="text-muted-foreground mt-1 text-sm">
 		An MCP server lends its tools to the model. Add one here and it is written to
-		<em>MCP_SERVERS.YAML</em>; then place an <em>MCP Server</em> component in a harness and pick it by
+		Physalia; then place an <em>MCP Server</em> component in a harness and pick it by
 		name.
 	</p>
 
@@ -403,12 +401,6 @@
 				: 'bg-red-600/10 text-red-700'}"
 		>
 			{result.message}
-		</div>
-	{/if}
-
-	{#if readOnlyReason}
-		<div class="mt-4 rounded-md bg-amber-600/10 px-3 py-2 text-sm text-amber-700">
-			{readOnlyReason}
 		</div>
 	{/if}
 
@@ -815,44 +807,42 @@
 							{/if}
 						</div>
 
-						{#if !readOnlyReason}
-							<div class="flex shrink-0 gap-1">
-								<Button
-									variant="ghost"
-									size="sm"
-									class="size-8 p-0"
-									disabled={!server.runnable || connecting !== null}
-									title={server.transport === 'remote'
-										? 'Sign in / test connection'
-										: 'Test connection'}
-									onclick={() => signIn(server.name)}
-								>
-									{#if connecting === server.name}
-										<LoaderIcon class="size-3.5 animate-spin" />
-									{:else}
-										<LogInIcon class="size-3.5" />
-									{/if}
-								</Button>
-								<Button
-									variant="ghost"
-									size="sm"
-									class="size-8 p-0"
-									title="Edit"
-									onclick={() => startEdit(server)}
-								>
-									<PencilIcon class="size-3.5" />
-								</Button>
-								<Button
-									variant="ghost"
-									size="sm"
-									class="size-8 p-0 {confirmingDelete === server.name ? 'text-red-600' : ''}"
-									title={confirmingDelete === server.name ? 'Click again to remove' : 'Remove'}
-									onclick={() => confirmDelete(server.name)}
-								>
-									<TrashIcon class="size-3.5" />
-								</Button>
-							</div>
-						{/if}
+						<div class="flex shrink-0 gap-1">
+							<Button
+								variant="ghost"
+								size="sm"
+								class="size-8 p-0"
+								disabled={!server.runnable || connecting !== null}
+								title={server.transport === 'remote'
+									? 'Sign in / test connection'
+									: 'Test connection'}
+								onclick={() => signIn(server.name)}
+							>
+								{#if connecting === server.name}
+									<LoaderIcon class="size-3.5 animate-spin" />
+								{:else}
+									<LogInIcon class="size-3.5" />
+								{/if}
+							</Button>
+							<Button
+								variant="ghost"
+								size="sm"
+								class="size-8 p-0"
+								title="Edit"
+								onclick={() => startEdit(server)}
+							>
+								<PencilIcon class="size-3.5" />
+							</Button>
+							<Button
+								variant="ghost"
+								size="sm"
+								class="size-8 p-0 {confirmingDelete === server.name ? 'text-red-600' : ''}"
+								title={confirmingDelete === server.name ? 'Click again to remove' : 'Remove'}
+								onclick={() => confirmDelete(server.name)}
+							>
+								<TrashIcon class="size-3.5" />
+							</Button>
+						</div>
 					</div>
 				{/each}
 			</div>
@@ -866,11 +856,9 @@
 			</div>
 		{/if}
 
-		{#if !readOnlyReason}
-			<Button variant="outline" class="mt-4 h-auto w-full justify-start gap-2 py-2.5" onclick={startChoose}>
-				<PlusIcon class="size-4 shrink-0" />
-				Add a server
-			</Button>
-		{/if}
+		<Button variant="outline" class="mt-4 h-auto w-full justify-start gap-2 py-2.5" onclick={startChoose}>
+			<PlusIcon class="size-4 shrink-0" />
+			Add a server
+		</Button>
 	{/if}
 </div>

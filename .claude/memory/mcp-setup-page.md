@@ -65,7 +65,19 @@ pasting one under the other option still works (there is a test for it).
 
 Related: [[mcp-integration]], [[mcp-bridge-chunked-body]], [[settings-ownership]].
 
-**2026-09-04: the server list moved to `%LOCALAPPDATA%/Physalia/MCP_SERVERS.YAML`** (out of `Files/`).
+**2026-09-05: `MCP_SERVERS.YAML` is GONE.** Servers live in
+`%LOCALAPPDATA%/Physalia/mcp-servers.json` (`McpServerStore`). Deleted with it: the `.example`
+template, `McpConfigEditor` (the in-place editor that preserved comments/ordering) and the
+JSON-form read-only refusal — all of which existed to protect hand-authoring that stopped the moment
+the setup page took over. **What is stored is the standard `mcpServers` block**, no Physalia
+envelope, so another host's config still pastes in whole and the file can be lifted out.
+`McpServerLibrary` is pure parsing now. **`Read()` expands `${VAR}`; `ReadRaw()` does not** — the
+editor MUST use ReadRaw or a save bakes the resolved secret into the store. A legacy YAML is imported
+once then deleted, **but only when something parsed** — deleting a file you failed to read is a
+deletion, not a migration (caught in review of my own code).
+
+Superseded, kept for the reasoning: *2026-09-04, the list first moved to
+`%LOCALAPPDATA%/Physalia/MCP_SERVERS.YAML`* (out of `Files/`).
 Servers are added through the chat window, so it is machine state; in the install folder a plug-in
 update could overwrite it and every account on the box shared one credential list. `McpServer.ConfigPath`
 MOVES an existing `Files/` copy there once (moves, not copies — two would drift). The `.example`

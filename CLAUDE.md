@@ -391,20 +391,22 @@ Grounding (not built); **prompts** → System Prompt's `Additional Prompt` (not 
   names tools, not outputs), so no Core test could have caught it: the policy was correct and the GH
   adapter fed it wrong data. The general lesson for any component reading a PEER's output: within a
   signal-driven solve that peer has not re-solved, so ask the component, not the solver.
-- **`%LOCALAPPDATA%/Physalia/MCP_SERVERS.YAML`** holds the servers (moved out of `Files/` 2026-09-04
-  — servers are added through the chat window, so this is machine state, and in the install folder a
-  plug-in update could overwrite it while every account on the box shared one credential list; an
-  existing `Files/` copy is MOVED there once, by `McpServer.ConfigPath`. It stays readable YAML
-  rather than joining the encrypted store because a server entry is mostly not secret — a command,
-  its args, a URL — and `${VAR}` exists so the credential part need never be written down. The
-  `.example` template still ships in `Files/`), in the **standard `mcpServers` block** (JSON form
-  accepted too, so a `claude_desktop_config.json` pastes in whole). **Physalia ships zero server
-  definitions** — a catalog is explicitly not this plug-in's job. `${VAR}` expands from the
-  environment; an unset one keeps its literal, because a blank reads as a configured-but-empty
-  credential. **Gitignored**: it holds tokens in `env`, and that is exactly
-  why servers live in a file and not on the component — a definition serialized onto a node would
-  ship inside every preset made from it. What DOES live on the node: which server is picked and which
-  of its tools are advertised (see Settings ownership).
+- **`%LOCALAPPDATA%/Physalia/mcp-servers.json`** holds the servers (`McpServerStore`). **The YAML is
+  gone entirely** (2026-09-05) — file, `.example` template, the in-place `McpConfigEditor` that
+  preserved its comments and ordering, and the JSON-form read-only refusal. All of that existed to
+  protect hand-authoring that stopped happening the moment the chat window's setup page took over;
+  what the machine writes needs a shape, not commentary. Same argument that killed
+  `API_KEY_CONFIG.YAML`. An older YAML (beside the plug-in, or already relocated) is imported once
+  and then deleted — but **only when something actually parsed out of it**: deleting a file we failed
+  to read is a deletion, not a migration.
+  **What is stored is the standard `mcpServers` block**, not a Physalia envelope — no version field,
+  no wrapper — so a `claude_desktop_config.json` still pastes in whole (`Import`) and the file can be
+  lifted out and used elsewhere. `McpServerLibrary` is now pure parsing only (both shapes, since a
+  README snippet may be either); the store owns the file. **Plain, not encrypted**: an entry is
+  mostly a command, its args and a URL, and `${VAR}` exists so a credential need never be written
+  down — the same reasoning as `providers.json`. **`Read()` expands `${VAR}`, `ReadRaw()` does not**,
+  and the setup page MUST use `ReadRaw` — populating a form from expanded values and saving it back
+  bakes the resolved secret into the store the reference existed to keep it out of.
 - **Six recognised keys, in two transport-shaped halves** — `command`/`args`/`cwd`/`env` for a local
   stdio server, `url`/`headers`/`scope` for a remote one. The local half is what nearly every
   published server is, so anything offering "a URL and a key" would refuse most of the ecosystem.
@@ -727,8 +729,8 @@ Other: `Colour`
     /Files                       ← user-alterable runtime content ONLY; every folder here is read by code
         (no key file — credentials live encrypted in %LOCALAPPDATA%/Physalia/credentials.dat,
          written only by the chat window's setup page)
-        MCP_SERVERS.YAML.example        ← template only; the live list is
-                                          %LOCALAPPDATA%/Physalia/MCP_SERVERS.YAML
+        (no MCP file — servers live in %LOCALAPPDATA%/Physalia/mcp-servers.json,
+         written only by the chat window's MCP page)
         /SYSTEM_PROMPTS   ← /PREAMBLE + /SCHEMA, resolved by name from the System Prompt component
         /CLUSTERS         ← .ghcluster files + clusters.json manifest (Cluster Grounding)
         /PRESETS          ← preset harnesses (.gh — a saved harness sub-document)

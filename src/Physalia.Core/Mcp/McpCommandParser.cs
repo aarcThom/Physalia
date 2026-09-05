@@ -76,7 +76,7 @@ public static class McpCommandParser
         {
             return new Result<McpServerDefinition, string>.Err(
                 "This is the add-json form, which carries a whole JSON block rather than flags. "
-                + "Paste that JSON straight into MCP_SERVERS.YAML, or use Connect manually.");
+                + "Paste that JSON into the \"Add from a config\" box, or fill the form in manually.");
         }
 
         List<string> rest = tokens.Skip(start + 1).ToList();

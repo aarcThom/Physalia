@@ -7,43 +7,24 @@ using System.Text.Json;
 namespace Physalia.Core.Mcp;
 
 /// <summary>
-/// Reads the user's MCP server list from <c>MCP_SERVERS.YAML</c>.
+/// Parses an MCP server list in the standard <c>mcpServers</c> shape.
 /// </summary>
 /// <remarks>
 /// <para>The file uses the standard <c>mcpServers</c> block that Claude Code, Claude Desktop and
 /// Cursor all use, so a server configuration copied out of any project's README works unchanged.
 /// Both the JSON form (the file may be pasted wholesale from one of those clients) and a 2-space
 /// YAML form are accepted; a leading <c>{</c> selects the JSON reader.</para>
-/// <para>Physalia ships no server definitions of its own — only a commented example. Maintaining a
-/// catalog of servers is explicitly not this plug-in's job.</para>
+/// <para>Physalia ships no server definitions of its own. Maintaining a catalog of servers is
+/// explicitly not this plug-in's job.</para>
+/// <para>Pure parsing only. The stored list lives in <see cref="McpServerStore"/>; the YAML form
+/// survives here solely so an older <c>MCP_SERVERS.YAML</c> can be imported once, and so a snippet
+/// pasted from a README in either shape is understood.</para>
 /// <para>Values may reference an environment variable as <c>${NAME}</c>, which is how a token stays
 /// out of the file itself. An unset variable is left as written rather than blanked, so the failure
 /// shows up as a server rejecting the credential rather than as a silently empty one.</para>
 /// </remarks>
 public static class McpServerLibrary
 {
-    /// <summary>
-    /// Reads and parses the server list at the given path.
-    /// </summary>
-    /// <param name="filePath">Absolute path to the configuration file.</param>
-    /// <returns>One definition per entry, or an empty list if the file is absent or unreadable.</returns>
-    public static IReadOnlyList<McpServerDefinition> Read(string filePath)
-    {
-        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
-        {
-            return Array.Empty<McpServerDefinition>();
-        }
-
-        try
-        {
-            return Parse(File.ReadAllText(filePath));
-        }
-        catch (IOException)
-        {
-            return Array.Empty<McpServerDefinition>();
-        }
-    }
-
     /// <summary>
     /// Parses configuration content. Pure — no file access.
     /// </summary>

@@ -170,7 +170,7 @@ public class McpCommandParserTests
     public void Parse_AddJsonForm_SaysWhereToPasteItInstead()
     {
         string error = ParseError("claude mcp add-json thing '{\"command\":\"npx\"}'");
-        Assert.Contains("MCP_SERVERS.YAML", error);
+        Assert.Contains("Paste that JSON", error);
     }
 
     [Fact]

@@ -196,10 +196,9 @@
 	// and with setup). null = none open.
 	let panel = $state<'preset' | 'grounding' | 'mcp' | null>(null);
 
-	// MCP config state, pushed by the host whenever MCP_SERVERS.YAML changes — from this page,
+	// MCP config state, pushed by the host whenever the server store changes — from this page,
 	// from another window, or from the user editing the file by hand.
 	let mcpServers = $state<UiMcpServer[]>([]);
-	let mcpReadOnlyReason = $state<string | null>(null);
 	let mcpResult = $state<McpResult | null>(null);
 	// Estimated token count from a Token Estimator wired downstream of the viewed ConversationLog,
 	// pushed by the host; null = no estimator wired (or no count yet) → the counter hides.
@@ -278,7 +277,6 @@
 			},
 			setMcpServers: (next: McpConfig) => {
 				mcpServers = next?.servers ?? [];
-				mcpReadOnlyReason = next?.readOnlyReason ?? null;
 			},
 			setMcpResult: (result) => {
 				mcpResult = result;
@@ -671,7 +669,7 @@
 		setupResult = null;
 	}
 
-	// Write one MCP server entry to MCP_SERVERS.YAML. The whole entry rides as one JSON blob in
+	// Write one MCP server entry to the store. The whole entry rides as one JSON blob in
 	// the query — small enough for a URL, unlike the image payloads that needed the postMessage
 	// channel — and the host answers on setMcpResult, then re-pushes the list.
 	function saveMcpServer(entry: McpServerPayload) {
@@ -969,7 +967,6 @@
 			{:else if panel === 'mcp'}
 				<McpServers
 					servers={mcpServers}
-					readOnlyReason={mcpReadOnlyReason}
 					result={mcpResult}
 					onsave={saveMcpServer}
 					ondelete={deleteMcpServer}

@@ -248,7 +248,7 @@ export interface SnapshotMessagePayload {
 }
 
 /**
- * One MCP server as MCP_SERVERS.YAML has it, for the "Configure MCP connections" page.
+ * One configured MCP server, for the "Configure MCP connections" page.
  *
  * `transport` says which half of the record is meaningful: a local server is a subprocess
  * (command/args/cwd/env), a remote one is a URL the Physalia bridge relays to (url/headers/scope).
@@ -277,8 +277,6 @@ export interface UiMcpServer {
 /** The MCP config as the page sees it, pushed by the host whenever the file changes. */
 export interface McpConfig {
 	servers: UiMcpServer[];
-	/** Why the file cannot be written from the UI (JSON form, or no `mcpServers:` wrapper), else null. */
-	readOnlyReason: string | null;
 }
 
 /** Outcome of an MCP save/delete, pushed back by the host after it writes the file. */
@@ -388,7 +386,7 @@ export interface PhysaliaHost {
 	setTokenCount(count: number | null): void;
 	/** Bundled preset harnesses (from Files/PRESETS) for the Add-preset page. */
 	setPresets(presets: UiPreset[]): void;
-	/** The MCP servers in MCP_SERVERS.YAML, for the Configure-MCP page. Pushed when the file changes. */
+	/** The configured MCP servers, for the Configure-MCP page. Pushed when the store changes. */
 	setMcpServers(config: McpConfig): void;
 	/** Outcome of the last MCP save/delete, or null to clear it. */
 	setMcpResult(result: McpResult | null): void;

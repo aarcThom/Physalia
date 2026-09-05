@@ -1770,12 +1770,12 @@ public class ChatWindow : Form
     // library below — reading a file several times a second on the tick would be absurd, and this way
     // a hand edit, or a save from another window, shows up on its own within a tick.
     //
-    // Values go over UNEXPANDED (McpConfigEditor.ParseRaw): the page is an editor, so it must show
-    // and hand back "${GITHUB_TOKEN}" rather than the resolved token — otherwise the next save would
-    // write the secret into the file that the reference existed to keep it out of.
+    // Values go over UNEXPANDED (ReadRaw): the page is an editor, so it must show and hand back
+    // "${GITHUB_TOKEN}" rather than the resolved token — otherwise the next save would write the
+    // secret into the store that the reference existed to keep it out of.
     private void MaybePushMcpServers()
     {
-        string path = McpServer.ConfigPath;
+        string path = McpServer.Store.FilePath;
 
         string signature;
         try
@@ -1795,8 +1795,7 @@ public class ChatWindow : Form
 
         _lastMcpSignature = signature;
 
-        string content = ReadMcpConfig(path);
-        var servers = McpConfigEditor.ParseRaw(content)
+        var servers = McpServer.Store.ReadRaw()
             .Select(d => new
             {
                 name = d.Name,
@@ -1813,7 +1812,10 @@ public class ChatWindow : Form
             .ToList();
 
         string json = JsonSerializer.Serialize(
-            new { servers, readOnlyReason = McpConfigEditor.DescribeWriteBlock(content) },
+            // Nothing makes the page read-only any more: the store is ours, in one shape, and the
+            // JSON-form refusal existed only because that shape was a config file shared with
+            // another host that we must not rewrite.
+            new { servers, readOnlyReason = (string?)null },
             WriteOpts);
 
         Exec($"window.physalia&&window.physalia.setMcpServers&&window.physalia.setMcpServers({json});");
@@ -1859,32 +1861,18 @@ public class ChatWindow : Form
             return;
         }
 
-        string path = McpServer.ConfigPath;
-        string content = ReadMcpConfig(path);
-
-        if (McpConfigEditor.DescribeWriteBlock(content) is { } blocked)
-        {
-            PushMcpResult(false, blocked);
-            return;
-        }
-
         McpServerDefinition definition = BuildMcpDefinition(payload, remote, expand: false);
 
         WriteMcpEntry(definition, NullIfBlank(payload.Replacing), QueryFlagSet(uri.Query, "signin"));
     }
 
     // Writes one entry and, optionally, connects to it. Shared by the manual form and the pasted-
-    // command path so both land in the file the same way — through McpConfigEditor, which replaces
-    // only that entry's lines and leaves the file's own commentary and ordering alone.
+    // command path so both land in the store the same way.
     private void WriteMcpEntry(McpServerDefinition definition, string? replacing, bool connect)
     {
-        string path = McpServer.ConfigPath;
-
         try
         {
-            EnsureMcpConfigFileExists(path);
-            string updated = McpConfigEditor.Upsert(ReadMcpConfig(path), definition, replacing);
-            File.WriteAllText(path, updated);
+            McpServer.Store.Save(definition, replacing);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -1906,7 +1894,7 @@ public class ChatWindow : Form
             return;
         }
 
-        PushMcpResult(true, $"Saved '{definition.Name}' to MCP_SERVERS.YAML.");
+        PushMcpResult(true, $"Saved '{definition.Name}'.");
     }
 
     // Parses a setup command copied from another client's instructions and either connects to what
@@ -1933,12 +1921,6 @@ public class ChatWindow : Form
 
         if (save)
         {
-            if (McpConfigEditor.DescribeWriteBlock(ReadMcpConfig(McpServer.ConfigPath)) is { } blocked)
-            {
-                PushMcpResult(false, blocked);
-                return;
-            }
-
             // Replacing by its own name, so pasting a refreshed command over an existing entry
             // updates it in place rather than adding a second one beside it.
             WriteMcpEntry(parsed, replacing: parsed.Name, connect: true);
@@ -2096,13 +2078,13 @@ public class ChatWindow : Form
 
         // Read EXPANDED here, unlike everywhere else on this page: this is a connection, not an
         // edit, so a ${VAR} must resolve to the credential it names.
-        McpServerDefinition? definition = McpServerLibrary
-            .Read(McpServer.ConfigPath)
+        McpServerDefinition? definition = McpServer.Store
+            .Read()
             .FirstOrDefault(d => string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase));
 
         if (definition is null)
         {
-            PushMcpResult(false, $"'{name}' is not in MCP_SERVERS.YAML.");
+            PushMcpResult(false, $"'{name}' is not one of your configured MCP servers.");
             return;
         }
 
@@ -2175,7 +2157,7 @@ public class ChatWindow : Form
         });
     }
 
-    // Removes one server entry from MCP_SERVERS.YAML.
+    // Removes one configured server.
     private void HandleDeleteMcpServer(Uri uri)
     {
         string name = GetQueryValue(uri.Query, "name");
@@ -2184,18 +2166,9 @@ public class ChatWindow : Form
             return;
         }
 
-        string path = McpServer.ConfigPath;
-        string content = ReadMcpConfig(path);
-
-        if (McpConfigEditor.DescribeWriteBlock(content) is { } blocked)
-        {
-            PushMcpResult(false, blocked);
-            return;
-        }
-
         try
         {
-            File.WriteAllText(path, McpConfigEditor.Remove(content, name));
+            McpServer.Store.Remove(name);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -2205,43 +2178,6 @@ public class ChatWindow : Form
 
         _lastMcpSignature = null;
         PushMcpResult(true, $"Removed '{name}'. Any MCP Server node still naming it will say so.");
-    }
-
-    private static string ReadMcpConfig(string path)
-    {
-        try
-        {
-            return File.Exists(path) ? File.ReadAllText(path) : string.Empty;
-        }
-        catch (IOException)
-        {
-            return string.Empty;
-        }
-    }
-
-    // Seeds a first-run MCP_SERVERS.YAML from the shipped template, exactly as the API-key config
-    // does, so the file the user later opens by hand still carries its commentary — the ${VAR}
-    // convention above all, which the UI form can mention but not teach.
-    private static void EnsureMcpConfigFileExists(string path)
-    {
-        if (File.Exists(path))
-        {
-            return;
-        }
-
-        string? dir = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(dir))
-        {
-            Directory.CreateDirectory(dir);
-        }
-
-        // The template still ships in the plug-in's Files/ folder — it is read-only content we
-        // publish, not user state — so it is NOT beside the destination any more.
-        string example = McpServer.LegacyConfigPath + ".example";
-        if (File.Exists(example))
-        {
-            File.Copy(example, path);
-        }
     }
 
     private static List<string> CleanList(List<string>? values) =>

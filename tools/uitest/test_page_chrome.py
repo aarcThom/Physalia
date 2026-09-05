@@ -33,8 +33,8 @@ STATE = """
     clustersWired: false, availableClusters: [], clusterSelection: null,
     toolsWired: false, availableTools: [], toolsSelection: null,
     referencedGeometryWired: false, availableReferencedGeometry: [],
-    pythonWired: false, pythonFunctions: [], unitsWired: false, documentUnits: 'Meters',
-    unitsOverride: null, unitOptions: ['Meters'], snapshotWired: false,
+    pythonWired: false, pythonFunctions: [], unitsWired: true, documentUnits: 'Meters',
+    unitsOverride: null, unitOptions: ['Meters', 'Millimeters'], snapshotWired: false,
     snapshotGeometryPresent: false, snapshotSendsMessage: false, snapshotDefaultMessage: '',
     snapshotMessage: null, viewSnapshotWired: false, viewSnapshotSendsMessage: false,
     viewSnapshotDefaultMessage: '', viewSnapshotMessage: null, imageToolWired: true,
@@ -62,18 +62,18 @@ DRIVER = """
                        height: Math.round(sr.height) };
       out.gapToWindowBottom = Math.round(window.innerHeight - sr.bottom);
     }
-    var back = null, buttons = document.querySelectorAll('button');
+    // Every back control on the page, not just the first: two of them is the bug this catches.
+    var backs = [], buttons = document.querySelectorAll('button');
     for (var i = 0; i < buttons.length; i++) {
-      if (/Go Back/.test(buttons[i].textContent || '')) { back = buttons[i]; break; }
+      var b = buttons[i];
+      if (!b.querySelector('svg.lucide-arrow-left')) continue;
+      var r = b.getBoundingClientRect();
+      backs.push({ text: (b.textContent || '').trim(),
+                   raised: b.className.indexOf('neu-btn') >= 0,
+                   ghost: b.className.indexOf('neu-ghost') >= 0,
+                   top: Math.round(r.top), left: Math.round(r.left) });
     }
-    out.goBackFound = !!back;
-    if (back) {
-      out.goBackRaised = back.className.indexOf('neu-btn') >= 0;
-      out.goBackGhost = back.className.indexOf('neu-ghost') >= 0;
-      var br = back.getBoundingClientRect();
-      out.goBack = { top: Math.round(br.top), left: Math.round(br.left),
-                     w: Math.round(br.width), h: Math.round(br.height) };
-    }
+    out.backControls = backs;
     out.heading = (document.querySelector('h2') || {}).textContent || null;
     out.viewport = { w: window.innerWidth, h: window.innerHeight };
     return JSON.stringify(out);
@@ -121,9 +121,60 @@ try:
     cdp.click(ws, item['x'], item['y'])
     time.sleep(0.8)
 
-    print('on the setup page:', cdp.js(ws, 'window.__probe()'))
+    print('setup, provider list:', cdp.js(ws, 'window.__probe()'))
+
+    # Into one provider's page — the screen that used to carry "All providers" AND "Go Back".
+    prov = json.loads(cdp.js(
+        ws,
+        "JSON.stringify((function(){var bs=document.querySelectorAll('button');"
+        "for(var i=0;i<bs.length;i++){if(/Claude Code/.test(bs[i].textContent||'')){"
+        "var r=bs[i].getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};}}"
+        "return null;})())"))
+    assert prov, 'provider button not found'
+    cdp.click(ws, prov['x'], prov['y'])
+    time.sleep(0.6)
+    print('setup, one provider:', cdp.js(ws, 'window.__probe()'))
     if SHOT:
         cdp.screenshot(ws, SHOT)
         print('shot', SHOT)
+
+    # And back out: one press must land on the list, not close the page.
+    back = json.loads(cdp.js(
+        ws,
+        "JSON.stringify((function(){var bs=document.querySelectorAll('button');"
+        "for(var i=0;i<bs.length;i++){if(bs[i].querySelector('svg.lucide-arrow-left')){"
+        "var r=bs[i].getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};}}"
+        "return null;})())"))
+    assert back, 'back control not found'
+    cdp.click(ws, back['x'], back['y'])
+    time.sleep(0.6)
+    print('after one press of back:', cdp.js(ws, 'window.__probe()'))
+
+    # The grounding page's sub-views are the other row shape: a page action AND a back control.
+    cdp.click(ws, rect['x'], rect['y'])
+    time.sleep(0.5)
+    item = json.loads(cdp.js(
+        ws,
+        "JSON.stringify((function(){var items=document.querySelectorAll('[role=\"menuitem\"]');"
+        "for(var i=0;i<items.length;i++){if(/Grounding/.test(items[i].textContent||'')){"
+        "var r=items[i].getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};}}"
+        "return null;})())"))
+    assert item, 'grounding menu item not found'
+    cdp.click(ws, item['x'], item['y'])
+    time.sleep(0.8)
+    print('grounding, kinds:', cdp.js(ws, 'window.__probe()'))
+
+    units = json.loads(cdp.js(
+        ws,
+        "JSON.stringify((function(){var bs=document.querySelectorAll('button');"
+        "for(var i=0;i<bs.length;i++){if(/Document Units/.test(bs[i].textContent||'')){"
+        "var r=bs[i].getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};}}"
+        "return null;})())"))
+    assert units, 'Document Units entry not found'
+    cdp.click(ws, units['x'], units['y'])
+    time.sleep(0.6)
+    print('grounding, a sub-view:', cdp.js(ws, 'window.__probe()'))
+    if SHOT:
+        cdp.screenshot(ws, SHOT.replace('.png', '-grounding.png'))
 finally:
     proc.kill()

@@ -439,7 +439,11 @@
 
 <div class="mx-auto flex w-full max-w-xl flex-col px-4 py-6">
 	{#if view === 'kinds'}
-		<div class="mb-4 flex items-center justify-between">
+		<!-- The back control sits top-RIGHT on every page in the window, so it is always the row's
+		     LAST child: a row carrying a page action too keeps justify-between (action left, back
+		     right, well apart from each other), and a row carrying nothing else needs justify-end
+		     to say so. Every view below goes back exactly one level, to this list. -->
+		<div class="mb-4 flex items-center justify-end">
 			<Button variant="outline" size="sm" class="gap-1" onclick={onclose}>
 				<ArrowLeftIcon class="size-4" />
 				Go Back
@@ -664,12 +668,12 @@
 		{/if}
 	{:else if view === 'components'}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
-				<ArrowLeftIcon class="size-4" />
-				Grounding
-			</Button>
 			<Button variant="ghost" size="sm" onclick={resetAll} disabled={allIncluded}>
 				Reset to all
+			</Button>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
+				<ArrowLeftIcon class="size-4" />
+				Go Back
 			</Button>
 		</div>
 
@@ -751,12 +755,12 @@
 		</div>
 	{:else if view === 'clusters'}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
-				<ArrowLeftIcon class="size-4" />
-				Grounding
-			</Button>
 			<Button variant="ghost" size="sm" onclick={resetAllClusters} disabled={allClustersIncluded}>
 				Reset to all
+			</Button>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
+				<ArrowLeftIcon class="size-4" />
+				Go Back
 			</Button>
 		</div>
 
@@ -792,12 +796,12 @@
 		</div>
 	{:else if view === 'tools'}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
-				<ArrowLeftIcon class="size-4" />
-				Grounding
-			</Button>
 			<Button variant="ghost" size="sm" onclick={resetAllTools} disabled={allToolsIncluded}>
 				Reset to all
+			</Button>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
+				<ArrowLeftIcon class="size-4" />
+				Go Back
 			</Button>
 		</div>
 
@@ -825,10 +829,10 @@
 			{/each}
 		</div>
 	{:else if view === 'canvas'}
-		<div class="mb-4 flex items-center justify-between">
+		<div class="mb-4 flex items-center justify-end">
 			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
 				<ArrowLeftIcon class="size-4" />
-				Grounding
+				Go Back
 			</Button>
 		</div>
 
@@ -848,10 +852,10 @@
 			{/each}
 		</div>
 	{:else if view === 'python'}
-		<div class="mb-4 flex items-center justify-between">
+		<div class="mb-4 flex items-center justify-end">
 			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
 				<ArrowLeftIcon class="size-4" />
-				Grounding
+				Go Back
 			</Button>
 		</div>
 
@@ -872,10 +876,6 @@
 		</div>
 	{:else if view === 'snapshot'}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
-				<ArrowLeftIcon class="size-4" />
-				Grounding
-			</Button>
 			<Button
 				variant="ghost"
 				size="sm"
@@ -883,6 +883,10 @@
 				disabled={!snapshotOverridden || !snapshotSendsMessage}
 			>
 				Reset to default
+			</Button>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
+				<ArrowLeftIcon class="size-4" />
+				Go Back
 			</Button>
 		</div>
 
@@ -937,10 +941,6 @@
 		</div>
 	{:else if view === 'viewsnapshot'}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
-				<ArrowLeftIcon class="size-4" />
-				Grounding
-			</Button>
 			<Button
 				variant="ghost"
 				size="sm"
@@ -948,6 +948,10 @@
 				disabled={!viewSnapshotOverridden || !viewSnapshotSendsMessage}
 			>
 				Reset to default
+			</Button>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
+				<ArrowLeftIcon class="size-4" />
+				Go Back
 			</Button>
 		</div>
 
@@ -1003,12 +1007,12 @@
 		</div>
 	{:else}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
-				<ArrowLeftIcon class="size-4" />
-				Grounding
-			</Button>
 			<Button variant="ghost" size="sm" onclick={resetUnits} disabled={unitsOverride === null}>
 				Reset to document
+			</Button>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
+				<ArrowLeftIcon class="size-4" />
+				Go Back
 			</Button>
 		</div>
 

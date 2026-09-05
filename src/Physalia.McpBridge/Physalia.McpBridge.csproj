@@ -21,15 +21,23 @@
 
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol.Core" Version="2.2.0" />
-    <!-- DPAPI, for encrypting the cached OAuth tokens at rest (FileTokenCache). Windows-only
-         by nature; the package is safe to reference everywhere and the code branches on the
-         platform. -->
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <!-- Explicit, and load-bearing: the SDK's Microsoft.Extensions.AI dependency calls
          JsonElement.Parse(ReadOnlySpan<byte>, JsonDocumentOptions), added in .NET 10. Without this
          pin the app would bind to the shared framework's 8.0.0 and throw MissingMethodException —
          exactly the failure that rules the SDK out inside Rhino. -->
     <PackageReference Include="System.Text.Json" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- DPAPI, for encrypting the cached OAuth tokens at rest (FileTokenCache). LINKED SOURCE, not a
+         ProjectReference: the bridge is a leaf executable that must not drag Physalia.Core (and its
+         GhJSON / PdfPig / JsonSchema dependency graph) into its own output, and Core is net7.0 while
+         this is net8.0. Sharing the file is what keeps ONE DPAPI implementation in the repo — the
+         alternative was a second copy here, drifting from the one the credential store uses. It also
+         removed the System.Security.Cryptography.ProtectedData package: the wrapper P/Invokes
+         crypt32 directly and writes byte-identical blobs. -->
+    <Compile Include="..\Physalia.Core\Config\Secrets\WindowsDataProtection.cs"
+             Link="Shared\WindowsDataProtection.cs" />
   </ItemGroup>
 
 </Project>

@@ -1,12 +1,12 @@
 // Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol;
 using ModelContextProtocol.Authentication;
+using Physalia.Core.Config.Secrets;
 
 namespace Physalia.McpBridge;
 
@@ -162,21 +162,21 @@ internal sealed class FileTokenCache : ITokenCache
         return Convert.ToHexString(digest).ToLowerInvariant()[..32];
     }
 
+    // Shares Physalia.Core's DPAPI wrapper by LINKED SOURCE (see the .csproj) — the bridge is a leaf
+    // executable with no project reference to Core, by design. The byte format is unchanged from the
+    // ProtectedData calls this replaced (no entropy, current-user scope), so token caches written by
+    // earlier builds still open.
     private static byte[] Protect(byte[] plain) =>
-        RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? ProtectedData.Protect(plain, optionalEntropy: null, DataProtectionScope.CurrentUser)
-            : plain;
+        OperatingSystem.IsWindows() ? WindowsDataProtection.Protect(plain) : plain;
 
     private static byte[] Unprotect(byte[] stored) =>
-        RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? ProtectedData.Unprotect(stored, optionalEntropy: null, DataProtectionScope.CurrentUser)
-            : stored;
+        OperatingSystem.IsWindows() ? WindowsDataProtection.Unprotect(stored) : stored;
 
     // Windows is covered by DPAPI above; elsewhere the bytes are plaintext, so the file mode is the
     // only thing standing between a refresh token and every other account on the machine.
     private static void RestrictToOwner(string path)
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (OperatingSystem.IsWindows())
         {
             return;
         }

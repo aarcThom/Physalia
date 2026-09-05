@@ -158,12 +158,15 @@
 <div class="mx-auto flex w-full max-w-xl flex-col px-4 py-4 sm:py-6">
 	{#if selected}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => onselect(null)}>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => onselect(null)}>
 				<ArrowLeftIcon class="size-4" />
 				All providers
 			</Button>
 			{#if canClose}
-				<Button variant="ghost" size="sm" onclick={onclose}>Back to chat</Button>
+				<Button variant="outline" size="sm" class="gap-1" onclick={onclose}>
+					<ArrowLeftIcon class="size-4" />
+					Go Back
+				</Button>
 			{/if}
 		</div>
 
@@ -304,7 +307,10 @@
 	{:else}
 		{#if canClose}
 			<div class="mb-2 flex justify-end">
-				<Button variant="ghost" size="sm" onclick={onclose}>Back to chat</Button>
+				<Button variant="outline" size="sm" class="gap-1" onclick={onclose}>
+					<ArrowLeftIcon class="size-4" />
+					Go Back
+				</Button>
 			</div>
 		{/if}
 

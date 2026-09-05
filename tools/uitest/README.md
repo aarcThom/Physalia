@@ -9,7 +9,15 @@ a full `UiState`, and opens the image editor on a synthetic capture.
 python tools/uitest/build_preview.py out.html          # stub only
 python tools/uitest/test_all_tools.py file:///…/out.html shot.png
 python tools/uitest/test_text_canvas.py file:///…/out.html shot.png
+python tools/uitest/test_static_surface_layout.py out.html   # then --dump-dom for data-diag-*
+python tools/uitest/test_page_chrome.py out.html shot.png    # drives itself over CDP
 ```
+
+`test_static_surface_layout.py` and `test_page_chrome.py` measure the window's chrome AROUND a
+page rather than the page itself: that the prompt box and its action stack are absent wherever
+there is nothing to send a message to, that the page's scroller then reaches the bottom of the
+window, and that the back control is a raised button. Drive them at 460x620 — `ChatWindow`'s real
+client size — or the layout fits and says nothing.
 
 `cdp.py` is a minimal Chrome DevTools Protocol client (hand-rolled WebSocket frames — there is no
 websocket library installed here) used to inject **trusted** input. That matters: a synthetic

@@ -7,6 +7,12 @@ metadata:
   originSessionId: f618bb7c-6ad5-49d4-ab22-0abd810aa5f0
 ---
 
+> **SUPERSEDED 2026-09-04 — see [[model-api-credentials]].** `GH_ApiKey`, `Param_ApiKey` and the
+> API Keys component are deleted. `GH_ModelApi` carries provider + endpoint + key together, because
+> a key and the URL it is valid at are one fact. Everything below about the goo being LABEL-ONLY and
+> never serialized carried over unchanged — that part is still the rule.
+
+
 API keys between the API Keys component and model components now travel as a typed goo, not plain text (landed 2026-06-13).
 
 - **`Goo/GH_ApiKey.cs`** — `GH_ApiKey : PhyGoo<GH_ApiKey, ApiKey>` wrapping the existing Core `Physalia.Core.Config.ApiKey(Provider, Key)` record. `ToString()` → `"<provider> api key"` (secret never shown on canvas). `Write`/`Read` are no-ops → key never serialized into the GH/.ghjson file. `CastFrom` is **strict** (only `ApiKey`/`GH_ApiKey`; a plain-text source fails red, so no raw key can be typed into a doc). `CastTo` yields only the safe label string, never the secret.

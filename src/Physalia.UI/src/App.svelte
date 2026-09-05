@@ -210,7 +210,7 @@
 	let chats = $state<UiChat[]>([]);
 
 	let showSetup = $derived(needsSetup || manualSetup);
-	// Only offer "Back to chat" when setup was opened manually (a provider already exists);
+	// Only offer "Go Back" when setup was opened manually (a provider already exists);
 	// during first-run setup there is nothing to return to yet.
 	let canClose = $derived(!needsSetup);
 	onMount(() => {
@@ -742,14 +742,6 @@
 		addViewSnapshot: (base64: string, mediaType: string) => Promise<void>;
 	} | null>(null);
 
-	// Mirror of the Composer's own inert gate (busy / setup / disconnected, except in API-key
-	// mode), so the external submit button greys out exactly when the box itself is inert.
-	let composerInert = $derived(busy || showSetup || !connected);
-
-	// The geometry button arms only when a Geometry Snapshot tool is wired AND generated
-	// geometry exists on the canvas right now.
-	let snapshotArmed = $derived(snapshotWired && snapshotGeometryPresent);
-
 	let isEmpty = $derived(messages.length === 0 && !stream);
 	// Provider configured (not setup) but no ConversationLog wired and nothing said yet: offer the
 	// connect-a-conversation log / workflow / configure options instead of a bare empty conversation.
@@ -759,6 +751,16 @@
 	// setup screens, and the header pages. They share one scroller of their own — see the markup for
 	// why they must not live inside the Conversation's.
 	let staticSurface = $derived(showSetup || panel !== null || showConnect);
+
+	// Mirror of the Composer's own inert gate (busy / setup / disconnected, except in API-key
+	// mode), so the external submit button greys out exactly when the box itself is inert.
+	// A static surface counts too: the prompt box is not rendered there at all, so the header's
+	// attach/capture buttons — which all act ON the box — have nothing to act on.
+	let composerInert = $derived(busy || showSetup || !connected || staticSurface);
+
+	// The geometry button arms only when a Geometry Snapshot tool is wired AND generated
+	// geometry exists on the canvas right now.
+	let snapshotArmed = $derived(snapshotWired && snapshotGeometryPresent);
 
 	// Group the flat message list into render units: each user message stands alone, while
 	// a run of consecutive assistant messages (the agentic rounds for one prompt) collapses
@@ -1102,7 +1104,14 @@
 	<!-- Bottom row: the prompt box with the action stack on its right (clear all components,
 	     cancel, submit). items-stretch + justify-between pin the stack's top and bottom buttons
 	     to the box's top and bottom edges; the Composer's editor min-height keeps the box at
-	     least as tall as the stack. -->
+	     least as tall as the stack.
+
+	     It exists ONLY over a conversation. On a static surface — Home, setup, the header pages —
+	     there is nothing to send a message to, and a dead prompt box reading "Finish setup to start
+	     chatting…" is a control that cannot be used sitting where the page's own content should be.
+	     Removing it (rather than disabling it) hands its height to the scroller above, which is
+	     flex-1: a setup or grounding page then runs the full height of the window. -->
+	{#if !staticSurface}
 	<div class="flex shrink-0 items-stretch gap-2 px-3 pb-3">
 		<div class="flex min-w-0 flex-1 flex-col">
 			<Composer
@@ -1161,6 +1170,7 @@
 			</Button>
 		</div>
 	</div>
+	{/if}
 
 	<!-- Switcher row at the very bottom: one emoji per Chat on the canvas — its assigned
 	     sea/ocean glyph, matching the component's canvas icon so the two are easy to pair. The

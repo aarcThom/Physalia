@@ -440,9 +440,9 @@
 <div class="mx-auto flex w-full max-w-xl flex-col px-4 py-6">
 	{#if view === 'kinds'}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={onclose}>
+			<Button variant="outline" size="sm" class="gap-1" onclick={onclose}>
 				<ArrowLeftIcon class="size-4" />
-				Back to chat
+				Go Back
 			</Button>
 		</div>
 
@@ -664,7 +664,7 @@
 		{/if}
 	{:else if view === 'components'}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
 				<ArrowLeftIcon class="size-4" />
 				Grounding
 			</Button>
@@ -751,7 +751,7 @@
 		</div>
 	{:else if view === 'clusters'}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
 				<ArrowLeftIcon class="size-4" />
 				Grounding
 			</Button>
@@ -792,7 +792,7 @@
 		</div>
 	{:else if view === 'tools'}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
 				<ArrowLeftIcon class="size-4" />
 				Grounding
 			</Button>
@@ -826,7 +826,7 @@
 		</div>
 	{:else if view === 'canvas'}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
 				<ArrowLeftIcon class="size-4" />
 				Grounding
 			</Button>
@@ -849,7 +849,7 @@
 		</div>
 	{:else if view === 'python'}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
 				<ArrowLeftIcon class="size-4" />
 				Grounding
 			</Button>
@@ -872,7 +872,7 @@
 		</div>
 	{:else if view === 'snapshot'}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
 				<ArrowLeftIcon class="size-4" />
 				Grounding
 			</Button>
@@ -937,7 +937,7 @@
 		</div>
 	{:else if view === 'viewsnapshot'}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
 				<ArrowLeftIcon class="size-4" />
 				Grounding
 			</Button>
@@ -1003,7 +1003,7 @@
 		</div>
 	{:else}
 		<div class="mb-4 flex items-center justify-between">
-			<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={() => (view = 'kinds')}>
+			<Button variant="outline" size="sm" class="gap-1" onclick={() => (view = 'kinds')}>
 				<ArrowLeftIcon class="size-4" />
 				Grounding
 			</Button>

@@ -11,4 +11,9 @@ When the user asks for a commit message or a PR description, write it out in the
 
 **Why:** The user wants to review and run the git action manually. A casual aside like "we'll just commit to main" is NOT a command to commit — still output-only. But a direct, unambiguous instruction ("commit it", "commit and don't push") IS a command — then commit (still never push unless told). Don't re-ask when the instruction is that explicit.
 
+**An instruction to commit covers THAT batch of work, not the rest of the session.** After "split
+everything up and commit but don't push", I carried the permission forward and auto-committed the
+NEXT piece of work too, without being asked; the user's next message was "write a commit message",
+which is what they had expected to get. Ask again (or just print the message) for each new batch.
+
 **How to apply:** Produce the message text (and for PRs, the body) in a copyable block and stop. Do not stage, commit, or push unless they explicitly tell you to run the command. When they do explicitly say to commit: `git add` + `git commit` only, never `git push`/`gh` unless also told. (Note: `rtk` is not installed on this machine — use plain `git`.)

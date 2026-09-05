@@ -58,3 +58,21 @@ treating the wrong cause: the "broken" build passed in Chrome, which is how the 
 WebView-only rather than logic.
 
 Used to verify [[image-mark-up-tool]]. Complements [[core-console-harness]] (same idea for Core).
+
+**2026-09-05: it measures LAYOUT too, and that is what found the "setup page only appears when I
+scroll" bug.** `tools/uitest/test_setup_visible.py` puts the bundle in first-run state
+(`needsSetup`, empty `configuredProviders`/`providerStatuses`) and reports the scroller's
+`scrollTop`/`scrollHeight`/`clientHeight` plus the welcome block's `getBoundingClientRect()`.
+
+- **Drive it at the REAL window size.** `ChatWindow.ClientSize` is **460x620**; at the 520x900 I
+  tried first everything fitted and the page looked innocent. At 460x620 the 120px `HappyFace` plus
+  its gaps put the welcome block at y=236 inside a 321px scroller, with every provider button below
+  the fold — which reads as an empty screen. After the fix it sits at y=84.
+- **`inViewport` computed against `window.innerHeight` is a LIE** when the content lives in an inner
+  scroller. Compare the element's rect against the SCROLLER's rect, not the window's.
+- Running it also ruled the page *logic* out: the surface rendered correctly at `scrollTop: 0` in
+  Chrome, so the remaining suspect was host-side state timing (`needsSetup` staying false until an
+  async probe returned) — a second, real bug that reading alone had not pinned.
+
+Same lesson as the pixel-assertion note above: measure the geometry, not the mere presence of the
+element. "The node is in the DOM" was true the whole time it was invisible.

@@ -121,9 +121,9 @@
 
 <div class="mx-auto flex w-full max-w-xl flex-col px-4 py-6">
 	<div class="mb-4 flex items-center justify-between">
-		<Button variant="ghost" size="sm" class="-ml-2 gap-1" onclick={onclose}>
+		<Button variant="outline" size="sm" class="gap-1" onclick={onclose}>
 			<ArrowLeftIcon class="size-4" />
-			Back to chat
+			Go Back
 		</Button>
 	</div>
 

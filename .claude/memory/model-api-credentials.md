@@ -74,3 +74,22 @@ Setup page: probed providers (Claude Code, Codex, local llama.cpp) get ONE **Det
 store **nothing** — a stored flag would keep claiming a CLI exists after uninstall. Everything else
 gets **API URL** + **API key** boxes. The composer's API-key capture mode is deleted.
 See [[mcp-setup-page]] for the sibling page.
+
+---
+
+**The first-run setup screen had two separate bugs, both fixed 2026-09-05** (reported as "it only
+appears when I move the scroll bar"):
+
+1. **Layout.** The 120px logo plus gaps pushed the welcome text and every provider button below the
+   fold at the window's real 460x620 default. The mark now shrinks below 760px of height and
+   disappears below 560px. Measured, not guessed — see [[headless-chat-ui-testing]].
+2. **State timing.** `needsSetup` stayed false until the async probe returned, so the window claimed
+   everything was fine for as long as two PATH scans and a socket timeout took.
+   `ProviderAvailability.ConfiguredProviderIdsNow()` answers the credential half synchronously on
+   the first tick; a CONNECTED probe-based provider is assumed present until the probe corrects it,
+   so someone with Claude Code set up gets no flash of setup.
+
+**Also 2026-09-05: `MCP_SERVERS.YAML` was deleted by the same argument** — servers now live in
+`%LOCALAPPDATA%/Physalia/mcp-servers.json`. See [[mcp-setup-page]]. The three per-user stores are
+now `credentials.dat` (encrypted), `providers.json` (plain, the opt-in list) and `mcp-servers.json`
+(plain, the standard `mcpServers` block).

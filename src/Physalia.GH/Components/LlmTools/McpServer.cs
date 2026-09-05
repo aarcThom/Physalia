@@ -23,7 +23,7 @@ namespace Physalia.GH.Components;
 /// </summary>
 /// <remarks>
 /// <para><b>One node per connection, one generic class.</b> Nothing here is per-service: the servers
-/// come from <c>Files/MCP_SERVERS.YAML</c>, which the user writes, so Physalia ships no catalog and
+/// come from <c>MCP_SERVERS.YAML</c>, which the user writes, so Physalia ships no catalog and
 /// has none to maintain. Place a second node and pick a second server.</para>
 /// <para><b>Where the settings live.</b> Which server is picked and which of its tools are advertised
 /// are stored on this node, so they travel into a preset. The server's own launch details — command,
@@ -67,7 +67,7 @@ public class McpServer : LlmToolComponentBase, IPickableValuesSource
         : base(
             "MCP Server",
             "MCP",
-            "Connects to one MCP server listed in Files/MCP_SERVERS.YAML and offers its tools to the model. Right-click to pick the server and choose which of its tools to advertise.")
+            "Connects to one MCP server you have configured in the chat window and offers its tools to the model. Right-click to pick the server and choose which of its tools to advertise.")
     {
     }
 
@@ -161,7 +161,7 @@ public class McpServer : LlmToolComponentBase, IPickableValuesSource
         pManager.AddTextParameter(
             ServerInputName,
             "Sv",
-            "Which server from Files/MCP_SERVERS.YAML to connect to. Right-click and add a Picker to choose one.",
+            "Which server to connect to. Right-click and add a Picker to choose one; add servers in the chat window.",
             GH_ParamAccess.item,
             string.Empty);
         pManager[1].Optional = true;
@@ -241,7 +241,7 @@ public class McpServer : LlmToolComponentBase, IPickableValuesSource
         {
             _status = _serverName.Length == 0
                 ? "No server picked."
-                : $"'{_serverName}' is not in Files/MCP_SERVERS.YAML.";
+                : $"'{_serverName}' is not one of your configured MCP servers.";
             return;
         }
 
@@ -273,7 +273,7 @@ public class McpServer : LlmToolComponentBase, IPickableValuesSource
         else if (_serverName.Length == 0)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning,
-                "Pick a server. Right-click and add a Picker, or type a name from Files/MCP_SERVERS.YAML.");
+                "Pick a server. Right-click and add a Picker, or type the name of one you configured in the chat window.");
         }
     }
 
@@ -313,8 +313,35 @@ public class McpServer : LlmToolComponentBase, IPickableValuesSource
     /// <summary>
     /// Locates the plug-in's MCP server configuration file.
     /// </summary>
-    /// <returns>The absolute path to <c>Files/MCP_SERVERS.YAML</c>.</returns>
+    /// <remarks>
+    /// <para>Lives in Physalia's per-user data folder (<c>%LOCALAPPDATA%/Physalia</c>), beside the
+    /// credential store and the MCP OAuth token cache — NOT in the plug-in's <c>Files/</c> folder,
+    /// where it used to sit. Servers are added through the chat window now, so this is machine state
+    /// rather than something anyone is expected to open; keeping it in the install directory only
+    /// meant a plug-in update could overwrite it and every account on the box shared one list of
+    /// credentials.</para>
+    /// <para>It stays a readable, hand-editable YAML rather than joining the encrypted store,
+    /// because a server entry is mostly NOT secret — a command, its arguments, a URL — and the
+    /// <c>${VAR}</c> convention exists precisely so the credential part need never be written down.
+    /// That is the same reasoning that keeps <c>providers.json</c> in the clear.</para>
+    /// </remarks>
+    /// <returns>The absolute path to the server list.</returns>
     internal static string ConfigPath
+    {
+        get
+        {
+            string path = System.IO.Path.Combine(
+                Physalia.Core.Config.Secrets.SecretStores.DataFolder(), "MCP_SERVERS.YAML");
+
+            MoveLegacyConfig(path);
+            return path;
+        }
+    }
+
+    /// <summary>
+    /// Gets where the server list used to live, beside the plug-in.
+    /// </summary>
+    internal static string LegacyConfigPath
     {
         get
         {
@@ -324,6 +351,41 @@ public class McpServer : LlmToolComponentBase, IPickableValuesSource
             return assemblyDir is null
                 ? "MCP_SERVERS.YAML"
                 : System.IO.Path.Combine(assemblyDir, "Files", "MCP_SERVERS.YAML");
+        }
+    }
+
+    // Relocates a pre-existing list once. MOVED, not copied: two files would drift, and the one left
+    // in the install directory would hold credentials nobody is looking at any more. Never throws —
+    // a failed move leaves the old file untouched and the user re-adds their servers, which is
+    // recoverable; an exception on a property every solve is not.
+    private static void MoveLegacyConfig(string destination)
+    {
+        try
+        {
+            if (System.IO.File.Exists(destination))
+            {
+                return;
+            }
+
+            string legacy = LegacyConfigPath;
+            if (!System.IO.File.Exists(legacy))
+            {
+                return;
+            }
+
+            string? dir = System.IO.Path.GetDirectoryName(destination);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                System.IO.Directory.CreateDirectory(dir);
+            }
+
+            System.IO.File.Move(legacy, destination);
+            Rhino.RhinoApp.WriteLine(
+                $"[Physalia] Moved MCP_SERVERS.YAML to {destination}");
+        }
+        catch (Exception)
+        {
+            // Fall through: ConfigPath still answers, and the file is simply not there yet.
         }
     }
 

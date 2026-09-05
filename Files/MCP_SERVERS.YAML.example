@@ -1,7 +1,10 @@
 # Physalia — MCP servers
 #
-# Copy this file to MCP_SERVERS.YAML (same folder) and list the MCP servers you want the model to
-# be able to reach. Physalia ships no servers of its own: this file is yours.
+# Servers are normally added in the chat window ("Configure MCP connections"), which writes them to
+#   %LOCALAPPDATA%/Physalia/MCP_SERVERS.YAML   (~/.local/share/Physalia elsewhere)
+# This is the template that file starts from. To seed it by hand, copy this there — NOT next to the
+# plug-in, where a Physalia update could overwrite it and every account on the machine would share
+# one list. Physalia ships no servers of its own: the list is yours.
 #
 # The block below is the standard `mcpServers` shape used by Claude Code, Claude Desktop and Cursor,
 # so a server configuration copied out of any project's README works here unchanged. The JSON form

@@ -6,7 +6,7 @@ using System.Text;
 namespace Physalia.Core.Mcp;
 
 /// <summary>
-/// Edits <c>Files/MCP_SERVERS.YAML</c> in place, one entry at a time, so a server can be configured
+/// Edits <c>MCP_SERVERS.YAML</c> in place, one entry at a time, so a server can be configured
 /// from the chat window instead of by hand.
 /// </summary>
 /// <remarks>

@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace Physalia.Core.Mcp;
 
 /// <summary>
-/// Reads the user's MCP server list from <c>Files/MCP_SERVERS.YAML</c>.
+/// Reads the user's MCP server list from <c>MCP_SERVERS.YAML</c>.
 /// </summary>
 /// <remarks>
 /// <para>The file uses the standard <c>mcpServers</c> block that Claude Code, Claude Desktop and

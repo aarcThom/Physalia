@@ -1,5 +1,5 @@
 <script lang="ts">
-	// "Configure MCP connections" page. Lists what Files/MCP_SERVERS.YAML holds and edits it one entry
+	// "Configure MCP connections" page. Lists what MCP_SERVERS.YAML holds and edits it one entry
 	// at a time through the bridge — the host rewrites only that entry's lines, so the file's own
 	// commentary and ordering survive.
 	//

@@ -35,7 +35,6 @@
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
 	import OctagonIcon from '@lucide/svelte/icons/octagon';
 	import HouseIcon from '@lucide/svelte/icons/house';
-	import { getProvider } from '$lib/chat/providers';
 	import { cn } from '$lib/utils';
 	import type {
 		ClusterInfo,
@@ -46,6 +45,7 @@
 		PythonFunctionInfo,
 		ReferencedGeometryInfo,
 		SetupResult,
+		ProviderStatus,
 		McpConfig,
 		McpResult,
 		McpServerPayload,
@@ -75,6 +75,7 @@
 	let home = $state(false);
 	let status = $state('');
 	let configuredProviders = $state<string[]>([]);
+	let providerStatuses = $state<ProviderStatus[]>([]);
 	// Grounding state for the grounding panel: whether a component catalog is wired (enables the
 	// Composer's grounding button), the available tab → panels tree, and the current selection
 	// (null = include everything).
@@ -195,7 +196,7 @@
 	// and with setup). null = none open.
 	let panel = $state<'preset' | 'grounding' | 'mcp' | null>(null);
 
-	// MCP config state, pushed by the host whenever Files/MCP_SERVERS.YAML changes — from this page,
+	// MCP config state, pushed by the host whenever MCP_SERVERS.YAML changes — from this page,
 	// from another window, or from the user editing the file by hand.
 	let mcpServers = $state<UiMcpServer[]>([]);
 	let mcpReadOnlyReason = $state<string | null>(null);
@@ -213,15 +214,6 @@
 	// Only offer "Back to chat" when setup was opened manually (a provider already exists);
 	// during first-run setup there is nothing to return to yet.
 	let canClose = $derived(!needsSetup);
-	// When a key-requiring provider's guide is open, the prompt box captures the key instead.
-	let keyProvider = $derived.by(() => {
-		if (!showSetup) {
-			return null;
-		}
-		const provider = getProvider(selectedProviderId);
-		return provider && provider.needsKey ? { id: provider.id, label: provider.label } : null;
-	});
-
 	onMount(() => {
 		// C# -> JS surface. The host calls these via ExecuteScript on its UI timer.
 		window.physalia = {
@@ -238,6 +230,7 @@
 				home = next.home ?? false;
 				status = next.status ?? '';
 				configuredProviders = next.configuredProviders ?? [];
+				providerStatuses = next.providerStatuses ?? [];
 				groundingWired = next.groundingWired ?? false;
 				groundingTree = next.groundingTree ?? [];
 				groundingSelection = next.groundingSelection ?? null;
@@ -635,11 +628,29 @@
 		window.location.href = `${BRIDGE_SCHEME}://opensignaltrace`;
 	}
 
-	// Hand a pasted API key to the host, which writes it to API_KEY_CONFIG.YAML and reports back
-	// via setSetupResult. encodeURIComponent keeps the key intact in the URL (no literal '+').
-	function saveKey(providerId: string, key: string) {
+	// Hand one provider's endpoint and key to the host, which stores them encrypted and reports back
+	// via setSetupResult. encodeURIComponent keeps both intact in the URL (no literal '+').
+	function saveProvider(providerId: string, url: string, key: string) {
 		window.location.href =
-			`${BRIDGE_SCHEME}://savekey?provider=${encodeURIComponent(providerId)}&key=${encodeURIComponent(key)}`;
+			`${BRIDGE_SCHEME}://savekey?provider=${encodeURIComponent(providerId)}` +
+			`&url=${encodeURIComponent(url)}&key=${encodeURIComponent(key)}`;
+	}
+
+	// Ask the host to run the availability check for a probed provider (CLI on PATH, local server
+	// answering). Nothing is stored — the answer comes back on setSetupResult.
+	function detectProvider(providerId: string) {
+		window.location.href = `${BRIDGE_SCHEME}://detect?provider=${encodeURIComponent(providerId)}`;
+	}
+
+	// Opt a provider in. Separate from having a key or a CLI: finding one says a provider COULD be
+	// used, never that the user wants Physalia using it.
+	function connectProvider(providerId: string) {
+		window.location.href = `${BRIDGE_SCHEME}://connect?provider=${encodeURIComponent(providerId)}`;
+	}
+
+	// Opt back out, and forget any key Physalia was storing for this provider.
+	function disconnectProvider(providerId: string) {
+		window.location.href = `${BRIDGE_SCHEME}://disconnect?provider=${encodeURIComponent(providerId)}`;
 	}
 
 	function selectProvider(id: string | null) {
@@ -660,7 +671,7 @@
 		setupResult = null;
 	}
 
-	// Write one MCP server entry to Files/MCP_SERVERS.YAML. The whole entry rides as one JSON blob in
+	// Write one MCP server entry to MCP_SERVERS.YAML. The whole entry rides as one JSON blob in
 	// the query — small enough for a URL, unlike the image payloads that needed the postMessage
 	// channel — and the host answers on setMcpResult, then re-pushes the list.
 	function saveMcpServer(entry: McpServerPayload) {
@@ -735,7 +746,7 @@
 
 	// Mirror of the Composer's own inert gate (busy / setup / disconnected, except in API-key
 	// mode), so the external submit button greys out exactly when the box itself is inert.
-	let composerInert = $derived(busy || ((showSetup || !connected) && !keyProvider));
+	let composerInert = $derived(busy || showSetup || !connected);
 
 	// The geometry button arms only when a Geometry Snapshot tool is wired AND generated
 	// geometry exists on the canvas right now.
@@ -833,7 +844,7 @@
 				variant="outline"
 				size="icon-lg"
 				onclick={() => composer?.openPicker()}
-				disabled={composerInert || !!keyProvider}
+				disabled={composerInert}
 				title="Add image"
 			>
 				<ImagePlusIcon class="size-4" />
@@ -849,7 +860,7 @@
 				variant="outline"
 				size="icon-lg"
 				onclick={() => composer?.openPdfPicker()}
-				disabled={composerInert || !!keyProvider}
+				disabled={composerInert}
 				title="Attach PDF"
 			>
 				<FileTextIcon class="size-4" />
@@ -869,7 +880,7 @@
 				size="icon-lg"
 				class={snapshotArmed ? 'text-[var(--neu-accent)]' : ''}
 				onclick={sendSnapshot}
-				disabled={composerInert || !!keyProvider || !snapshotArmed}
+				disabled={composerInert || !snapshotArmed}
 				title={!snapshotArmed
 					? 'Geometry snapshot — enabled once generated geometry is on the canvas'
 					: snapshotSendsMessage
@@ -892,7 +903,7 @@
 				size="icon-lg"
 				class="text-[var(--neu-accent)]"
 				onclick={sendViewSnapshot}
-				disabled={composerInert || !!keyProvider}
+				disabled={composerInert}
 				title={viewSnapshotSendsMessage
 					? 'Send a snapshot of the current Rhino view with its predefined message'
 					: 'Attach a snapshot of the current Rhino view to your message'}
@@ -944,9 +955,14 @@
 					{setupResult}
 					{canClose}
 					{configuredProviders}
+					{providerStatuses}
 					onselect={selectProvider}
 					onopenlink={openLink}
 					onclose={closeSetup}
+					onsaveprovider={saveProvider}
+					ondetect={detectProvider}
+					onconnect={connectProvider}
+					ondisconnect={disconnectProvider}
 				/>
 			{:else if panel === 'preset'}
 				<Preset {presets} onplace={placePreset} onclose={closePanel} />
@@ -1098,7 +1114,6 @@
 				{busy}
 				disabled={showSetup}
 				status={showSetup ? '' : status}
-				apiKeyProvider={keyProvider}
 				{imageToolWired}
 				snapshotAttachWired={snapshotWired && !snapshotSendsMessage}
 			viewSnapshotAttachWired={viewSnapshotWired && !viewSnapshotSendsMessage}
@@ -1109,7 +1124,6 @@
 				toolNames={includedToolNames}
 				componentTabs={availableComponents}
 				onsend={send}
-				onsavekey={saveKey}
 				onedit={editPendingImage}
 				onaddpdf={addPdf}
 				onremovepdf={removePdf}

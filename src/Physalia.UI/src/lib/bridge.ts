@@ -70,6 +70,9 @@ export interface UiState {
 	status: string;
 	/** Setup-screen ids of every provider already configured (matches providers.ts ids). */
 	configuredProviders: string[];
+	/** Per-provider state: what is available, from where, and whether the user connected it.
+	 *  Availability alone is NOT configuration — see ProviderStatus. */
+	providerStatuses: ProviderStatus[];
 	/** True when a component-catalog grounding is wired into the Conversation Log (greys the grounding icon when false). */
 	groundingWired: boolean;
 	/** The available component tabs and their panels, for the grounding selector. */
@@ -245,7 +248,7 @@ export interface SnapshotMessagePayload {
 }
 
 /**
- * One MCP server as Files/MCP_SERVERS.YAML has it, for the "Configure MCP connections" page.
+ * One MCP server as MCP_SERVERS.YAML has it, for the "Configure MCP connections" page.
  *
  * `transport` says which half of the record is meaningful: a local server is a subprocess
  * (command/args/cwd/env), a remote one is a URL the Physalia bridge relays to (url/headers/scope).
@@ -299,6 +302,26 @@ export interface McpServerPayload {
 	replacing: string;
 	/** True to connect straight after saving — which is what runs a remote server's OAuth sign-in. */
 	signIn: boolean;
+}
+
+/**
+ * One provider's state, pushed by the host on its probe tick.
+ *
+ * `source` says where a credential was found, or how availability was established:
+ *   'none'        - nothing configures this provider yet
+ *   'environment' - a key is in an environment variable (`detail` names it)
+ *   'stored'      - a key/endpoint the user entered, in the encrypted store
+ *   'detected'    - a CLI on PATH, or a local server answering
+ *
+ * `activated` is the separate question of whether the user OPTED IN. A key someone exported for
+ * another tool, or a CLI installed for another purpose, is available without being chosen — so the
+ * page offers it with one button rather than adopting it silently.
+ */
+export interface ProviderStatus {
+	id: string;
+	activated: boolean;
+	source: 'none' | 'environment' | 'stored' | 'detected';
+	detail?: string | null;
 }
 
 /** Outcome of a save-API-key request, pushed back by the host after it writes the config. */
@@ -365,7 +388,7 @@ export interface PhysaliaHost {
 	setTokenCount(count: number | null): void;
 	/** Bundled preset harnesses (from Files/PRESETS) for the Add-preset page. */
 	setPresets(presets: UiPreset[]): void;
-	/** The MCP servers in Files/MCP_SERVERS.YAML, for the Configure-MCP page. Pushed when the file changes. */
+	/** The MCP servers in MCP_SERVERS.YAML, for the Configure-MCP page. Pushed when the file changes. */
 	setMcpServers(config: McpConfig): void;
 	/** Outcome of the last MCP save/delete, or null to clear it. */
 	setMcpResult(result: McpResult | null): void;

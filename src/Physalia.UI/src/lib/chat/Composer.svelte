@@ -32,8 +32,6 @@
 		/** Supplementary instruction text from the host (hook up a Conversation Log, add an LLM
 		 *  Call, …). Shown as this box's placeholder — the window has no separate status row. */
 		status?: string;
-		/** When set, the box captures an API key for this provider instead of sending a message. */
-		apiKeyProvider?: { id: string; label: string } | null;
 		/** True when an Add Image human tool is wired — without it, image intake (paste, drag-drop,
 		 *  file picker) is fully disabled and prompts are text-only. */
 		imageToolWired?: boolean;
@@ -61,8 +59,6 @@
 		/** Grounded components grouped by tab, for the "/c/<tab>/<component>" staged autocomplete. */
 		componentTabs?: ComponentTabInfo[];
 		onsend: (message: SubmitMessage) => void;
-		/** Called with the pasted API key when in apiKeyProvider mode. */
-		onsavekey?: (providerId: string, key: string) => void;
 		/** The PDF button: asks the host to open a native file picker. Host-side on purpose — it is
 		 *  the only intake path that learns the file's real path, and it moves no bytes. */
 		onaddpdf?: () => void;
@@ -81,7 +77,6 @@
 		busy,
 		disabled = false,
 		status = '',
-		apiKeyProvider = null,
 		imageToolWired = false,
 		snapshotAttachWired = false,
 		viewSnapshotAttachWired = false,
@@ -92,7 +87,6 @@
 		toolNames = [],
 		componentTabs = [],
 		onsend,
-		onsavekey,
 		onedit,
 		onaddpdf,
 		onremovepdf,
@@ -111,9 +105,9 @@
 		source: 'user' | 'snapshot' | 'viewsnapshot';
 	}
 
-	// Block while the pipeline is busy, during setup (no provider yet), or while no Conversation Log is wired —
-	// EXCEPT in API-key mode, where the box stays live so the user can paste their key.
-	let inert = $derived(busy || ((disabled || disconnected) && !apiKeyProvider));
+	// Block while the pipeline is busy, during setup (no provider yet), or while no Conversation Log
+	// is wired. Setup owns its own form now, so there is no mode in which this box stays live.
+	let inert = $derived(busy || disabled || disconnected);
 
 	let text = $state('');
 	let pending = $state<PendingImage[]>([]);
@@ -122,15 +116,13 @@
 	let composing = false; // true during IME composition — skip re-canonicalising the DOM
 	let nextId = 0;
 
-	// Placeholder priority: API-key capture > blank while the LLM is actively working > setup
-	// hint > the host's supplementary instructions (hook up components, …) > the send hint.
+	// Placeholder priority: blank while the LLM is actively working > setup hint > the host's
+	// supplementary instructions (hook up components, …) > the send hint.
 	// The host's "Working…" status is deliberately unreachable — busy blanks the box first.
 	let placeholder = $derived(
-		apiKeyProvider
-			? `Paste your ${apiKeyProvider.label} API key here, then press Enter`
-			: busy
-				? ''
-				: disabled
+		busy
+			? ''
+			: disabled
 					? 'Finish setup to start chatting…'
 					: status
 						? status
@@ -152,18 +144,6 @@
 	}
 
 	onMount(() => render());
-
-	// Clear the box whenever API-key mode is entered, left, or switched between providers.
-	let prevKeyProviderId = $state<string | null>(null);
-	$effect(() => {
-		const id = apiKeyProvider?.id ?? null;
-		if (id !== prevKeyProviderId) {
-			prevKeyProviderId = id;
-			text = '';
-			pending = [];
-			void tick().then(() => render(0));
-		}
-	});
 
 	// If the tool that admitted an image is unwired mid-composition (component deleted/unwired on the
 	// canvas), discard that image and its [image#N] token — nothing image-shaped may outlive the tool
@@ -779,18 +759,6 @@
 	// bind:this — the submit button lives in App's right-hand rail, not in this component.
 	export function submit() {
 		if (inert) {
-			return;
-		}
-
-		if (apiKeyProvider) {
-			let key = text.trim();
-			if (!key) {
-				return;
-			}
-			onsavekey?.(apiKeyProvider.id, key);
-			text = '';
-			pending = [];
-			render(0);
 			return;
 		}
 

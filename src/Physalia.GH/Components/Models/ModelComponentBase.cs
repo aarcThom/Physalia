@@ -22,7 +22,7 @@ namespace Physalia.GH.Components;
 /// </summary>
 public abstract class ModelComponentBase : PhyBase, IPickableValuesSource
 {
-    private string _lastApiKey = string.Empty;
+    private string _lastFetchKey = string.Empty;
     private List<string> _availableModels = new();
     private bool _modelsSettled;
     private string? _fetchWarning;
@@ -44,9 +44,9 @@ public abstract class ModelComponentBase : PhyBase, IPickableValuesSource
         new[] { new PickableInput("Model", _availableModels, _modelsSettled) };
 
     /// <summary>
-    /// Gets the description for the API Key input parameter.
+    /// Gets the description for the Model API input parameter.
     /// </summary>
-    protected abstract string ApiKeyDescription { get; }
+    protected abstract string ModelApiDescription { get; }
 
     /// <summary>
     /// Gets the description for the Model ID input parameter, phrased for this provider's
@@ -92,18 +92,21 @@ public abstract class ModelComponentBase : PhyBase, IPickableValuesSource
     }
 
     /// <summary>
-    /// Creates the concrete provider config for the given model and key. Called with an
+    /// Creates the concrete provider config for the given model and API. Called with an
     /// empty model ID when building the throwaway config used for the model-list fetch.
     /// </summary>
     /// <param name="modelId">The selected model ID, or empty for a fetch config.</param>
-    /// <param name="apiKey">The API key.</param>
+    /// <param name="api">
+    /// The provider's endpoint and key. Implementations pass <see cref="ModelApi.BaseUrlOr"/> their
+    /// config record's own default so an unconfigured endpoint still reaches the official API.
+    /// </param>
     /// <returns>The configured provider config record.</returns>
-    protected abstract ModelConfig CreateConfig(string modelId, string apiKey);
+    protected abstract ModelConfig CreateConfig(string modelId, ModelApi api);
 
     /// <inheritdoc/>
     protected sealed override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ApiKey(), "API Key", "K", ApiKeyDescription, GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ModelApi(), "Model API", "API", ModelApiDescription, GH_ParamAccess.item);
         pManager[0].Optional = true;
         pManager.AddTextParameter("Model", "M", ModelIdDescription, GH_ParamAccess.item, string.Empty);
         RegisterAdditionalInputs(pManager);
@@ -143,23 +146,27 @@ public abstract class ModelComponentBase : PhyBase, IPickableValuesSource
             _fetchWarning = null;
         }
 
-        GH_ApiKey? keyGoo = null;
-        DA.GetData(0, ref keyGoo);
-        string apiKey = keyGoo?.Value?.Key ?? string.Empty;
+        GH_ModelApi? apiGoo = null;
+        DA.GetData(0, ref apiGoo);
+        ModelApi? api = apiGoo?.Value;
 
-        if (!string.IsNullOrWhiteSpace(apiKey) && apiKey != _lastApiKey)
+        // Re-fetch when either half changes: a new key at the same endpoint, or the same key
+        // pointed somewhere else, are both a different list of models.
+        string fetchKey = api is null ? string.Empty : api.BaseUrl + "||" + api.Key;
+
+        if (api is not null && fetchKey != _lastFetchKey)
         {
-            _lastApiKey = apiKey;
+            _lastFetchKey = fetchKey;
             ResetValues();
-            StartModelFetch(apiKey);
+            StartModelFetch(api);
         }
 
         string modelId = string.Empty;
         DA.GetData(1, ref modelId);
 
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (api is null)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "API key is required.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Wire a Model API component to say which provider to use.");
             return;
         }
 
@@ -169,10 +176,10 @@ public abstract class ModelComponentBase : PhyBase, IPickableValuesSource
             return;
         }
 
-        DA.SetData(0, new GH_ModelConfig(ApplyAdditionalInputs(CreateConfig(modelId, apiKey), DA)));
+        DA.SetData(0, new GH_ModelConfig(ApplyAdditionalInputs(CreateConfig(modelId, api), DA)));
     }
 
-    private void StartModelFetch(string apiKey)
+    private void StartModelFetch(ModelApi api)
     {
         _cts?.Cancel();
         _cts?.Dispose();
@@ -181,7 +188,7 @@ public abstract class ModelComponentBase : PhyBase, IPickableValuesSource
 
         Task.Run(async () =>
         {
-            var config = CreateConfig(string.Empty, apiKey);
+            var config = CreateConfig(string.Empty, api);
             var provider = LlmProviderFactory.GetProvider(config)!;
             var result = await provider.GetAvailableModelsAsync(config, ct);
 

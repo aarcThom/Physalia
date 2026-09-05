@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Physalia Contributors
+// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -16,10 +16,17 @@ using Physalia.GH.Parameters;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Configures a connection to any OpenAI-compatible endpoint,
-/// including OpenAI, OpenRouter, DeepSeek, Groq, Ollama, and llama.cpp.
-/// When Model is empty the first model reported by the endpoint is used automatically.
+/// Configures a connection to any OpenAI-compatible endpoint, including OpenAI, OpenRouter,
+/// DeepSeek, Alibaba, Z.AI, Moonshot, Groq, Ollama, and llama.cpp.
 /// </summary>
+/// <remarks>
+/// <para><b>The Base URL input is gone</b> (2026-09): the endpoint now arrives on the Model API
+/// wire alongside the key, because the two were always one fact — an OpenAI key means nothing at
+/// DeepSeek's endpoint, and Alibaba, Z.AI and Moonshot are OpenAI-compatible at three different
+/// hosts. The ComponentGuid changed with it: dropping input 0 shifts every remaining index, so an
+/// archived layout cannot be restored onto the new one, and a clean "component not found" beats a
+/// silent mis-wire that puts a Picker on Max Tokens.</para>
+/// </remarks>
 public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
 {
     private string _lastFetchKey = string.Empty;
@@ -41,7 +48,7 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
     }
 
     /// <inheritdoc/>
-    public override Guid ComponentGuid => new Guid("C4D5E6F7-A8B9-4C0D-E1F2-A3B4C5D6E7F8");
+    public override Guid ComponentGuid => new Guid("5A3E9D41-7C28-4B06-9E5F-1D84C0B7A2E6");
 
     /// <inheritdoc/>
     public IReadOnlyList<PickableInput> Inputs =>
@@ -73,17 +80,16 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
     {
         base.AddedToDocument(document);
         if (GhJsonBridge.IsImporting) return;
-        if (Params.Input[2].SourceCount > 0) return;
+        if (Params.Input[1].SourceCount > 0) return;
 
-        ComponentHelpers.PickerAdd(this, document, 2);
+        ComponentHelpers.PickerAdd(this, document, 1);
     }
 
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Base URL", "U", "Where the endpoint lives. Left as https://api.openai.com/v1 it is OpenAI; swap it for OpenRouter, DeepSeek, or a server running on your own machine.", GH_ParamAccess.item, "https://api.openai.com/v1");
-        pManager.AddParameter(new Param_ApiKey(), "API Key", "K", "The key for that endpoint. Wire an API Keys component, or leave it empty for a local server that asks for none.", GH_ParamAccess.item);
-        pManager[1].Optional = true;
+        pManager.AddParameter(new Param_ModelApi(), "Model API", "API", "Which endpoint to talk to and the key for it. Wire a Model API component; set the provider up in the chat window.", GH_ParamAccess.item);
+        pManager[0].Optional = true;
         pManager.AddTextParameter("Model", "M", "Which model to use — gpt-4o, or a prefixed name like anthropic/claude-sonnet-4-6 on OpenRouter. The Picker placed alongside lists what this endpoint offers.", GH_ParamAccess.item, string.Empty);
         pManager.AddIntegerParameter("Max Tokens", "T", "The ceiling on one reply. Raise it if answers come back cut off mid-sentence.", GH_ParamAccess.item, 4096);
     }
@@ -103,21 +109,28 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
             _fetchWarning = null;
         }
 
-        string baseUrl = "https://api.openai.com/v1";
         string model = string.Empty;
         int maxTokens = 4096;
 
-        GH_ApiKey? keyGoo = null;
-        DA.GetData(0, ref baseUrl);
-        DA.GetData(1, ref keyGoo);
-        DA.GetData(2, ref model);
-        DA.GetData(3, ref maxTokens);
+        GH_ModelApi? apiGoo = null;
+        DA.GetData(0, ref apiGoo);
+        DA.GetData(1, ref model);
+        DA.GetData(2, ref maxTokens);
 
-        string apiKey = keyGoo?.Value?.Key ?? string.Empty;
+        ModelApi? api = apiGoo?.Value;
+
+        if (api is null)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Wire a Model API component to say which endpoint to talk to.");
+            return;
+        }
+
+        string baseUrl = api.BaseUrlOr("https://api.openai.com/v1");
+        string apiKey = api.Key;
 
         string fetchKey = baseUrl + "||" + apiKey;
 
-        if (!string.IsNullOrWhiteSpace(baseUrl) && fetchKey != _lastFetchKey)
+        if (fetchKey != _lastFetchKey)
         {
             _lastFetchKey = fetchKey;
             ResetValues();
@@ -169,7 +182,7 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
 
             OnPingDocument()?.ScheduleSolution(1, _ =>
             {
-                foreach (var source in Params.Input[2].Sources)
+                foreach (var source in Params.Input[1].Sources)
                 {
                     (source.Attributes?.GetTopLevel?.DocObject as IGH_ActiveObject)?.ExpireSolution(false);
                 }

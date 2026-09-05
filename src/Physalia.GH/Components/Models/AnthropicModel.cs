@@ -3,6 +3,7 @@
 
 using System;
 using Grasshopper.Kernel;
+using Physalia.Core.Config;
 using Physalia.Core.Models;
 using Physalia.Core.Models.Named;
 namespace Physalia.GH.Components;
@@ -25,8 +26,8 @@ public class AnthropicModel : ModelComponentBase
     public override Guid ComponentGuid => new Guid("D60822A6-1ABD-4BA8-AB0F-A54937D0B923");
 
     /// <inheritdoc/>
-    protected override string ApiKeyDescription =>
-        "Your Anthropic key. Wire an API Keys component; the model list is fetched the moment it arrives.";
+    protected override string ModelApiDescription =>
+        "Your Anthropic endpoint and key. Wire a Model API component; the model list is fetched the moment it arrives.";
 
     /// <inheritdoc/>
     protected override string ModelIdDescription =>
@@ -37,8 +38,11 @@ public class AnthropicModel : ModelComponentBase
         "The Anthropic model, configured. Wire into an LLM Call, or through an Anthropic Tweaker first to change how it samples.";
 
     /// <inheritdoc/>
-    protected override ModelConfig CreateConfig(string modelId, string apiKey)
-        => new AnthropicConfig(ModelId: modelId, ApiKey: apiKey);
+    protected override ModelConfig CreateConfig(string modelId, ModelApi api)
+        => new AnthropicConfig(
+            ModelId: modelId,
+            ApiKey: api.Key,
+            BaseUrl: api.BaseUrlOr("https://api.anthropic.com/v1"));
 
     /// <inheritdoc/>
     /// <remarks>

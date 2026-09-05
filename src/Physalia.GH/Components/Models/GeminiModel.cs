@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
+using Physalia.Core.Config;
 using Physalia.Core.Models;
 using Physalia.Core.Models.Named;
 
@@ -25,8 +26,8 @@ public class GeminiModel : ModelComponentBase
     public override Guid ComponentGuid => new Guid("6E412A9E-99CF-4CAC-9323-35B417FDA875");
 
     /// <inheritdoc/>
-    protected override string ApiKeyDescription =>
-        "Your Google AI key. Wire an API Keys component; the model list is fetched the moment it arrives.";
+    protected override string ModelApiDescription =>
+        "Your Google AI endpoint and key. Wire a Model API component; the model list is fetched the moment it arrives.";
 
     /// <inheritdoc/>
     protected override string ModelIdDescription =>
@@ -37,6 +38,9 @@ public class GeminiModel : ModelComponentBase
         "The Gemini model, configured. Wire into an LLM Call, or through a Gemini Tweaker first to change how it samples.";
 
     /// <inheritdoc/>
-    protected override ModelConfig CreateConfig(string modelId, string apiKey)
-        => new GeminiConfig(ModelId: modelId, ApiKey: apiKey);
+    protected override ModelConfig CreateConfig(string modelId, ModelApi api)
+        => new GeminiConfig(
+            ModelId: modelId,
+            ApiKey: api.Key,
+            BaseUrl: api.BaseUrlOr("https://generativelanguage.googleapis.com/v1beta"));
 }

@@ -20,6 +20,7 @@ using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.Config;
+using Physalia.GH.Config;
 using Physalia.Core.ConvoInstruct;
 using Physalia.Core.Grounding;
 using Physalia.Core.Grounding.Clusters;
@@ -104,23 +105,6 @@ public class ChatWindow : Form
     // few seconds of the user adding a key / starting a local server (and reappears if removed).
     private static readonly TimeSpan ProviderProbeInterval = TimeSpan.FromSeconds(4);
 
-    // Maps a setup-screen provider id to its API_KEY_CONFIG.YAML location ({section}.api_keys.{leaf}).
-    // Only providers that authenticate with a pasted key appear here; Claude Code / local llama
-    // need no stored key. Matches the sections in API_KEY_CONFIG.YAML.example.
-    private static readonly Dictionary<string, (string Section, string Leaf)> KeyTargets =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["anthropic"] = ("anthropic", "api_key"),
-            ["google"] = ("gemini", "api_key"),
-            ["openai"] = ("openai_compatible", "openai"),
-            ["deepseek"] = ("openai_compatible", "deepseek"),
-            ["openrouter"] = ("openai_compatible", "openrouter"),
-            ["tavily"] = ("web_search", "tavily"),
-            ["jina"] = ("web_search", "jina"),
-        };
-
-    // Setup-screen ids that are web-tool keys (Web Search / Read URL), not chat-model providers.
-    // They show as configured pills but do NOT satisfy the first-run LLM requirement.
     private static readonly HashSet<string> ToolProviderIds =
         new(StringComparer.OrdinalIgnoreCase) { "tavily", "jina" };
 
@@ -189,6 +173,7 @@ public class ChatWindow : Form
     // then the setup-ids of the configured providers (empty when none → first-run setup). Mutated
     // only on the UI thread (Tick / the probe's AsyncInvoke continuation), so no locking is needed.
     private IReadOnlyList<string>? _configuredProviders;
+    private IReadOnlyList<UiProviderStatus> _providerStatuses = Array.Empty<UiProviderStatus>();
     private DateTime _lastProviderProbeUtc = DateTime.MinValue;
     private bool _providerProbeInFlight;
 
@@ -382,7 +367,16 @@ public class ChatWindow : Form
                 HandleOpen(uri);
                 break;
             case "savekey":
-                HandleSaveKey(uri);
+                HandleSaveProvider(uri);
+                break;
+            case "detect":
+                HandleDetect(uri);
+                break;
+            case "connect":
+                HandleConnect(uri);
+                break;
+            case "disconnect":
+                HandleDisconnect(uri);
                 break;
             case "placeemptyharness":
                 HandlePlaceEmptyHarness();
@@ -473,7 +467,7 @@ public class ChatWindow : Form
                 SignalTraceWindow.ShowOrFocus();
                 break;
             case "savemcpserver":
-                // The MCP page's save button: write one entry into Files/MCP_SERVERS.YAML.
+                // The MCP page's save button: write one entry into MCP_SERVERS.YAML.
                 HandleSaveMcpServer(uri);
                 break;
             case "deletemcpserver":
@@ -902,66 +896,165 @@ public class ChatWindow : Form
         }
     }
 
-    // Persists a pasted API key to API_KEY_CONFIG.YAML for the named provider, then forces a fresh
-    // provider probe so the setup state clears once the key is detected, and reports the outcome
-    // back to the page. The key is never logged.
-    private void HandleSaveKey(Uri uri)
+    // Stores one provider's endpoint and key in the encrypted credential store, then forces a fresh
+    // provider probe so the setup state clears immediately, and reports the outcome back to the
+    // page. Neither value is ever logged.
+    private void HandleSaveProvider(Uri uri)
     {
         string provider = GetQueryValue(uri.Query, "provider");
         string key = GetQueryValue(uri.Query, "key");
+        string url = GetQueryValue(uri.Query, "url");
 
-        if (!KeyTargets.TryGetValue(provider, out (string Section, string Leaf) target))
+        ProviderInfo? info = ProviderCatalog.Find(provider);
+        if (info is null || info.Auth != ProviderAuth.Credential)
         {
             PushSetupResult(provider, false, "Unknown provider.");
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(key))
+        // "other" and a local endpoint are legitimately key-less, so an endpoint on its own is a
+        // complete configuration. What is never useful is an entry carrying neither.
+        if (string.IsNullOrWhiteSpace(key) && string.IsNullOrWhiteSpace(url))
         {
-            PushSetupResult(provider, false, "Paste a non-empty API key, then press Enter.");
+            PushSetupResult(provider, false, "Enter an API key (and an endpoint, if this provider needs one).");
             return;
         }
 
-        string path = GetApiKeyConfigPath();
+        if (info.Kind != ProviderKind.Tool && string.IsNullOrWhiteSpace(url) && info.DefaultBaseUrl.Length == 0)
+        {
+            PushSetupResult(provider, false, "This provider needs an API URL — there is no default to fall back on.");
+            return;
+        }
+
         try
         {
-            EnsureConfigFileExists(path);
-            Api.SetKey(path, target.Section, target.Leaf, key.Trim());
+            PhyCredentials.Store.Save(new ModelApi(info.Id, url.Trim(), key.Trim()));
+
+            // Typing a key and pressing Save IS the opt-in — there is no second confirmation to ask
+            // for. Only a credential Physalia merely FOUND (an environment variable) needs one.
+            PhyCredentials.Activation.Activate(info.Id);
         }
         catch (Exception ex)
         {
-            PushSetupResult(provider, false, $"Could not save the key: {ex.Message}");
+            PushSetupResult(provider, false, $"Could not save: {ex.Message}");
             return;
         }
 
-        // Drop the cached result so the next tick re-probes; the now-present key resolves on the
-        // first (synchronous) check, clearing the setup state without waiting for the interval.
+        // Drop the cached probe so the next tick re-resolves; the now-present credential resolves on
+        // the first (synchronous) check, clearing the setup state without waiting for the interval.
+        PhyCredentials.Invalidate();
         _configuredProviders = null;
         _lastProviderProbeUtc = DateTime.MinValue;
 
-        PushSetupResult(provider, true, "API key saved to API_KEY_CONFIG.YAML. You're all set.");
+        string where = PhyCredentials.Store.IsEncrypted
+            ? $"Saved, {PhyCredentials.Store.Protection}."
+            : $"Saved ({PhyCredentials.Store.Protection}).";
+        PushSetupResult(provider, true, where + " You're all set.");
     }
 
-    // Copies the bundled template to API_KEY_CONFIG.YAML on first use so the standard provider
-    // sections exist; if the template is missing, Api.SetKey creates a minimal file itself.
-    private static void EnsureConfigFileExists(string path)
+    // Runs the availability probe for one CLI / local provider — the Detect button. Nothing is
+    // stored: what the button really does is force the check the window otherwise runs on a timer,
+    // so the user gets an answer at the moment they ask instead of waiting for the next tick.
+    private async void HandleDetect(Uri uri)
     {
-        if (File.Exists(path))
+        string provider = GetQueryValue(uri.Query, "provider");
+
+        ProviderInfo? info = ProviderCatalog.Find(provider);
+        if (info is null || info.Auth != ProviderAuth.Detected)
         {
+            PushSetupResult(provider, false, "Unknown provider.");
             return;
         }
 
-        string? dir = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(dir))
+        bool found;
+        try
         {
-            Directory.CreateDirectory(dir);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            found = await ProviderAvailability.DetectAsync(info.Id, ProbeClient, cts.Token).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            PushSetupResult(provider, false, $"Could not run the check: {ex.Message}");
+            return;
         }
 
-        string example = path + ".example";
-        if (File.Exists(example))
+        if (!found)
         {
-            File.Copy(example, path);
+            PushSetupResult(provider, false, info.Id == "local-llm"
+                ? "No local server answered at http://127.0.0.1:8080. Start llama-server and try again."
+                : $"{info.Label} was not found on your PATH. Finish the install above, open a NEW terminal to pick up the change, then try again.");
+            return;
         }
+
+        _configuredProviders = null;
+        _lastProviderProbeUtc = DateTime.MinValue;
+
+        // Found, not connected. The page now offers a Connect button; adopting it here would be the
+        // old behaviour, where having a CLI installed for some other purpose silently enrolled it.
+        PushSetupResult(provider, true, $"{info.Label} found. Press Connect to use it in Physalia.");
+    }
+
+    // Opts a provider in. This is the only thing that makes an available provider usable: a key in
+    // the environment, or a CLI on PATH, says a provider COULD be used — never that the user wants
+    // this plug-in spending that quota.
+    private void HandleConnect(Uri uri)
+    {
+        string provider = GetQueryValue(uri.Query, "provider");
+
+        ProviderInfo? info = ProviderCatalog.Find(provider);
+        if (info is null)
+        {
+            PushSetupResult(provider, false, "Unknown provider.");
+            return;
+        }
+
+        try
+        {
+            PhyCredentials.Activation.Activate(info.Id);
+        }
+        catch (Exception ex)
+        {
+            PushSetupResult(provider, false, $"Could not connect: {ex.Message}");
+            return;
+        }
+
+        PhyCredentials.Invalidate();
+        _configuredProviders = null;
+        _lastProviderProbeUtc = DateTime.MinValue;
+
+        PushSetupResult(provider, true, $"{info.Label} connected.");
+    }
+
+    // Opts a provider back out, and forgets any credential Physalia was storing for it. Deactivating
+    // while keeping the key would leave a secret on disk that nothing uses and nothing shows — this
+    // is also the "remove my key" affordance, which is why it is worded as a disconnect.
+    private void HandleDisconnect(Uri uri)
+    {
+        string provider = GetQueryValue(uri.Query, "provider");
+
+        ProviderInfo? info = ProviderCatalog.Find(provider);
+        if (info is null)
+        {
+            PushSetupResult(provider, false, "Unknown provider.");
+            return;
+        }
+
+        try
+        {
+            PhyCredentials.Activation.Deactivate(info.Id);
+            PhyCredentials.Store.Remove(info.Id);
+        }
+        catch (Exception ex)
+        {
+            PushSetupResult(provider, false, $"Could not disconnect: {ex.Message}");
+            return;
+        }
+
+        PhyCredentials.Invalidate();
+        _configuredProviders = null;
+        _lastProviderProbeUtc = DateTime.MinValue;
+
+        PushSetupResult(provider, true, $"{info.Label} disconnected.");
     }
 
     // One-shot push of a setup outcome to the page (the key is not included).
@@ -1394,6 +1487,7 @@ public class ChatWindow : Form
         // the first probe hasn't landed yet, so assume configured and don't flash setup.
         MaybeProbeProviders();
         IReadOnlyList<string> configuredProviders = _configuredProviders ?? Array.Empty<string>();
+        IReadOnlyList<UiProviderStatus> providerStatuses = _providerStatuses;
         // First-run setup needs an LLM provider, not merely a web-tool key (Tavily/Jina): show setup
         // once the probe has landed and no chat-model provider is configured.
         bool needsSetup = _configuredProviders is not null && !HasLlmProvider();
@@ -1434,7 +1528,8 @@ public class ChatWindow : Form
         }
 
         // Serialised form of the id list, used both as the change signature and the wire payload.
-        string configuredJson = JsonSerializer.Serialize(configuredProviders, WriteOpts);
+        string configuredJson = JsonSerializer.Serialize(configuredProviders, WriteOpts)
+            + JsonSerializer.Serialize(providerStatuses, WriteOpts);
 
         // Grounding state for the window's grounding panel: whether a component catalog is wired
         // (greys the icon when not), the available tab → panels tree, and the EFFECTIVE selection —
@@ -1611,7 +1706,7 @@ public class ChatWindow : Form
             // would answer a question the user did not ask.
             bool home = _home;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, home, status, configuredProviders, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs }, WriteOpts);
+                new { connected, busy, ready, needsSetup, home, status, configuredProviders, providerStatuses, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs }, WriteOpts);
 
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
@@ -1671,7 +1766,7 @@ public class ChatWindow : Form
 
     // Pushes the configured MCP servers to the page for the "Configure MCP connections" screen.
     //
-    // Read only when Files/MCP_SERVERS.YAML actually changes (write time + length), like the preset
+    // Read only when MCP_SERVERS.YAML actually changes (write time + length), like the preset
     // library below — reading a file several times a second on the tick would be absurd, and this way
     // a hand edit, or a save from another window, shows up on its own within a tick.
     //
@@ -2140,7 +2235,9 @@ public class ChatWindow : Form
             Directory.CreateDirectory(dir);
         }
 
-        string example = path + ".example";
+        // The template still ships in the plug-in's Files/ folder — it is read-only content we
+        // publish, not user state — so it is NOT beside the destination any more.
+        string example = McpServer.LegacyConfigPath + ".example";
         if (File.Exists(example))
         {
             File.Copy(example, path);
@@ -2531,28 +2628,44 @@ public class ChatWindow : Form
             return;
         }
 
+        // Answer synchronously on the very first pass so the window opens on the correct screen.
+        // Without this, needsSetup stays false — "everything is fine" — until the async probe lands,
+        // and that probe waits on PATH scans and a socket timeout.
+        _configuredProviders ??= ProviderAvailability.ConfiguredProviderIdsNow();
+
         _providerProbeInFlight = true;
-        string configPath = GetApiKeyConfigPath();
 
         Task.Run(async () =>
         {
             IReadOnlyList<string>? configured;
+            IReadOnlyList<UiProviderStatus>? statuses;
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                configured = await ProviderAvailability.ConfiguredProviderIdsAsync(configPath, ProbeClient, cts.Token)
-                    .ConfigureAwait(false);
+                IReadOnlyList<ProviderStatus> probed =
+                    await ProviderAvailability.StatusesAsync(ProbeClient, cts.Token).ConfigureAwait(false);
+
+                configured = probed.Where(p => p.Ready).Select(p => p.Id).ToList();
+                statuses = probed
+                    .Select(p => new UiProviderStatus(
+                        p.Id,
+                        p.Activated,
+                        p.Source.ToString().ToLowerInvariant(),
+                        p.Detail))
+                    .ToList();
             }
             catch
             {
                 // Keep the last known answer on failure; leaving it null before the first result means
                 // setup never flashes during the very first probe (null is treated as "configured").
                 configured = _configuredProviders;
+                statuses = _providerStatuses;
             }
 
             Application.Instance.AsyncInvoke(() =>
             {
                 _configuredProviders = configured;
+                _providerStatuses = statuses ?? Array.Empty<UiProviderStatus>();
                 _lastProviderProbeUtc = DateTime.UtcNow;
                 _providerProbeInFlight = false;
             });
@@ -2942,15 +3055,6 @@ public class ChatWindow : Form
         public int Bottom;
     }
 #endif
-
-    // Path to API_KEY_CONFIG.YAML beside the plug-in (matches the ApiKeys component's resolution).
-    private static string GetApiKeyConfigPath()
-    {
-        string? assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        return assemblyDir is null
-            ? "API_KEY_CONFIG.YAML"
-            : Path.Combine(assemblyDir, "Files", "API_KEY_CONFIG.YAML");
-    }
 
     // Maps the committed conversation to the UI message shape (text / images / tool calls / sources).
     private List<UiMessage> BuildMessages(Conversation? convo)
@@ -3350,6 +3454,12 @@ public class ChatWindow : Form
         string descriptor = PdfReports.DescribeAttachments(attached);
         return string.IsNullOrEmpty(text) ? descriptor : descriptor + "\n\n" + text;
     }
+
+    // One provider as the setup page draws it. `source` is the lower-cased ProviderSource — "none",
+    // "environment", "stored" or "detected" — and together with `activated` it picks which of the
+    // three footers the page shows: the form, one Connect button, or a connected pill. `detail`
+    // names the environment variable a key was found in, so the button can say which one.
+    private sealed record UiProviderStatus(string Id, bool Activated, string Source, string? Detail);
 
     private sealed record UiImage(string Base64, string MediaType);
 

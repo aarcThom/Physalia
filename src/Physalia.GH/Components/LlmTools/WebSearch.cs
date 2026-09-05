@@ -20,9 +20,10 @@ namespace Physalia.GH.Components;
 /// as a tool result (wire its Result output through a Feedback component into a Feedback Collector and
 /// back to the Router's Results input).
 ///
-/// <para>The Tavily key resolves from <c>Files/API_KEY_CONFIG.YAML</c> (section <c>web_search</c>, leaf
-/// <c>tavily</c>) or the <c>TAVILY_API_KEY</c> environment variable — never serialized. The HTTP call
-/// is bounded by a timeout and run synchronously within the dispatched call.</para>
+/// <para>The Tavily key resolves through the same path as every other credential — the
+/// <c>TAVILY_API_KEY</c> environment variable, then the encrypted credential store written by the
+/// chat window's setup page — and is never serialized. The HTTP call is bounded by a timeout and run
+/// synchronously within the dispatched call.</para>
 /// </summary>
 public class WebSearch : LlmToolComponentBase
 {
@@ -42,7 +43,7 @@ public class WebSearch : LlmToolComponentBase
     /// Initializes a new instance of the <see cref="WebSearch"/> class.
     /// </summary>
     public WebSearch()
-        : base("Web Search", "WebSearch", "Lets the model search the web when it needs something it does not know. Runs on Tavily, so it needs a web_search key in API_KEY_CONFIG.YAML.")
+        : base("Web Search", "WebSearch", "Lets the model search the web when it needs something it does not know. Runs on Tavily, so it needs a Tavily key — set one up in the chat window.")
     {
     }
 
@@ -80,7 +81,7 @@ public class WebSearch : LlmToolComponentBase
         if (_apiKey is null)
         {
             return ToolCallResult.Error(
-                "No Tavily API key configured. Add web_search.tavily to API_KEY_CONFIG.YAML or set the TAVILY_API_KEY environment variable.");
+                "No Tavily API key configured. Set one up in the chat window (\"Configure LLM providers\" → Tavily), or set the TAVILY_API_KEY environment variable.");
         }
 
         (string query, int count) = ParseArgs(call.InputJson);

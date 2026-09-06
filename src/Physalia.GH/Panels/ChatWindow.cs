@@ -170,6 +170,22 @@ public class ChatWindow : Form
     // Same idea for api-endpoints.json, backing the "API calls" page.
     private string? _lastApiSignature;
     private string? _lastChats;
+
+    private string? _lastApprovals;
+
+    private string? _lastFetchOffers;
+
+    private readonly PixelLayout _root;
+
+    // Built on first use: most sessions never fetch anything in a browser, and a second Chromium view
+    // is not something to create on the chance that they will.
+    private WebView? _fetchView;
+
+    private Panel? _fetchPanel;
+
+    private Label? _fetchStatus;
+
+    private Label? _fetchAddress;
     private string? _lastGroundingSignature;
     private int? _lastTokenCount;
 
@@ -209,7 +225,16 @@ public class ChatWindow : Form
         _webView = new WebView();
         _webView.DocumentLoading += OnDocumentLoading;
         _webView.DocumentLoaded += OnDocumentLoaded;
-        Content = _webView;
+
+        // A PixelLayout rather than the WebView directly, so the browser-fetch view can be laid OVER
+        // the chat without reparenting it. Reparenting an Eto WebView can recreate its native handle
+        // and would take the loaded conversation with it; hiding one and showing the other keeps both
+        // pages alive, which is the point — the fetch is a detour, not a new place.
+        _root = new PixelLayout();
+        _root.Add(_webView, 0, 0);
+        Content = _root;
+
+        SizeChanged += (_, _) => LayoutRoot();
 
         // GH never re-solves on a wire connection, so polling is the simplest correct
         // refresh (same cadence as the Chat's busy animation). Ticks run on the UI thread.
@@ -225,6 +250,11 @@ public class ChatWindow : Form
             }
 
             _loaded = true;
+
+            // Before LoadUi, and not left to SizeChanged: a PixelLayout child has no size until it is
+            // given one, and a WebView sized 0x0 renders nothing at all — which would look exactly
+            // like the page failing to load.
+            LayoutRoot();
             LoadUi();
             _timer.Start();
             HookHostClose();
@@ -235,12 +265,42 @@ public class ChatWindow : Form
 #endif
         };
 
+        // A card must appear the moment the model asks, not on the next tick: the tool call is
+        // already waiting, and a visible delay between the model deciding and the question arriving
+        // reads as the pipeline having stalled. The tick still pushes as a safety net.
+        ToolApprovalBroker.Changed += OnApprovalsChanged;
+        BrowserFetchOffers.Changed += OnFetchOffersChanged;
+
         Closed += (_, _) =>
         {
             _timer.Stop();
             UnhookHostClose();
+            ToolApprovalBroker.Changed -= OnApprovalsChanged;
+            BrowserFetchOffers.Changed -= OnFetchOffersChanged;
         };
     }
+
+    // Raised from whatever thread a tool call happens to be on, so it is marshalled before touching
+    // the WebView.
+    private void OnApprovalsChanged() =>
+        Application.Instance.AsyncInvoke(() =>
+        {
+            if (_loaded)
+            {
+                MaybePushApprovals();
+            }
+        });
+
+    // Raised from the tool call's thread, like the approval one, so it is marshalled before the
+    // WebView is touched.
+    private void OnFetchOffersChanged() =>
+        Application.Instance.AsyncInvoke(() =>
+        {
+            if (_loaded)
+            {
+                MaybePushFetchOffers();
+            }
+        });
 
     // Close this window when its host goes away, so it never orphans on the desktop:
     //   - Grasshopper editor closed (X button) — Windows only (the editor is WinForms).
@@ -396,6 +456,12 @@ public class ChatWindow : Form
                 break;
             case "clearall":
                 HandleClearAll();
+                break;
+            case "approve":
+                HandleApprove(uri);
+                break;
+            case "fetch":
+                HandleFetchOffer(uri);
                 break;
             case "selectchat":
                 HandleSelectChat(uri);
@@ -1522,6 +1588,11 @@ public class ChatWindow : Form
         // Pipeline-wiring readiness: chat needs ConversationLog -> [compactor…] -> LLM Call -> Model. Shown
         // as a hint once a provider exists but the graph isn't fully wired.
         bool ready = !_home && PromptPipelineView.IsPipelineReady(_component, 0);
+
+        // What this harness's author wants said in place of the composer's usual send hint — the
+        // third field on the harness panel. Only on a Chat, never on Home, whose own prose belongs to
+        // the window rather than to any one pipeline.
+        string? chatText = _home ? null : Harness.PhyDocuments.Harness(_component)?.ChatText;
         string status = needsSetup ? "Setup mode"
             : busy ? "Working…"
             : _home ? "Choose an option above to begin."
@@ -1713,7 +1784,7 @@ public class ChatWindow : Form
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs, chatText }, WriteOpts);
 
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
@@ -1733,7 +1804,7 @@ public class ChatWindow : Form
             // would answer a question the user did not ask.
             bool home = _home;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, home, status, configuredProviders, providerStatuses, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs }, WriteOpts);
+                new { connected, busy, ready, needsSetup, home, status, configuredProviders, providerStatuses, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs, chatText }, WriteOpts);
 
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
@@ -1753,6 +1824,15 @@ public class ChatWindow : Form
 
         // Switcher row: one circle per Chat on the canvas, pushed when the set/active changes.
         MaybePushChats();
+
+        // Tool approval cards. Also pushed straight off ToolApprovalBroker.Changed, so a card appears
+        // the moment the model asks rather than up to a tick later; this is the safety net that
+        // catches a change the event missed and the clear-down after one is answered.
+        MaybePushApprovals();
+
+        // Files a download could not fetch, offered as a button. Same deal: pushed off the broker's
+        // event the moment one is raised, with the tick as the safety net.
+        MaybePushFetchOffers();
     }
 
     // Pushes the preset library to the page, but only when the set actually changes — a cheap
@@ -1783,8 +1863,8 @@ public class ChatWindow : Form
                 folder = e.Folder,
                 name = Path.GetFileNameWithoutExtension(e.FileName),
 
-                // The text of the Harness Notes panel inside the preset, read straight out of the
-                // archive — the only description a .gh can carry.
+                // Read out of the package manifest without loading the pipeline. A legacy .gh
+                // preset carries no description, and shows as having none.
                 description = Harness.PresetLibrary.ReadDescription(
                     Path.Combine(Harness.PresetLibrary.RootDir, e.Folder, e.FileName)),
             })
@@ -2541,6 +2621,209 @@ public class ChatWindow : Form
         Exec($"window.physalia&&window.physalia.setChats&&window.physalia.setChats({json});");
     }
 
+    // Pushes the outstanding tool approval cards. Change-detected on the serialized set like every
+    // other push, so the 0.15 s tick costs nothing while none are waiting — which is nearly always.
+    private void MaybePushApprovals()
+    {
+        var list = ToolApprovalBroker.Pending()
+            .Select(p => new
+            {
+                id = p.Id,
+                title = p.Request.Title,
+                summary = p.Request.Summary,
+
+                // Shown verbatim and never abbreviated: the URL and the destination ARE the decision,
+                // and a prompt that hides what is being consented to manufactures consent rather than
+                // asking for it.
+                detail = p.Request.Detail,
+
+                // The window may be looking at a different Chat than the pipeline that is asking.
+                harness = p.HarnessName ?? string.Empty,
+            })
+            .ToList();
+
+        string json = JsonSerializer.Serialize(list, WriteOpts);
+        if (json == _lastApprovals)
+        {
+            return;
+        }
+
+        _lastApprovals = json;
+        Exec($"window.physalia&&window.physalia.setApprovals&&window.physalia.setApprovals({json});");
+    }
+
+    /// <summary>
+    /// Shows a browser over the chat, saving what it downloads into the project folder.
+    ///
+    /// <para>Over the chat rather than in a window of its own because the block that led here was
+    /// discovered in this window: the model explained it a few lines up, and sending the user to a
+    /// separate window to act on it puts the explanation and the action in two places.</para>
+    ///
+    /// <para><b>Not an iframe in the page.</b> A host that puts a challenge in front of its files also
+    /// sends <c>X-Frame-Options: SAMEORIGIN</c>, so the page refuses to be framed. A second native
+    /// WebView navigates at the top level of its own browser and gets no such refusal.</para>
+    /// </summary>
+    /// <param name="target">The address to fetch.</param>
+    /// <param name="folder">The project folder to save into.</param>
+    /// <returns>True when the browser is now showing; false to fall back to a window of its own.</returns>
+    internal bool TryShowFetch(Uri target, string folder)
+    {
+        if (!_loaded)
+        {
+            return false;
+        }
+
+        try
+        {
+            BuildFetchSurface();
+
+            _fetchAddress!.Text = target.ToString();
+            _fetchStatus!.Text = $"Saving into {folder}";
+
+            // Hooked per fetch, not once: the folder can differ between harnesses, and the handler
+            // closes over it. WebView2 tolerates a second DownloadStarting subscriber, and the view
+            // is short-lived either way.
+            BrowserFetch.AttachRedirect(_fetchView!, folder, text =>
+                Application.Instance.AsyncInvoke(() => _fetchStatus!.Text = text));
+
+            _fetchView!.Url = target;
+
+            _fetchPanel!.Visible = true;
+            _webView.Visible = false;
+            LayoutRoot();
+
+            BringToFront();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // Anything at all here falls back to the standalone window rather than leaving the user
+            // with no way to fetch the file.
+            Rhino.RhinoApp.WriteLine($"[Physalia] In-chat browser fetch unavailable: {ex.Message}");
+            HideFetch();
+            return false;
+        }
+    }
+
+    // Puts the chat back. The fetch view keeps its page — it costs nothing while hidden and a user
+    // who reopens a fetch usually wants the same host again.
+    private void HideFetch()
+    {
+        if (_fetchPanel is not null)
+        {
+            _fetchPanel.Visible = false;
+        }
+
+        _webView.Visible = true;
+        LayoutRoot();
+    }
+
+    private void BuildFetchSurface()
+    {
+        if (_fetchPanel is not null)
+        {
+            return;
+        }
+
+        _fetchView = new WebView();
+        _fetchAddress = new Label { Font = Eto.Drawing.SystemFonts.Bold() };
+        _fetchStatus = new Label { TextColor = Eto.Drawing.Colors.Gray };
+
+        var back = new Button { Text = "← Back to chat" };
+        back.Click += (_, _) => HideFetch();
+
+        _fetchPanel = new Panel
+        {
+            Content = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Padding = new Eto.Drawing.Padding(8),
+                Spacing = 6,
+                Items =
+                {
+                    back,
+                    _fetchAddress,
+                    _fetchStatus,
+                    new StackLayoutItem(_fetchView, expand: true),
+                },
+            },
+        };
+
+        _fetchPanel.Visible = false;
+        _root.Add(_fetchPanel, 0, 0);
+    }
+
+    // PixelLayout positions but does not size, so both surfaces are stretched to the client area by
+    // hand — and re-stretched on every resize, or the browser would keep the size the window had
+    // when it was first shown.
+    private void LayoutRoot()
+    {
+        Eto.Drawing.Size size = ClientSize;
+        if (size.Width <= 0 || size.Height <= 0)
+        {
+            return;
+        }
+
+        _webView.Size = size;
+
+        if (_fetchPanel is not null)
+        {
+            _fetchPanel.Size = size;
+        }
+    }
+
+    // Pushes the files a download could not fetch, for the chat to offer a browser for. Change-
+    // detected on the serialized set like every other push, so the tick costs nothing while there
+    // are none — which is nearly always.
+    private void MaybePushFetchOffers()
+    {
+        var list = BrowserFetchOffers.Pending()
+            .Select(o => new
+            {
+                id = o.Id,
+                url = o.Url,
+                folder = o.Folder,
+                harness = o.HarnessName ?? string.Empty,
+            })
+            .ToList();
+
+        string json = JsonSerializer.Serialize(list, WriteOpts);
+        if (json == _lastFetchOffers)
+        {
+            return;
+        }
+
+        _lastFetchOffers = json;
+        Exec($"window.physalia&&window.physalia.setFetchOffers&&window.physalia.setFetchOffers({json});");
+    }
+
+    // Opens the browser window for an offered file, or drops the offer. Anything that is not an
+    // explicit fetch dismisses, so a malformed navigation loses a button rather than opening a
+    // window nobody asked for.
+    private void HandleFetchOffer(Uri uri)
+    {
+        string id = GetQueryValue(uri.Query, "id");
+
+        if (GetQueryValue(uri.Query, "do") == "open")
+        {
+            BrowserFetchOffers.Take(id);
+        }
+        else
+        {
+            BrowserFetchOffers.Dismiss(id);
+        }
+    }
+
+    // Routes a card's Allow/Deny back to the tool call waiting on it. Anything but an explicit
+    // allow=1 is a No, so a malformed or truncated navigation denies rather than permits.
+    private void HandleApprove(Uri uri)
+    {
+        ToolApprovalBroker.Answer(
+            GetQueryValue(uri.Query, "id"),
+            GetQueryValue(uri.Query, "allow") == "1");
+    }
+
     // Every Chat in the file, grouped by harness and ordered left-to-right then top-to-bottom, for a
     // stable, intuitive circle sequence.
     //
@@ -3106,7 +3389,8 @@ public class ChatWindow : Form
 
         try
         {
-            GH_Document? contents = Harness.HarnessComponent.ReadDocumentFile(path);
+            GH_Document? contents = Harness.HarnessComponent.ReadDocumentFile(
+                path, out Core.Packaging.PhyManifest? manifest);
             if (contents is null)
             {
                 Rhino.RhinoApp.WriteLine($"[Physalia] Preset could not be read: {file}");
@@ -3125,7 +3409,7 @@ public class ChatWindow : Form
 
             // Always a NEW harness, never a swap of the one the window happens to be driving: a
             // preset is a pipeline to add, not a replacement for whatever is already running.
-            if (!DropPresetHarness(contents))
+            if (!DropPresetHarness(contents, path, manifest))
             {
                 Rhino.RhinoApp.WriteLine("[Physalia] No Grasshopper canvas to add the preset to.");
                 return;
@@ -3144,7 +3428,7 @@ public class ChatWindow : Form
     // window — beside whatever is already there, never on top of it. The preset arrives whole: it IS
     // a harness's document, so it needs no Chat of our own making (the caller has already refused a
     // preset that carries none). Returns false when there is no canvas to place onto.
-    private bool DropPresetHarness(GH_Document contents)
+    private bool DropPresetHarness(GH_Document contents, string path, Core.Packaging.PhyManifest? manifest)
     {
         GH_Canvas? canvas = Instances.ActiveCanvas;
         if (HostForPlacement(canvas) is not { } host)
@@ -3162,6 +3446,11 @@ public class ChatWindow : Form
         {
             chat.EnsureDistinctEmoji();
         }
+
+        // Only once the harness is on the document: the name it takes from the package has to be
+        // made unique against its new siblings, and its project files go into the folder that name
+        // resolves to.
+        harness.AdoptPackage(path, manifest);
 
         harness.ExpireSolution(true);
         return true;

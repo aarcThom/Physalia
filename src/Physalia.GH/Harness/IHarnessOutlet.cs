@@ -83,7 +83,7 @@ public interface IHarnessOutlet
     /// carry it: the archive is loaded onto some other document entirely, where a linked id resolves
     /// to nothing and a placement offset — measured from the proxy's pivot, so it needs no resolving
     /// at all — silently reproduces the author's own drop as a wire hanging off the new node.
-    /// <see cref="HarnessComponent.ReadDocumentFile"/> calls this on every outlet it loads.</para>
+    /// <see cref="HarnessComponent.ReadDocumentFile(string, out Physalia.Core.Packaging.PhyManifest?)"/> calls this on every outlet it loads.</para>
     ///
     /// <para>Quiet: no undo record and no re-solve. It runs while the document is still being read,
     /// before anything is on a canvas to solve.</para>

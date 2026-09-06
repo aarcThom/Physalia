@@ -16,6 +16,8 @@ using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Types;
 using Grasshopper.Kernel.Undo;
 using Grasshopper.Kernel.Undo.Actions;
+using Physalia.Core.Naming;
+using Physalia.Core.Packaging;
 using Physalia.GH.Components;
 using Physalia.GH.Parameters;
 
@@ -53,6 +55,10 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
     // Write/Read override in Physalia writes flat keys and guid references.
     private const string DocumentChunk = "HarnessDocument";
 
+    // The nickname the base constructor hands out. Recognised so a harness that still has it
+    // can be given a generated name instead — it is the "nobody has named this" marker.
+    private const string DefaultNickname = "Harness";
+
     // Margin (canvas units) around the harness contents when the view zooms to fit on entry.
     private const int ZoomMargin = 5;
 
@@ -76,9 +82,34 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
 
     private bool _syncHooked;
 
+    private bool _folderHooked;
+
     // False until the contents currently held have been given their first solution. Reset by Adopt,
     // because a replacement arrives unsolved exactly as the original did.
     private bool _primed;
+
+    // What this pipeline is for. Shown as the description in the chat window's preset gallery and
+    // carried in a .phy manifest — the job the Harness Notes component used to do from inside the
+    // sub-document, moved out here because a preset archive holds the CONTENTS of a harness and not
+    // the harness itself, so there was nowhere in it for the harness's own metadata to live.
+    private string? _importDescription;
+
+    // What the chat window says in place of its usual invitation to start typing, so a pipeline
+    // shared across a firm can open with its author's instructions rather than a blank prompt.
+    private string? _chatText;
+
+    // The project folder key this harness was last using, so a rename can MOVE the folder rather than
+    // orphan it. Serialized with the instance id it belonged to, and dropped on read when they do not
+    // match: a pasted harness — or one from a preset, whose ids DocumentIds.MutateAll re-issues —
+    // carries the key of the harness it was copied from, and acting on it would move the ORIGINAL's
+    // downloads into the copy's folder.
+    private string? _folderKey;
+
+    private Guid _folderKeyOwner;
+
+    // Set when a folder move was attempted and refused; surfaced as a runtime warning on the next
+    // solve, because the move happens on idle where there is nobody to tell.
+    private string? _folderProblem;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HarnessComponent"/> class.
@@ -98,6 +129,62 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
     /// </summary>
     public GH_Document? InnerDocument => _inner;
 
+    /// <summary>
+    /// Gets or sets what this pipeline is for: the description shown beside it in the chat window's
+    /// preset gallery, and carried in a <c>.phy</c> manifest. Blank is stored as null.
+    /// </summary>
+    public string? ImportDescription
+    {
+        get => _importDescription;
+        set => _importDescription = Blank(value);
+    }
+
+    /// <summary>
+    /// Gets or sets what the chat window says in place of its usual invitation to start typing.
+    /// Blank is stored as null, which leaves the window's own wording in place.
+    /// </summary>
+    public string? ChatText
+    {
+        get => _chatText;
+        set => _chatText = Blank(value);
+    }
+
+    /// <summary>
+    /// Gets this harness's project folder — where its downloads, reference PDFs and site data live.
+    /// Not created by reading it.
+    /// </summary>
+    public string ProjectFolderPath => ProjectFolder.PathForKey(EffectiveFolderKey);
+
+    /// <summary>
+    /// Gets or sets the harness's name.
+    ///
+    /// <para>Overridden because <c>GH_DocumentObject</c>'s setter raises NOTHING — verified against
+    /// the shipped assembly, the body is a bare field assignment — so an F2 rename, a properties-panel
+    /// edit or a rename from the harness panel reaches no handler anywhere. This is the same hook
+    /// <c>Param_LinkedName</c> uses, and it is the only one that fires for every route.</para>
+    ///
+    /// <para>A rename MOVES the project folder, which is why it has to be heard at all: the folder is
+    /// named after the harness, so leaving it behind would strand everything already downloaded. The
+    /// move itself is deferred to idle — this setter runs during layout, during paste and during
+    /// archive reads, none of which may touch the disk.</para>
+    /// </summary>
+    public override string NickName
+    {
+        get => base.NickName;
+
+        set
+        {
+            string incoming = string.IsNullOrWhiteSpace(value) ? GeneratedName() : value.Trim();
+            if (string.Equals(base.NickName, incoming, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            base.NickName = incoming;
+            RequestFolderSync();
+        }
+    }
+
     /// <inheritdoc/>
     public override void CreateAttributes()
     {
@@ -114,7 +201,7 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
     /// Gets the menu label for loading a harness pipeline in from a file. Shared with the canvas
     /// widget inside the harness, for the same reason the save label is.
     /// </summary>
-    internal static string LoadFileLabel => "Load Harness from .gh File…";
+    internal static string LoadFileLabel => "Load Harness from File…";
 
     /// <inheritdoc/>
     /// <remarks>
@@ -181,13 +268,30 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
             return;
         }
 
-        if (!PresetLibrary.TryWrite(contents, path, out error))
+        // What travels with the pipeline, and what is recorded to be fetched again instead. Shown
+        // before writing rather than after, because the size is the thing that decides whether a
+        // package is something a person will actually send to a colleague.
+        ProjectPayloadPlan payload = ProjectPayload.Plan(ProjectFolderPath);
+        if (payload.Summary is { Length: > 0 } summary
+            && Rhino.UI.Dialogs.ShowMessage(
+                $"This preset will carry {summary}.\n\nSave it?",
+                SavePresetLabel,
+                Rhino.UI.ShowMessageButton.YesNo,
+                Rhino.UI.ShowMessageIcon.Information) != Rhino.UI.ShowMessageResult.Yes)
+        {
+            return;
+        }
+
+        PhyManifest manifest = PhyManifest.For(NickName, _importDescription, _chatText, payload.Downloads);
+
+        if (!PresetLibrary.TryWritePackage(path, manifest, contents, payload.Files, out long bytes, out error))
         {
             Rhino.UI.Dialogs.ShowMessage($"The preset could not be saved: {error}", SavePresetLabel);
             return;
         }
 
-        Rhino.RhinoApp.WriteLine($"[Physalia] Saved harness preset: {path}");
+        Rhino.RhinoApp.WriteLine(
+            $"[Physalia] Saved harness preset: {path} ({ProjectPayload.Describe(bytes)})");
     }
 
     /// <summary>
@@ -216,9 +320,10 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
         }
 
         GH_Document? contents;
+        PhyManifest? manifest;
         try
         {
-            contents = ReadDocumentFile(path);
+            contents = ReadDocumentFile(path, out manifest);
         }
         catch (Exception ex)
         {
@@ -259,6 +364,7 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
         }
 
         Replace(contents);
+        ApplyPackage(path, manifest);
         Rhino.RhinoApp.WriteLine($"[Physalia] Loaded harness pipeline from: {path}");
     }
 
@@ -271,8 +377,8 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
         var dialog = new Rhino.UI.OpenFileDialog
         {
             Title = LoadFileLabel,
-            Filter = "Grasshopper files (*.gh;*.ghx)|*.gh;*.ghx|All files (*.*)|*.*",
-            DefaultExt = "gh",
+            Filter = "Physalia harnesses (*.phy;*.gh;*.ghx)|*.phy;*.gh;*.ghx|All files (*.*)|*.*",
+            DefaultExt = "phy",
         };
 
         // The host file's folder is the likeliest place a harness sent to you was saved next to.
@@ -385,10 +491,38 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
     /// </summary>
     /// <param name="path">The .gh (or .ghx) file to read.</param>
     /// <returns>The loaded document, or null when the file could not be read.</returns>
-    internal static GH_Document? ReadDocumentFile(string path)
+    internal static GH_Document? ReadDocumentFile(string path) => ReadDocumentFile(path, out _);
+
+    /// <summary>
+    /// Reads a harness file, also handing back the package metadata when the file carried any.
+    ///
+    /// <para>Which format it is, is decided by CONTENT — a file starting <c>PK</c> is a package —
+    /// never by its extension. Users rename files, mail clients rewrite extensions, and the shipped
+    /// presets are still plain <c>.gh</c>; none of that should change how a file is parsed.</para>
+    /// </summary>
+    /// <param name="path">The file to read.</param>
+    /// <param name="manifest">The package's metadata, or null for a plain Grasshopper file.</param>
+    /// <returns>The loaded document, or null when the file could not be read.</returns>
+    internal static GH_Document? ReadDocumentFile(string path, out PhyManifest? manifest)
     {
+        manifest = null;
         var archive = new GH_Archive();
-        if (!archive.ReadFromFile(path))
+
+        if (PhyPackage.IsPackage(path))
+        {
+            if (!PhyPackage.Read(path).IsOk(out PhyPackageContents? package, out string? failure))
+            {
+                throw new InvalidOperationException(failure);
+            }
+
+            if (!archive.Deserialize_Binary(package.DocumentBytes))
+            {
+                return null;
+            }
+
+            manifest = package.Manifest;
+        }
+        else if (!archive.ReadFromFile(path))
         {
             return null;
         }
@@ -615,6 +749,17 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
             _inner.IsModified = false;
         }
 
+        SettingArchive.WriteOptionalString(writer, "ImportDescription", _importDescription);
+        SettingArchive.WriteOptionalString(writer, "ChatText", _chatText);
+
+        // Written together, and read back together, because a key without its owner cannot be told
+        // from one inherited by a copy.
+        SettingArchive.WriteOptionalString(writer, "ProjectFolderKey", _folderKey);
+        if (!string.IsNullOrEmpty(_folderKey))
+        {
+            writer.SetGuid("ProjectFolderKeyOwner", _folderKeyOwner);
+        }
+
         return base.Write(writer);
     }
 
@@ -629,6 +774,16 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
             {
                 Adopt(doc);
             }
+        }
+
+        _importDescription = SettingArchive.ReadOptionalString(reader, "ImportDescription");
+        _chatText = SettingArchive.ReadOptionalString(reader, "ChatText");
+
+        _folderKey = SettingArchive.ReadOptionalString(reader, "ProjectFolderKey");
+        _folderKeyOwner = Guid.Empty;
+        if (reader.ItemExists("ProjectFolderKeyOwner"))
+        {
+            _folderKeyOwner = reader.GetGuid("ProjectFolderKeyOwner");
         }
 
         return base.Read(reader);
@@ -686,6 +841,14 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
         ReviveInner();
         PrimeInner();
 
+        // A refused folder move happened on idle, where there was nobody to tell. Say so here, and
+        // keep saying so: the pipeline is reading a folder that no longer matches the harness's name,
+        // which is exactly the kind of thing that is baffling if it is silent.
+        if (_folderProblem is { Length: > 0 } problem)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, problem);
+        }
+
         PushInlets(DA);
 
         // Moving a Harness In inside the harness re-orders the inputs out here, and NOTHING announces a
@@ -707,12 +870,19 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
         // archived inputs by now, so the sync's job here is to MATCH them up — and to build the set
         // from scratch for a harness that arrived some other way, such as a preset placement.
         RequestInletSync();
+
+        // The first moment the name can be settled: only now are this harness's siblings visible, and
+        // a paste has issued its new id. The setter schedules the folder sync on its own when it
+        // changes anything; the explicit request covers the case where it does not.
+        EnsureGeneratedName();
+        RequestFolderSync();
     }
 
     /// <inheritdoc/>
     public override void RemovedFromDocument(GH_Document document)
     {
         UnhookSync();
+        UnhookFolderSync();
         base.RemovedFromDocument(document);
     }
 
@@ -867,6 +1037,234 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
             _syncHooked = false;
         }
     }
+
+    /// <summary>
+    /// The four-word name this harness has by default: <c>curious-cake-soap-fun</c>, derived from its
+    /// instance id.
+    /// </summary>
+    /// <returns>The generated name.</returns>
+    private string GeneratedName() => FourWordKey.From(InstanceGuid);
+
+    /// <summary>
+    /// Gives this harness its generated name unless a person has chosen one.
+    ///
+    /// <para>Three cases arrive here and only the last is subtle. A harness constructed just now is
+    /// still called <c>Harness</c> and gets a name. One a person renamed keeps it. And one that was
+    /// PASTED — or came out of a preset, whose ids <c>DocumentIds.MutateAll</c> re-issues — carries a
+    /// generated name belonging to the id it was copied from, so it is regenerated: two harnesses
+    /// sharing a name would share a project folder and quietly overwrite each other's downloads.
+    /// <c>FourWordKey.IsGeneratedShape</c> is what tells that apart from a name somebody typed,
+    /// because comparing against a freshly derived name says "not generated" exactly when it
+    /// matters.</para>
+    /// </summary>
+    private void EnsureGeneratedName()
+    {
+        string current = NickName?.Trim() ?? string.Empty;
+
+        bool auto = current.Length == 0
+            || string.Equals(current, DefaultNickname, StringComparison.Ordinal)
+            || (FourWordKey.IsGeneratedShape(current) && !string.Equals(current, GeneratedName(), StringComparison.Ordinal));
+
+        if (auto)
+        {
+            NickName = UniqueName(GeneratedName());
+        }
+    }
+
+    /// <summary>
+    /// Makes a name unique among the harnesses on this document, by suffixing.
+    ///
+    /// <para>Needed for the import path more than for the generated one: a package restores the name
+    /// its author gave it, so two people importing the same workflow into one file would land on one
+    /// project folder.</para>
+    /// </summary>
+    /// <param name="wanted">The name to take if it is free.</param>
+    /// <returns>The name to use.</returns>
+    private string UniqueName(string wanted)
+    {
+        GH_Document? document = OnPingDocument();
+        if (document is null)
+        {
+            return wanted;
+        }
+
+        bool Taken(string candidate) => document.Objects
+            .OfType<HarnessComponent>()
+            .Any(other => !ReferenceEquals(other, this)
+                && string.Equals(other.NickName, candidate, StringComparison.OrdinalIgnoreCase));
+
+        if (!Taken(wanted))
+        {
+            return wanted;
+        }
+
+        for (int suffix = 2; suffix < 1000; suffix++)
+        {
+            string candidate = wanted + "-" + suffix;
+            if (!Taken(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return wanted;
+    }
+
+    /// <summary>
+    /// Takes on a package's identity, from outside. Same work as the load path does for itself, for
+    /// the placement path, which builds the harness first and adds it to the document second.
+    /// </summary>
+    /// <param name="path">The package that was placed.</param>
+    /// <param name="manifest">Its manifest, or null for a plain Grasshopper file.</param>
+    internal void AdoptPackage(string path, PhyManifest? manifest) => ApplyPackage(path, manifest);
+
+    /// <summary>
+    /// Takes on a loaded package's identity: its name, its description, the text its chat window
+    /// opens with, and its project files.
+    ///
+    /// <para>Order matters. The NAME is applied first because it decides which project folder the
+    /// files go into — a package restores the name its author gave it, so a workflow arrives called
+    /// what it was called, and <see cref="UniqueName"/> suffixes it when this document already holds a
+    /// harness of that name rather than letting two share one folder.</para>
+    ///
+    /// <para>Files are unpacked through <see cref="PhyPackage.ExtractFiles"/>, which contains every
+    /// entry and counts every byte, because a package is a file somebody else wrote. Nothing already
+    /// in the folder is deleted first: a failed unpack should cost the user an unpack, not their
+    /// existing project.</para>
+    /// </summary>
+    /// <param name="path">The package that was loaded.</param>
+    /// <param name="manifest">Its manifest, or null for a plain Grasshopper file.</param>
+    private void ApplyPackage(string path, PhyManifest? manifest)
+    {
+        if (manifest is null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(manifest.Name))
+        {
+            NickName = UniqueName(manifest.Name.Trim());
+        }
+
+        ImportDescription = manifest.Description;
+        ChatText = manifest.ChatText;
+
+        // Settle the folder key now rather than on the next idle pass: the files are about to be
+        // written into whatever ProjectFolderPath resolves to.
+        SyncProjectFolder();
+
+        string destination = ProjectFolderPath;
+        if (PhyPackage.ExtractFiles(path, destination).IsOk(out Core.Packaging.ZipExtractSummary? summary, out string? failure))
+        {
+            if (summary.Files.Count > 0)
+            {
+                Rhino.RhinoApp.WriteLine(
+                    $"[Physalia] Unpacked {summary.Files.Count} project file(s) "
+                    + $"({ProjectPayload.Describe(summary.TotalBytes)}) into {destination}");
+            }
+        }
+        else
+        {
+            // The pipeline is already loaded and usable; only its working files are missing, and the
+            // user needs to know which half failed.
+            Rhino.UI.Dialogs.ShowMessage(
+                $"The pipeline loaded, but its project files could not be unpacked: {failure}",
+                LoadFileLabel);
+        }
+
+        if (manifest.Downloads.Count > 0)
+        {
+            Rhino.RhinoApp.WriteLine(
+                $"[Physalia] {manifest.Downloads.Count} file(s) in this harness are fetched rather than "
+                + "carried; ask it to download them when you need them.");
+        }
+
+        ExpireProxyLayout();
+    }
+
+    private void RequestFolderSync()
+    {
+        if (_folderHooked)
+        {
+            return;
+        }
+
+        _folderHooked = true;
+        Rhino.RhinoApp.Idle += OnIdleFolderSync;
+    }
+
+    private void UnhookFolderSync()
+    {
+        if (_folderHooked)
+        {
+            Rhino.RhinoApp.Idle -= OnIdleFolderSync;
+            _folderHooked = false;
+        }
+    }
+
+    private void OnIdleFolderSync(object? sender, EventArgs e)
+    {
+        UnhookFolderSync();
+        SyncProjectFolder();
+    }
+
+    /// <summary>
+    /// Keeps the project folder in step with the harness's name, moving it when the name changes.
+    ///
+    /// <para>The key is DERIVED from the current name and never frozen, which is what makes this
+    /// self-healing: an undone rename moves the folder back, and a move that failed because a file was
+    /// open is simply retried the next time anything renames or reloads. Until it succeeds the OLD key
+    /// stays in effect, so the pipeline keeps reading the folder its files are actually in.</para>
+    ///
+    /// <para>Runs on idle. It touches the disk, so it must not run inside a solution or from the
+    /// NickName setter, which fires during layout, paste and archive reads.</para>
+    /// </summary>
+    internal void SyncProjectFolder()
+    {
+        string current = ProjectFolder.DefaultKeyFor(this);
+
+        // Either this harness has never resolved a folder, or the key it deserialized belongs to the
+        // harness it was copied from. Adopt the current key and move nothing: there is no folder of
+        // ours to preserve, and the original's is not ours to take.
+        if (string.IsNullOrEmpty(_folderKey) || _folderKeyOwner != InstanceGuid)
+        {
+            _folderKey = current;
+            _folderKeyOwner = InstanceGuid;
+            return;
+        }
+
+        if (string.Equals(_folderKey, current, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (ProjectFolder.TryMove(_folderKey, current, out string error))
+        {
+            _folderKey = current;
+            _folderProblem = null;
+        }
+        else
+        {
+            _folderProblem = error;
+        }
+
+        if (OnPingDocument() is not null)
+        {
+            ExpireSolution(false);
+        }
+    }
+
+    // The folder key actually in force: the one this harness is known to own, falling back to the one
+    // its name implies. They differ only between a rename and the move that follows it — including
+    // indefinitely, when the move keeps failing — and during that window the files are still in the
+    // old folder, so that is the one to use.
+    private string EffectiveFolderKey =>
+        !string.IsNullOrEmpty(_folderKey) && _folderKeyOwner == InstanceGuid
+            ? _folderKey!
+            : ProjectFolder.DefaultKeyFor(this);
+
+    private static string? Blank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private void OnIdleSync(object? sender, EventArgs e)
     {
@@ -1068,8 +1466,11 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
         RequestInletSync();
     }
 
-    // Re-lays the proxy out and repaints, after the harness contents changed underneath it.
-    private void ExpireProxyLayout()
+    /// <summary>
+    /// Re-lays the proxy out and repaints, after the harness contents — or its name — changed
+    /// underneath it.
+    /// </summary>
+    internal void ExpireProxyLayout()
     {
         Attributes?.ExpireLayout();
         Instances.RedrawCanvas();

@@ -50,12 +50,12 @@ public sealed class ChatWidgetPriority : GH_AssemblyPriority
     {
         e.AddWidget(new ChatWidget());
 
-        // The harness column: the back button, then the harness menu beneath it. Both draw only
-        // while the canvas is inside a harness document, so they cost nothing on an ordinary
-        // canvas — but they must be registered up front like any other widget, since the list is
-        // built once per canvas.
-        e.AddWidget(new HarnessReturnWidget());
-        e.AddWidget(new HarnessMenuWidget());
+        // The harness panel, which replaced the two pills that used to stand here. It is a real
+        // WinForms control rather than a widget — a widget cannot hold a text field — so it is
+        // PARENTED to the canvas rather than added to this list; the list event is simply the one
+        // hook that fires once per canvas with the canvas in hand. It shows itself only while that
+        // canvas is inside a harness.
+        HarnessPanelHost.Attach(sender as GH_Canvas);
 
         // The harness background wash rides along here because this is the only STATIC hook
         // Grasshopper offers that hands over a new canvas — the paint events it needs are per-canvas

@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using Grasshopper.Kernel;
 using Physalia.Core.Common;
 using Physalia.Core.ConvoInstruct;
+using Physalia.Core.Naming;
 using Physalia.Core.Pdf;
 using Physalia.GH.Generation;
 
@@ -36,7 +37,9 @@ namespace Physalia.GH.Components;
 /// </summary>
 public class ReadPdf : LlmToolComponentBase
 {
-    private const int InPdfFolder = 1;
+    private const int InProjectFolder = 1;
+
+    private const int InReferenceFolder = 2;
 
     // Long enough for a dense sheet at high DPI, short enough that a pathological file cannot leave
     // a tool call unanswered for the rest of the conversation.
@@ -56,6 +59,8 @@ public class ReadPdf : LlmToolComponentBase
     private PdfSession? _session;
     private string? _folder;
     private string? _folderWarning;
+
+    private string? _referenceFolder;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ReadPdf"/> class.
@@ -125,15 +130,18 @@ public class ReadPdf : LlmToolComponentBase
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter(
-            "PDF Folder",
+            "Project Folder",
             "PF",
-            "A standing set of PDFs the model may always read, on top of anything the human " +
-            "attaches in the chat. Either a plain name — a folder under Files/PDFS beside the " +
-            "plug-in — or a full path to a folder anywhere, including a network share. Typed here " +
-            "rather than derived, so it is saved in the .gh and travels inside a preset. Leave " +
-            "blank to use only what the human attaches.",
+            ProjectFolderInput.InputDescription,
             GH_ParamAccess.item);
-        pManager[InPdfFolder].Optional = true;
+        pManager[InProjectFolder].Optional = true;
+
+        pManager.AddTextParameter(
+            "Reference Folder",
+            "RF",
+            "An additional, SHARED set of PDFs read on top of the project's own — an office spec library on a network share, the same for every job. A full path, or a plain name for a folder under Files/PROJECT_FILES. The project folder is per-pipeline and travels inside a .phy; this one is per-machine and deliberately does not.",
+            GH_ParamAccess.item);
+        pManager[InReferenceFolder].Optional = true;
     }
 
     /// <inheritdoc/>
@@ -149,16 +157,28 @@ public class ReadPdf : LlmToolComponentBase
     protected override void OnSolveTick(IGH_DataAccess da)
     {
         string typed = string.Empty;
-        da.GetData(InPdfFolder, ref typed);
+        da.GetData(InProjectFolder, ref typed);
+
+        string reference = string.Empty;
+        da.GetData(InReferenceFolder, ref reference);
 
         lock (_gate)
         {
             // Resolved on the solve thread and cached, because the call itself runs off it and
             // must not reach for the document or the param values from a background thread.
             _session = PdfRegistry.For(OnPingDocument());
-            _folder = PdfLocations.Resolve(typed);
-            _folderWarning = _folder is not null && !Directory.Exists(_folder)
-                ? $"The PDF folder \"{_folder}\" does not exist."
+            // PDFs are project material like anything else, so they live inside the project folder
+            // rather than in a library of their own. PdfLocations and Files/PDFS are both gone.
+            _folder = ProjectFolderInput.Resolve(this, typed) is { IsResolved: true } resolved
+                ? Path.Combine(resolved.FullPath!, ProjectPaths.PdfSubfolder)
+                : null;
+
+            _referenceFolder = string.IsNullOrWhiteSpace(reference)
+                ? null
+                : ProjectFolderInput.Resolve(this, reference).FullPath;
+
+            _folderWarning = _referenceFolder is not null && !Directory.Exists(_referenceFolder)
+                ? $"The reference folder \"{_referenceFolder}\" does not exist."
                 : null;
         }
     }
@@ -181,13 +201,7 @@ public class ReadPdf : LlmToolComponentBase
             .Select(d => $"{d.Alias} — {d.DisplayName} ({d.PageCount} page(s))")
             .ToList();
 
-        string? folder;
-        lock (_gate)
-        {
-            folder = _folder;
-        }
-
-        lines.AddRange(PdfLocations.ListPdfs(folder, MaxFolderPdfs)
+        lines.AddRange(FolderPdfs()
             .Select(path => $"{PdfAliases.FromFileName(path)} — {Path.GetFileName(path)} (in folder)"));
 
         da.SetDataList(FirstAdditionalOutputIndex, lines);
@@ -436,6 +450,34 @@ public class ReadPdf : LlmToolComponentBase
     }
 
     /// <summary>
+    /// Every PDF this node can reach without an attachment: the project's own PDF folder, then the
+    /// shared reference folder when one is configured.
+    ///
+    /// <para>The project's come first, so a drawing the job actually uses wins an alias collision
+    /// against a same-named sheet in an office-wide library.</para>
+    /// </summary>
+    /// <returns>Absolute paths, project folder first.</returns>
+    private IReadOnlyList<string> FolderPdfs()
+    {
+        string? project;
+        string? reference;
+        lock (_gate)
+        {
+            project = _folder;
+            reference = _referenceFolder;
+        }
+
+        var paths = new List<string>(PdfLocations.ListPdfs(project, MaxFolderPdfs));
+
+        if (reference is not null && paths.Count < MaxFolderPdfs)
+        {
+            paths.AddRange(PdfLocations.ListPdfs(reference, MaxFolderPdfs - paths.Count));
+        }
+
+        return paths;
+    }
+
+    /// <summary>
     /// The PDFs in the configured folder, probed once each and re-probed only when the file on disk
     /// changes. Probing opens and walks every page, so doing it per call on a folder of drawing
     /// sets would dominate the tool's cost.
@@ -443,22 +485,11 @@ public class ReadPdf : LlmToolComponentBase
     /// <returns>The folder's documents.</returns>
     private IReadOnlyList<PdfDescriptor> FolderDocuments()
     {
-        string? folder;
-        lock (_gate)
-        {
-            folder = _folder;
-        }
-
-        if (folder is null)
-        {
-            return Array.Empty<PdfDescriptor>();
-        }
-
         var documents = new List<PdfDescriptor>();
         var taken = new HashSet<string>(
             AttachedDocuments().Select(d => d.Alias), StringComparer.OrdinalIgnoreCase);
 
-        foreach (string path in PdfLocations.ListPdfs(folder, MaxFolderPdfs))
+        foreach (string path in FolderPdfs())
         {
             try
             {

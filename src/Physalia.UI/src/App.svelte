@@ -10,6 +10,8 @@
 	import AssistantTurnGroup from '$lib/chat/AssistantTurnGroup.svelte';
 	import FeedbackTurn from '$lib/chat/FeedbackTurn.svelte';
 	import Composer from '$lib/chat/Composer.svelte';
+	import ApprovalCard from '$lib/chat/ApprovalCard.svelte';
+	import FetchOfferCard from '$lib/chat/FetchOfferCard.svelte';
 	import ImageEditor from '$lib/chat/ImageEditor.svelte';
 	import Setup from '$lib/chat/Setup.svelte';
 	import Preset from '$lib/chat/Preset.svelte';
@@ -57,6 +59,8 @@
 		SnapshotMessagePayload,
 		SubmitMessage,
 		ToolsSelectionPayload,
+		UiApproval,
+		UiFetchOffer,
 		UiChat,
 		UiMessage,
 		UiPdf,
@@ -146,6 +150,15 @@
 	let markUpToolWired = $state(false);
 	let pdfToolWired = $state(false);
 	let pendingPdfs = $state<UiPdf[]>([]);
+	// Set by the harness this Chat lives in, so a pipeline shared across a firm opens with its
+	// author's instructions rather than a generic invitation to type.
+	let chatText = $state<string | null>(null);
+	// Tool approval questions waiting for an answer. A tool call is blocked while one is up, so these
+	// are pushed the moment the model asks rather than on the window's own tick.
+	let approvals = $state<UiApproval[]>([]);
+	// Files a download could not fetch. Unlike an approval these block nothing — the call already
+	// failed — so they simply sit there until taken or dismissed.
+	let fetchOffers = $state<UiFetchOffer[]>([]);
 	let tokenCountToolWired = $state(false);
 	let markUp = $state<{
 		base64: string;
@@ -271,6 +284,7 @@
 				markUpToolWired = next.markUpToolWired ?? false;
 				pdfToolWired = next.pdfToolWired ?? false;
 				pendingPdfs = next.pendingPdfs ?? [];
+				chatText = next.chatText ?? null;
 				tokenCountToolWired = next.tokenCountToolWired ?? false;
 			},
 			setSetupResult: (result) => {
@@ -296,6 +310,12 @@
 			},
 			setChats: (next) => {
 				chats = next ?? [];
+			},
+			setApprovals: (next) => {
+				approvals = next ?? [];
+			},
+			setFetchOffers: (next) => {
+				fetchOffers = next ?? [];
 			},
 			attachSnapshot: (image) => {
 				// Attach mode: the host captured a snapshot and hands it here instead of sending it —
@@ -1087,9 +1107,18 @@
 			     content clips instead (and bubble text breaks/hyphenates, see the user Message). -->
 			<ConversationContent class="chat-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-scroll">
 			{#if isEmpty}
-				<div class="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 text-center">
-					<p class="text-sm font-medium">Physalia chat</p>
-					<p class="text-xs">Send a message to start the conversation.</p>
+				<!-- The harness's own opening text REPLACES the generic greeting rather than joining it:
+				     a pipeline shared across a firm should open with its author's instructions, and
+				     "Send a message to start the conversation" underneath them would be the window
+				     talking over the person who set it up. Whitespace is preserved so an author can
+				     write more than one line. -->
+				<div class="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
+					{#if chatText?.trim()}
+						<p class="text-sm whitespace-pre-wrap">{chatText.trim()}</p>
+					{:else}
+						<p class="text-sm font-medium">Physalia chat</p>
+						<p class="text-xs">Send a message to start the conversation.</p>
+					{/if}
 				</div>
 			{/if}
 
@@ -1162,6 +1191,26 @@
 	     chatting…" is a control that cannot be used sitting where the page's own content should be.
 	     Removing it (rather than disabling it) hands its height to the scroller above, which is
 	     flex-1: a setup or grounding page then runs the full height of the window. -->
+	<!-- Above the composer, and OUTSIDE the staticSurface guard: a tool can ask while the window is
+	     on Home or a setup page, and a question the user cannot see is a round that stalls until the
+	     host times it out.
+
+	     The row MIRRORS the composer's below it — px-3, gap-2, a flex-1 content column and a 36px
+	     column on the right — rather than carrying a margin of its own. That last column is the
+	     scrollbar channel and the action stack, which are the same width and centre on the same
+	     vertical line (see the .chat-scroll note in app.css); a card with a plain mx-3 spanned it and
+	     ran 44px past the conversation, clipping its own Allow button. Deriving the inset from the
+	     same three numbers the composer uses is what keeps the two aligned if any of them changes. -->
+	{#if approvals.length > 0 || fetchOffers.length > 0}
+		<div class="flex shrink-0 items-stretch gap-2 px-3">
+			<div class="flex min-w-0 flex-1 flex-col">
+				<ApprovalCard {approvals} />
+				<FetchOfferCard offers={fetchOffers} />
+			</div>
+			<div class="w-9 shrink-0"></div>
+		</div>
+	{/if}
+
 	{#if !staticSurface}
 	<div class="flex shrink-0 items-stretch gap-2 px-3 pb-3">
 		<div class="flex min-w-0 flex-1 flex-col">

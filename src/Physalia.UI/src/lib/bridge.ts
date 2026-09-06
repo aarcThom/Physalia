@@ -162,6 +162,10 @@ export interface UiState {
 	 *  only; a PDF's bytes never cross the bridge from the host, because a drawing set can be
 	 *  hundreds of megabytes and the page has no use for the file itself. */
 	pendingPdfs: UiPdf[];
+	/** What this harness's author wants the composer to say instead of its usual send hint — the
+	 *  "Chat window opening text" field on the harness panel. Null on Home, and whenever the harness
+	 *  has none, in which case the composer keeps its own wording. */
+	chatText?: string | null;
 }
 
 /** One attached PDF, as the composer draws it. */
@@ -425,11 +429,47 @@ export interface UiPreset {
 	file: string;
 	/** Which library folder it came from — "Physalia", "User" or "Community". Groups the gallery. */
 	folder: string;
-	/** Display label: the file name without folder or .gh extension. */
+	/** Display label: the file name without its folder or extension. */
 	name: string;
-	/** The text of the Harness Notes panel inside the preset, read out of its archive by the host —
-	 *  the only description a .gh can carry. Null when the preset has no notes. */
+	/** What this pipeline is for, from the package manifest. Null for a legacy .gh preset, which
+	 *  carries no description of its own. */
 	description?: string | null;
+}
+
+/** A tool asking the user before it acts — a download, or unpacking an archive. Raised by a tool
+ *  node whose "Ask before…" switch is on; the tool call is BLOCKED while the card is up, so an
+ *  unanswered card is a stalled round until the host times it out (five minutes) and denies. */
+export interface UiApproval {
+	/** Identifies this card back to the host. Opaque. */
+	id: string;
+	/** Which tool is asking — the card's heading. */
+	title: string;
+	/** One line saying what is about to happen. */
+	summary: string;
+	/** The specifics the decision turns on: the URL, the destination, the size. Shown in full and
+	 *  never truncated — hiding what is being consented to would manufacture consent rather than ask
+	 *  for it. */
+	detail: string;
+	/** Which harness is asking. The window may be showing a different Chat than the pipeline making
+	 *  the request, so the card says whose question it is. Empty for a harness-less pipeline. */
+	harness: string;
+}
+
+/** A file a download could not fetch, offered as a button because a browser can.
+ *
+ *  Raised when a host answers a programmatic request with a bot challenge — a door that opens for a
+ *  real browser and for nothing else. Blocks nothing: the tool call has already failed, and this is
+ *  a follow-up the user takes or ignores, which is what makes it a sibling of UiApproval rather than
+ *  one of them. */
+export interface UiFetchOffer {
+	/** Identifies this card back to the host. Opaque. */
+	id: string;
+	/** The address the challenge refused. Shown in full — it is what the user is agreeing to open. */
+	url: string;
+	/** Where the browser window will save it, so the card can say the file needs no moving. */
+	folder: string;
+	/** Which harness hit the block. The window may be showing a different Chat. Empty if none. */
+	harness: string;
 }
 
 /** Functions the host invokes on the page (set by the app on mount). */
@@ -453,6 +493,10 @@ export interface PhysaliaHost {
 	setApiResult(result: ApiResult | null): void;
 	/** Every Chat on the canvas, for the bottom switcher row. */
 	setChats(chats: UiChat[]): void;
+	/** Tool approval questions waiting for an answer, oldest first. Empty clears them. */
+	setApprovals(approvals: UiApproval[]): void;
+	/** Files a download could not fetch, offered for a browser to fetch instead. Empty clears them. */
+	setFetchOffers(offers: UiFetchOffer[]): void;
 	/** A viewport snapshot captured by the geometry button in attach mode (the Geometry Snapshot
 	 *  tool's default message switched off): lands in the composer's attachment strip like a pasted
 	 *  image and leaves on the user's own turn. */
@@ -519,4 +563,19 @@ export const BRIDGE_SCHEME = 'phbridge';
  *  through the host instead. */
 export function openExternalLink(url: string): void {
 	window.location.href = `${BRIDGE_SCHEME}://open?url=${encodeURIComponent(url)}`;
+}
+
+/** Answers one tool approval card. Anything but an explicit allow is a No on the host side too, so a
+ *  navigation that gets lost or truncated denies rather than permits. */
+export function answerApproval(id: string, allow: boolean): void {
+	window.location.href =
+		`${BRIDGE_SCHEME}://approve?id=${encodeURIComponent(id)}&allow=${allow ? '1' : '0'}`;
+}
+
+/** Opens the browser window for an offered file, or drops the offer. Anything but an explicit open
+ *  dismisses on the host side too, so a navigation that gets lost loses a button rather than opening
+ *  a window nobody asked for. */
+export function answerFetchOffer(id: string, open: boolean): void {
+	window.location.href =
+		`${BRIDGE_SCHEME}://fetch?id=${encodeURIComponent(id)}&do=${open ? 'open' : 'dismiss'}`;
 }

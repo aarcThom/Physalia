@@ -38,6 +38,13 @@ namespace Physalia.GH.Components;
 /// solve thread and the result signal latches on a later, self-scheduled solve, so the Grasshopper UI
 /// never blocks on the network. Each dispatched signal is processed one at a time in the async path;
 /// signals that arrive mid-run wait, latched on the wire, and are serviced after the current batch.</para>
+///
+/// <para><b>The pipeline may drive a tool too.</b> Calls are read out of the dispatched signal's
+/// content blocks, so a signal minted by hand — by a Construct Tool Call node, or by a script
+/// composing a query — runs the tool exactly as the Router's does. The one difference is the answer:
+/// a hand-made batch (see <c>ManualToolCall</c>) emits NO result signal, because a tool result must
+/// echo an id the assistant actually asked with and there is no such turn. What such a run produces
+/// reaches the canvas through the node's own outputs instead.</para>
 /// </summary>
 public abstract class LlmToolComponentBase : StatefulComponentBase
 {
@@ -69,6 +76,7 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
     // marshals back onto.
     private bool _busy;
     private bool _doEmit;
+    private bool _pendingManual;
     private string _pendingPayload = string.Empty;
     private IReadOnlyList<MessageContent> _pendingResultBlocks = Array.Empty<MessageContent>();
     private CancellationTokenSource? _cts;
@@ -270,6 +278,7 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
         _resultSignal = null;
         _busy = false;
         _doEmit = false;
+        _pendingManual = false;
         _pendingPayload = string.Empty;
         _pendingResultBlocks = Array.Empty<MessageContent>();
     }
@@ -291,7 +300,15 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
             // LATCH PASS — runs only from our own scheduled callback, once the batch has completed.
             _doEmit = false;
             _busy = false;
-            _resultSignal = PhySignal.Mint(SignalOutcome.Success, _pendingPayload, InstanceGuid, Name, _pendingResultBlocks);
+
+            // A hand-made batch answers nobody: its result blocks echo ids no assistant turn ever
+            // emitted, so letting them onto the Result wire would put an unpaired tool_result into
+            // the conversation. The work still ran and a subclass output still carries what it
+            // produced — see ManualToolCall.
+            if (!_pendingManual)
+            {
+                _resultSignal = PhySignal.Mint(SignalOutcome.Success, _pendingPayload, InstanceGuid, Name, _pendingResultBlocks);
+            }
 
             if (HasUnconsumedSignals(InSignal))
             {
@@ -327,6 +344,10 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
         _cts?.Dispose();
         _cts = new CancellationTokenSource();
         CancellationToken ct = _cts.Token;
+
+        // Decided here, on the calls themselves, rather than at latch time off whatever happens to
+        // be pending — the latch runs on a later solve and a second batch may have started by then.
+        _pendingManual = ManualToolCall.IsManualBatch(calls);
 
         // The runner owns the one-result-per-call contract and the per-call/whole-batch error handling;
         // it returns null when cancelled so the latch never fires for an abandoned batch (which would
@@ -372,7 +393,11 @@ public abstract class LlmToolComponentBase : StatefulComponentBase
                 return new ToolCallOutcome(result.Content, result.IsError, result.Attachments);
             });
 
-        _resultSignal = PhySignal.Mint(SignalOutcome.Success, batch.Payload, InstanceGuid, Name, batch.Blocks);
+        // See the latch pass: a hand-made batch never puts a result on the wire.
+        if (!ManualToolCall.IsManualBatch(calls))
+        {
+            _resultSignal = PhySignal.Mint(SignalOutcome.Success, batch.Payload, InstanceGuid, Name, batch.Blocks);
+        }
     }
 
     /// <summary>

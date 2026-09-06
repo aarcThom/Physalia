@@ -25,11 +25,13 @@
 		onconfigure: () => void;
 		/** Opens the MCP connections page. */
 		onconfiguremcp: () => void;
+		/** Opens the API calls page. */
+		onconfigureapi: () => void;
 		/** True on the Home screen, which is the only place the options are offered. */
 		home: boolean;
 	}
 
-	let { onpreset, onemptyharness, onconfigure, onconfiguremcp, home }: Props = $props();
+	let { onpreset, onemptyharness, onconfigure, onconfiguremcp, onconfigureapi, home }: Props = $props();
 </script>
 
 <div class="mx-auto flex w-full max-w-xl flex-col items-center gap-6 px-4 py-6">
@@ -45,6 +47,10 @@
 
 			<Pill onclick={onconfiguremcp} class="w-full justify-start py-3">
 				Configure MCP connections
+			</Pill>
+
+			<Pill onclick={onconfigureapi} class="w-full justify-start py-3">
+				Configure API calls
 			</Pill>
 		</div>
 	{/if}

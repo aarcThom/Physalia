@@ -16,6 +16,7 @@
 	import Grounding from '$lib/chat/Grounding.svelte';
 	import ConnectOptions from '$lib/chat/ConnectOptions.svelte';
 	import McpServers from '$lib/chat/McpServers.svelte';
+	import ApiEndpoints from '$lib/chat/ApiEndpoints.svelte';
 	import {
 		DropdownMenu,
 		DropdownMenuTrigger,
@@ -60,7 +61,11 @@
 		UiPdf,
 		UiPreset,
 		UiState,
-		UnitsOverridePayload
+		UnitsOverridePayload,
+		ApiConfig,
+		ApiEndpointPayload,
+		ApiResult,
+		UiApiEndpoint
 	} from '$lib/bridge';
 
 	const BRIDGE_SCHEME = 'phbridge';
@@ -194,12 +199,15 @@
 
 	// Other full-screen pages opened from the header menu (mutually exclusive with the chat view
 	// and with setup). null = none open.
-	let panel = $state<'preset' | 'grounding' | 'mcp' | null>(null);
+	let panel = $state<'preset' | 'grounding' | 'mcp' | 'api' | null>(null);
 
 	// MCP config state, pushed by the host whenever the server store changes — from this page,
 	// from another window, or from the user editing the file by hand.
 	let mcpServers = $state<UiMcpServer[]>([]);
 	let mcpResult = $state<McpResult | null>(null);
+	// Configured HTTP APIs, pushed by the host whenever the endpoint store changes.
+	let apiEndpoints = $state<UiApiEndpoint[]>([]);
+	let apiResult = $state<ApiResult | null>(null);
 	// Estimated token count from a Token Estimator wired downstream of the viewed ConversationLog,
 	// pushed by the host; null = no estimator wired (or no count yet) → the counter hides.
 	let tokenCount = $state<number | null>(null);
@@ -280,6 +288,12 @@
 			},
 			setMcpResult: (result) => {
 				mcpResult = result;
+			},
+			setApiEndpoints: (next: ApiConfig) => {
+				apiEndpoints = next?.endpoints ?? [];
+			},
+			setApiResult: (result) => {
+				apiResult = result;
 			},
 			setChats: (next) => {
 				chats = next ?? [];
@@ -696,6 +710,30 @@
 			`${BRIDGE_SCHEME}://testmcpserver?entry=${encodeURIComponent(JSON.stringify(entry))}`;
 	}
 
+	function saveApiEndpoint(entry: ApiEndpointPayload) {
+		apiResult = null;
+		window.location.href =
+			`${BRIDGE_SCHEME}://saveapiendpoint?entry=${encodeURIComponent(JSON.stringify(entry))}`;
+	}
+
+	function deleteApiEndpoint(name: string) {
+		apiResult = null;
+		window.location.href = `${BRIDGE_SCHEME}://deleteapiendpoint?name=${encodeURIComponent(name)}`;
+	}
+
+	// Forgets the stored key without touching the endpoint — the "remove my key" affordance, kept
+	// separate from deleting so an API can be kept while its credential is withdrawn.
+	function forgetApiKey(name: string) {
+		apiResult = null;
+		window.location.href = `${BRIDGE_SCHEME}://forgetapikey?name=${encodeURIComponent(name)}`;
+	}
+
+	function testApiEndpoint(entry: ApiEndpointPayload) {
+		apiResult = null;
+		window.location.href =
+			`${BRIDGE_SCHEME}://testapiendpoint?entry=${encodeURIComponent(JSON.stringify(entry))}`;
+	}
+
 	// The automatic page's two actions. The raw command goes over as typed and the HOST parses it —
 	// one implementation, unit-tested in Core, rather than a second one here that would drift from
 	// the definition actually written to the file.
@@ -717,13 +755,14 @@
 	}
 
 	// Open one of the pages (preset / grounding / mcp), leaving setup.
-	function openPanel(which: 'preset' | 'grounding' | 'mcp') {
+	function openPanel(which: 'preset' | 'grounding' | 'mcp' | 'api') {
 		panel = which;
 		manualSetup = false;
 		selectedProviderId = null;
 		setupResult = null;
 		// A result belongs to the visit that produced it; a reopened page starts clean.
 		mcpResult = null;
+		apiResult = null;
 	}
 
 	function closePanel() {
@@ -818,6 +857,9 @@
 				</DropdownMenuItem>
 				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('mcp')}>
 					MCP connections…
+				</DropdownMenuItem>
+				<DropdownMenuItem class="whitespace-nowrap" onSelect={() => openPanel('api')}>
+					API calls…
 				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuItem
@@ -978,6 +1020,16 @@
 					onsavecommand={saveMcpCommand}
 					onclose={closePanel}
 				/>
+			{:else if panel === 'api'}
+				<ApiEndpoints
+					endpoints={apiEndpoints}
+					result={apiResult}
+					onsave={saveApiEndpoint}
+					ondelete={deleteApiEndpoint}
+					onforgetkey={forgetApiKey}
+					ontest={testApiEndpoint}
+					onclose={closePanel}
+				/>
 			{:else if panel === 'grounding'}
 				<Grounding
 					tree={groundingTree}
@@ -1024,6 +1076,7 @@
 						onemptyharness={placeEmptyHarness}
 						onconfigure={openSetup}
 						onconfiguremcp={() => openPanel('mcp')}
+						onconfigureapi={() => openPanel('api')}
 						{home}
 					/>
 			{/if}

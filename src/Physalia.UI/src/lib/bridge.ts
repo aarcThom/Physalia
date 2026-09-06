@@ -285,6 +285,60 @@ export interface McpResult {
 	message: string;
 }
 
+/**
+ * One HTTP API the user has configured for the API Call node.
+ *
+ * The KEY is deliberately absent. Everything else here describes where the API is and how it is
+ * addressed, which the page must show to be editable at all; the key is a secret held in the
+ * encrypted credential store, and pushing it into the page so a form could redisplay it would put
+ * it in the UI's memory for no gain. `hasKey` is what the page needs instead — enough to say "a key
+ * is set" and to offer forgetting it. A blank key on save therefore means "leave it as it is", not
+ * "clear it".
+ *
+ * What the API CONTAINS — the datasets, the field names — is not here either. That lives on the API
+ * Call node, because it has to travel inside a preset and this file cannot.
+ */
+export interface UiApiEndpoint {
+	name: string;
+	baseUrl: string;
+	auth: 'none' | 'bearerHeader' | 'customHeader' | 'queryParameter';
+	/** Header name, or query parameter name, depending on `auth`. */
+	authName: string;
+	/** Text placed before the key in a custom header's value, e.g. "Apikey ". */
+	authPrefix: string;
+	/** An environment variable consulted for the key before the credential store. */
+	envVar: string;
+	/** Whether a key is available — from the environment variable or from the store. */
+	hasKey: boolean;
+	/** Where that key comes from: the variable's name, "stored", or '' when there is none. */
+	keySource: string;
+}
+
+/** The configured APIs as the page sees them, pushed by the host when the store changes. */
+export interface ApiConfig {
+	endpoints: UiApiEndpoint[];
+}
+
+/** Outcome of an API save/delete/test, pushed back by the host. */
+export interface ApiResult {
+	ok: boolean;
+	message: string;
+}
+
+/** One API entry sent back to the host to be written. Mirrors UiApiEndpoint, plus the key. */
+export interface ApiEndpointPayload {
+	name: string;
+	baseUrl: string;
+	auth: 'none' | 'bearerHeader' | 'customHeader' | 'queryParameter';
+	authName: string;
+	authPrefix: string;
+	envVar: string;
+	/** The key to store. Blank leaves any existing key untouched — see UiApiEndpoint. */
+	key: string;
+	/** The entry's previous name when a rename is being saved (else ''), so the host edits in place. */
+	replacing: string;
+}
+
 /** One server entry sent back to the host to be written. Mirrors UiMcpServer, plus the rename hook. */
 export interface McpServerPayload {
 	name: string;
@@ -390,6 +444,10 @@ export interface PhysaliaHost {
 	setMcpServers(config: McpConfig): void;
 	/** Outcome of the last MCP save/delete, or null to clear it. */
 	setMcpResult(result: McpResult | null): void;
+	/** The configured HTTP APIs, for the Configure-APIs page. Pushed when the store changes. */
+	setApiEndpoints(config: ApiConfig): void;
+	/** Outcome of the last API save/delete/test, or null to clear it. */
+	setApiResult(result: ApiResult | null): void;
 	/** Every Chat on the canvas, for the bottom switcher row. */
 	setChats(chats: UiChat[]): void;
 	/** A viewport snapshot captured by the geometry button in attach mode (the Geometry Snapshot

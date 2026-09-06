@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -18,6 +19,8 @@ using Eto.Forms;
 using Grasshopper;
 using Grasshopper.GUI.Canvas;
 using Grasshopper.Kernel;
+using Rhino;
+using Physalia.Core.Api;
 using Physalia.Core.Common;
 using Physalia.Core.Config;
 using Physalia.GH.Config;
@@ -92,6 +95,10 @@ public class ChatWindow : Form
     // packets to the default endpoint are dropped (a refused connection fails fast on its own).
     private static readonly HttpClient ProbeClient = new() { Timeout = TimeSpan.FromSeconds(2) };
 
+    // Separate from ProbeClient: a local-runtime probe is meant to give up in two seconds, while a
+    // configured API is a real request over the internet and deserves the ordinary timeout.
+    private static readonly HttpClient ApiTestClient = new() { Timeout = TimeSpan.FromSeconds(30) };
+
     // Common Rhino unit-system names offered in the grounding window's Document Units dropdown. These
     // match Rhino.UnitSystem.ToString() so an override reads like the live document value. The live
     // document units (and any current override) are merged in at push time, so uncommon systems still
@@ -159,6 +166,9 @@ public class ChatWindow : Form
     // changes — from this window, from another one, or from the user editing it by hand — without
     // reading it on every 0.15 s tick.
     private string? _lastMcpSignature;
+
+    // Same idea for api-endpoints.json, backing the "API calls" page.
+    private string? _lastApiSignature;
     private string? _lastChats;
     private string? _lastGroundingSignature;
     private int? _lastTokenCount;
@@ -486,6 +496,23 @@ public class ChatWindow : Form
                 // The MCP page's test button: connect to the entry as currently typed, writing
                 // nothing. Separate from the save verb because there is no file to read back.
                 HandleTestMcpServer(uri);
+                break;
+            case "saveapiendpoint":
+                // The API page's save button: write one entry, and its key when one was typed.
+                HandleSaveApiEndpoint(uri);
+                break;
+            case "deleteapiendpoint":
+                HandleDeleteApiEndpoint(uri);
+                break;
+            case "forgetapikey":
+                // Withdraw the stored credential while keeping the endpoint — the "remove my key"
+                // affordance, kept separate from deleting the API itself.
+                HandleForgetApiKey(uri);
+                break;
+            case "testapiendpoint":
+                // Request the base URL as typed, writing nothing: proves the host resolves and the
+                // credential is accepted before a node is ever placed.
+                HandleTestApiEndpoint(uri);
                 break;
             case "signinmcpserver":
                 // Connect to a configured server now, which is what runs a remote one's OAuth
@@ -1721,6 +1748,9 @@ public class ChatWindow : Form
         // config file's own write time so a hand edit shows up too.
         MaybePushMcpServers();
 
+        // The configured HTTP APIs for the "API calls" page — same change-detection.
+        MaybePushApiEndpoints();
+
         // Switcher row: one circle per Chat on the canvas, pushed when the set/active changes.
         MaybePushChats();
     }
@@ -2212,6 +2242,258 @@ public class ChatWindow : Form
     {
         string json = JsonSerializer.Serialize(new { ok, message }, WriteOpts);
         Exec($"window.physalia&&window.physalia.setMcpResult&&window.physalia.setMcpResult({json});");
+    }
+
+    // The configured HTTP APIs for the "API calls" page, pushed only when the file changes — keyed on
+    // its write time, exactly as the MCP list is, so a hand edit shows up too.
+    //
+    // Keys are NEVER pushed. What goes over is whether one is available and where it came from, which
+    // is all the page needs to say "key stored" or to offer forgetting it. Sending the secret so a
+    // form could redisplay it would put it in the page's memory for no gain, and the credential store
+    // exists to keep exactly that from happening.
+    private void MaybePushApiEndpoints()
+    {
+        string path = ApiCall.Store.FilePath;
+
+        string signature;
+        try
+        {
+            var info = new FileInfo(path);
+            signature = info.Exists ? $"{info.LastWriteTimeUtc.Ticks}|{info.Length}" : "none";
+        }
+        catch (IOException)
+        {
+            signature = "unreadable";
+        }
+
+        if (signature == _lastApiSignature)
+        {
+            return;
+        }
+
+        _lastApiSignature = signature;
+
+        var resolver = new ApiKeyResolver(PhyCredentials.Store);
+        var endpoints = ApiCall.Store.Read()
+            .Select(e =>
+            {
+                string? source = resolver.SourceOf(e);
+                return new
+                {
+                    name = e.Name,
+                    baseUrl = e.BaseUrl,
+                    auth = JsonNamingPolicy.CamelCase.ConvertName(e.Auth.ToString()),
+                    authName = e.AuthName,
+                    authPrefix = e.AuthPrefix,
+                    envVar = e.EnvVar,
+                    hasKey = source is not null,
+                    keySource = source ?? string.Empty,
+                };
+            })
+            .ToList();
+
+        string json = JsonSerializer.Serialize(new { endpoints }, WriteOpts);
+        Exec($"window.physalia&&window.physalia.setApiEndpoints&&window.physalia.setApiEndpoints({json});");
+    }
+
+    // Writes one API entry, and its key when one was typed.
+    private void HandleSaveApiEndpoint(Uri uri)
+    {
+        if (!TryReadApiPayload(uri, out ApiEndpointPayload? payload, out ApiEndpoint? endpoint))
+        {
+            return;
+        }
+
+        try
+        {
+            ApiCall.Store.Save(endpoint, NullIfBlank(payload.Replacing));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            PushApiResult(false, $"Could not save: {ex.Message}");
+            return;
+        }
+
+        // A blank key leaves the stored one alone — the page never had it to send back. Clearing is
+        // the forget verb, which says so.
+        if (!string.IsNullOrWhiteSpace(payload.Key))
+        {
+            try
+            {
+                PhyCredentials.Store.Save(new ModelApi(endpoint.CredentialId, string.Empty, payload.Key.Trim()));
+                PhyCredentials.Invalidate();
+            }
+            catch (InvalidOperationException ex)
+            {
+                // The store belongs to another Windows account. Saving over it would discard every
+                // other credential its real owner had, so the endpoint is kept and the key is not.
+                PushApiResult(false, $"Saved '{endpoint.Name}', but its key could not be stored: {ex.Message}");
+                _lastApiSignature = null;
+                return;
+            }
+        }
+
+        // Drop the signature so the next tick re-reads and re-pushes: the list must reflect the save
+        // straight away, and the file's own write time is not what the page is waiting on.
+        _lastApiSignature = null;
+        PushApiResult(true, $"Saved '{endpoint.Name}'.");
+    }
+
+    // Removes one configured API, and the key stored with it — leaving an orphaned secret behind for
+    // an endpoint nobody can reach again would be a surprise, not a safeguard.
+    private void HandleDeleteApiEndpoint(Uri uri)
+    {
+        string name = GetQueryValue(uri.Query, "name");
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        ApiEndpoint? existing = ApiCall.Store.Find(name);
+
+        try
+        {
+            ApiCall.Store.Remove(name);
+            if (existing is not null)
+            {
+                PhyCredentials.Store.Remove(existing.CredentialId);
+                PhyCredentials.Invalidate();
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            PushApiResult(false, $"Could not remove: {ex.Message}");
+            return;
+        }
+
+        _lastApiSignature = null;
+        PushApiResult(true, $"Removed '{name}'. Any API Call node still naming it will say so.");
+    }
+
+    // Forgets an endpoint's stored key while keeping the endpoint itself.
+    private void HandleForgetApiKey(Uri uri)
+    {
+        string name = GetQueryValue(uri.Query, "name");
+        ApiEndpoint? existing = ApiCall.Store.Find(name);
+        if (existing is null)
+        {
+            return;
+        }
+
+        try
+        {
+            PhyCredentials.Store.Remove(existing.CredentialId);
+            PhyCredentials.Invalidate();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            PushApiResult(false, $"Could not forget the key: {ex.Message}");
+            return;
+        }
+
+        _lastApiSignature = null;
+        PushApiResult(true, $"Forgot the key for '{existing.Name}'.");
+    }
+
+    // Requests the base URL as currently typed, writing nothing. This doubles as the connection test:
+    // what comes back proves the host resolves, the path exists and the credential is accepted, which
+    // is worth catching here rather than on the first solve of a node the user has not placed yet.
+    private void HandleTestApiEndpoint(Uri uri)
+    {
+        if (!TryReadApiPayload(uri, out ApiEndpointPayload? payload, out ApiEndpoint? endpoint))
+        {
+            return;
+        }
+
+        // A typed key is tested as typed; a blank box falls back to whatever is already resolvable,
+        // so testing an existing entry does not require re-entering its key.
+        string? key = string.IsNullOrWhiteSpace(payload.Key)
+            ? new ApiKeyResolver(PhyCredentials.Store).Resolve(endpoint)
+            : payload.Key.Trim();
+
+        _ = Task.Run(async () =>
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            Result<string, LlmError> result = await Physalia.Core.Api.ApiRequest
+                .SendAsync(endpoint, string.Empty, string.Empty, key, ApiTestClient, timeout.Token)
+                .ConfigureAwait(false);
+
+            string message = result.IsErr(out LlmError? error, out string? body)
+                ? error.Message
+                : $"{endpoint.Name} answered — {body.Length} characters.";
+
+            RhinoApp.InvokeOnUiThread(new Action(() => PushApiResult(!result.IsErr(out _, out _), message)));
+        });
+    }
+
+    // Shared parse + validate for the save and test verbs, which take the same payload.
+    private bool TryReadApiPayload(
+        Uri uri,
+        [NotNullWhen(true)] out ApiEndpointPayload? payload,
+        [NotNullWhen(true)] out ApiEndpoint? endpoint)
+    {
+        payload = null;
+        endpoint = null;
+
+        string raw = GetQueryValue(uri.Query, "entry");
+        if (string.IsNullOrEmpty(raw))
+        {
+            return false;
+        }
+
+        try
+        {
+            payload = JsonSerializer.Deserialize<ApiEndpointPayload>(raw, ReadOpts);
+        }
+        catch (JsonException)
+        {
+            PushApiResult(false, "Physalia could not read that API definition.");
+            return false;
+        }
+
+        if (payload is null || string.IsNullOrWhiteSpace(payload.Name))
+        {
+            PushApiResult(false, "Give the API a name.");
+            return false;
+        }
+
+        if (!Uri.TryCreate(payload.BaseUrl, UriKind.Absolute, out Uri? parsed)
+            || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+        {
+            PushApiResult(false, "The base URL must be a full http:// or https:// address.");
+            return false;
+        }
+
+        if (!Enum.TryParse(payload.Auth, ignoreCase: true, out ApiAuth auth))
+        {
+            auth = ApiAuth.None;
+        }
+
+        if ((auth == ApiAuth.CustomHeader || auth == ApiAuth.QueryParameter)
+            && string.IsNullOrWhiteSpace(payload.AuthName))
+        {
+            PushApiResult(false, auth == ApiAuth.QueryParameter
+                ? "Name the query parameter the key goes in."
+                : "Name the header the key goes in.");
+            return false;
+        }
+
+        endpoint = new ApiEndpoint(
+            payload.Name.Trim(),
+            payload.BaseUrl!.Trim(),
+            auth,
+            (payload.AuthName ?? string.Empty).Trim(),
+            payload.AuthPrefix ?? string.Empty,
+            (payload.EnvVar ?? string.Empty).Trim());
+
+        return true;
+    }
+
+    // One-shot push of an API save/delete/test outcome to the page.
+    private void PushApiResult(bool ok, string message)
+    {
+        string json = JsonSerializer.Serialize(new { ok, message }, WriteOpts);
+        Exec($"window.physalia&&window.physalia.setApiResult&&window.physalia.setApiResult({json});");
     }
 
     // Pushes the switcher list — one entry per Chat on the canvas, in left-to-right canvas order —
@@ -3462,5 +3744,18 @@ public class ChatWindow : Form
         string? Url,
         List<List<string>>? Headers,
         string? Scope,
+        string? Replacing);
+
+    // One API entry pushed from the window's API page. Key is write-only: it is never sent OUT to the
+    // page, and coming back blank means "leave the stored one alone" rather than "clear it" — the page
+    // cannot show what it does not have, so a blank box must not be read as an instruction to erase.
+    private sealed record ApiEndpointPayload(
+        string Name,
+        string? BaseUrl,
+        string? Auth,
+        string? AuthName,
+        string? AuthPrefix,
+        string? EnvVar,
+        string? Key,
         string? Replacing);
 }

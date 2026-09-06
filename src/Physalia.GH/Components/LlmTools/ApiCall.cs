@@ -67,6 +67,10 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
     private readonly ApiKeyResolver _keys = new(PhyCredentials.Store);
 
     private IReadOnlyList<ApiEndpoint> _library = Array.Empty<ApiEndpoint>();
+
+    // Stamp of the file behind _library, so a change made in the chat window (or by another
+    // Rhino instance) is picked up without re-parsing on every solve. Null = never read.
+    private string? _libraryStamp;
     private ApiEndpoint? _endpoint;
 
     private string _endpointName = string.Empty;
@@ -207,7 +211,11 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
 
         Menu_AppendItem(menu, "Reload APIs From File", (_, _) =>
         {
-            ReloadLibrary();
+            // Forces the read even when the stamp says nothing changed — the automatic refresh makes
+            // this redundant in ordinary use, and it stays for the case the stamp cannot see (a file
+            // rewritten within the file system's write-time resolution).
+            _libraryStamp = null;
+            ReloadLibraryIfChanged();
             ExpireSolution(true);
         });
     }
@@ -215,10 +223,13 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
     /// <inheritdoc/>
     protected override void OnSolveTick(IGH_DataAccess da)
     {
-        if (_library.Count == 0)
-        {
-            ReloadLibrary();
-        }
+        // Re-read whenever the file has changed, not just when nothing has been read yet. The list
+        // has ONE editor — the chat window's API page — and the URL is consulted on every call, so a
+        // node holding the endpoint as it was when Rhino started will quietly keep calling the old
+        // address while the page shows the new one. The only visible sign of that disagreement is
+        // this node's Status output, which is a poor place to discover it. A FileInfo stat per solve
+        // is microseconds; re-parsing on every solve would not be, which is what the stamp is for.
+        ReloadLibraryIfChanged();
 
         string picked = string.Empty;
         da.GetData(InEndpoint, ref picked);
@@ -386,6 +397,21 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
 
         string name = "api__" + sanitized;
         return name.Length <= 64 ? name : name.Substring(0, 64);
+    }
+
+    // Reads the configured list only when the file's stamp differs from the one behind the copy we
+    // hold. The stamp is recorded even when the file is absent, so the FIRST endpoint added shows up
+    // here too — that case worked before only by accident, because an empty list was re-read anyway.
+    private void ReloadLibraryIfChanged()
+    {
+        string stamp = Store.RevisionStamp;
+        if (stamp == _libraryStamp)
+        {
+            return;
+        }
+
+        _libraryStamp = stamp;
+        ReloadLibrary();
     }
 
     private void ReloadLibrary() => _library = Store.Read();

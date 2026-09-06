@@ -370,6 +370,18 @@ and each was a fork with a worse branch.
   Router key — same rule as `McpServer`. A node with no endpoint picked advertises **nothing**
   (`Definitions` empty), because a tool that fails every call reads to the model as a broken API
   rather than an unconfigured node.
+- **The node re-reads the list when the FILE changes, not just when it holds nothing** — and this is
+  shared with `McpServer`, which had the same defect. Both used to reload only `if (_library.Count
+  == 0)`, so editing an entry mid-session left the node on the definition it loaded at startup while
+  the setup page showed the new one; the only visible sign of the disagreement was the node's Status
+  output. `FileRevision.Stamp` (write time + length — a coarse file-system clock can put two quick
+  saves on the same tick) is exposed as `RevisionStamp` on both stores, and the ChatWindow push
+  methods use it too, so there is ONE definition of "has this file changed". Note the asymmetry that
+  made this confusing to hit: the KEY already refreshed live, because saving calls
+  `PhyCredentials.Invalidate()` and `ApiKeyResolver` reads through the credential cache. **On
+  `McpServer` a reload additionally resets discovery — but only when the PICKED server's
+  `Identity` changed**, the same key the connection pool uses; a stamp change from editing a
+  *different* entry must not drop a live session's tool list.
 - The chat window's **API calls** page (Home screen and header menu) owns setup: name, base URL, auth
   form, optional key, optional env var, plus **Test** (a GET at the base URL, writing nothing).
   **The key is never pushed to the page** — only `hasKey`/`keySource` — so a blank key box on save
@@ -516,6 +528,10 @@ Grounding (not built); **prompts** → System Prompt's `Additional Prompt` (not 
   not worth re-auditing: `McpExecutable.Resolve` guards PATHEXT behind `IsWindows`, `CopyMcpBridge`
   globs `**\*` so it stages whatever the apphost is called, `LocalApplicationData` maps to
   `~/.local/share`, and `UseShellExecute = true` opens a browser via `open`.
+- **`McpServer` re-reads the file when it CHANGES** (`Store.RevisionStamp`), not only when its cached
+  list is empty — see the HTTP APIs section, which fixed this node and `ApiCall` together. The reload
+  resets `_discovered`/`_listed` **only when the picked server's `Identity` changed**, since editing
+  an unrelated entry must not drop a live session's tool list.
 - **The chat window's Home screen edits this file** ("Configure MCP connections", also on the header
   menu). Two invariants there, both load-bearing. (1) **The file is EDITED, never regenerated** —
   `McpConfigEditor` replaces only the edited entry's line range, so the shipped commentary, the

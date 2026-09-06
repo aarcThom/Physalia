@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Physalia.Core.Common;
 using Physalia.Core.Config.Secrets;
 
 namespace Physalia.Core.Mcp;
@@ -68,6 +69,16 @@ public sealed class McpServerStore
     /// Gets the absolute path of the backing file, for change-watching and diagnostics.
     /// </summary>
     public string FilePath => this._path;
+
+    /// <summary>
+    /// Gets a stamp that changes whenever the backing file does.
+    /// </summary>
+    /// <remarks>
+    /// What lets a caller holding a cached read notice an edit — from the setup page, from another
+    /// Rhino instance, or from someone opening the file by hand — without re-parsing it on every
+    /// solve. Compare it with a previously held stamp; never parse it.
+    /// </remarks>
+    public string RevisionStamp => FileRevision.Stamp(this._path);
 
     /// <summary>
     /// Reads every configured server, with <c>${VAR}</c> references resolved.

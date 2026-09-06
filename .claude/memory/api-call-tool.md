@@ -45,6 +45,16 @@ marks them `manual:` and a manual batch emits **no Result signal**; data leaves 
 outputs. New `Construct Tool Call` node mints them. **Not relying on wiring discipline was the
 point** — the model path REQUIRES the Result wire, so "just don't wire it" was never available.
 
+**Config staleness, fixed for BOTH nodes (same session).** `ApiCall` and `McpServer` reloaded their
+list only `if (_library.Count == 0)`, so editing an entry mid-session left the node on the startup
+definition while the setup page showed the new one — the disagreement visible only on the node's
+Status output. Now keyed on `FileRevision.Stamp` (write time + length; a coarse FS clock can put two
+quick saves on the same tick), exposed as `RevisionStamp` on both stores and reused by the ChatWindow
+push methods, so "has this file changed" has one definition. The confusing part was the asymmetry:
+the KEY already refreshed live, because saving calls `PhyCredentials.Invalidate()`. On `McpServer` a
+reload also resets discovery, but ONLY when the picked server's `Identity` changed — a stamp change
+from editing a different entry must not drop a live session's tool list.
+
 Deferred deliberately: `describe_dataset` / `search_datasets` for portals with too many datasets to
 ground, and a Fetch button that seeds the Description box from the portal's own catalog.
 

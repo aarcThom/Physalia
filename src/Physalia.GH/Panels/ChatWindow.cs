@@ -1805,18 +1805,7 @@ public class ChatWindow : Form
     // secret into the store that the reference existed to keep it out of.
     private void MaybePushMcpServers()
     {
-        string path = McpServer.Store.FilePath;
-
-        string signature;
-        try
-        {
-            var info = new FileInfo(path);
-            signature = info.Exists ? $"{info.LastWriteTimeUtc.Ticks}|{info.Length}" : "none";
-        }
-        catch (IOException)
-        {
-            signature = "unreadable";
-        }
+        string signature = McpServer.Store.RevisionStamp;
 
         if (signature == _lastMcpSignature)
         {
@@ -2253,18 +2242,7 @@ public class ChatWindow : Form
     // exists to keep exactly that from happening.
     private void MaybePushApiEndpoints()
     {
-        string path = ApiCall.Store.FilePath;
-
-        string signature;
-        try
-        {
-            var info = new FileInfo(path);
-            signature = info.Exists ? $"{info.LastWriteTimeUtc.Ticks}|{info.Length}" : "none";
-        }
-        catch (IOException)
-        {
-            signature = "unreadable";
-        }
+        string signature = ApiCall.Store.RevisionStamp;
 
         if (signature == _lastApiSignature)
         {

@@ -42,6 +42,10 @@ public class McpServer : LlmToolComponentBase, IPickableValuesSource
 
     // Server definitions as last read from disk, and the tools last discovered from the picked one.
     private IReadOnlyList<McpServerDefinition> _library = Array.Empty<McpServerDefinition>();
+
+    // Stamp of the file behind _library, so an edit in the chat window (or by another Rhino
+    // instance) is picked up without re-parsing on every solve. Null = never read.
+    private string? _libraryStamp;
     private IReadOnlyList<LlmToolDefinition> _discovered = Array.Empty<LlmToolDefinition>();
 
     private string _serverName = string.Empty;
@@ -184,6 +188,9 @@ public class McpServer : LlmToolComponentBase, IPickableValuesSource
 
         Menu_AppendItem(menu, "Reload Servers From File", (_, _) =>
         {
+            // Forces both the read and a re-discovery, where the automatic refresh does neither when
+            // the stamp is unchanged and this server's own definition did not move.
+            _libraryStamp = null;
             ReloadLibrary();
             _listed = false;
             _connectionError = null;
@@ -220,10 +227,10 @@ public class McpServer : LlmToolComponentBase, IPickableValuesSource
     /// <inheritdoc/>
     protected override void OnSolveTick(IGH_DataAccess da)
     {
-        if (_library.Count == 0)
-        {
-            ReloadLibrary();
-        }
+        // Re-read whenever the file has changed, not just when nothing has been read yet. Editing a
+        // server in the chat window otherwise left this node on the definition it loaded at startup,
+        // with the page showing one thing and the node connecting to another.
+        ReloadLibraryIfChanged();
 
         string picked = string.Empty;
         da.GetData(1, ref picked);
@@ -456,6 +463,34 @@ public class McpServer : LlmToolComponentBase, IPickableValuesSource
         _serverName.Length == 0
             ? null
             : _library.FirstOrDefault(s => string.Equals(s.Name, _serverName, StringComparison.OrdinalIgnoreCase));
+
+    // Reads the configured list only when the file's stamp differs from the one behind the copy we
+    // hold. Unlike the API node, a reload here can invalidate work: the tools this node advertises
+    // were discovered from a PARTICULAR definition, so if the picked server's launch details changed
+    // (a new command, a new URL, a different token in env) the discovered set belongs to a server
+    // that no longer exists under that name. Comparing Identity is exactly the right test, because it
+    // is the same key the connection pool uses to decide whether a warm session may be reused.
+    // A stamp change that leaves this server's definition alone — someone edited a DIFFERENT entry —
+    // must not reset anything, or every unrelated save would drop a live session's tool list.
+    private void ReloadLibraryIfChanged()
+    {
+        string stamp = Store.RevisionStamp;
+        if (stamp == _libraryStamp)
+        {
+            return;
+        }
+
+        string? before = Resolve()?.Identity;
+        _libraryStamp = stamp;
+        ReloadLibrary();
+
+        if (Resolve()?.Identity != before)
+        {
+            _discovered = Array.Empty<LlmToolDefinition>();
+            _connectionError = null;
+            _listed = false;
+        }
+    }
 
     private void ReloadLibrary()
     {

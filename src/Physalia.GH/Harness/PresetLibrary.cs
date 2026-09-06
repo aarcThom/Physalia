@@ -8,6 +8,7 @@ using System.Linq;
 using System.Reflection;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Physalia.Core.Packaging;
 
 namespace Physalia.GH.Harness;
 
@@ -15,9 +16,11 @@ namespace Physalia.GH.Harness;
 /// The preset library on disk: <c>Files/PRESETS</c> beside the plug-in, divided by where each preset
 /// came from.
 ///
-/// <para>A preset is an ordinary Grasshopper file holding one harness's worth of pipeline — exactly
-/// what writing a harness's sub-document out produces, which is why authoring one needs no export
-/// format of its own. Loading one adds a NEW harness holding it.</para>
+/// <para>A preset is a <c>.phy</c> package: one harness's pipeline, its name, its description, the
+/// text its chat window opens with, and the project files it works on. Loading one adds a NEW harness
+/// holding it. Plain <c>.gh</c> files are still listed and still load — that is what the presets
+/// shipped with earlier builds are, and it keeps the format honest, since a <c>.phy</c> is a zip with
+/// exactly such a file inside it.</para>
 ///
 /// <list type="bullet">
 /// <item><description><b>Physalia</b> — the pipelines shipped with the plug-in.</description></item>
@@ -101,7 +104,12 @@ internal static class PresetLibrary
             IEnumerable<string> files;
             try
             {
+                // Both formats are listed side by side. A .phy is what saving writes now; the .gh
+                // presets shipped with earlier builds keep working, and one dropped in by hand still
+                // loads — the library is a folder people put files in, so it has to read what is
+                // there rather than only what this version writes.
                 files = Directory.EnumerateFiles(dir, "*.gh")
+                    .Concat(Directory.EnumerateFiles(dir, "*" + PhyPackage.Extension))
                     .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
                     .ToList();
             }
@@ -155,70 +163,31 @@ internal static class PresetLibrary
     }
 
     /// <summary>
-    /// Reads a preset's description — the text of the Harness Notes panel inside it — straight out of
-    /// the archive, WITHOUT loading the document.
+    /// Reads a preset's description — what the chat window's gallery shows beside it.
     ///
-    /// <para>A Grasshopper file carries no description of its own, and instantiating every component in
-    /// a preset just to read one string would be absurd (and would run their placement hooks). So the
-    /// archive is walked as data: <c>Definition/DefinitionObjects</c> holds one <c>Object</c> chunk per
-    /// component, each stamped with the type's <c>GUID</c> and carrying a <c>Container</c> chunk of
-    /// whatever that component wrote. Finding the Harness Notes type id and reading its key out of the
-    /// container costs one file read and no object construction.</para>
+    /// <para>It comes out of the package manifest, which costs one small entry from the archive
+    /// directory and never touches the document. That replaced a considerably worse arrangement: the
+    /// description used to be the text of a Harness Notes component sitting INSIDE the pipeline, dug
+    /// out by walking the Grasshopper archive as raw data and matching a component type id. The
+    /// walking was necessary — instantiating every component in a preset to read one string would
+    /// have run their placement hooks — but the arrangement it served was the wrong one, since a
+    /// harness's own metadata does not belong to a component inside it.</para>
     ///
-    /// <para>The first non-empty note wins, so a harness documented in several panels still yields a
-    /// description rather than a concatenation.</para>
+    /// <para>A legacy <c>.gh</c> preset has no description. None of the shipped ones ever carried a
+    /// notes component, so nothing is lost by not looking for one.</para>
     /// </summary>
     /// <param name="path">Full path to the preset file.</param>
-    /// <returns>The description, or null when the preset has no notes (or cannot be read).</returns>
+    /// <returns>The description, or null when the preset has none (or cannot be read).</returns>
     internal static string? ReadDescription(string path)
     {
-        try
-        {
-            var archive = new GH_Archive();
-            if (!archive.ReadFromFile(path))
-            {
-                return null;
-            }
-
-            GH_IReader? objects = archive.GetRootNode
-                ?.FindChunk("Definition")
-                ?.FindChunk("DefinitionObjects");
-
-            if (objects is null || !objects.ItemExists("ObjectCount"))
-            {
-                return null;
-            }
-
-            int count = objects.GetInt32("ObjectCount");
-            for (int i = 0; i < count; i++)
-            {
-                GH_IReader? entry = objects.FindChunk("Object", i);
-
-                // An Object chunk's own GUID is the TYPE id (ComponentGuid); the instance's lives
-                // inside the Container, with everything else the component wrote.
-                if (entry is null
-                    || !entry.ItemExists("GUID")
-                    || entry.GetGuid("GUID") != Components.HarnessNotes.TypeGuid)
-                {
-                    continue;
-                }
-
-                GH_IReader? container = entry.FindChunk("Container");
-                string notes = string.Empty;
-                if (container is not null
-                    && container.TryGetString(Components.HarnessNotes.NotesKey, ref notes)
-                    && !string.IsNullOrWhiteSpace(notes))
-                {
-                    return notes.Trim();
-                }
-            }
-
-            return null;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        if (!PhyPackage.IsPackage(path))
         {
             return null;
         }
+
+        return PhyPackage.ReadManifest(path).IsOk(out PhyManifest? manifest, out _)
+            ? manifest.Description
+            : null;
     }
 
     /// <summary>
@@ -226,7 +195,7 @@ internal static class PresetLibrary
     /// needed. Does not write anything and does not care whether the file already exists — the
     /// caller decides what to do about that.
     /// </summary>
-    /// <param name="requestedName">The name the user typed, with or without a .gh extension.</param>
+    /// <param name="requestedName">The name the user typed, with or without an extension.</param>
     /// <param name="path">The full path to write to.</param>
     /// <param name="error">Why no path could be produced.</param>
     /// <returns>True when a path was produced.</returns>
@@ -243,9 +212,15 @@ internal static class PresetLibrary
             name = name.Replace(invalid.ToString(), string.Empty);
         }
 
-        if (name.EndsWith(".gh", StringComparison.OrdinalIgnoreCase))
+        // Either extension is stripped, so typing "site.gh" or "site.phy" both save as "site.phy".
+        // What gets written is decided here, not by what the user typed.
+        foreach (string extension in new[] { PhyPackage.Extension, ".gh" })
         {
-            name = name.Substring(0, name.Length - 3);
+            if (name.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+            {
+                name = name.Substring(0, name.Length - extension.Length);
+                break;
+            }
         }
 
         name = name.Trim();
@@ -266,26 +241,28 @@ internal static class PresetLibrary
             return false;
         }
 
-        path = Path.Combine(dir, name + ".gh");
+        path = Path.Combine(dir, name + PhyPackage.Extension);
         return true;
     }
 
     /// <summary>
-    /// Writes a document out as a preset file.
+    /// Archives a harness's sub-document to the bytes a <c>.gh</c> file would hold.
     ///
-    /// <para>Archives it directly rather than through <c>GH_DocumentIO</c>, and with
-    /// <c>rememberPath: false</c>, so saving leaves no trace on the live document: no stamped
-    /// FilePath, no entry in Grasshopper's recent-files list. The chunk name matches what
+    /// <para>Archives directly rather than through <c>GH_DocumentIO</c>, and with
+    /// <c>rememberPath: false</c> semantics, so saving leaves no trace on the live document: no
+    /// stamped FilePath, no entry in Grasshopper's recent-files list. The chunk name matches what
     /// <see cref="HarnessComponent.ReadDocumentFile"/> reads and what Grasshopper itself writes, so
-    /// the result is an ordinary .gh file openable by hand.</para>
+    /// these bytes are an ordinary Grasshopper definition — which is what lets a <c>.phy</c> be
+    /// unzipped and the pipeline inside opened by hand.</para>
     /// </summary>
-    /// <param name="contents">The document to write — a harness's sub-document.</param>
-    /// <param name="path">Where to write it.</param>
-    /// <param name="error">Why the write failed.</param>
-    /// <returns>True when the file was written.</returns>
-    internal static bool TryWrite(GH_Document contents, string path, out string error)
+    /// <param name="contents">The document to archive — a harness's sub-document.</param>
+    /// <param name="bytes">The archived document.</param>
+    /// <param name="error">Why the archive failed.</param>
+    /// <returns>True when the document was archived.</returns>
+    internal static bool TryArchive(GH_Document contents, out byte[] bytes, out string error)
     {
         ArgumentNullException.ThrowIfNull(contents);
+        bytes = Array.Empty<byte>();
         error = string.Empty;
 
         try
@@ -297,19 +274,55 @@ internal static class PresetLibrary
                 return false;
             }
 
-            if (!archive.WriteToFile(path, true, false))
+            bytes = archive.Serialize_Binary();
+            if (bytes is null || bytes.Length == 0)
             {
-                error = "Grasshopper declined to write the file.";
+                error = "Grasshopper produced an empty archive.";
                 return false;
             }
 
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             error = ex.Message;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Writes a harness out as a <c>.phy</c> package.
+    /// </summary>
+    /// <param name="path">Where to write it.</param>
+    /// <param name="manifest">The harness's name, description and chat text.</param>
+    /// <param name="contents">The harness's sub-document.</param>
+    /// <param name="files">Project files to carry, or null for none.</param>
+    /// <param name="bytesWritten">How big the package turned out.</param>
+    /// <param name="error">Why the write failed.</param>
+    /// <returns>True when the package was written.</returns>
+    internal static bool TryWritePackage(
+        string path,
+        PhyManifest manifest,
+        GH_Document contents,
+        IReadOnlyList<PhyPackageFile>? files,
+        out long bytesWritten,
+        out string error)
+    {
+        bytesWritten = 0;
+
+        if (!TryArchive(contents, out byte[] document, out error))
+        {
+            return false;
+        }
+
+        if (PhyPackage.Write(path, manifest, document, files).IsOk(out long written, out string? failure))
+        {
+            bytesWritten = written;
+            return true;
+        }
+
+        error = failure;
+        return false;
     }
 }
 

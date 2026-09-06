@@ -283,14 +283,32 @@ public sealed class FileDownloadTests : IDisposable
 
         Assert.False((await this.Fetch("https://blocked.example/tile.zip", client)).IsOk(out _, out string? error));
 
-        Assert.Contains("BOT CHALLENGE", error);
+        Assert.True(FileDownload.IsBlocked(error));
         Assert.Contains("not something to retry", error);
 
-        // The message has to carry the destination, because the recovery is a person saving the file
-        // into it by hand.
+        // It has to name the affordance that actually solves this — the browser window that saves
+        // into the project folder — and the folder itself, for the hand-carried fallback.
+        Assert.Contains("Fetch in Browser", error);
         Assert.Contains(this._root, error);
-        Assert.Contains("in their browser", error);
-        Assert.Contains("Do not call", error);
+        Assert.Contains("Do not call download_file", error);
+    }
+
+    [Fact]
+    public async Task IsBlocked_TellsTheTwoKindsOfFailureApart()
+    {
+        // The Download File node keys "offer the browser window" off this, so a false positive sends
+        // someone to a browser over a typo and a false negative hides the only thing that works.
+        using HttpClient blocked = Refusing(
+            HttpStatusCode.Forbidden, server: "cloudflare", contentType: "text/html", cfMitigated: true);
+        using HttpClient missing = Serving(Encoding.UTF8.GetBytes("nope"), status: HttpStatusCode.NotFound);
+
+        (await this.Fetch("https://blocked.example/a.zip", blocked)).IsOk(out _, out string? blockedError);
+        (await this.Fetch("https://example.org/a.zip", missing)).IsOk(out _, out string? missingError);
+
+        Assert.True(FileDownload.IsBlocked(blockedError));
+        Assert.False(FileDownload.IsBlocked(missingError));
+        Assert.False(FileDownload.IsBlocked(null));
+        Assert.False(FileDownload.IsBlocked(string.Empty));
     }
 
     [Fact]

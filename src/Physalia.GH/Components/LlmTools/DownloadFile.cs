@@ -97,6 +97,11 @@ public class DownloadFile : LlmToolComponentBase
 
     private string _status = "No download yet.";
 
+    // The last URL a bot challenge refused. Kept so the browser window can be offered pre-filled:
+    // by the time the user reaches the menu the URL is somewhere up the conversation, and retyping a
+    // LiDAR tile path by hand is the sort of chore that makes a feature go unused.
+    private string? _blockedUrl;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="DownloadFile"/> class.
     /// </summary>
@@ -193,7 +198,9 @@ public class DownloadFile : LlmToolComponentBase
         base.AppendAdditionalMenuItems(menu);
         Menu_AppendSeparator(menu);
 
-        // The way out when a host will not serve a program: fetch it in a browser, drop it here.
+        // The two ways out when a host will not serve a program: fetch it in a browser that saves
+        // into the folder, or open the folder and put a file there by hand.
+        Menu_AppendItem(menu, "Fetch in Browser…", (_, _) => this.FetchInBrowser());
         ProjectFolderMenu.Append(this, menu, this._folder);
         Menu_AppendSeparator(menu);
 
@@ -314,6 +321,12 @@ public class DownloadFile : LlmToolComponentBase
         if (!result.IsOk(out DownloadOutcome? outcome, out string? error))
         {
             this._status = "Last download failed: " + error;
+
+            if (FileDownload.IsBlocked(error))
+            {
+                this._blockedUrl = args.Url;
+            }
+
             return ToolCallResult.Error(error);
         }
 
@@ -398,6 +411,42 @@ public class DownloadFile : LlmToolComponentBase
 
     // The card is put up in the chat window, labelled with the harness that asked — the window may
     // well be looking at a different Chat than the pipeline making the request.
+    /// <summary>
+    /// Opens a browser window on a URL and saves what it downloads into this node's project folder.
+    ///
+    /// <para>The answer to a bot challenge. A managed challenge is passed by executing JavaScript, so
+    /// no HTTP client gets through one — but Physalia already ships a Chromium WebView, and a browser
+    /// with a person watching it is exactly what the protection is asking for. The download is
+    /// redirected into the project folder rather than the browser's own, so there is nothing to move
+    /// afterwards and the folder watcher hands the file to the model by itself.</para>
+    ///
+    /// <para>Pre-filled with the URL a challenge last refused, since by the time the user gets here
+    /// that URL is somewhere up the conversation.</para>
+    /// </summary>
+    private void FetchInBrowser()
+    {
+        if (string.IsNullOrWhiteSpace(this._folder))
+        {
+            Rhino.UI.Dialogs.ShowMessage(
+                "This node has no project folder, so there is nowhere to save the file. Wire a Project "
+                + "Folder grounder into it, or type a folder name.",
+                "Fetch in Browser");
+            return;
+        }
+
+        if (!Rhino.UI.Dialogs.ShowEditBox(
+                "Fetch in Browser",
+                "Address to fetch:",
+                this._blockedUrl ?? string.Empty,
+                false,
+                out string typed))
+        {
+            return; // cancelled
+        }
+
+        Panels.BrowserFetchWindow.Open(typed, this._folder);
+    }
+
     private Task<bool> AskAsync(string title, string summary, string detail, CancellationToken ct) =>
         ToolApprovalBroker.RequestAsync(
             new ToolApprovalRequest(title, summary, detail),

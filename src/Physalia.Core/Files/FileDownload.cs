@@ -46,6 +46,22 @@ namespace Physalia.Core.Files;
 /// </summary>
 public static class FileDownload
 {
+    /// <summary>
+    /// How a bot-challenge refusal begins, so the node that owns the call can tell one from an
+    /// ordinary failure and offer the browser window. A marker rather than a typed error for the same
+    /// reason <c>BuildPlanParser.DigestMarker</c> is one: exactly one caller needs to know, and the
+    /// message still has to read as prose to the model.
+    /// </summary>
+    public const string BlockedMarker = "BLOCKED BY A BOT CHALLENGE";
+
+    /// <summary>
+    /// Determines whether a failure message is the bot-challenge one.
+    /// </summary>
+    /// <param name="message">An error returned by <see cref="FetchAsync"/>.</param>
+    /// <returns>True when only a browser will get through.</returns>
+    public static bool IsBlocked(string? message) =>
+        message?.StartsWith(BlockedMarker, StringComparison.Ordinal) == true;
+
     // Honest, and versioned so a server operator seeing it in a log can tell which build called.
     private static readonly string UserAgent =
         "Physalia/" + (typeof(FileDownload).Assembly.GetName().Version?.ToString(3) ?? "1.0")
@@ -297,16 +313,17 @@ public static class FileDownload
             return $"The server answered {status} for {source}.";
         }
 
-        return $"BLOCKED BY A BOT CHALLENGE — not a missing file, and not something to retry. {source} "
-            + $"answered {status} with a browser challenge page, which no program can pass: retrying, "
-            + "switching between http and https, or trying a neighbouring file will all fail the same "
-            + "way.\n\nWhat DOES work is a person with a browser. Tell the user, in your reply:\n"
-            + $"  1. open {source} in their browser, where it will download normally;\n"
-            + $"  2. save it into this folder:\n     {destinationFolder}\n"
-            + "  3. tell you when it is there.\n\n"
-            + "The project folder is watched, so the file will show up in your grounding by itself "
-            + "once it lands — you do not need to download it again to see it. Do not call "
-            + "download_file on this host again.";
+        return $"{BlockedMarker} — not a missing file, and not something to retry. {source} answered "
+            + $"{status} with a browser challenge page, which no program can pass: retrying, switching "
+            + "between http and https, or trying a neighbouring file will all fail the same way.\n\n"
+            + "A browser CAN fetch it, and Physalia has one. Tell the user, in your reply, to right-click "
+            + "the Download File component and choose \"Fetch in Browser…\" — it opens this page in a real "
+            + "browser window and saves the file straight into the project folder, so there is nothing to "
+            + "move afterwards. Failing that, they can open it in their own browser and save it into:\n"
+            + $"     {destinationFolder}\n\n"
+            + "Either way the project folder is watched, so the file appears in your grounding by itself "
+            + "once it lands and you will see it on the next turn. Do not call download_file on this host "
+            + "again.";
     }
 
     /// <summary>

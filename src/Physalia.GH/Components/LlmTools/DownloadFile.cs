@@ -38,9 +38,16 @@ namespace Physalia.GH.Components;
 /// count is bounded — see <c>ZipSafety</c>. Prompting for each unpack would have been the weaker
 /// answer, since a dialog answered by reflex protects nobody.</para>
 ///
-/// <para>The two <b>Ask first</b> switches are for the user who wants the decision anyway. They are
-/// off by default and serialized on this node, so a pipeline shared with a colleague arrives
-/// configured the way its author left it.</para>
+/// <para>Both <b>Ask first</b> switches are ON by default: a download spends somebody else's
+/// bandwidth and fills this machine's disk, and unpacking writes a directory tree, so neither
+/// happens on a model's word alone until the user has said it may. They are serialized on this node,
+/// so switching them off travels with the pipeline and a colleague gets it configured the way its
+/// author left it.</para>
+///
+/// <para>The prompts fail closed, which has one consequence worth knowing: with no chat window open
+/// there is nowhere to ask, so a download is denied immediately rather than after a five-minute
+/// timeout. That is the right way round — but a pipeline meant to run unattended needs these
+/// switched off deliberately.</para>
 /// </summary>
 public class DownloadFile : LlmToolComponentBase
 {
@@ -77,9 +84,14 @@ public class DownloadFile : LlmToolComponentBase
 
     private long _maxBytes = 200 * BytesPerMb;
 
-    private bool _askBeforeDownload;
+    // ON by default, both of them. A download is somebody else's bandwidth and this machine's disk,
+    // and unpacking writes a directory tree — neither is a thing to do on a model's word alone the
+    // first time a pipeline is used. Switch them off per node once you trust what it fetches; the
+    // setting is serialized here, so a pipeline shared with a colleague arrives configured the way
+    // its author left it.
+    private bool _askBeforeDownload = true;
 
-    private bool _askBeforeExtract;
+    private bool _askBeforeExtract = true;
 
     private readonly List<string> _downloaded = new();
 
@@ -217,13 +229,22 @@ public class DownloadFile : LlmToolComponentBase
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Each flag is seeded with its DEFAULT and only then offered to the archive, because
+    /// <c>TryGetBoolean</c> leaves the value alone when the key is absent. Reading into a false seed
+    /// — which is what this did while the defaults were off — would silently switch both prompts off
+    /// for every node saved before they existed, and for any archive that happens not to carry the
+    /// keys. An absent setting has to mean "the default", never "false".
+    /// </remarks>
     public override bool Read(GH_IReader reader)
     {
-        bool value = false;
-        this._askBeforeDownload = reader.TryGetBoolean("AskBeforeDownload", ref value) && value;
+        bool ask = true;
+        reader.TryGetBoolean("AskBeforeDownload", ref ask);
+        this._askBeforeDownload = ask;
 
-        value = false;
-        this._askBeforeExtract = reader.TryGetBoolean("AskBeforeExtract", ref value) && value;
+        ask = true;
+        reader.TryGetBoolean("AskBeforeExtract", ref ask);
+        this._askBeforeExtract = ask;
 
         return base.Read(reader);
     }

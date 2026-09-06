@@ -307,7 +307,7 @@ next pass.
 
 | File | Component | Prompt |
 |---|---|---|
-| `RunRhinoScript.png` | Run Rhino Script | A pair of curly braces with a small rightward play triangle between them, standing on a short horizontal ground line. The play triangle is cyan. Reads as "run this code" and stays distinct from `RhinoCommonSearch.png`, which puts a magnifier over braces rather than a triangle. |
+| `RunRhinoScript.png` | Drive Rhino | A pair of curly braces with a small rightward play triangle between them, standing on a short horizontal ground line. The play triangle is cyan. Reads as "run this code" and stays distinct from `RhinoCommonSearch.png`, which puts a magnifier over braces rather than a triangle. |
 | `RhinoDocumentGrounder.png` | Rhino Document | A document page seen face-on with one folded corner, three stacked horizontal bars across its lower half standing for the layer rows, and a small solid cube resting on the topmost bar. The cube is cyan. Reads as "what is in the file" and stays distinct from `CanvasStateGrounder.png`, which is about the Grasshopper canvas rather than the Rhino document. |
 | `ProjectFolderGrounder.png` | Project Folder | A folder seen face-on with its tab on the upper left, and a small solid dot at its lower-right corner standing for the files inside. The dot is cyan. Reads as "this pipeline has a place of its own" and stays distinct from `MemoryTool.png`, which is about notes rather than files. |
 | `DownloadFile.png` | Download File | A downward arrow landing on a short horizontal tray line, with a small cloud outline above the arrow tail. The arrow is cyan. Reads as "fetch it to disk" and stays distinct from `ReadUrl.png`, which is a page rather than a tray. |

@@ -74,7 +74,7 @@ public class RunRhinoScript : LlmToolComponentBase
     /// </summary>
     public RunRhinoScript()
         : base(
-            "Run Rhino Script",
+            "Drive Rhino",
             "RhinoPy",
             "Lets the model run Python inside Rhino, against the live document — to make and edit "
             + "geometry, drive layers and document settings, or simply to look: whatever the script "

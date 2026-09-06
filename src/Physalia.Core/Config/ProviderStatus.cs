@@ -47,11 +47,25 @@ public enum ProviderSource
 /// A short human-readable specific — the environment variable a key was found in, say — or null.
 /// Lets the page say "found in GEMINI_API_KEY" instead of just "found".
 /// </param>
+/// <param name="BaseUrl">
+/// The endpoint currently in effect — what the user stored, else the catalog default — or null when
+/// nothing configures this provider. The setup page prefills its API URL box from it, so reopening a
+/// configured provider shows the endpoint actually in use rather than the default it may have been
+/// changed away from (Alibaba's regions, a Z.AI Coding Plan key, a private gateway).
+/// </param>
+/// <param name="HasStoredKey">
+/// Whether a key for this provider sits in the encrypted store. <b>Never the key itself</b>: the page
+/// gets the fact and nothing more, which is what lets a blank key box mean "leave the stored one
+/// alone" rather than "clear it". It also tells the page whether disconnecting has a secret to
+/// destroy, so the irreversible case can ask twice and the harmless one need not.
+/// </param>
 public readonly record struct ProviderStatus(
     string Id,
     bool Activated,
     ProviderSource Source,
-    string? Detail)
+    string? Detail,
+    string? BaseUrl = null,
+    bool HasStoredKey = false)
 {
     /// <summary>
     /// Gets a value indicating whether this provider could be used if the user connected it.

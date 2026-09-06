@@ -381,6 +381,15 @@ export interface ProviderStatus {
 	activated: boolean;
 	source: 'none' | 'environment' | 'stored' | 'detected';
 	detail?: string | null;
+	/** The endpoint in effect (what was stored, else the catalog default), or null when nothing
+	 *  configures this provider yet. Reopening a configured provider prefills its URL box from this,
+	 *  so an endpoint moved off the default — an Alibaba region, a Z.AI Coding Plan URL — is what the
+	 *  user sees rather than the default it was changed away from. */
+	baseUrl?: string | null;
+	/** Whether a key for this provider sits in the encrypted store. NEVER the key itself: this is
+	 *  what lets a blank key box mean "leave the stored one alone", and it tells the page whether
+	 *  disconnecting has a secret to destroy — the irreversible case asks twice. */
+	hasStoredKey?: boolean;
 }
 
 /** Outcome of a save-API-key request, pushed back by the host after it writes the config. */

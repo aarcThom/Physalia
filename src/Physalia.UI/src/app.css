@@ -1,6 +1,13 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+/* Tailwind's automatic source detection skips node_modules, so a class that exists ONLY inside a
+   dependency is never compiled. streamdown-svelte (the Response markdown renderer) carries its whole
+   theme that way — headings, lists, tables, blockquotes, code — and none of it reached the bundle:
+   chat markdown rendered on browser defaults, bullets and all borders missing. Registering the
+   package's dist explicitly is the documented way to include a library's own classes. */
+@source '../node_modules/streamdown-svelte/dist';
+
 @custom-variant dark (&:is(.dark *));
 
 /* Physalia chat window is light-mode only (see App.svelte / ModeWatcher forced light).

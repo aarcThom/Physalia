@@ -93,7 +93,7 @@ html = io.open(DIST, encoding='utf-8').read()
 head, sep, tail = html.rpartition('</body>')
 io.open(OUT, 'w', encoding='utf-8').write(head + script + sep + tail)
 
-url = 'file:///' + OUT.replace(chr(92), '/')
+url = 'file:///' + os.path.abspath(OUT).replace(chr(92), '/')
 common = [CHROME, '--headless=new', '--disable-gpu', '--window-size=460,620',
           '--virtual-time-budget=9000', url]
 dom = subprocess.run(common + ['--dump-dom'], capture_output=True, text=True, encoding='utf-8').stdout

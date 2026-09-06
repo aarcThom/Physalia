@@ -19,6 +19,12 @@ Vite + Svelte 5 + TS + Tailwind v4 + **shadcn-svelte** with **svelte-ai-elements
 - **MSBuild wrapper** (compiles no C#): the Vite build runs only with `-p:BuildUI=true` or `npm run build` — a plain `dotnet build` needs no Node and uses the committed artifact.
 - **Output (changed 2026-06-29):** `vite-plugin-singlefile` → one `src/Physalia.UI/dist/index.html` → **embedded into the `Physalia.GH` assembly** as the `Physalia.GH.chat.html` manifest resource (via `Physalia.GH.csproj`'s `EmbedChatHtml` target). It is NOT in `Files/` (that folder is user-alterable content only). At runtime `ChatWindow.TryExtractChatHtml` writes it to `%TEMP%/Physalia/chat-<asmVersion>.html` (reused when present + same size) and `LoadUi` loads that via `file://`. singlefile = no module fetches, so `file://` works AND avoids the WebView2 `NavigateToString` ~2 MB limit (the bundle is too big for `LoadHtml`).
 - **Bundle 16 MB → ~3.4 MB:** streamdown-svelte (the Response markdown renderer) drags in Shiki-all-langs + mermaid(+cytoscape) + katex; singlefile inlines them all. `vite.config.ts` regex-aliases unused Shiki grammars (keep `json`), non-github themes, and `mermaid`/`katex` → empty stubs (`src/lib/shiki-empty-lang.ts` = `[]`; `src/lib/empty-module.ts` = noop Proxy). Safe — the chat enables no math/diagram plugins so those imports are never reached. `code/shiki.ts` trimmed to json+text, 2 themes.
+- **Nothing streamdown ships is styled by our build** — Tailwind scans `src/`, never `node_modules`, so the
+  package's own class strings (its `shadcn` theme AND its link-safety modal) are simply absent from the
+  bundle — which is what made its external-link dialog render as unreadable text over the
+  conversation. **Fixed 2026-09-05**: `@source '../node_modules/streamdown-svelte/dist';` in
+  `app.css` compiles the package's classes (+27 kB), and `response.svelte` passes a `theme` override
+  re-scaling the result for a 460px panel. See [[chat-link-prompt]].
 - **Light mode forced:** NO `ModeWatcher` mounted, `.dark` never applied, `app.css` `color-scheme: light` (so response.svelte's `mode.current` → undefined → light theme).
 
 ## Required features (all implemented)

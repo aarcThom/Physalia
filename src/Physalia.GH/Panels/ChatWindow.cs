@@ -992,11 +992,18 @@ public class ChatWindow : Form
     // Stores one provider's endpoint and key in the encrypted credential store, then forces a fresh
     // provider probe so the setup state clears immediately, and reports the outcome back to the
     // page. Neither value is ever logged.
+    //
+    // This is the SAVE half of reconfiguring an already-connected provider as well as the first-run
+    // one, and that is why a BLANK KEY BOX MEANS "leave the stored key alone" rather than "clear
+    // it". The page is never sent the key, so it cannot send one back unchanged; an edit that only
+    // moves the endpoint — an Alibaba region, a Z.AI Coding Plan URL, a gateway that moved — would
+    // otherwise silently destroy the credential. Forgetting a key is Disconnect's job, which is
+    // worded as what it does. Same contract as the API endpoints page.
     private void HandleSaveProvider(Uri uri)
     {
         string provider = GetQueryValue(uri.Query, "provider");
-        string key = GetQueryValue(uri.Query, "key");
-        string url = GetQueryValue(uri.Query, "url");
+        string key = GetQueryValue(uri.Query, "key").Trim();
+        string url = GetQueryValue(uri.Query, "url").Trim();
 
         ProviderInfo? info = ProviderCatalog.Find(provider);
         if (info is null || info.Auth != ProviderAuth.Credential)
@@ -1005,15 +1012,21 @@ public class ChatWindow : Form
             return;
         }
 
+        // What is already on disk, so an omitted box means "unchanged" on both fields.
+        ModelApi? existing = PhyCredentials.Store.Get(info.Id);
+        bool keptKey = key.Length == 0 && !string.IsNullOrWhiteSpace(existing?.Key);
+        string effectiveKey = keptKey ? existing!.Key : key;
+        string effectiveUrl = url.Length > 0 ? url : existing?.BaseUrl ?? string.Empty;
+
         // "other" and a local endpoint are legitimately key-less, so an endpoint on its own is a
         // complete configuration. What is never useful is an entry carrying neither.
-        if (string.IsNullOrWhiteSpace(key) && string.IsNullOrWhiteSpace(url))
+        if (string.IsNullOrWhiteSpace(effectiveKey) && string.IsNullOrWhiteSpace(effectiveUrl))
         {
             PushSetupResult(provider, false, "Enter an API key (and an endpoint, if this provider needs one).");
             return;
         }
 
-        if (info.Kind != ProviderKind.Tool && string.IsNullOrWhiteSpace(url) && info.DefaultBaseUrl.Length == 0)
+        if (info.Kind != ProviderKind.Tool && string.IsNullOrWhiteSpace(effectiveUrl) && info.DefaultBaseUrl.Length == 0)
         {
             PushSetupResult(provider, false, "This provider needs an API URL — there is no default to fall back on.");
             return;
@@ -1021,7 +1034,7 @@ public class ChatWindow : Form
 
         try
         {
-            PhyCredentials.Store.Save(new ModelApi(info.Id, url.Trim(), key.Trim()));
+            PhyCredentials.Store.Save(new ModelApi(info.Id, effectiveUrl, effectiveKey));
 
             // Typing a key and pressing Save IS the opt-in — there is no second confirmation to ask
             // for. Only a credential Physalia merely FOUND (an environment variable) needs one.
@@ -1042,7 +1055,8 @@ public class ChatWindow : Form
         string where = PhyCredentials.Store.IsEncrypted
             ? $"Saved, {PhyCredentials.Store.Protection}."
             : $"Saved ({PhyCredentials.Store.Protection}).";
-        PushSetupResult(provider, true, where + " You're all set.");
+        string kept = keptKey ? " Your saved key was left as it was." : string.Empty;
+        PushSetupResult(provider, true, where + kept + " You're all set.");
     }
 
     // Runs the availability probe for one CLI / local provider — the Detect button. Nothing is
@@ -1132,8 +1146,10 @@ public class ChatWindow : Form
             return;
         }
 
+        bool hadStoredKey;
         try
         {
+            hadStoredKey = !string.IsNullOrWhiteSpace(PhyCredentials.Store.Get(info.Id)?.Key);
             PhyCredentials.Activation.Deactivate(info.Id);
             PhyCredentials.Store.Remove(info.Id);
         }
@@ -1147,7 +1163,11 @@ public class ChatWindow : Form
         _configuredProviders = null;
         _lastProviderProbeUtc = DateTime.MinValue;
 
-        PushSetupResult(provider, true, $"{info.Label} disconnected.");
+        // Say which of the two things happened. "Disconnected" on its own reads as a toggle, and
+        // someone whose key has just been deleted from disk is entitled to be told so plainly.
+        PushSetupResult(provider, true, hadStoredKey
+            ? $"{info.Label} disconnected, and its key was deleted from the encrypted store."
+            : $"{info.Label} disconnected.");
     }
 
     // One-shot push of a setup outcome to the page (the key is not included).
@@ -3137,7 +3157,9 @@ public class ChatWindow : Form
                         p.Id,
                         p.Activated,
                         p.Source.ToString().ToLowerInvariant(),
-                        p.Detail))
+                        p.Detail,
+                        p.BaseUrl,
+                        p.HasStoredKey))
                     .ToList();
             }
             catch
@@ -3951,7 +3973,18 @@ public class ChatWindow : Form
     // "environment", "stored" or "detected" — and together with `activated` it picks which of the
     // three footers the page shows: the form, one Connect button, or a connected pill. `detail`
     // names the environment variable a key was found in, so the button can say which one.
-    private sealed record UiProviderStatus(string Id, bool Activated, string Source, string? Detail);
+    //
+    // `baseUrl` is the endpoint in effect, so reopening a configured provider prefills what is
+    // actually in use rather than the catalog default it may have been changed away from.
+    // `hasStoredKey` is the FACT of a key on disk and never the key — that is what lets a blank key
+    // box mean "keep the saved one", and it tells the page whether disconnecting destroys a secret.
+    private sealed record UiProviderStatus(
+        string Id,
+        bool Activated,
+        string Source,
+        string? Detail,
+        string? BaseUrl,
+        bool HasStoredKey);
 
     private sealed record UiImage(string Base64, string MediaType);
 

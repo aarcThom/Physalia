@@ -155,4 +155,74 @@ public class ModelApiResolverTests : IDisposable
         Assert.Null(resolver.Resolve("codex"));
         Assert.DoesNotContain("local-llm", resolver.ConfiguredIds(ProviderKind.Llm));
     }
+
+    [Fact]
+    public void The_status_reports_the_endpoint_in_effect_so_an_edit_starts_where_it_left_off()
+    {
+        // The setup page prefills its URL box from this. A Z.AI Coding Plan key needs a different
+        // host from the general one, so showing the catalog default to someone who has already moved
+        // off it invites them to save it back.
+        var store = new CredentialStore(new FakeSecretStore());
+        store.Save(new ModelApi("zai", "https://api.z.ai/api/coding/paas/v4", "sk-coding"));
+
+        var resolver = new ModelApiResolver(store, this.Connected("zai"), NoEnvironment);
+
+        Assert.Equal("https://api.z.ai/api/coding/paas/v4", resolver.StatusFor("zai")!.Value.BaseUrl);
+    }
+
+    [Fact]
+    public void The_status_endpoint_falls_back_to_the_catalog_default()
+    {
+        var store = new CredentialStore(new FakeSecretStore());
+        store.Save(new ModelApi("anthropic", string.Empty, "sk-stored"));
+
+        var resolver = new ModelApiResolver(store, this.Connected("anthropic"), NoEnvironment);
+
+        Assert.Equal("https://api.anthropic.com/v1", resolver.StatusFor("anthropic")!.Value.BaseUrl);
+    }
+
+    [Fact]
+    public void The_status_reports_that_a_key_is_stored_without_carrying_the_key()
+    {
+        // What the page is told is the FACT of a key on disk, which is what lets a blank key box mean
+        // "leave the stored one alone" and tells Disconnect it has a secret to destroy.
+        var store = new CredentialStore(new FakeSecretStore());
+        store.Save(new ModelApi("anthropic", string.Empty, "sk-stored"));
+
+        var resolver = new ModelApiResolver(store, this.Connected("anthropic"), NoEnvironment);
+
+        Assert.True(resolver.StatusFor("anthropic")!.Value.HasStoredKey);
+    }
+
+    [Fact]
+    public void A_key_living_only_in_the_environment_is_not_reported_as_stored()
+    {
+        // An environment key is not Physalia's to keep or delete, so disconnecting must not offer to
+        // destroy it — availability and ownership are different questions.
+        var resolver = new ModelApiResolver(
+            new CredentialStore(new FakeSecretStore()),
+            this.Connected("anthropic"),
+            Env(("ANTHROPIC_API_KEY", "sk-from-env")));
+
+        ProviderStatus status = resolver.StatusFor("anthropic")!.Value;
+
+        Assert.Equal(ProviderSource.Environment, status.Source);
+        Assert.False(status.HasStoredKey);
+    }
+
+    [Fact]
+    public void A_stored_endpoint_with_no_key_anywhere_reports_no_stored_key()
+    {
+        // The key-less local-runtime case: available because an endpoint was deliberately stored,
+        // with nothing to forget.
+        var store = new CredentialStore(new FakeSecretStore());
+        store.Save(new ModelApi("other", "http://localhost:11434/v1", string.Empty));
+
+        var resolver = new ModelApiResolver(store, this.Connected("other"), NoEnvironment);
+        ProviderStatus status = resolver.StatusFor("other")!.Value;
+
+        Assert.Equal(ProviderSource.Stored, status.Source);
+        Assert.Equal("http://localhost:11434/v1", status.BaseUrl);
+        Assert.False(status.HasStoredKey);
+    }
 }

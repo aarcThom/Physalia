@@ -1,6 +1,6 @@
 ---
 name: model-api-credentials
-description: "2026-09-04 — credentials moved to an encrypted per-user store, providers are set up in the chat window, and endpoint+key collapsed into one GH_ModelApi wire."
+description: "2026-09-04/09-06 — credentials in an encrypted per-user store, providers set up (and now edited or switched off) in the chat window, endpoint+key on one GH_ModelApi wire."
 metadata: 
   node_type: memory
   type: project
@@ -93,3 +93,30 @@ appears when I move the scroll bar"):
 `%LOCALAPPDATA%/Physalia/mcp-servers.json`. See [[mcp-setup-page]]. The three per-user stores are
 now `credentials.dat` (encrypted), `providers.json` (plain, the opt-in list) and `mcp-servers.json`
 (plain, the standard `mcpServers` block).
+
+---
+
+**2026-09-06: a configured provider was a DEAD END, and the fix is three small contracts.**
+The picker drew configured providers as non-clickable `<span>` pills, so the connected footer —
+written, tested, correct — could not be reached by anyone. A rotated key could not be pasted, a
+moved endpoint could not be corrected, and no connection could be switched off, Claude Code
+included. Symptom to recognise elsewhere: *a state's UI exists and no route into that state does.*
+
+- **The pill is a door** (`Pill onclick` + a pencil icon). One-line change, and it is what makes
+  everything below reachable.
+- **A blank key box means KEEP, never CLEAR.** `ProviderStatus` grew `BaseUrl` + `HasStoredKey`;
+  the KEY is still never pushed to the page, so `HandleSaveProvider` merges against
+  `Store.Get(id)` — otherwise an endpoint-only edit saves an empty key over a live credential.
+  Identical contract to the API endpoints page; copy it for any future "edit a stored secret" form.
+- **`BaseUrl` is the endpoint IN EFFECT, not the catalog default.** Prefilling the default would
+  offer the wrong host back for saving to anyone on an Alibaba region or a Z.AI Coding Plan URL —
+  and it would look entirely plausible.
+- **Disconnect asks twice only when a key is really on disk.** `HasStoredKey` is the store
+  specifically, NOT `source === 'environment'`: an env key is not ours to delete, so that case says
+  so and goes straight through, as does a probed CLI. A confirmation nobody needs is one everybody
+  clicks through.
+
+Verified headless (`tools/uitest/test_provider_edit.py`, see [[headless-chat-ui-testing]]): pills are
+buttons, the URL box prefills the moved endpoint, the key box is blank with a keep-it placeholder,
+the install guide is gone, Disconnect opens a confirm for a stored key and Claude Code's page offers
+Disconnect with no form at all. Five Core tests cover the new status fields. **Not run in Rhino.**

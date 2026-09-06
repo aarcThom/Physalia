@@ -105,12 +105,14 @@ public sealed class ModelApiResolver
         if (info.Auth == ProviderAuth.Detected)
             return new ProviderStatus(info.Id, this._activation.IsActivated(info.Id), ProviderSource.None, null);
 
-        (ModelApi? api, ProviderSource source, string? detail) = this.Find(info);
+        (ModelApi? api, ProviderSource source, string? detail, ModelApi? stored) = this.Find(info);
         return new ProviderStatus(
             info.Id,
             this._activation.IsActivated(info.Id),
             api is null ? ProviderSource.None : source,
-            detail);
+            detail,
+            api?.BaseUrl,
+            !string.IsNullOrWhiteSpace(stored?.Key));
     }
 
     /// <summary>
@@ -126,7 +128,12 @@ public sealed class ModelApiResolver
 
     // The credential itself, ignoring activation: environment first, then the store. The endpoint is
     // resolved independently of the key, so a shell-managed token still picks up a stored endpoint.
-    private (ModelApi? Api, ProviderSource Source, string? Detail) Find(ProviderInfo info)
+    //
+    // The stored entry is handed back alongside the resolved one because the setup page needs to know
+    // whether a key is on DISK specifically — an environment key wins the resolution but is not
+    // Physalia's to keep or delete, so it answers a different question from "is there a secret here
+    // to forget".
+    private (ModelApi? Api, ProviderSource Source, string? Detail, ModelApi? Stored) Find(ProviderInfo info)
     {
         ModelApi? stored = this._store.Get(info.Id);
         (string? envKey, string? envVar) = this.EnvironmentKey(info);
@@ -138,10 +145,10 @@ public sealed class ModelApiResolver
         // endpoint for it. The second case is not an edge: a local runtime behind a URL and no key at
         // all is a perfectly ordinary setup.
         if (string.IsNullOrWhiteSpace(key) && stored is null)
-            return (null, ProviderSource.None, null);
+            return (null, ProviderSource.None, null, stored);
 
         ProviderSource source = envKey is not null ? ProviderSource.Environment : ProviderSource.Stored;
-        return (new ModelApi(info.Id, url, key), source, envKey is not null ? envVar : null);
+        return (new ModelApi(info.Id, url, key), source, envKey is not null ? envVar : null, stored);
     }
 
     /// <summary>

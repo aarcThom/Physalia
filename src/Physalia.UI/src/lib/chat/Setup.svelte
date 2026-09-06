@@ -2,7 +2,7 @@
 	// First-run / add-a-provider setup screen. Shows a provider picker; selecting a provider opens
 	// its guide and ONE footer, chosen by that provider's status:
 	//
-	//   connected            -> a note plus Disconnect
+	//   connected            -> the reconfigure form (key providers) plus Disconnect
 	//   available, not yet   -> ONE button ("Add to Physalia" / "Connect Claude Code")
 	//   nothing found        -> the API URL + key form, or a Detect button for probed providers
 	//
@@ -10,9 +10,21 @@
 	// purpose, is AVAILABLE without having been chosen. Physalia offers it; it never adopts it.
 	//
 	// Once a provider IS available the setup instructions are dropped entirely — see the markup.
+	//
+	// A CONFIGURED provider is reached by clicking its pill on the picker, which carries a pencil to
+	// say so. Before that the pill was a plain label, which made a configured provider the one thing
+	// on this screen with no way back into it: a key could not be replaced, an endpoint could not be
+	// corrected, and a connection could not be switched off — Claude Code included, where the whole
+	// connection IS the consent.
+	//
+	// THE KEY IS NEVER PUSHED HERE, only `hasStoredKey`. So a blank key box means "leave the saved
+	// key alone" — an endpoint edit cannot silently destroy a credential — and deleting a key is
+	// Disconnect, worded as what it does. Same contract as the API endpoints page.
+	import { untrack } from 'svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
+	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import { PROVIDERS, getProvider } from '$lib/chat/providers';
 	import HappyFace from '$lib/chat/HappyFace.svelte';
 	import Pill from '$lib/chat/Pill.svelte';
@@ -32,7 +44,8 @@
 		onselect: (id: string | null) => void;
 		onopenlink: (url: string) => void;
 		onclose: () => void;
-		/** Save one provider's endpoint and key. Either may be empty where the provider allows it. */
+		/** Save one provider's endpoint and key. Either may be empty where the provider allows it, and
+		 *  an empty key on a provider that already has one leaves the stored key untouched. */
 		onsaveprovider: (id: string, url: string, key: string) => void;
 		/** Run the availability check for a probed provider (CLI on PATH, local server answering). */
 		ondetect: (id: string) => void;
@@ -61,46 +74,90 @@
 	let status = $derived(providerStatuses.find((p) => p.id === selectedId) ?? null);
 	let isAvailable = $derived(!!status && status.source !== 'none');
 	let isConnected = $derived(!!status?.activated && isAvailable);
+	// True when a secret of OURS is on disk for this provider. The only case where disconnecting
+	// destroys something, and so the only one that asks twice.
+	let hasStoredKey = $derived(!!status?.hasStoredKey);
 
 	// What the single opt-in button says. The variable name lives in the found-line above it, so this
 	// stays a plain verb rather than a sentence on a button.
 	let connectLabel = $derived.by(() => {
 		if (!selected || !status) return 'Add to Physalia';
-		if (status.source === 'detected') return `Connect ${selected.label.replace(/ \(.*\)$/, '')}`;
+		if (status.source === 'detected') return 'Connect ' + selected.label.replace(/ \(.*\)$/, '');
 		return 'Add to Physalia';
 	});
 
 	// The single line shown in place of the setup instructions once a provider is already available.
+	// Worded to avoid an article in front of the provider name — "A Anthropic key" and "A OpenAI key"
+	// are both wrong, and the name is data rather than something to inflect.
 	let foundNote = $derived.by(() => {
 		if (!selected || !status) return '';
 		const name = selected.label.replace(/ \(.*\)$/, '');
-		if (status.source === 'detected') return `${name} found on your machine.`;
+		if (status.source === 'detected') return name + ' found on your machine.';
 		if (status.source === 'environment') {
 			return status.detail
-				? `A ${name} key was found in your local environment (${status.detail}).`
-				: `A ${name} key was found in your local environment.`;
+				? 'A key for ' + name + ' was found in your local environment (' + status.detail + ').'
+				: 'A key for ' + name + ' was found in your local environment.';
 		}
-		return `A ${name} key is saved on this machine.`;
+		return 'Your ' + name + ' key is saved on this machine.';
 	});
 
-	// Form state. Re-seeded whenever the open provider changes — $derived would fight the user's
-	// typing, so this is an explicit effect keyed on the id.
+	// What Disconnect costs, said before it is pressed. Three different facts: telling someone their
+	// key is about to be deleted is not the same as telling them a CLI stays installed.
+	let disconnectNote = $derived.by(() => {
+		if (hasStoredKey) {
+			return 'Physalia stops using it, and its key is deleted from the encrypted store.';
+		}
+		if (status?.source === 'environment') {
+			return status.detail
+				? 'Physalia stops using it. The key in ' + status.detail + ' is left alone.'
+				: 'Physalia stops using it. The key in your environment is left alone.';
+		}
+		return 'Physalia stops using it. Nothing is uninstalled or deleted.';
+	});
+
+	// Said beside the key box when the environment is what actually answers, so a key typed here does
+	// not look like it took effect when the resolver will never reach it.
+	let environmentNote = $derived.by(() => {
+		if (status?.source !== 'environment') return '';
+		const where = status.detail ?? 'your environment';
+		return 'Physalia reads ' + where + ' first — a key saved here is used only if that goes away.';
+	});
+
+	let keyPlaceholder = $derived.by(() => {
+		if (hasStoredKey) return 'leave blank to keep the saved key';
+		return selected?.id === 'other' ? 'optional' : 'paste your key';
+	});
+
+	// Form state. Re-seeded whenever the open provider changes, from the endpoint actually IN EFFECT
+	// so an edit starts where the user left off rather than at the catalog default they may have
+	// changed away from. Untracked, because the host re-pushes statuses on a timer and reading them
+	// reactively would rewrite the box mid-sentence.
 	let url = $state('');
 	let key = $state('');
 	let pending = $state(false);
+	let confirmingDisconnect = $state(false);
 
 	$effect(() => {
 		const id = selectedId;
-		const provider = getProvider(id);
-		url = provider?.defaultUrl ?? '';
-		key = '';
-		pending = false;
+		untrack(() => {
+			const provider = getProvider(id);
+			const current = providerStatuses.find((p) => p.id === id);
+			url = current?.baseUrl || provider?.defaultUrl || '';
+			key = '';
+			pending = false;
+			confirmingDisconnect = false;
+		});
 	});
 
-	// A result arriving is the end of the round trip, whatever it says.
+	// A result arriving is the end of the round trip, whatever it says. A SUCCESSFUL one also empties
+	// the key box: the key is stored now, and a page still holding a secret it no longer needs is one
+	// that can leak it into a screenshot.
 	$effect(() => {
 		if (setupResult) {
 			pending = false;
+			if (setupResult.ok) {
+				key = '';
+			}
 		}
 	});
 
@@ -130,9 +187,20 @@
 		onconnect(selected.id);
 	}
 
+	// Two-step ONLY where there is a key to lose. A confirmation nobody needs is a confirmation
+	// everybody clicks through, and a subscription CLI loses nothing by being switched back on.
+	function askDisconnect() {
+		if (hasStoredKey) {
+			confirmingDisconnect = true;
+			return;
+		}
+		disconnect();
+	}
+
 	function disconnect() {
 		if (!selected) return;
 		pending = true;
+		confirmingDisconnect = false;
 		ondisconnect(selected.id);
 	}
 
@@ -145,8 +213,8 @@
 		selected && setupResult && setupResult.provider === selected.id ? setupResult : null
 	);
 
-	// Split the known providers into the already-configured (shown as ready pills, LLM + tool alike)
-	// and the rest (still clickable for their setup guide), keeping providers.ts order. The
+	// Split the known providers into the already-configured (pills that OPEN their page, LLM + tool
+	// alike) and the rest (still clickable for their setup guide), keeping providers.ts order. The
 	// unconfigured ones split again into chat-model providers and web-tool keys (Tavily / Jina),
 	// which get their own section so they don't look like a required LLM choice.
 	let configured = $derived(PROVIDERS.filter((p) => configuredProviders.includes(p.id)));
@@ -154,6 +222,58 @@
 	let availableLlm = $derived(unconfigured.filter((p) => p.kind !== 'tool'));
 	let availableTools = $derived(unconfigured.filter((p) => p.kind === 'tool'));
 </script>
+
+<!-- The endpoint + key form. One definition, rendered in two places: the first-time setup footer and
+     the reconfigure footer of a connected provider. They differ only in the verb on the button —
+     everything else about entering a key is the same job. -->
+{#snippet credentialForm(connected: boolean)}
+	<div class="mt-4 flex flex-col gap-3">
+		{#if selected?.needsUrl}
+			<div class="flex flex-col gap-1.5">
+				<label class="text-xs font-medium" for="setup-url">API URL</label>
+				<input
+					id="setup-url"
+					class={FIELD}
+					bind:value={url}
+					spellcheck="false"
+					autocomplete="off"
+					placeholder="https://…"
+				/>
+			</div>
+		{/if}
+
+		<div class="flex flex-col gap-1.5">
+			<label class="text-xs font-medium" for="setup-key">API key</label>
+			<input
+				id="setup-key"
+				type="password"
+				class={FIELD}
+				bind:value={key}
+				spellcheck="false"
+				autocomplete="off"
+				placeholder={keyPlaceholder}
+				onkeydown={(event: KeyboardEvent) => {
+					if (event.key === 'Enter') {
+						event.preventDefault();
+						save();
+					}
+				}}
+			/>
+			{#if environmentNote}
+				<p class="text-muted-foreground text-xs">{environmentNote}</p>
+			{/if}
+		</div>
+
+		<div class="flex items-center gap-3">
+			<Button onclick={save} disabled={pending || !canSave}>
+				{pending ? 'Saving…' : connected ? 'Save changes' : 'Save'}
+			</Button>
+			{#if selected?.note}
+				<p class="text-muted-foreground text-xs">{selected.note}</p>
+			{/if}
+		</div>
+	</div>
+{/snippet}
 
 <div class="mx-auto flex w-full max-w-xl flex-col px-4 py-4 sm:py-6">
 	{#if selected}
@@ -174,8 +294,8 @@
 		{#if isAvailable}
 			<!-- Already set up on this machine. The blurb, the numbered install steps, the install
 			     commands and the console links all exist to get someone TO this point — showing them
-			     to someone already past it is noise in front of the one control that matters. One
-			     line saying what was found, and the footer below it, is the whole page. -->
+			     to someone already past it is noise in front of the controls that matter. One line
+			     saying what was found, and the footer below it, is the whole page. -->
 			<p class="mt-1 text-sm">{foundNote}</p>
 		{:else}
 			<p class="text-muted-foreground mt-1 text-sm">{selected.blurb}</p>
@@ -228,13 +348,66 @@
 		{/if}
 
 		{#if isConnected}
-			<!-- Already opted in. Disconnect also forgets any stored key, which is why it is not
-			     worded as a mere toggle. -->
-			<div class="mt-4 flex items-center gap-3">
-				<Button variant="outline" onclick={disconnect} disabled={pending}>
-					{pending ? 'Working…' : 'Disconnect'}
-				</Button>
-				<p class="text-muted-foreground text-xs">Connected to Physalia.</p>
+			{#if selected.needsKey}
+				<!-- Reconfigure. The endpoint and the key are the two things that go stale — a rotated
+				     key, a gateway that moved, a plan that changed which host answers — and the page
+				     showing a provider as connected is where someone looks to fix either. The key box
+				     is blank and means UNCHANGED; the console links come back with it, because
+				     "reconfigure" usually starts with going and minting a new key. -->
+				{@render credentialForm(true)}
+
+				{#if selected.links.length > 0}
+					<div class="mt-3 flex flex-wrap gap-2">
+						{#each selected.links as link (link.url)}
+							<Button
+								variant="outline"
+								size="sm"
+								class="gap-1.5"
+								onclick={() => onopenlink(link.url)}
+							>
+								<ExternalLinkIcon class="size-3.5" />
+								{link.label}
+							</Button>
+						{/each}
+					</div>
+				{/if}
+			{/if}
+
+			<!-- Switching a connection off, and reachable for EVERY connected provider — Claude Code
+			     and Codex included, where nothing is stored but a subscription is still being spent.
+			     Disconnect also FORGETS any stored key, which is why it is not worded as a toggle and
+			     why that case asks a second time: the key cannot be brought back. -->
+			<div class="border-muted-foreground/20 mt-5 flex flex-col gap-2 border-t pt-4">
+				{#if confirmingDisconnect}
+					<p class="text-sm">
+						Disconnect {selected.label} and delete its saved key? The key cannot be recovered —
+						you would have to paste a new one.
+					</p>
+					<div class="flex items-center gap-3">
+						<Button
+							variant="outline"
+							class="text-red-600"
+							onclick={disconnect}
+							disabled={pending}
+						>
+							{pending ? 'Working…' : 'Disconnect & delete key'}
+						</Button>
+						<Button
+							variant="ghost"
+							onclick={() => (confirmingDisconnect = false)}
+							disabled={pending}
+						>
+							Cancel
+						</Button>
+					</div>
+				{:else}
+					<div class="flex items-center gap-3">
+						<Button variant="outline" onclick={askDisconnect} disabled={pending}>
+							{pending ? 'Working…' : 'Disconnect'}
+						</Button>
+						<p class="text-muted-foreground text-xs">{disconnectNote}</p>
+					</div>
+				{/if}
 			</div>
 		{:else if isAvailable}
 			<!-- Found, but not chosen. ONE button — this is the whole opt-in step. -->
@@ -257,49 +430,7 @@
 				{/if}
 			</div>
 		{:else if selected.needsKey}
-			<div class="mt-4 flex flex-col gap-3">
-				{#if selected.needsUrl}
-					<div class="flex flex-col gap-1.5">
-						<label class="text-xs font-medium" for="setup-url">API URL</label>
-						<input
-							id="setup-url"
-							class={FIELD}
-							bind:value={url}
-							spellcheck="false"
-							autocomplete="off"
-							placeholder="https://…"
-						/>
-					</div>
-				{/if}
-
-				<div class="flex flex-col gap-1.5">
-					<label class="text-xs font-medium" for="setup-key">API key</label>
-					<input
-						id="setup-key"
-						type="password"
-						class={FIELD}
-						bind:value={key}
-						spellcheck="false"
-						autocomplete="off"
-						placeholder={selected.id === 'other' ? 'optional' : 'paste your key'}
-						onkeydown={(event: KeyboardEvent) => {
-							if (event.key === 'Enter') {
-								event.preventDefault();
-								save();
-							}
-						}}
-					/>
-				</div>
-
-				<div class="flex items-center gap-3">
-					<Button onclick={save} disabled={pending || !canSave}>
-						{pending ? 'Saving…' : 'Save'}
-					</Button>
-					{#if selected.note}
-						<p class="text-muted-foreground text-xs">{selected.note}</p>
-					{/if}
-				</div>
-			</div>
+			{@render credentialForm(false)}
 		{:else if selected.note}
 			<p class="text-muted-foreground mt-4 text-xs">{selected.note}</p>
 		{/if}
@@ -329,13 +460,20 @@
 
 			{#if configured.length > 0}
 				<div class="neu-raised w-full rounded-md p-4 text-sm leading-relaxed">
-					You have already set up the following providers. You're good to go!
+					You have already set up the following providers. You're good to go! Click one to change
+					its key or endpoint, or to disconnect it.
 				</div>
 
-				<!-- Ready providers: non-clickable Physalia pills (see Pill.svelte for the style). -->
+				<!-- Ready providers: Physalia pills (see Pill.svelte for the style) that OPEN the
+				     provider's page. They used to be plain labels, which left a configured provider as
+				     the one thing on this screen with no way back into it. The pencil says the pill
+				     is a door. -->
 				<div class="flex w-full flex-wrap gap-3">
 					{#each configured as provider (provider.id)}
-						<Pill>{provider.label}</Pill>
+						<Pill onclick={() => onselect(provider.id)} class="gap-1.5">
+							{provider.label}
+							<PencilIcon class="size-3.5 opacity-60" />
+						</Pill>
 					{/each}
 				</div>
 

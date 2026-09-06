@@ -148,14 +148,32 @@ endpoint from the store.
 - **API keys are never serialized into GH files** (`GH_ModelApi.Write/Read` and
   `GH_ModelConfig.Write/Read` are intentional no-ops); `GH_ModelApi` casts out only to the label
   `"<provider> api"`, never to the key or the URL.
-- **Setup page shape — one footer per provider, chosen by its `ProviderStatus`:** *connected* → a
-  note plus **Disconnect** (which also FORGETS the stored key — that is the "remove my key"
-  affordance, so it is not worded as a toggle); *available but not connected* → exactly ONE button
-  ("Key found in `GEMINI_API_KEY` — add to Physalia", "Connect Claude Code"); *nothing found* → the
-  **API URL** + **API key** form, or a **Detect** button for a probed provider. Tool keys (Tavily,
-  Jina) have no endpoint, so no URL box. **Saving a typed key activates it** — typing it IS the
-  opt-in; only a credential Physalia merely *found* needs a second act. Detection results are still
-  never stored: `ProviderAvailability` re-probes, so an uninstalled CLI drops out on its own.
+- **Setup page shape — one footer per provider, chosen by its `ProviderStatus`:** *connected* → the
+  reconfigure form (endpoint + key, key providers only) plus **Disconnect**; *available but not
+  connected* → exactly ONE button ("Key found in `GEMINI_API_KEY` — add to Physalia", "Connect
+  Claude Code"); *nothing found* → the **API URL** + **API key** form, or a **Detect** button for a
+  probed provider. Tool keys (Tavily, Jina) have no endpoint, so no URL box. **Saving a typed key
+  activates it** — typing it IS the opt-in; only a credential Physalia merely *found* needs a second
+  act. Detection results are still never stored: `ProviderAvailability` re-probes, so an uninstalled
+  CLI drops out on its own.
+- **A configured provider is REACHABLE, and that is what makes the connected footer worth having**
+  (2026-09-06). Its pill on the picker opens its page and carries a pencil to say so; before that it
+  was a plain `<span>` label, so a connected provider was the one thing on that screen with no way
+  back into it — a rotated key could not be pasted, a moved endpoint could not be corrected, and a
+  connection could not be switched off at all. The footer had been written and was unreachable.
+- **Reconfiguring and disconnecting are different acts and neither is the other's side effect.**
+  Editing takes a **blank key box to mean "keep the stored key"** (`ProviderStatus.HasStoredKey` +
+  `BaseUrl` are pushed; the KEY never is), so an endpoint-only edit cannot silently destroy a
+  credential — the same contract as the API endpoints page. **Disconnect** is the forget verb: it
+  deactivates AND removes the stored entry, so it is not worded as a toggle, and it asks a **second
+  time only when a key is actually on disk** — a subscription CLI loses nothing by being switched
+  back on, and a confirmation nobody needs is one everybody clicks through. An ENVIRONMENT key is
+  never Physalia's to delete, so that case says so and goes straight through. The endpoint box
+  prefills from `BaseUrl`, the endpoint **in effect** rather than the catalog default, or reopening
+  an Alibaba region / Z.AI Coding Plan host offers the wrong one back for saving.
+- **Every connected provider can be switched off, Claude Code and Codex included.** They store
+  nothing, so there is no key to forget — but the connection IS the consent, and it is spending a
+  subscription. `ProviderActivation.Deactivate` is the whole mechanism.
 
 ---
 

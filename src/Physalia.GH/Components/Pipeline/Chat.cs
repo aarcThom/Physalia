@@ -175,6 +175,11 @@ public class Chat : StatefulComponentBase
             {
                 _activeWindow = null;
             }
+
+            // The only way to answer an approval card has just closed, so anything still waiting on
+            // one is denied. Failing closed here is what stops a tool call hanging for its full
+            // five-minute timeout against a window that is no longer on screen.
+            ToolApprovalBroker.DenyAll();
         };
         window.Show();
     }

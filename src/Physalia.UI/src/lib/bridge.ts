@@ -436,6 +436,25 @@ export interface UiPreset {
 	description?: string | null;
 }
 
+/** A tool asking the user before it acts — a download, or unpacking an archive. Raised by a tool
+ *  node whose "Ask before…" switch is on; the tool call is BLOCKED while the card is up, so an
+ *  unanswered card is a stalled round until the host times it out (five minutes) and denies. */
+export interface UiApproval {
+	/** Identifies this card back to the host. Opaque. */
+	id: string;
+	/** Which tool is asking — the card's heading. */
+	title: string;
+	/** One line saying what is about to happen. */
+	summary: string;
+	/** The specifics the decision turns on: the URL, the destination, the size. Shown in full and
+	 *  never truncated — hiding what is being consented to would manufacture consent rather than ask
+	 *  for it. */
+	detail: string;
+	/** Which harness is asking. The window may be showing a different Chat than the pipeline making
+	 *  the request, so the card says whose question it is. Empty for a harness-less pipeline. */
+	harness: string;
+}
+
 /** Functions the host invokes on the page (set by the app on mount). */
 export interface PhysaliaHost {
 	setHistory(messages: UiMessage[]): void;
@@ -457,6 +476,8 @@ export interface PhysaliaHost {
 	setApiResult(result: ApiResult | null): void;
 	/** Every Chat on the canvas, for the bottom switcher row. */
 	setChats(chats: UiChat[]): void;
+	/** Tool approval questions waiting for an answer, oldest first. Empty clears them. */
+	setApprovals(approvals: UiApproval[]): void;
 	/** A viewport snapshot captured by the geometry button in attach mode (the Geometry Snapshot
 	 *  tool's default message switched off): lands in the composer's attachment strip like a pasted
 	 *  image and leaves on the user's own turn. */
@@ -523,4 +544,11 @@ export const BRIDGE_SCHEME = 'phbridge';
  *  through the host instead. */
 export function openExternalLink(url: string): void {
 	window.location.href = `${BRIDGE_SCHEME}://open?url=${encodeURIComponent(url)}`;
+}
+
+/** Answers one tool approval card. Anything but an explicit allow is a No on the host side too, so a
+ *  navigation that gets lost or truncated denies rather than permits. */
+export function answerApproval(id: string, allow: boolean): void {
+	window.location.href =
+		`${BRIDGE_SCHEME}://approve?id=${encodeURIComponent(id)}&allow=${allow ? '1' : '0'}`;
 }

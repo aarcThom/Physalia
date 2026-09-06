@@ -170,6 +170,8 @@ public class ChatWindow : Form
     // Same idea for api-endpoints.json, backing the "API calls" page.
     private string? _lastApiSignature;
     private string? _lastChats;
+
+    private string? _lastApprovals;
     private string? _lastGroundingSignature;
     private int? _lastTokenCount;
 
@@ -235,12 +237,29 @@ public class ChatWindow : Form
 #endif
         };
 
+        // A card must appear the moment the model asks, not on the next tick: the tool call is
+        // already waiting, and a visible delay between the model deciding and the question arriving
+        // reads as the pipeline having stalled. The tick still pushes as a safety net.
+        ToolApprovalBroker.Changed += OnApprovalsChanged;
+
         Closed += (_, _) =>
         {
             _timer.Stop();
             UnhookHostClose();
+            ToolApprovalBroker.Changed -= OnApprovalsChanged;
         };
     }
+
+    // Raised from whatever thread a tool call happens to be on, so it is marshalled before touching
+    // the WebView.
+    private void OnApprovalsChanged() =>
+        Application.Instance.AsyncInvoke(() =>
+        {
+            if (_loaded)
+            {
+                MaybePushApprovals();
+            }
+        });
 
     // Close this window when its host goes away, so it never orphans on the desktop:
     //   - Grasshopper editor closed (X button) — Windows only (the editor is WinForms).
@@ -396,6 +415,9 @@ public class ChatWindow : Form
                 break;
             case "clearall":
                 HandleClearAll();
+                break;
+            case "approve":
+                HandleApprove(uri);
                 break;
             case "selectchat":
                 HandleSelectChat(uri);
@@ -1758,6 +1780,11 @@ public class ChatWindow : Form
 
         // Switcher row: one circle per Chat on the canvas, pushed when the set/active changes.
         MaybePushChats();
+
+        // Tool approval cards. Also pushed straight off ToolApprovalBroker.Changed, so a card appears
+        // the moment the model asks rather than up to a tick later; this is the safety net that
+        // catches a change the event missed and the clear-down after one is answered.
+        MaybePushApprovals();
     }
 
     // Pushes the preset library to the page, but only when the set actually changes — a cheap
@@ -2544,6 +2571,46 @@ public class ChatWindow : Form
 
         _lastChats = json;
         Exec($"window.physalia&&window.physalia.setChats&&window.physalia.setChats({json});");
+    }
+
+    // Pushes the outstanding tool approval cards. Change-detected on the serialized set like every
+    // other push, so the 0.15 s tick costs nothing while none are waiting — which is nearly always.
+    private void MaybePushApprovals()
+    {
+        var list = ToolApprovalBroker.Pending()
+            .Select(p => new
+            {
+                id = p.Id,
+                title = p.Request.Title,
+                summary = p.Request.Summary,
+
+                // Shown verbatim and never abbreviated: the URL and the destination ARE the decision,
+                // and a prompt that hides what is being consented to manufactures consent rather than
+                // asking for it.
+                detail = p.Request.Detail,
+
+                // The window may be looking at a different Chat than the pipeline that is asking.
+                harness = p.HarnessName ?? string.Empty,
+            })
+            .ToList();
+
+        string json = JsonSerializer.Serialize(list, WriteOpts);
+        if (json == _lastApprovals)
+        {
+            return;
+        }
+
+        _lastApprovals = json;
+        Exec($"window.physalia&&window.physalia.setApprovals&&window.physalia.setApprovals({json});");
+    }
+
+    // Routes a card's Allow/Deny back to the tool call waiting on it. Anything but an explicit
+    // allow=1 is a No, so a malformed or truncated navigation denies rather than permits.
+    private void HandleApprove(Uri uri)
+    {
+        ToolApprovalBroker.Answer(
+            GetQueryValue(uri.Query, "id"),
+            GetQueryValue(uri.Query, "allow") == "1");
     }
 
     // Every Chat in the file, grouped by harness and ordered left-to-right then top-to-bottom, for a

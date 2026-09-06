@@ -10,6 +10,7 @@
 	import AssistantTurnGroup from '$lib/chat/AssistantTurnGroup.svelte';
 	import FeedbackTurn from '$lib/chat/FeedbackTurn.svelte';
 	import Composer from '$lib/chat/Composer.svelte';
+	import ApprovalCard from '$lib/chat/ApprovalCard.svelte';
 	import ImageEditor from '$lib/chat/ImageEditor.svelte';
 	import Setup from '$lib/chat/Setup.svelte';
 	import Preset from '$lib/chat/Preset.svelte';
@@ -57,6 +58,7 @@
 		SnapshotMessagePayload,
 		SubmitMessage,
 		ToolsSelectionPayload,
+		UiApproval,
 		UiChat,
 		UiMessage,
 		UiPdf,
@@ -149,6 +151,9 @@
 	// Set by the harness this Chat lives in, so a pipeline shared across a firm opens with its
 	// author's instructions rather than a generic invitation to type.
 	let chatText = $state<string | null>(null);
+	// Tool approval questions waiting for an answer. A tool call is blocked while one is up, so these
+	// are pushed the moment the model asks rather than on the window's own tick.
+	let approvals = $state<UiApproval[]>([]);
 	let tokenCountToolWired = $state(false);
 	let markUp = $state<{
 		base64: string;
@@ -300,6 +305,9 @@
 			},
 			setChats: (next) => {
 				chats = next ?? [];
+			},
+			setApprovals: (next) => {
+				approvals = next ?? [];
 			},
 			attachSnapshot: (image) => {
 				// Attach mode: the host captured a snapshot and hands it here instead of sending it —
@@ -1166,6 +1174,11 @@
 	     chatting…" is a control that cannot be used sitting where the page's own content should be.
 	     Removing it (rather than disabling it) hands its height to the scroller above, which is
 	     flex-1: a setup or grounding page then runs the full height of the window. -->
+	<!-- Above the composer, and OUTSIDE the staticSurface guard: a tool can ask while the window is
+	     on Home or a setup page, and a question the user cannot see is a round that stalls until the
+	     host times it out. -->
+	<ApprovalCard {approvals} />
+
 	{#if !staticSurface}
 	<div class="flex shrink-0 items-stretch gap-2 px-3 pb-3">
 		<div class="flex min-w-0 flex-1 flex-col">

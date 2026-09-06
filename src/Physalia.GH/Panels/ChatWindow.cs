@@ -174,6 +174,18 @@ public class ChatWindow : Form
     private string? _lastApprovals;
 
     private string? _lastFetchOffers;
+
+    private readonly PixelLayout _root;
+
+    // Built on first use: most sessions never fetch anything in a browser, and a second Chromium view
+    // is not something to create on the chance that they will.
+    private WebView? _fetchView;
+
+    private Panel? _fetchPanel;
+
+    private Label? _fetchStatus;
+
+    private Label? _fetchAddress;
     private string? _lastGroundingSignature;
     private int? _lastTokenCount;
 
@@ -213,7 +225,16 @@ public class ChatWindow : Form
         _webView = new WebView();
         _webView.DocumentLoading += OnDocumentLoading;
         _webView.DocumentLoaded += OnDocumentLoaded;
-        Content = _webView;
+
+        // A PixelLayout rather than the WebView directly, so the browser-fetch view can be laid OVER
+        // the chat without reparenting it. Reparenting an Eto WebView can recreate its native handle
+        // and would take the loaded conversation with it; hiding one and showing the other keeps both
+        // pages alive, which is the point — the fetch is a detour, not a new place.
+        _root = new PixelLayout();
+        _root.Add(_webView, 0, 0);
+        Content = _root;
+
+        SizeChanged += (_, _) => LayoutRoot();
 
         // GH never re-solves on a wire connection, so polling is the simplest correct
         // refresh (same cadence as the Chat's busy animation). Ticks run on the UI thread.
@@ -229,6 +250,11 @@ public class ChatWindow : Form
             }
 
             _loaded = true;
+
+            // Before LoadUi, and not left to SizeChanged: a PixelLayout child has no size until it is
+            // given one, and a WebView sized 0x0 renders nothing at all — which would look exactly
+            // like the page failing to load.
+            LayoutRoot();
             LoadUi();
             _timer.Start();
             HookHostClose();
@@ -2624,6 +2650,127 @@ public class ChatWindow : Form
 
         _lastApprovals = json;
         Exec($"window.physalia&&window.physalia.setApprovals&&window.physalia.setApprovals({json});");
+    }
+
+    /// <summary>
+    /// Shows a browser over the chat, saving what it downloads into the project folder.
+    ///
+    /// <para>Over the chat rather than in a window of its own because the block that led here was
+    /// discovered in this window: the model explained it a few lines up, and sending the user to a
+    /// separate window to act on it puts the explanation and the action in two places.</para>
+    ///
+    /// <para><b>Not an iframe in the page.</b> A host that puts a challenge in front of its files also
+    /// sends <c>X-Frame-Options: SAMEORIGIN</c>, so the page refuses to be framed. A second native
+    /// WebView navigates at the top level of its own browser and gets no such refusal.</para>
+    /// </summary>
+    /// <param name="target">The address to fetch.</param>
+    /// <param name="folder">The project folder to save into.</param>
+    /// <returns>True when the browser is now showing; false to fall back to a window of its own.</returns>
+    internal bool TryShowFetch(Uri target, string folder)
+    {
+        if (!_loaded)
+        {
+            return false;
+        }
+
+        try
+        {
+            BuildFetchSurface();
+
+            _fetchAddress!.Text = target.ToString();
+            _fetchStatus!.Text = $"Saving into {folder}";
+
+            // Hooked per fetch, not once: the folder can differ between harnesses, and the handler
+            // closes over it. WebView2 tolerates a second DownloadStarting subscriber, and the view
+            // is short-lived either way.
+            BrowserFetch.AttachRedirect(_fetchView!, folder, text =>
+                Application.Instance.AsyncInvoke(() => _fetchStatus!.Text = text));
+
+            _fetchView!.Url = target;
+
+            _fetchPanel!.Visible = true;
+            _webView.Visible = false;
+            LayoutRoot();
+
+            BringToFront();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // Anything at all here falls back to the standalone window rather than leaving the user
+            // with no way to fetch the file.
+            Rhino.RhinoApp.WriteLine($"[Physalia] In-chat browser fetch unavailable: {ex.Message}");
+            HideFetch();
+            return false;
+        }
+    }
+
+    // Puts the chat back. The fetch view keeps its page — it costs nothing while hidden and a user
+    // who reopens a fetch usually wants the same host again.
+    private void HideFetch()
+    {
+        if (_fetchPanel is not null)
+        {
+            _fetchPanel.Visible = false;
+        }
+
+        _webView.Visible = true;
+        LayoutRoot();
+    }
+
+    private void BuildFetchSurface()
+    {
+        if (_fetchPanel is not null)
+        {
+            return;
+        }
+
+        _fetchView = new WebView();
+        _fetchAddress = new Label { Font = Eto.Drawing.SystemFonts.Bold() };
+        _fetchStatus = new Label { TextColor = Eto.Drawing.Colors.Gray };
+
+        var back = new Button { Text = "← Back to chat" };
+        back.Click += (_, _) => HideFetch();
+
+        _fetchPanel = new Panel
+        {
+            Content = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Padding = new Eto.Drawing.Padding(8),
+                Spacing = 6,
+                Items =
+                {
+                    back,
+                    _fetchAddress,
+                    _fetchStatus,
+                    new StackLayoutItem(_fetchView, expand: true),
+                },
+            },
+        };
+
+        _fetchPanel.Visible = false;
+        _root.Add(_fetchPanel, 0, 0);
+    }
+
+    // PixelLayout positions but does not size, so both surfaces are stretched to the client area by
+    // hand — and re-stretched on every resize, or the browser would keep the size the window had
+    // when it was first shown.
+    private void LayoutRoot()
+    {
+        Eto.Drawing.Size size = ClientSize;
+        if (size.Width <= 0 || size.Height <= 0)
+        {
+            return;
+        }
+
+        _webView.Size = size;
+
+        if (_fetchPanel is not null)
+        {
+            _fetchPanel.Size = size;
+        }
     }
 
     // Pushes the files a download could not fetch, for the chat to offer a browser for. Change-

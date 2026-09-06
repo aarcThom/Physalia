@@ -103,7 +103,7 @@ internal static class BrowserFetchOffers
         BrowserFetchOffer? offer = Remove(id);
         if (offer is not null)
         {
-            BrowserFetchWindow.Open(offer.Url, offer.Folder);
+            BrowserFetch.Start(offer.Url, offer.Folder);
         }
     }
 

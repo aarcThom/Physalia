@@ -450,7 +450,7 @@ public class DownloadFile : LlmToolComponentBase
             return; // cancelled
         }
 
-        Panels.BrowserFetchWindow.Open(typed, this._folder);
+        Panels.BrowserFetch.Start(typed, this._folder);
     }
 
     private Task<bool> AskAsync(string title, string summary, string detail, CancellationToken ct) =>

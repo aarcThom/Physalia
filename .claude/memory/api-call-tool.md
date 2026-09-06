@@ -69,6 +69,19 @@ real one — at 50 it silently became the limit for small-page APIs. `max_record
 requests, 5929 over 60, partial reads reporting correctly, `None` doing exactly one request. The
 keep-what-you-have-on-failure path is by construction only, never exercised live.
 
+**Records on the wire, not pages (2026-09-05, same day, from a live session).** With `Response` as a
+list of page BODIES the model did not accumulate them — and that was the design's fault, not the
+model's: it had to unwrap each envelope, know the API's own rows key, and concatenate, and the shape
+CHANGED between a one-page and a many-page answer, so a parser written against a small test query
+broke on the real one. `ApiResponseSummary.ExtractRecords` now flattens to ONE ITEM PER RECORD,
+already joined across pages. Free, because the pager already locates the rows to measure its stride;
+envelopes are deliberately NOT merged (two disagreeing `total_count`s have no correct answer). No
+record collection → falls back to one item per body, with the FIRST page deciding the shape so the
+list is never a mixture. **The wording fix mattered as much as the code**: the shape is stated on the
+Response param, in the tool description AND in the `GroundingDirective` — saying it once, in passing,
+in only the multi-page branch, was the original bug. Verified live: 73 / 811 / 5929 records on the
+wire, `asRecords` true, matching the pager's own counts exactly.
+
 Deferred deliberately: `describe_dataset` / `search_datasets` for portals with too many datasets to
 ground, and a Fetch button that seeds the Description box from the portal's own catalog.
 

@@ -102,7 +102,9 @@ public static class ApiResponseSummary
         }
 
         sb.AppendLine();
-        sb.AppendLine("Every record is on this node's Response output, one item per page, in order.");
+        sb.AppendLine("Every record gathered is on this node's Response output, ONE ITEM PER RECORD");
+        sb.AppendLine("in order — already unwrapped, so downstream code parses each item on its own and");
+        sb.AppendLine("never has to know about pages or envelopes.");
         sb.AppendLine();
         sb.AppendLine("The first page looked like this:");
 
@@ -110,6 +112,56 @@ public static class ApiResponseSummary
         sb.Append(Summarize(response.Pages[0], Math.Max(300, maxChars - spent)));
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Unpacks gathered pages into the individual records inside them.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>One item per RECORD, not per page.</b> Handing the raw bodies over made the consumer
+    /// do three things before it could touch the data: unwrap each page's envelope, know which key
+    /// that particular API puts its rows under, and concatenate. Worse, the shape CHANGED with the
+    /// result size — a one-page answer looked like a single document and a nine-page answer did not —
+    /// so code written against a small test query broke on the real one. Records are uniform whatever
+    /// the query returns, and there is no envelope left to get wrong.</para>
+    /// <para>This costs nothing to know, because the paging walk already has to locate the rows to
+    /// measure its own stride. What it does NOT do is merge envelopes: two disagreeing
+    /// <c>total_count</c> values have no correct resolution, and the counts are reported separately
+    /// anyway.</para>
+    /// <para><b>An API with no record collection falls back to one item per body</b> — a single-object
+    /// response, or anything that is not JSON at all. Uniformity within one call is what matters; a
+    /// caller that got a document gets the document.</para>
+    /// </remarks>
+    /// <param name="pages">The gathered response bodies, in order.</param>
+    /// <returns>
+    /// The records as JSON text, one per item, and whether they really are records — false means the
+    /// items are whole response bodies.
+    /// </returns>
+    public static (IReadOnlyList<string> Items, bool AreRecords) ExtractRecords(IReadOnlyList<string>? pages)
+    {
+        if (pages is null || pages.Count == 0)
+            return (Array.Empty<string>(), false);
+
+        var records = new List<string>();
+
+        foreach (string page in pages)
+        {
+            if (!TryReadRecords(page, out JsonElement rows))
+            {
+                // The FIRST page decides the shape for the whole call. A later page that cannot be
+                // read is a partial result, not a reason to hand back a mixture of records and raw
+                // bodies that nothing downstream could tell apart.
+                if (records.Count == 0)
+                    return (pages, false);
+
+                continue;
+            }
+
+            foreach (JsonElement row in rows.EnumerateArray())
+                records.Add(row.GetRawText());
+        }
+
+        return records.Count > 0 ? (records, true) : (pages, false);
     }
 
     /// <summary>
@@ -193,7 +245,8 @@ public static class ApiResponseSummary
         sb.AppendLine();
         sb.Append("The full response (")
           .Append(rawLength)
-          .AppendLine(" characters) is on this node's Response output, where the definition can read it.")
+          .AppendLine(" characters) is on this node's Response output, one item per record, where the")
+          .AppendLine("definition can read it.")
           .Append("Narrow the query, or ask for fewer fields, to see more of it here.");
 
         return sb.ToString();
@@ -201,6 +254,48 @@ public static class ApiResponseSummary
 
     // The rows of a response, however this particular API chose to nest them, plus how many there
     // are on this page and how many matched overall.
+    // The rows of one response body, wherever this API nests them. Shares RecordKeys with the pager
+    // and the summariser, so all three agree about what a record is.
+    private static bool TryReadRecords(string? body, out JsonElement rows)
+    {
+        rows = default;
+
+        if (string.IsNullOrWhiteSpace(body))
+            return false;
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(body);
+            JsonElement root = document.RootElement;
+
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                rows = root.Clone();
+                return true;
+            }
+
+            if (root.ValueKind != JsonValueKind.Object)
+                return false;
+
+            foreach (string key in RecordKeys)
+            {
+                if (root.TryGetProperty(key, out JsonElement found) && found.ValueKind == JsonValueKind.Array)
+                {
+                    // Cloned because the JsonDocument is disposed on the way out of this method and
+                    // the elements would otherwise point into freed memory.
+                    rows = found.Clone();
+                    return true;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+
+        return false;
+    }
+
     private static JsonElement? FirstRecord(JsonElement root, out int pageCount, out long? totalCount)
     {
         pageCount = 0;

@@ -122,7 +122,9 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
     public override string? GroundingDirective =>
         string.IsNullOrWhiteSpace(_description) || _endpoint is null
             ? null
-            : $"The `{ToolName()}` tool reads the {_endpoint.Name} API. {_description.Trim()}";
+            : $"The `{ToolName()}` tool reads the {_endpoint.Name} API. {_description.Trim()}"
+              + " Records it fetches arrive on the Grasshopper canvas as a list of individual JSON records,"
+              + " one per item, already unwrapped and joined across pages.";
 
     /// <inheritdoc/>
     /// <remarks>
@@ -209,7 +211,7 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
         pManager.AddTextParameter(
             "Response",
             "R",
-            "The full bodies of the last answer, one item per page fetched, in order — every record, not just the page the model happened to read. This is the one the definition should parse; the model only ever sees a summary.",
+            "Every record the last call gathered, one item per record, in order — already unwrapped from the API's envelope and its paging, so a script just parses each item. An API that returns no record collection falls back to one item per response body. This is the wire the definition should read; the model only ever sees a summary.",
             GH_ParamAccess.list);
 
         pManager.AddTextParameter(
@@ -339,10 +341,13 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
             return ToolCallResult.Error(error.Message);
         }
 
-        _lastResponse = gathered.Pages;
+        (IReadOnlyList<string> items, bool areRecords) = ApiResponseSummary.ExtractRecords(gathered.Pages);
+        _lastResponse = items;
 
         IReadOnlyList<string> fields = ApiResponseSummary.FieldNames(gathered.Pages.FirstOrDefault());
-        string shape = $"{gathered.RecordCount} records over {gathered.Pages.Count} request(s)";
+        string shape = areRecords
+            ? $"{items.Count} records over {gathered.Pages.Count} request(s)"
+            : $"{items.Count} response bod(y/ies), no record collection found";
         _status = fields.Count > 0
             ? $"{endpoint.Name}: {shape}, fields {string.Join(", ", fields.Take(6))}"
             : $"{endpoint.Name}: {shape}";
@@ -379,6 +384,10 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
             sb.Append("so the definition receives every record in one call. If the answer says it is not the whole result set, ");
             sb.Append("say so rather than presenting what you got as complete.");
         }
+
+        sb.Append(" What reaches the Grasshopper canvas is a LIST with one JSON record per item, already unwrapped ");
+        sb.Append("from the envelope and joined across pages — so code you write downstream parses each item on its own ");
+        sb.Append("and never loops over pages or reads a 'results' key.");
 
         return sb.ToString();
     }

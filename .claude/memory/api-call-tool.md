@@ -1,6 +1,6 @@
 ---
 name: api-call-tool
-description: 2026-09-05 API Call tool — model reads a configured HTTP API; own plain store + shared credential store; catalog on the node; tools now drivable by the pipeline
+description: 2026-09-05 API Call tool — model reads a configured HTTP API; own plain store + shared credential store; catalog on the node; the tool walks paging itself and delivers one item per record; any tool is now pipeline-drivable; store-backed nodes reload on a file stamp
 metadata: 
   node_type: memory
   type: project
@@ -8,9 +8,15 @@ metadata:
   modified: 2026-09-06T00:45:11.940Z
 ---
 
-**BUILT 2026-09-05, compiles and 48 new Core tests pass — NOT yet run in Rhino.** Lets a Physalia
-pipeline give an LLM access to data over an API (the trigger case was Vancouver's Opendatasoft
-portal).
+**BUILT 2026-09-05 over one session, 75 new Core tests (746 total).** Lets a Physalia pipeline give
+an LLM access to data over an API (the trigger case was Vancouver's Opendatasoft portal).
+
+**Verified live but NOT in Rhino.** The Core half was driven against the real portal through a
+throwaway console harness ([[core-console-harness]]) — URL composition, the paging walk, and the
+records that reach the wire. Everything GH-side is unexercised: the Picker, the `Max Records` input,
+a list-access Response feeding a Python component, a real Router round, and the setup page in the
+WebView. Four things below were found only by USING it (staleness, paging, the page-guard bound, the
+output shape), which is the pattern to expect for the rest.
 
 **The shape, and the forks that decided it:**
 
@@ -81,6 +87,17 @@ list is never a mixture. **The wording fix mattered as much as the code**: the s
 Response param, in the tool description AND in the `GroundingDirective` — saying it once, in passing,
 in only the multi-page branch, was the original bug. Verified live: 73 / 811 / 5929 records on the
 wire, `asRecords` true, matching the pager's own counts exactly.
+
+**An unset capability has to name itself (2026-09-05, third live finding).** An endpoint configured
+BEFORE `ApiPaging` existed has no `paging` key, so it deserializes to `None` and the node makes one
+request however large `max_records` is. Correct behaviour — but the model, told only that it got
+fewer records than matched, concluded the NODE was capped at 100 and reported that the pipeline
+needed rebuilding. It was one dropdown nobody knew was unset. **The default being safe is not the
+same as the default being visible.** Now: with paging off the tool description says so and names the
+remedy, and a short read from an unpaged endpoint adds "no paging configured … tell the user to set
+Paging on the API calls page — the pipeline itself needs no change" (`ApiPagedResponse.CanPage`
+carries it). Applies to any Physalia setting that silently degrades: say which setting, and who can
+change it. Note there is no migration for existing entries — they must be re-saved once.
 
 Deferred deliberately: `describe_dataset` / `search_datasets` for portals with too many datasets to
 ground, and a Fetch button that seeds the Description box from the portal's own catalog.

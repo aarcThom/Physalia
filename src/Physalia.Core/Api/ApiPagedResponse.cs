@@ -23,11 +23,18 @@ namespace Physalia.Core.Api;
 /// Why the walk ended early, in words fit to hand to the model, or null when it ended because there
 /// was nothing left to fetch. A partial read that does not say so is the failure worth avoiding here.
 /// </param>
+/// <param name="CanPage">
+/// Whether the endpoint had a paging style configured at all. Carried so a short read can say WHY it
+/// is short: an endpoint left on <see cref="ApiPaging.None"/> returns one request's worth however
+/// much was asked for, and the remedy is a setting rather than anything the caller can do differently.
+/// Last, with a default, so existing construction keeps compiling.
+/// </param>
 public sealed record ApiPagedResponse(
     IReadOnlyList<string> Pages,
     int RecordCount,
     int? MatchedCount,
-    string? StoppedBecause)
+    string? StoppedBecause,
+    bool CanPage = false)
 {
     /// <summary>
     /// Gets a value indicating whether records are known to have been left behind.

@@ -92,7 +92,8 @@ public class ApiPagingTests
             new[] { Page(100, 145), Page(45, 145) },
             145,
             145,
-            null);
+            null,
+            CanPage: true);
 
         string summary = ApiResponseSummary.Summarize(response, 4000);
 
@@ -107,7 +108,8 @@ public class ApiPagingTests
             new[] { Page(100, 5929) },
             100,
             5929,
-            "stopped at the 100-record limit set on the node; 5929 matched in total");
+            "stopped at the 100-record limit set on the node; 5929 matched in total",
+            CanPage: true);
 
         string summary = ApiResponseSummary.Summarize(response, 4000);
 
@@ -120,10 +122,34 @@ public class ApiPagingTests
     {
         // Fewer records than matched is partial on its own — the walk ending tidily is not the same
         // as the walk being complete.
-        var response = new ApiPagedResponse(new[] { Page(100, 145) }, 100, 145, null);
+        var response = new ApiPagedResponse(new[] { Page(100, 145) }, 100, 145, null, CanPage: true);
 
         Assert.True(response.IsPartial);
         Assert.Contains("THIS IS NOT THE WHOLE RESULT SET", ApiResponseSummary.Summarize(response, 4000), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_short_read_from_an_UNPAGED_endpoint_names_the_setting_that_fixes_it()
+    {
+        // The dead end this exists to prevent: told only that it received less than matched, a reader
+        // concludes the NODE is capped and reports that the pipeline needs rebuilding — when the
+        // remedy is one dropdown nobody knew was unset. Observed live, 2026-09-05.
+        var response = new ApiPagedResponse(new[] { Page(100, 811) }, 100, 811, null, CanPage: false);
+
+        string summary = ApiResponseSummary.Summarize(response, 4000);
+
+        Assert.Contains("no paging configured", summary, StringComparison.Ordinal);
+        Assert.Contains("API calls page", summary, StringComparison.Ordinal);
+        Assert.Contains("pipeline itself needs no change", summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_short_read_from_a_PAGED_endpoint_does_not_blame_the_setting()
+    {
+        // It is set correctly; saying otherwise would send the user to change something that is fine.
+        var response = new ApiPagedResponse(new[] { Page(100, 811) }, 100, 811, null, CanPage: true);
+
+        Assert.DoesNotContain("no paging configured", ApiResponseSummary.Summarize(response, 4000), StringComparison.Ordinal);
     }
 
     [Fact]

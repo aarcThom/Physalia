@@ -44,3 +44,9 @@ Conversation Log would append (assistant turn with `ToolCallContent`, then a use
 
 Complements the unit tests in `Physalia.Core.Tests` ([[tier1-refactoring]]); it does not replace a
 live Rhino run, which is still the only thing that exercises the GH components themselves.
+
+**2026-09-05, it caught a real one.** Driving `ApiRequest.SendPagedAsync` against the live Vancouver
+portal showed a 5929-record dataset stopping at 5000 with "stopped after 50 requests" — a runaway
+guard that had silently become the BOUND for any API with a small page, reporting a reason unrelated
+to what was asked for. Every unit test passed throughout; only real data with real page sizes showed
+it. Raised to 100 pages. Cost: one `.csproj`, one `Program.cs`, no Rhino.

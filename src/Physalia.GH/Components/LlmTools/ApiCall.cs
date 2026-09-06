@@ -384,6 +384,19 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
             sb.Append("so the definition receives every record in one call. If the answer says it is not the whole result set, ");
             sb.Append("say so rather than presenting what you got as complete.");
         }
+        else
+        {
+            // Saying nothing here is what produced the dead end this exists to prevent: with no
+            // mention of paging, the model reads max_records' default of one page, concludes the NODE
+            // is capped at that, and tells the user their pipeline needs rebuilding — when the actual
+            // remedy is one dropdown on the setup page. An unset capability has to name itself, or
+            // the only person who can fix it never finds out it is unset.
+            sb.Append(" This endpoint has NO paging configured in Physalia, so one call makes exactly one request ");
+            sb.Append("however large max_records is. If the answer reports more records matching than you received, ");
+            sb.Append("the fix is not to change the pipeline: tell the user to open the chat window's API calls page, ");
+            sb.Append("edit this endpoint and set Paging. Until then, request a narrower query rather than assuming ");
+            sb.Append("what you got is everything.");
+        }
 
         sb.Append(" What reaches the Grasshopper canvas is a LIST with one JSON record per item, already unwrapped ");
         sb.Append("from the envelope and joined across pages — so code you write downstream parses each item on its own ");

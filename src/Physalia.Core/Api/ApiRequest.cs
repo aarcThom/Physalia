@@ -247,7 +247,12 @@ public static class ApiRequest
         }
 
         return new Result<ApiPagedResponse, LlmError>.Ok(
-            new ApiPagedResponse(pages, gathered, matched, stoppedBecause));
+            new ApiPagedResponse(
+                pages,
+                gathered,
+                matched,
+                stoppedBecause,
+                endpoint.Paging != ApiPaging.None));
     }
 
     /// <summary>

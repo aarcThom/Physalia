@@ -111,3 +111,13 @@ embeds `dist/index.html` via `EmbedChatHtml`. So after any UI source edit, run
 `dotnet build src/Physalia.slnx -c Debug` (or build in VS) — not just `npm run build` — or the
 change is stranded in `dist/` and the chat window (reopen it to pick up a new build) shows the
 old UI.
+
+**Checking that a change actually reached the merged `.gha` needs a UTF-16 search.** ILRepack merges
+`Physalia.Core` INTO `Physalia.GH.gha` (no loose `Physalia.Core.dll` in `bin` on a healthy Debug
+build — seeing one usually means a previous build failed part way). Verifying a specific change
+landed is worth doing when Rhino may have held the file, but `grep -a` over the `.gha` only finds
+IDENTIFIERS: those live in the UTF-8 `#Strings` heap, while STRING LITERALS live in `#US` as UTF-16.
+So a class or method name is found and the prose it prints is not, which reads as a half-merged
+assembly and is nothing of the kind. Search literals as `s.encode("utf-16-le")` instead. Hit
+2026-09-05 verifying the API tool's new wording.
+

@@ -98,6 +98,18 @@ public static class ApiResponseSummary
             if (response.StoppedBecause is { } why)
                 sb.Append(" — ").Append(why);
             sb.AppendLine(".");
+
+            if (!response.CanPage)
+            {
+                // Name the remedy, and name who can apply it. Without this the reader concludes the
+                // node is capped and reports that the pipeline needs changing, which sends the user
+                // to rebuild something that was only ever a dropdown left unset.
+                sb.AppendLine(
+                    "This endpoint has no paging configured in Physalia, so it returns one request's worth "
+                    + "whatever is asked for. Tell the user to set Paging on this endpoint in the chat "
+                    + "window's API calls page — the pipeline itself needs no change.");
+            }
+
             sb.AppendLine("Narrow the query if you need all of it; do not present this as complete.");
         }
 

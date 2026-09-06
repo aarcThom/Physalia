@@ -11,7 +11,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Design fork, then build through](design-fork-then-build-through.md) — investigate the whole path, ask the ONE question the code can't settle, then finish the vertical slice (Core→GH→UI, tests, docs) and say what hasn't run live.
 
 ## Latest
-- [API Call tool](api-call-tool.md) — 2026-09-05, BUILT not run in Rhino: model reads a configured HTTP API. Own plain store, key in shared `credentials.dat`, catalog on the NODE. Any tool is now pipeline-drivable via a `manual:` call id.
+- [API Call tool](api-call-tool.md) — 2026-09-05, Core verified live / GH not run in Rhino: model reads a configured HTTP API. Own plain store, key in shared `credentials.dat`, catalog on the NODE. The tool walks paging itself and delivers ONE ITEM PER RECORD. Any tool is now pipeline-drivable via a `manual:` call id. Two general rules earned live: store-backed nodes reload on a file STAMP not on emptiness, and **an unset setting must name itself and who can change it** — a safe default is not a visible one.
 - [Model API credentials](model-api-credentials.md) — 2026-09-04/05, BUILT not run in Rhino: providers configured in the chat window, DPAPI-encrypted; endpoint+key on one `GH_ModelApi` wire (**new GUID**). Both YAML config files deleted.
 - [MCP bridge vs Illustrator](mcp-bridge-chunked-body.md) — 2026-09-04: chunked POST bodies broke Adobe's server; a 404 on the optional GET stream killed the session. Fixed + `--trace`.
 - [MCP setup page + YAML removal](mcp-setup-page.md) — 2026-09-04/05: paste a CLI command or fill the form. `MCP_SERVERS.YAML` GONE. An import deletes the file it read ONLY when something parsed.

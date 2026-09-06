@@ -51,6 +51,11 @@ public class ProjectFolderGrounder : PhyBase
 
     private System.Threading.Timer? _debounce;
 
+    // The folder last resolved, for the right-click menu — which has to answer without a solve.
+    // Not _watched: that is cleared whenever watching stops, and the menu should still be able to
+    // open a folder on a share that refuses to raise events.
+    private string? _resolved;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="ProjectFolderGrounder"/> class.
     /// </summary>
@@ -65,6 +70,14 @@ public class ProjectFolderGrounder : PhyBase
 
     /// <inheritdoc/>
     public override Guid ComponentGuid => new Guid("A2C74F16-30B8-4E59-9D41-6F8B25C0E7A3");
+
+    /// <inheritdoc/>
+    public override void AppendAdditionalMenuItems(System.Windows.Forms.ToolStripDropDown menu)
+    {
+        base.AppendAdditionalMenuItems(menu);
+        Menu_AppendSeparator(menu);
+        ProjectFolderMenu.Append(this, menu, this._resolved);
+    }
 
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
@@ -108,6 +121,7 @@ public class ProjectFolderGrounder : PhyBase
         if (!resolution.IsResolved)
         {
             this.StopWatching();
+            this._resolved = null;
             this.AddRuntimeMessage(
                 GH_RuntimeMessageLevel.Warning,
                 resolution.ProblemText ?? "No project folder could be resolved.");
@@ -117,6 +131,7 @@ public class ProjectFolderGrounder : PhyBase
         }
 
         string folder = resolution.FullPath!;
+        this._resolved = folder;
         this.Watch(folder);
 
         IReadOnlyList<ProjectFileInfo> files = FileRead.List(folder)

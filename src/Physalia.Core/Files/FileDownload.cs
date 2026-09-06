@@ -46,6 +46,11 @@ namespace Physalia.Core.Files;
 /// </summary>
 public static class FileDownload
 {
+    // Honest, and versioned so a server operator seeing it in a log can tell which build called.
+    private static readonly string UserAgent =
+        "Physalia/" + (typeof(FileDownload).Assembly.GetName().Version?.ToString(3) ?? "1.0")
+        + " (Rhino Grasshopper plug-in)";
+
     /// <summary>
     /// Fetches one file.
     /// </summary>
@@ -97,13 +102,23 @@ public static class FileDownload
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, source);
+
+        // HttpClient sends NO User-Agent by default, and a request without one is refused outright by
+        // a fair number of servers. Set per request rather than on the client, so it applies whatever
+        // client the caller passed in. It will not get past a bot challenge — nothing will — but it
+        // removes a whole class of failure that looks identical to one.
+        if (request.Headers.UserAgent.Count == 0)
+        {
+            request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
+        }
+
         using HttpResponseMessage response = await client
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct)
             .ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
         {
-            return Fail($"The server answered {(int)response.StatusCode} {response.ReasonPhrase} for {source}.");
+            return Fail(DescribeRefusal(response, source, destinationFolder));
         }
 
         // Redirects are followed by the handler, so the address that actually served this may not be
@@ -255,6 +270,77 @@ public static class FileDownload
 
     // NotNullWhen so the caller does not have to null-check a Uri this method guarantees: it returns
     // true only after assigning one, and the compiler cannot see that through an out parameter.
+    /// <summary>
+    /// Explains a refused response, and — when it is a bot challenge — what to do instead.
+    ///
+    /// <para><b>Why this is worth more than the status code.</b> A bare "403 Forbidden" reads to a
+    /// model like something worth another try, so it retries: the same URL over http, then a
+    /// different file, then that one over http. Four attempts and several inference calls to learn
+    /// what one sentence could have said. A challenge is not a transient failure and not a wrong
+    /// URL — it is a door that will not open for any program, so the only useful answer is to stop
+    /// and hand the job to the person, who has a browser.</para>
+    ///
+    /// <para>Observed on Vancouver's LiDAR host: <c>webtransfer.vancouver.ca</c> answers every
+    /// request with 403 and a Cloudflare challenge page, a full browser User-Agent included. The
+    /// file downloads perfectly in a browser.</para>
+    /// </summary>
+    /// <param name="response">The refused response.</param>
+    /// <param name="source">What was asked for.</param>
+    /// <param name="destinationFolder">Where the file should end up, so the message can say.</param>
+    /// <returns>The message to hand back.</returns>
+    private static string DescribeRefusal(HttpResponseMessage response, Uri source, string destinationFolder)
+    {
+        string status = $"{(int)response.StatusCode} {response.ReasonPhrase}";
+
+        if (!IsBotChallenge(response))
+        {
+            return $"The server answered {status} for {source}.";
+        }
+
+        return $"BLOCKED BY A BOT CHALLENGE — not a missing file, and not something to retry. {source} "
+            + $"answered {status} with a browser challenge page, which no program can pass: retrying, "
+            + "switching between http and https, or trying a neighbouring file will all fail the same "
+            + "way.\n\nWhat DOES work is a person with a browser. Tell the user, in your reply:\n"
+            + $"  1. open {source} in their browser, where it will download normally;\n"
+            + $"  2. save it into this folder:\n     {destinationFolder}\n"
+            + "  3. tell you when it is there.\n\n"
+            + "The project folder is watched, so the file will show up in your grounding by itself "
+            + "once it lands — you do not need to download it again to see it. Do not call "
+            + "download_file on this host again.";
+    }
+
+    /// <summary>
+    /// Determines whether a refusal is a bot challenge rather than a genuine denial.
+    ///
+    /// <para>Cloudflare says so outright with <c>Cf-Mitigated</c>; failing that, a 403 or 503 served
+    /// by Cloudflare with an HTML body is a challenge page rather than an answer about the file. The
+    /// content type matters: a real 403 from a file server is short and usually not a web page.</para>
+    /// </summary>
+    /// <param name="response">The refused response.</param>
+    /// <returns>True when a browser is the only thing that will get through.</returns>
+    private static bool IsBotChallenge(HttpResponseMessage response)
+    {
+        if (response.StatusCode is not (System.Net.HttpStatusCode.Forbidden
+            or System.Net.HttpStatusCode.ServiceUnavailable
+            or System.Net.HttpStatusCode.TooManyRequests))
+        {
+            return false;
+        }
+
+        if (response.Headers.Contains("Cf-Mitigated"))
+        {
+            return true;
+        }
+
+        bool cloudflare = response.Headers.Server.Any(
+            part => part.Product?.Name?.Contains("cloudflare", StringComparison.OrdinalIgnoreCase) == true);
+
+        bool html = response.Content.Headers.ContentType?.MediaType?
+            .Contains("html", StringComparison.OrdinalIgnoreCase) == true;
+
+        return cloudflare && html;
+    }
+
     private static bool TryParseHttpUrl(
         string url,
         [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Uri? parsed,

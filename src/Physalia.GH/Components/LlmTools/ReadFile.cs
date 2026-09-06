@@ -94,6 +94,14 @@ public class ReadFile : LlmToolComponentBase
             : new[] { ToolDef };
 
     /// <inheritdoc/>
+    public override void AppendAdditionalMenuItems(System.Windows.Forms.ToolStripDropDown menu)
+    {
+        base.AppendAdditionalMenuItems(menu);
+        Menu_AppendSeparator(menu);
+        ProjectFolderMenu.Append(this, menu, this._folder);
+    }
+
+    /// <inheritdoc/>
     protected override void RegisterAdditionalInputs(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter("Project Folder", "PF", ProjectFolderInput.InputDescription, GH_ParamAccess.item);

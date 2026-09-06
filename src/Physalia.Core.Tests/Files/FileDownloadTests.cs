@@ -238,6 +238,109 @@ public sealed class FileDownloadTests : IDisposable
         Assert.Equal("site-survey.las", outcome!.FileName);
     }
 
+    // Serves a refusal with the headers a real one carried, so the challenge detection is tested
+    // against the shape Cloudflare actually sends rather than a guess at it.
+    private static HttpClient Refusing(
+        HttpStatusCode status,
+        string? server = null,
+        string? contentType = null,
+        bool cfMitigated = false)
+    {
+        return new HttpClient(new StubHandler(_ =>
+        {
+            var response = new HttpResponseMessage(status)
+            {
+                Content = new StringContent("<!DOCTYPE html><html>challenge</html>"),
+            };
+
+            response.Content.Headers.Remove("Content-Type");
+            if (contentType is not null)
+            {
+                response.Content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+            }
+
+            if (server is not null)
+            {
+                response.Headers.TryAddWithoutValidation("Server", server);
+            }
+
+            if (cfMitigated)
+            {
+                response.Headers.TryAddWithoutValidation("Cf-Mitigated", "challenge");
+            }
+
+            return response;
+        }));
+    }
+
+    [Fact]
+    public async Task Fetch_NamesABotChallengeAndSaysWhatToDoInstead()
+    {
+        // Observed live on Vancouver's LiDAR host: 403 with Cf-Mitigated and a challenge page, a full
+        // browser User-Agent included. A bare "403 Forbidden" had the model retry four times.
+        using HttpClient client = Refusing(
+            HttpStatusCode.Forbidden, server: "cloudflare", contentType: "text/html", cfMitigated: true);
+
+        Assert.False((await this.Fetch("https://blocked.example/tile.zip", client)).IsOk(out _, out string? error));
+
+        Assert.Contains("BOT CHALLENGE", error);
+        Assert.Contains("not something to retry", error);
+
+        // The message has to carry the destination, because the recovery is a person saving the file
+        // into it by hand.
+        Assert.Contains(this._root, error);
+        Assert.Contains("in their browser", error);
+        Assert.Contains("Do not call", error);
+    }
+
+    [Fact]
+    public async Task Fetch_DetectsACloudflareChallengeWithoutTheCfHeader()
+    {
+        // The bare host answered with Server: cloudflare and an HTML body but no Cf-Mitigated, so
+        // that combination has to count on its own.
+        using HttpClient client = Refusing(
+            HttpStatusCode.Forbidden, server: "cloudflare", contentType: "text/html");
+
+        Assert.False((await this.Fetch("https://blocked.example/tile.zip", client)).IsOk(out _, out string? error));
+        Assert.Contains("BOT CHALLENGE", error);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden, null, null)]
+    [InlineData(HttpStatusCode.Forbidden, "nginx", "text/html")]
+    [InlineData(HttpStatusCode.Forbidden, "cloudflare", "application/json")]
+    [InlineData(HttpStatusCode.NotFound, "cloudflare", "text/html")]
+    [InlineData(HttpStatusCode.Unauthorized, "cloudflare", "text/html")]
+    public async Task Fetch_DoesNotCallAnOrdinaryRefusalABotChallenge(
+        HttpStatusCode status, string? server, string? contentType)
+    {
+        // The costly mistake in the other direction: telling the model to give up and fetch a file by
+        // hand when the URL was simply wrong, or the file genuinely needs credentials.
+        using HttpClient client = Refusing(status, server, contentType);
+
+        Assert.False((await this.Fetch("https://example.org/tile.zip", client)).IsOk(out _, out string? error));
+        Assert.DoesNotContain("BOT CHALLENGE", error);
+        Assert.Contains(((int)status).ToString(), error);
+    }
+
+    [Fact]
+    public async Task Fetch_IdentifiesItself()
+    {
+        // HttpClient sends no User-Agent at all, and plenty of servers refuse a request without one —
+        // a failure that looks exactly like a challenge and is not.
+        string? seen = null;
+        using var client = new HttpClient(new StubHandler(request =>
+        {
+            seen = request.Headers.UserAgent.ToString();
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[] { 1 }) };
+        }));
+
+        await this.Fetch("https://example.org/a.bin", client);
+
+        Assert.NotNull(seen);
+        Assert.Contains("Physalia", seen);
+    }
+
     [Fact]
     public void Describe_ReadsAsASizeAPersonWouldWrite()
     {

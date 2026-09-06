@@ -181,6 +181,10 @@ public class DownloadFile : LlmToolComponentBase
         base.AppendAdditionalMenuItems(menu);
         Menu_AppendSeparator(menu);
 
+        // The way out when a host will not serve a program: fetch it in a browser, drop it here.
+        ProjectFolderMenu.Append(this, menu, this._folder);
+        Menu_AppendSeparator(menu);
+
         Menu_AppendItem(
             menu,
             "Ask before downloading",

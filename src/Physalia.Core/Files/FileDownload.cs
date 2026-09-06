@@ -316,14 +316,13 @@ public static class FileDownload
         return $"{BlockedMarker} — not a missing file, and not something to retry. {source} answered "
             + $"{status} with a browser challenge page, which no program can pass: retrying, switching "
             + "between http and https, or trying a neighbouring file will all fail the same way.\n\n"
-            + "A browser CAN fetch it, and Physalia has one. Tell the user, in your reply, to right-click "
-            + "the Download File component and choose \"Fetch in Browser…\" — it opens this page in a real "
-            + "browser window and saves the file straight into the project folder, so there is nothing to "
-            + "move afterwards. Failing that, they can open it in their own browser and save it into:\n"
-            + $"     {destinationFolder}\n\n"
-            + "Either way the project folder is watched, so the file appears in your grounding by itself "
-            + "once it lands and you will see it on the next turn. Do not call download_file on this host "
-            + "again.";
+            + "A browser CAN fetch it, and one is already offered: a \"Fetch in browser\" button has "
+            + "appeared in the chat window for this file. Tell the user to click it — do NOT send them to "
+            + "the canvas to right-click anything. It opens the page in a real browser and saves the file "
+            + "straight into the project folder, so there is nothing for them to move afterwards.\n\n"
+            + "The project folder is watched, so the file appears in your grounding by itself once it "
+            + $"lands ({destinationFolder}) and you will see it on the next turn. Do not call download_file "
+            + "on this host again.";
     }
 
     /// <summary>

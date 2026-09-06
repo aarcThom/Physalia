@@ -286,9 +286,11 @@ public sealed class FileDownloadTests : IDisposable
         Assert.True(FileDownload.IsBlocked(error));
         Assert.Contains("not something to retry", error);
 
-        // It has to name the affordance that actually solves this — the browser window that saves
-        // into the project folder — and the folder itself, for the hand-carried fallback.
-        Assert.Contains("Fetch in Browser", error);
+        // It has to name the affordance that actually solves this — the button now sitting in the
+        // chat window — and must NOT send the user off to the canvas to right-click a component.
+        Assert.Contains("Fetch in browser", error);
+        Assert.Contains("chat window", error);
+        Assert.DoesNotContain("right-click the Download File", error);
         Assert.Contains(this._root, error);
         Assert.Contains("Do not call download_file", error);
     }

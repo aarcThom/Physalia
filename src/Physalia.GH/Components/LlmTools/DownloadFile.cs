@@ -325,6 +325,12 @@ public class DownloadFile : LlmToolComponentBase
             if (FileDownload.IsBlocked(error))
             {
                 this._blockedUrl = args.Url;
+
+                // Put the way out in front of the user, in the window they are already reading. The
+                // node's own menu item still exists for an arbitrary URL, but it is the wrong place
+                // to send somebody who is mid-conversation.
+                Panels.BrowserFetchOffers.Raise(
+                    args.Url, this._folder!, Harness.PhyDocuments.Harness(this));
             }
 
             return ToolCallResult.Error(error);

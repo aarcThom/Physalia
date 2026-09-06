@@ -455,6 +455,23 @@ export interface UiApproval {
 	harness: string;
 }
 
+/** A file a download could not fetch, offered as a button because a browser can.
+ *
+ *  Raised when a host answers a programmatic request with a bot challenge — a door that opens for a
+ *  real browser and for nothing else. Blocks nothing: the tool call has already failed, and this is
+ *  a follow-up the user takes or ignores, which is what makes it a sibling of UiApproval rather than
+ *  one of them. */
+export interface UiFetchOffer {
+	/** Identifies this card back to the host. Opaque. */
+	id: string;
+	/** The address the challenge refused. Shown in full — it is what the user is agreeing to open. */
+	url: string;
+	/** Where the browser window will save it, so the card can say the file needs no moving. */
+	folder: string;
+	/** Which harness hit the block. The window may be showing a different Chat. Empty if none. */
+	harness: string;
+}
+
 /** Functions the host invokes on the page (set by the app on mount). */
 export interface PhysaliaHost {
 	setHistory(messages: UiMessage[]): void;
@@ -478,6 +495,8 @@ export interface PhysaliaHost {
 	setChats(chats: UiChat[]): void;
 	/** Tool approval questions waiting for an answer, oldest first. Empty clears them. */
 	setApprovals(approvals: UiApproval[]): void;
+	/** Files a download could not fetch, offered for a browser to fetch instead. Empty clears them. */
+	setFetchOffers(offers: UiFetchOffer[]): void;
 	/** A viewport snapshot captured by the geometry button in attach mode (the Geometry Snapshot
 	 *  tool's default message switched off): lands in the composer's attachment strip like a pasted
 	 *  image and leaves on the user's own turn. */
@@ -551,4 +570,12 @@ export function openExternalLink(url: string): void {
 export function answerApproval(id: string, allow: boolean): void {
 	window.location.href =
 		`${BRIDGE_SCHEME}://approve?id=${encodeURIComponent(id)}&allow=${allow ? '1' : '0'}`;
+}
+
+/** Opens the browser window for an offered file, or drops the offer. Anything but an explicit open
+ *  dismisses on the host side too, so a navigation that gets lost loses a button rather than opening
+ *  a window nobody asked for. */
+export function answerFetchOffer(id: string, open: boolean): void {
+	window.location.href =
+		`${BRIDGE_SCHEME}://fetch?id=${encodeURIComponent(id)}&do=${open ? 'open' : 'dismiss'}`;
 }

@@ -11,6 +11,7 @@
 	import FeedbackTurn from '$lib/chat/FeedbackTurn.svelte';
 	import Composer from '$lib/chat/Composer.svelte';
 	import ApprovalCard from '$lib/chat/ApprovalCard.svelte';
+	import FetchOfferCard from '$lib/chat/FetchOfferCard.svelte';
 	import ImageEditor from '$lib/chat/ImageEditor.svelte';
 	import Setup from '$lib/chat/Setup.svelte';
 	import Preset from '$lib/chat/Preset.svelte';
@@ -59,6 +60,7 @@
 		SubmitMessage,
 		ToolsSelectionPayload,
 		UiApproval,
+		UiFetchOffer,
 		UiChat,
 		UiMessage,
 		UiPdf,
@@ -154,6 +156,9 @@
 	// Tool approval questions waiting for an answer. A tool call is blocked while one is up, so these
 	// are pushed the moment the model asks rather than on the window's own tick.
 	let approvals = $state<UiApproval[]>([]);
+	// Files a download could not fetch. Unlike an approval these block nothing — the call already
+	// failed — so they simply sit there until taken or dismissed.
+	let fetchOffers = $state<UiFetchOffer[]>([]);
 	let tokenCountToolWired = $state(false);
 	let markUp = $state<{
 		base64: string;
@@ -308,6 +313,9 @@
 			},
 			setApprovals: (next) => {
 				approvals = next ?? [];
+			},
+			setFetchOffers: (next) => {
+				fetchOffers = next ?? [];
 			},
 			attachSnapshot: (image) => {
 				// Attach mode: the host captured a snapshot and hands it here instead of sending it —
@@ -1187,6 +1195,7 @@
 	     on Home or a setup page, and a question the user cannot see is a round that stalls until the
 	     host times it out. -->
 	<ApprovalCard {approvals} />
+	<FetchOfferCard offers={fetchOffers} />
 
 	{#if !staticSurface}
 	<div class="flex shrink-0 items-stretch gap-2 px-3 pb-3">

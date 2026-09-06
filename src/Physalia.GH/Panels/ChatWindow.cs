@@ -172,6 +172,8 @@ public class ChatWindow : Form
     private string? _lastChats;
 
     private string? _lastApprovals;
+
+    private string? _lastFetchOffers;
     private string? _lastGroundingSignature;
     private int? _lastTokenCount;
 
@@ -241,12 +243,14 @@ public class ChatWindow : Form
         // already waiting, and a visible delay between the model deciding and the question arriving
         // reads as the pipeline having stalled. The tick still pushes as a safety net.
         ToolApprovalBroker.Changed += OnApprovalsChanged;
+        BrowserFetchOffers.Changed += OnFetchOffersChanged;
 
         Closed += (_, _) =>
         {
             _timer.Stop();
             UnhookHostClose();
             ToolApprovalBroker.Changed -= OnApprovalsChanged;
+            BrowserFetchOffers.Changed -= OnFetchOffersChanged;
         };
     }
 
@@ -258,6 +262,17 @@ public class ChatWindow : Form
             if (_loaded)
             {
                 MaybePushApprovals();
+            }
+        });
+
+    // Raised from the tool call's thread, like the approval one, so it is marshalled before the
+    // WebView is touched.
+    private void OnFetchOffersChanged() =>
+        Application.Instance.AsyncInvoke(() =>
+        {
+            if (_loaded)
+            {
+                MaybePushFetchOffers();
             }
         });
 
@@ -418,6 +433,9 @@ public class ChatWindow : Form
                 break;
             case "approve":
                 HandleApprove(uri);
+                break;
+            case "fetch":
+                HandleFetchOffer(uri);
                 break;
             case "selectchat":
                 HandleSelectChat(uri);
@@ -1785,6 +1803,10 @@ public class ChatWindow : Form
         // the moment the model asks rather than up to a tick later; this is the safety net that
         // catches a change the event missed and the clear-down after one is answered.
         MaybePushApprovals();
+
+        // Files a download could not fetch, offered as a button. Same deal: pushed off the broker's
+        // event the moment one is raised, with the tick as the safety net.
+        MaybePushFetchOffers();
     }
 
     // Pushes the preset library to the page, but only when the set actually changes — a cheap
@@ -2602,6 +2624,48 @@ public class ChatWindow : Form
 
         _lastApprovals = json;
         Exec($"window.physalia&&window.physalia.setApprovals&&window.physalia.setApprovals({json});");
+    }
+
+    // Pushes the files a download could not fetch, for the chat to offer a browser for. Change-
+    // detected on the serialized set like every other push, so the tick costs nothing while there
+    // are none — which is nearly always.
+    private void MaybePushFetchOffers()
+    {
+        var list = BrowserFetchOffers.Pending()
+            .Select(o => new
+            {
+                id = o.Id,
+                url = o.Url,
+                folder = o.Folder,
+                harness = o.HarnessName ?? string.Empty,
+            })
+            .ToList();
+
+        string json = JsonSerializer.Serialize(list, WriteOpts);
+        if (json == _lastFetchOffers)
+        {
+            return;
+        }
+
+        _lastFetchOffers = json;
+        Exec($"window.physalia&&window.physalia.setFetchOffers&&window.physalia.setFetchOffers({json});");
+    }
+
+    // Opens the browser window for an offered file, or drops the offer. Anything that is not an
+    // explicit fetch dismisses, so a malformed navigation loses a button rather than opening a
+    // window nobody asked for.
+    private void HandleFetchOffer(Uri uri)
+    {
+        string id = GetQueryValue(uri.Query, "id");
+
+        if (GetQueryValue(uri.Query, "do") == "open")
+        {
+            BrowserFetchOffers.Take(id);
+        }
+        else
+        {
+            BrowserFetchOffers.Dismiss(id);
+        }
     }
 
     // Routes a card's Allow/Deny back to the tool call waiting on it. Anything but an explicit

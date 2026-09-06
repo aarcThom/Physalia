@@ -191,7 +191,8 @@ public sealed class ApiEndpointStore
                     pair.Value.Auth,
                     pair.Value.AuthName ?? string.Empty,
                     pair.Value.AuthPrefix ?? string.Empty,
-                    pair.Value.EnvVar ?? string.Empty));
+                    pair.Value.EnvVar ?? string.Empty,
+                    pair.Value.Paging));
             }
         }
         catch (Exception)
@@ -222,6 +223,7 @@ public sealed class ApiEndpointStore
                         AuthName = string.IsNullOrEmpty(e.AuthName) ? null : e.AuthName,
                         AuthPrefix = string.IsNullOrEmpty(e.AuthPrefix) ? null : e.AuthPrefix,
                         EnvVar = string.IsNullOrEmpty(e.EnvVar) ? null : e.EnvVar,
+                        Paging = e.Paging,
                     },
                     StringComparer.OrdinalIgnoreCase),
             };
@@ -260,5 +262,8 @@ public sealed class ApiEndpointStore
 
         [JsonPropertyName("envVar")]
         public string? EnvVar { get; set; }
+
+        [JsonPropertyName("paging")]
+        public ApiPaging Paging { get; set; }
     }
 }

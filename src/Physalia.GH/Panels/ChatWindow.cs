@@ -2264,6 +2264,7 @@ public class ChatWindow : Form
                     authName = e.AuthName,
                     authPrefix = e.AuthPrefix,
                     envVar = e.EnvVar,
+                    paging = JsonNamingPolicy.CamelCase.ConvertName(e.Paging.ToString()),
                     hasKey = source is not null,
                     keySource = source ?? string.Empty,
                 };
@@ -2456,13 +2457,19 @@ public class ChatWindow : Form
             return false;
         }
 
+        if (!Enum.TryParse(payload.Paging, ignoreCase: true, out ApiPaging paging))
+        {
+            paging = ApiPaging.None;
+        }
+
         endpoint = new ApiEndpoint(
             payload.Name.Trim(),
             payload.BaseUrl!.Trim(),
             auth,
             (payload.AuthName ?? string.Empty).Trim(),
             payload.AuthPrefix ?? string.Empty,
-            (payload.EnvVar ?? string.Empty).Trim());
+            (payload.EnvVar ?? string.Empty).Trim(),
+            paging);
 
         return true;
     }
@@ -3734,6 +3741,7 @@ public class ChatWindow : Form
         string? AuthName,
         string? AuthPrefix,
         string? EnvVar,
+        string? Paging,
         string? Key,
         string? Replacing);
 }

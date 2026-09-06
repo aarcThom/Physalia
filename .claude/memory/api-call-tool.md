@@ -55,6 +55,20 @@ the KEY already refreshed live, because saving calls `PhyCredentials.Invalidate(
 reload also resets discovery, but ONLY when the picked server's `Identity` changed — a stamp change
 from editing a different entry must not drop a live session's tool list.
 
+**Paging, added after a live session hit it (2026-09-05).** A 145-record query delivered its last
+100-record page to the canvas while the model reasoned about all 145 — nothing in a page's shape
+reveals the difference. `ApiRequest.SendPagedAsync` now walks it; `Response` became LIST access, one
+body per page. Five load-bearing rules: page size is MEASURED from the last page not assumed (a wrong
+guess skips rows, silently); the style is endpoint config (`ApiPaging`, default `None`) because a
+cursor API given offsets returns page one forever instead of failing; a mid-walk failure KEEPS what it
+gathered; the summary describes the SET and shouts when partial (`IsPartial` also true when records <
+matched — ending tidily is not being complete); and the 100-page guard is the runaway bound, not the
+real one — at 50 it silently became the limit for small-page APIs. `max_records` is a tool argument
+(defaults to one page) clamped by a `Max Records` node input: model judgement inside human budget.
+**Verified live** via a throwaway console harness ([[core-console-harness]]): 811 records over 9
+requests, 5929 over 60, partial reads reporting correctly, `None` doing exactly one request. The
+keep-what-you-have-on-failure path is by construction only, never exercised live.
+
 Deferred deliberately: `describe_dataset` / `search_datasets` for portals with too many datasets to
 ground, and a Fetch button that seeds the Description box from the portal's own catalog.
 

@@ -53,11 +53,17 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
     private const string EndpointInputName = "Endpoint";
     private const int InEndpoint = 1;
     private const int InDescription = 2;
+    private const int InMaxRecords = 3;
 
     private const int OutResponse = 2;
     private const int OutStatus = 3;
 
-    private const int TimeoutMs = 60000;
+    private const int TimeoutMs = 120000;
+
+    // Ceiling on what ONE call may gather, when the endpoint can be paged. Generous enough
+    // that a real query is answered in full, small enough that a careless one is not a
+    // download. The human raises it on the node; the model can only ask within it.
+    private const int DefaultMaxRecords = 1000;
 
     // Shared, not per-instance: HttpClient is thread-safe and reuse avoids socket exhaustion.
     private static readonly HttpClient HttpClient = new();
@@ -75,7 +81,8 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
 
     private string _endpointName = string.Empty;
     private string _description = string.Empty;
-    private string _lastResponse = string.Empty;
+    private IReadOnlyList<string> _lastResponse = Array.Empty<string>();
+    private int _maxRecords = DefaultMaxRecords;
     private string _status = "No API picked.";
 
     /// <summary>
@@ -186,6 +193,14 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
             GH_ParamAccess.item,
             string.Empty);
         pManager[InDescription].Optional = true;
+
+        pManager.AddIntegerParameter(
+            "Max Records",
+            "M",
+            "The most records one call may gather when this API supports paging. The model asks for what it wants and this caps it, so a careless query cannot turn into a download. Ignored for an API with no paging configured.",
+            GH_ParamAccess.item,
+            DefaultMaxRecords);
+        pManager[InMaxRecords].Optional = true;
     }
 
     /// <inheritdoc/>
@@ -194,8 +209,8 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
         pManager.AddTextParameter(
             "Response",
             "R",
-            "The full body of the last answer, exactly as the API sent it. This is the one the definition should read — the model only ever sees a summary.",
-            GH_ParamAccess.item);
+            "The full bodies of the last answer, one item per page fetched, in order — every record, not just the page the model happened to read. This is the one the definition should parse; the model only ever sees a summary.",
+            GH_ParamAccess.list);
 
         pManager.AddTextParameter(
             "Status",
@@ -238,6 +253,10 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
         da.GetData(InDescription, ref described);
         _description = described ?? string.Empty;
 
+        int cap = DefaultMaxRecords;
+        da.GetData(InMaxRecords, ref cap);
+        _maxRecords = cap > 0 ? cap : DefaultMaxRecords;
+
         if (!string.IsNullOrWhiteSpace(picked) && !string.Equals(picked, _endpointName, StringComparison.Ordinal))
         {
             _endpointName = picked.Trim();
@@ -274,7 +293,7 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
     {
         // Published here rather than in OnSolveTick, which runs BEFORE the calls and would leave
         // both outputs a solve behind.
-        da.SetData(OutResponse, _lastResponse);
+        da.SetDataList(OutResponse, _lastResponse);
         da.SetData(OutStatus, _status);
     }
 
@@ -293,7 +312,12 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
                 "This API node has no API picked, so there is nothing to call. Tell the user to pick one on the node.");
         }
 
-        (string path, string query, int maxChars) = ParseArgs(call.InputJson);
+        (string path, string query, int maxChars, int askedFor) = ParseArgs(call.InputJson);
+
+        // The model asks for what it wants; the node's own input is the ceiling. A tool argument is
+        // the model's judgement about this question, the input is the human's budget for all of them,
+        // so the smaller wins and neither has to know about the other.
+        int wanted = Math.Clamp(askedFor, 1, Math.Max(1, _maxRecords));
 
         string? key = _keys.Resolve(endpoint);
         if (endpoint.NeedsKey && string.IsNullOrWhiteSpace(key))
@@ -305,31 +329,38 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeoutMs);
 
-        Result<string, LlmError> result = await ApiRequest
-            .SendAsync(endpoint, path, query, key, HttpClient, timeout.Token)
+        Result<ApiPagedResponse, LlmError> result = await ApiRequest
+            .SendPagedAsync(endpoint, path, query, key, wanted, HttpClient, timeout.Token)
             .ConfigureAwait(false);
 
-        if (result.IsErr(out LlmError? error, out string? body))
+        if (result.IsErr(out LlmError? error, out ApiPagedResponse? gathered))
         {
             _status = $"{endpoint.Name}: {error.Message}";
             return ToolCallResult.Error(error.Message);
         }
 
-        _lastResponse = body;
+        _lastResponse = gathered.Pages;
 
-        IReadOnlyList<string> fields = ApiResponseSummary.FieldNames(body);
+        IReadOnlyList<string> fields = ApiResponseSummary.FieldNames(gathered.Pages.FirstOrDefault());
+        string shape = $"{gathered.RecordCount} records over {gathered.Pages.Count} request(s)";
         _status = fields.Count > 0
-            ? $"{endpoint.Name}: {body.Length} characters, fields {string.Join(", ", fields.Take(6))}"
-            : $"{endpoint.Name}: {body.Length} characters";
+            ? $"{endpoint.Name}: {shape}, fields {string.Join(", ", fields.Take(6))}"
+            : $"{endpoint.Name}: {shape}";
 
-        return ToolCallResult.Ok(ApiResponseSummary.Summarize(body, maxChars));
+        if (gathered.IsPartial)
+        {
+            _status += " — partial";
+        }
+
+        return ToolCallResult.Ok(ApiResponseSummary.Summarize(gathered, maxChars));
     }
 
     private static string ArgumentSchema =>
         "{\"type\":\"object\",\"properties\":{"
         + "\"path\":{\"type\":\"string\",\"description\":\"The path to request, relative to the API's configured base URL — for example 'catalog/datasets' or 'catalog/datasets/parking-meters/records'. Never a whole URL.\"},"
         + "\"query\":{\"type\":\"string\",\"description\":\"The query string, without the leading '?' — for example 'where=meterid=\\\"X1\\\"&limit=20'. Leave empty for none.\"},"
-        + "\"max_chars\":{\"type\":\"integer\",\"description\":\"How much of the answer to return to you. The full body always goes to the Grasshopper canvas regardless.\",\"default\":4000}"
+        + "\"max_chars\":{\"type\":\"integer\",\"description\":\"How much of the answer to return to you. The full body always goes to the Grasshopper canvas regardless.\",\"default\":4000},"
+        + "\"max_records\":{\"type\":\"integer\",\"description\":\"How many records to gather in total. Above one page, the tool follows the API's paging for you and delivers every record to the canvas. Defaults to a single page; raise it when the response says more matched than you received.\",\"default\":100}"
         + "},\"required\":[\"path\"]}";
 
     private static string ToolDescription(ApiEndpoint endpoint)
@@ -341,18 +372,31 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
         sb.Append("You get back a summary — the number of matching records, the field names and one sample record — while the ");
         sb.Append("complete response is delivered to the Grasshopper definition, so ask for what you need to reason about rather ");
         sb.Append("than trying to read a whole data set here.");
+
+        if (endpoint.Paging == ApiPaging.LimitOffset)
+        {
+            sb.Append(" This API pages its results: set max_records above one page and the tool follows the paging itself, ");
+            sb.Append("so the definition receives every record in one call. If the answer says it is not the whole result set, ");
+            sb.Append("say so rather than presenting what you got as complete.");
+        }
+
         return sb.ToString();
     }
 
-    private static (string Path, string Query, int MaxChars) ParseArgs(string inputJson)
+    private static (string Path, string Query, int MaxChars, int MaxRecords) ParseArgs(string inputJson)
     {
         string path = string.Empty;
         string query = string.Empty;
         int maxChars = 4000;
 
+        // One page unless asked for more. Paging costs real requests against someone's quota, so it
+        // is opted into per call; the summary reports the total matched, which is what tells the
+        // model there is more to ask for.
+        int maxRecords = 100;
+
         if (string.IsNullOrWhiteSpace(inputJson))
         {
-            return (path, query, maxChars);
+            return (path, query, maxChars, maxRecords);
         }
 
         try
@@ -378,6 +422,13 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
             {
                 maxChars = parsed;
             }
+
+            if (root.TryGetProperty("max_records", out JsonElement recordsElement)
+                && recordsElement.ValueKind == JsonValueKind.Number
+                && recordsElement.TryGetInt32(out int records))
+            {
+                maxRecords = records;
+            }
         }
         catch (JsonException)
         {
@@ -385,7 +436,7 @@ public class ApiCall : LlmToolComponentBase, IPickableValuesSource
             // request builder in terms the model can act on.
         }
 
-        return (path, query, maxChars);
+        return (path, query, maxChars, maxRecords);
     }
 
     // Namespaced by endpoint so two API nodes cannot collide on one Router key, and sanitized to the

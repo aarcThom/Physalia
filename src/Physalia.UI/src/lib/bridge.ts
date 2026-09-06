@@ -308,6 +308,8 @@ export interface UiApiEndpoint {
 	authPrefix: string;
 	/** An environment variable consulted for the key before the credential store. */
 	envVar: string;
+	/** How the API hands out more results than one response holds, so the tool can walk them. */
+	paging: 'none' | 'limitOffset';
 	/** Whether a key is available — from the environment variable or from the store. */
 	hasKey: boolean;
 	/** Where that key comes from: the variable's name, "stored", or '' when there is none. */
@@ -333,6 +335,7 @@ export interface ApiEndpointPayload {
 	authName: string;
 	authPrefix: string;
 	envVar: string;
+	paging: 'none' | 'limitOffset';
 	/** The key to store. Blank leaves any existing key untouched — see UiApiEndpoint. */
 	key: string;
 	/** The entry's previous name when a rename is being saved (else ''), so the host edits in place. */

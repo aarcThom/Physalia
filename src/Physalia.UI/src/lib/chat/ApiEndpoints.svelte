@@ -67,6 +67,7 @@
 			authName: '',
 			authPrefix: '',
 			envVar: '',
+			paging: 'none',
 			key: '',
 			replacing: ''
 		};
@@ -86,6 +87,7 @@
 			authName: endpoint.authName,
 			authPrefix: endpoint.authPrefix,
 			envVar: endpoint.envVar,
+			paging: endpoint.paging ?? 'none',
 			key: '',
 			replacing: endpoint.name
 		};
@@ -203,6 +205,18 @@
 			</div>
 
 			<div class="flex flex-col gap-1.5">
+				<label class="text-xs font-medium" for="api-paging">Paging</label>
+				<select id="api-paging" class={FIELD} bind:value={draft.paging}>
+					<option value="none">None — one response per call</option>
+					<option value="limitOffset">limit / offset</option>
+				</select>
+				<p class="text-muted-foreground text-xs">
+					Only set this if the API really pages this way. Told the wrong style, an API returns its
+					first page over and over instead of failing, so leaving it off is always safe.
+				</p>
+			</div>
+
+			<div class="flex flex-col gap-1.5">
 				<label class="text-xs font-medium" for="api-auth">Authentication</label>
 				<select id="api-auth" class={FIELD} bind:value={draft.auth}>
 					<option value="none">None — the API is open</option>
@@ -305,7 +319,9 @@
 						<div class="min-w-0 flex-1">
 							<p class="truncate text-sm font-medium">{endpoint.name}</p>
 							<p class="text-muted-foreground truncate text-xs">{endpoint.baseUrl}</p>
-							<p class="text-muted-foreground mt-0.5 text-xs">{describeKey(endpoint)}</p>
+							<p class="text-muted-foreground mt-0.5 text-xs">
+								{describeKey(endpoint)}{endpoint.paging === 'limitOffset' ? ' · pages' : ''}
+							</p>
 						</div>
 
 						<div class="flex shrink-0 gap-1">

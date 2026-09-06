@@ -33,6 +33,30 @@ public enum ApiAuth
 }
 
 /// <summary>
+/// How an API hands out more results than fit in one response.
+/// </summary>
+/// <remarks>
+/// Configured per endpoint rather than detected, because guessing wrong is not a no-op: a cursor API
+/// given offsets returns page one forever, which reads as a hang and costs real requests. Only the
+/// style Physalia can actually walk is offered; anything else stays <see cref="None"/> and the model
+/// pages by hand through the query string, which still works.
+/// </remarks>
+public enum ApiPaging
+{
+    /// <summary>
+    /// Each call returns one response and that is all. The safe default.
+    /// </summary>
+    None,
+
+    /// <summary>
+    /// Classic <c>limit</c> / <c>offset</c> paging — Opendatasoft and a large share of REST APIs.
+    /// The page SIZE is never assumed: it is read back from how many records the first page actually
+    /// returned, so an API with a cap of 100, 50 or 20 all work without being told which.
+    /// </summary>
+    LimitOffset,
+}
+
+/// <summary>
 /// One HTTP API the user has configured Physalia to call.
 /// </summary>
 /// <remarks>
@@ -70,13 +94,18 @@ public enum ApiAuth
 /// secret off disk entirely, which is the headless, CI and shared-team path — the same order and the
 /// same reasoning as <c>ModelApiResolver</c>.
 /// </param>
+/// <param name="Paging">
+/// How the API hands out more results than one response holds, so the tool can walk them itself.
+/// Last in the parameter list so existing positional construction keeps compiling.
+/// </param>
 public sealed record ApiEndpoint(
     string Name,
     string BaseUrl,
     ApiAuth Auth = ApiAuth.None,
     string AuthName = "",
     string AuthPrefix = "",
-    string EnvVar = "")
+    string EnvVar = "",
+    ApiPaging Paging = ApiPaging.None)
 {
     /// <summary>
     /// Gets the id this endpoint's key is stored under in the shared credential store.

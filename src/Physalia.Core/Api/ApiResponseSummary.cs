@@ -58,6 +58,89 @@ public static class ApiResponseSummary
     }
 
     /// <summary>
+    /// Describes a whole paged read for the model.
+    /// </summary>
+    /// <remarks>
+    /// <b>It must describe the SET, not the last page.</b> Summarising only the final body is how a
+    /// model reasons about 45 records while the canvas receives 145 — and it has no way to notice,
+    /// because a page looks exactly like a complete answer. Anything left behind is stated outright
+    /// for the same reason.
+    /// </remarks>
+    /// <param name="response">The gathered pages.</param>
+    /// <param name="maxChars">The budget for what goes back to the model.</param>
+    /// <returns>A description of everything gathered.</returns>
+    public static string Summarize(ApiPagedResponse response, int maxChars)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+
+        if (response.Pages.Count == 0)
+            return "The API returned nothing.";
+
+        // One page and nothing withheld is the ordinary case, and the single-body summary already
+        // says everything true about it. Wrapping that in paging commentary would be noise.
+        if (response.Pages.Count == 1 && !response.IsPartial)
+            return Summarize(response.Pages[0], maxChars);
+
+        var sb = new StringBuilder();
+        sb.Append("Gathered ").Append(response.RecordCount)
+          .Append(response.RecordCount == 1 ? " record" : " records")
+          .Append(" over ").Append(response.Pages.Count)
+          .Append(response.Pages.Count == 1 ? " request" : " requests");
+
+        if (response.MatchedCount is { } matched)
+            sb.Append(", out of ").Append(matched).Append(" matching in total");
+
+        sb.AppendLine(".");
+
+        if (response.IsPartial)
+        {
+            sb.Append("THIS IS NOT THE WHOLE RESULT SET");
+            if (response.StoppedBecause is { } why)
+                sb.Append(" — ").Append(why);
+            sb.AppendLine(".");
+            sb.AppendLine("Narrow the query if you need all of it; do not present this as complete.");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("Every record is on this node's Response output, one item per page, in order.");
+        sb.AppendLine();
+        sb.AppendLine("The first page looked like this:");
+
+        int spent = sb.Length;
+        sb.Append(Summarize(response.Pages[0], Math.Max(300, maxChars - spent)));
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Counts the records in one response body, and the total the API says matched.
+    /// </summary>
+    /// <remarks>
+    /// The count is what a pager strides by, so it is read back from the body rather than assumed
+    /// from a requested page size — see <c>ApiRequest.SendPagedAsync</c>.
+    /// </remarks>
+    /// <param name="body">The raw response body.</param>
+    /// <returns>Records in this body, and the total matching when the API reports one.</returns>
+    public static (int Count, int? Total) CountRecords(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            return (0, null);
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(body);
+            FirstRecord(document.RootElement, out int count, out long? total);
+            return (count, total is { } value and >= int.MinValue and <= int.MaxValue ? (int)value : null);
+        }
+        catch (JsonException)
+        {
+            // Not JSON, so there are no records to count. A non-paging endpoint answering CSV is a
+            // perfectly good endpoint; it simply cannot be walked, and the caller stops after one.
+            return (0, null);
+        }
+    }
+
+    /// <summary>
     /// Lists the field names on the first record of a response, for a node's own status line.
     /// </summary>
     /// <param name="body">The raw response body.</param>

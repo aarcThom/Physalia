@@ -143,6 +143,134 @@ public static class ApiRequest
     }
 
     /// <summary>
+    /// Sends as many GET requests as it takes to gather up to <paramref name="maxRecords"/> records,
+    /// and returns one body per page in fetch order.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The page size is never assumed, it is measured.</b> Whatever the first response
+    /// actually contained is the stride for the next offset, so an API capping pages at 100, 50 or 20
+    /// all walk correctly with nothing configured. Assuming a size means either refetching rows or
+    /// skipping them, and skipping is silent.</para>
+    /// <para><b>A failure part way through keeps what was already gathered.</b> Page four 400ing —
+    /// which is what Opendatasoft does past offset+limit 10000 — must not throw away the three pages
+    /// that worked; the caller is told paging stopped early and why. Only a failure on the FIRST page
+    /// is an error, because then there is nothing to report but the failure.</para>
+    /// </remarks>
+    /// <param name="endpoint">The configured endpoint.</param>
+    /// <param name="path">The path relative to the base URL.</param>
+    /// <param name="query">The raw query string as the model wrote it; may be empty.</param>
+    /// <param name="key">The resolved key, or null when the endpoint needs none.</param>
+    /// <param name="maxRecords">Stop once this many records have been gathered.</param>
+    /// <param name="client">Shared HTTP client.</param>
+    /// <param name="ct">Cancellation token; bound the whole walk with a timeout.</param>
+    /// <returns>The pages gathered, or an error when the very first request failed.</returns>
+    public static async Task<Result<ApiPagedResponse, LlmError>> SendPagedAsync(
+        ApiEndpoint endpoint,
+        string? path,
+        string? query,
+        string? key,
+        int maxRecords,
+        HttpClient client,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+
+        var pages = new List<string>();
+        int gathered = 0;
+        int offset = 0;
+        int? matched = null;
+        string? stoppedBecause = null;
+
+        // A ceiling on REQUESTS as well as records. Nothing below can loop forever — a page returning
+        // nothing ends the walk — but a misconfigured endpoint paired with a huge Max Records could
+        // still fire hundreds of requests before satisfying it, and that is the user's quota.
+        //
+        // It is the RUNAWAY guard, not the real bound; maxRecords is. So it has to sit well clear of
+        // ordinary use, or it silently becomes the limit for any API with a small page: at 50 it took
+        // over from a 1000-record request the moment a page held 20 rows, and the walk then reported
+        // stopping for a reason that had nothing to do with what was asked for.
+        const int MaxPages = 100;
+
+        for (int page = 0; page < MaxPages; page++)
+        {
+            string pageQuery = endpoint.Paging == ApiPaging.LimitOffset && offset > 0
+                ? WithOffset(query, offset)
+                : query ?? string.Empty;
+
+            Result<string, LlmError> result =
+                await SendAsync(endpoint, path, pageQuery, key, client, ct).ConfigureAwait(false);
+
+            if (result.IsErr(out LlmError? error, out string? body))
+            {
+                if (pages.Count == 0)
+                    return new Result<ApiPagedResponse, LlmError>.Err(error);
+
+                stoppedBecause = error.Message;
+                break;
+            }
+
+            pages.Add(body);
+
+            (int count, int? total) = ApiResponseSummary.CountRecords(body);
+            matched ??= total;
+            gathered += count;
+
+            if (endpoint.Paging != ApiPaging.LimitOffset)
+            {
+                break;
+            }
+
+            if (count == 0)
+            {
+                break;
+            }
+
+            if (gathered >= maxRecords)
+            {
+                stoppedBecause = matched is { } all && all > gathered
+                    ? $"stopped at the {maxRecords}-record limit set on the node; {all} matched in total"
+                    : null;
+                break;
+            }
+
+            if (matched is { } totalCount && gathered >= totalCount)
+            {
+                break;
+            }
+
+            offset += count;
+
+            if (page == MaxPages - 1)
+            {
+                stoppedBecause = $"stopped after {MaxPages} requests";
+            }
+        }
+
+        return new Result<ApiPagedResponse, LlmError>.Ok(
+            new ApiPagedResponse(pages, gathered, matched, stoppedBecause));
+    }
+
+    /// <summary>
+    /// Replaces (or adds) the <c>offset</c> parameter in a query string.
+    /// </summary>
+    /// <remarks>
+    /// Replacing rather than appending matters: a model that wrote its own <c>offset=0</c> would
+    /// otherwise get two, and which one an API honours is its own business.
+    /// </remarks>
+    /// <param name="query">The query string, with or without a leading "?".</param>
+    /// <param name="offset">The offset to set.</param>
+    /// <returns>The query string carrying exactly one offset parameter.</returns>
+    public static string WithOffset(string? query, int offset)
+    {
+        IEnumerable<string> kept = (query ?? string.Empty)
+            .TrimStart('?')
+            .Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Where(part => !part.StartsWith("offset=", StringComparison.OrdinalIgnoreCase));
+
+        return string.Join("&", kept.Append("offset=" + offset));
+    }
+
+    /// <summary>
     /// Describes a URI with any key removed, safe to show on a node or write to a trace.
     /// </summary>
     /// <param name="endpoint">The endpoint the URI was built for.</param>

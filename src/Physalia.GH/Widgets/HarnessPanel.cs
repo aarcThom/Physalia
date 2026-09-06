@@ -115,6 +115,10 @@ internal sealed class HarnessPanel : Form
     // follows.
     private GH_Canvas? _owner;
 
+    // The top-level window the canvas lives in — the Grasshopper editor while it floats, Rhino's own
+    // window while it is docked. What the panel is owned by, and what it follows.
+    private Form? _host;
+
     internal HarnessPanel()
     {
         this.DoubleBuffered = true;
@@ -200,14 +204,7 @@ internal sealed class HarnessPanel : Form
             this._loading = false;
         }
 
-        // Owned late as well as early: WidgetListCreated fires while the editor is still being
-        // built, so the first canvas of a session can be set up before there is a window to own the
-        // panel — and an UNOWNED tool window is one that outlives its editor's z-order and can end
-        // up stranded in front of another application.
-        if (this.Owner is null && Instances.DocumentEditor is { IsDisposed: false } editor)
-        {
-            this.Owner = editor;
-        }
+        this.EnsureHostWindow();
 
         this.LayoutPanel();
         this.Reposition();
@@ -218,6 +215,66 @@ internal sealed class HarnessPanel : Form
         }
 
         this.Invalidate();
+    }
+
+    /// <summary>
+    /// Finds the window the canvas actually lives in, owns this panel to it, and subscribes to its
+    /// movement.
+    ///
+    /// <para><b>Resolved from the CANVAS, not from <c>Instances.DocumentEditor</c>.</b> The editor is
+    /// the right window only while Grasshopper floats; docked, the canvas is hosted in a Rhino panel
+    /// and it is RHINO's window that moves it. Asking the canvas which form contains it is right in
+    /// both cases, and re-checking means docking or undocking mid-session re-points the panel instead
+    /// of leaving it tracking a window the canvas has left.</para>
+    ///
+    /// <para><b>Lazy, and this is what the first cut got wrong.</b> The owner and these handlers were
+    /// set up at attach time, but <c>WidgetListCreated</c> fires while the editor is still being
+    /// built — so there was no window yet, nothing was ever subscribed, and moving Grasshopper left
+    /// the panel behind on screen. Doing it here means it happens the first time the panel is
+    /// actually shown, by which point the window certainly exists.</para>
+    /// </summary>
+    private void EnsureHostWindow()
+    {
+        Form? host = this._owner?.FindForm();
+        if (host is null || host.IsDisposed || ReferenceEquals(host, this._host))
+        {
+            return;
+        }
+
+        if (this._host is { IsDisposed: false } previous)
+        {
+            previous.Move -= this.OnHostMoved;
+            previous.Resize -= this.OnHostMoved;
+        }
+
+        this._host = host;
+        host.Move += this.OnHostMoved;
+        host.Resize += this.OnHostMoved;
+
+        // Owning the panel to that window is what keeps it above Grasshopper, drops it behind
+        // whatever application the user switches to, and hides it when the window is minimised.
+        this.Owner = host;
+    }
+
+    private void OnHostMoved(object? sender, EventArgs e)
+    {
+        if (!this.IsDisposed && this.Visible)
+        {
+            this.Reposition();
+        }
+    }
+
+    /// <inheritdoc/>
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing && this._host is { IsDisposed: false } host)
+        {
+            host.Move -= this.OnHostMoved;
+            host.Resize -= this.OnHostMoved;
+            this._host = null;
+        }
+
+        base.Dispose(disposing);
     }
 
     /// <summary>

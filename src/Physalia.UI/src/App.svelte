@@ -1099,9 +1099,18 @@
 			     content clips instead (and bubble text breaks/hyphenates, see the user Message). -->
 			<ConversationContent class="chat-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-scroll">
 			{#if isEmpty}
-				<div class="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 text-center">
-					<p class="text-sm font-medium">Physalia chat</p>
-					<p class="text-xs">Send a message to start the conversation.</p>
+				<!-- The harness's own opening text REPLACES the generic greeting rather than joining it:
+				     a pipeline shared across a firm should open with its author's instructions, and
+				     "Send a message to start the conversation" underneath them would be the window
+				     talking over the person who set it up. Whitespace is preserved so an author can
+				     write more than one line. -->
+				<div class="text-muted-foreground flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
+					{#if chatText?.trim()}
+						<p class="text-sm whitespace-pre-wrap">{chatText.trim()}</p>
+					{:else}
+						<p class="text-sm font-medium">Physalia chat</p>
+						<p class="text-xs">Send a message to start the conversation.</p>
+					{/if}
 				</div>
 			{/if}
 
@@ -1188,7 +1197,6 @@
 				{busy}
 				disabled={showSetup}
 				status={showSetup ? '' : status}
-				{chatText}
 				{imageToolWired}
 				snapshotAttachWired={snapshotWired && !snapshotSendsMessage}
 			viewSnapshotAttachWired={viewSnapshotWired && !viewSnapshotSendsMessage}

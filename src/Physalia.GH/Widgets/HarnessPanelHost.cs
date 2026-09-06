@@ -45,18 +45,12 @@ internal static class HarnessPanelHost
         var panel = new HarnessPanel { AnchorCanvas = canvas };
         Panels.Add(canvas, panel);
 
-        // Owned by the Grasshopper editor, which is what keeps the panel above the canvas, drops it
-        // behind whatever application the user switches to, and hides it when the editor is
-        // minimised. Set before the panel is ever shown; a null editor (no window yet) leaves it
-        // unowned rather than failing, and the next Attach on a real canvas will have one.
-        if (Instances.DocumentEditor is { IsDisposed: false } editor)
-        {
-            panel.Owner = editor;
-            Follow(h => editor.Move += h, panel);
-            Follow(h => editor.Resize += h, panel);
-        }
+        // Owning the panel to a window, and following that window as it moves, is deliberately NOT
+        // done here: WidgetListCreated fires while the editor is still being built, so there is no
+        // window to find yet. HarnessPanel.EnsureHostWindow does it the first time the panel is
+        // shown — see the note there, this is where it was got wrong.
 
-        // The canvas moving inside the editor — a docked panel resized, the ribbon shown or hidden —
+        // The canvas moving inside its window — a docked panel resized, the ribbon shown or hidden —
         // moves the corner the panel is pinned to.
         Follow(h => canvas.LocationChanged += h, panel);
         Follow(h => canvas.SizeChanged += h, panel);

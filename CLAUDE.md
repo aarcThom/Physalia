@@ -691,9 +691,16 @@ Name / Description / Chat text / Save / Load / Back, and rolls up to its title b
   editor minimises, all of which `TopMost` would break. Owned lazily as well as at attach, since
   `WidgetListCreated` fires while the editor is still being built.
 - **What a window costs is position** — a child gets it from its parent for free. `HarnessPanelHost`
-  repositions on the canvas's `LocationChanged`/`SizeChanged`/`ParentChanged` and the editor's
-  `Move`/`Resize`, hides the panel when its canvas is not visible (another document's tab showing),
-  and disposes it with the canvas.
+  repositions on the canvas's `LocationChanged`/`SizeChanged`/`ParentChanged`, hides the panel when
+  its canvas is not visible (another document's tab showing), and disposes it with the canvas.
+- **The host window is resolved from `canvas.FindForm()`, LAZILY, and not from
+  `Instances.DocumentEditor`** (fixed 2026-09-06: moving Grasshopper left the panel behind). Lazily,
+  because `WidgetListCreated` fires while the editor is still being built — subscribing at attach
+  time subscribed to nothing, so no `Move` was ever heard. From the canvas, because
+  `Instances.DocumentEditor` is the right window only while Grasshopper FLOATS: docked, the canvas is
+  hosted in a Rhino panel and it is Rhino's window that moves it. Re-checked on each show, so
+  docking or undocking mid-session re-points the panel instead of leaving it tracking a window the
+  canvas has left.
 - **It opens COLLAPSED**, and **Back to document is the LAST row and stays visible in both states**.
   Expanded it is a few hundred pixels square permanently over a working canvas, while its three
   fields are edited about twice in a harness's life and the exit is wanted constantly — so rolled up
@@ -728,8 +735,13 @@ Name / Description / Chat text / Save / Load / Back, and rolls up to its title b
   (see the GH custom-attribute traps). Committed on Leave/Enter, never per keystroke — the name is a
   folder name and renaming a directory once per typed character is not a thing to do to a disk.
 - The three fields serialize on `HarnessComponent`, so they ship inside a `.phy`. `ChatText` is pushed
-  to the chat window and becomes the composer's placeholder, ranking BELOW the host's status hints —
-  "wire a Conversation Log" must never be hidden behind an author's welcome message.
+  to the chat window and **REPLACES the empty-conversation greeting** ("Physalia chat / Send a message
+  to start the conversation") — both lines, not just the subtitle: a pipeline shared across a firm
+  should open with its author's instructions, and the generic invitation underneath them would be the
+  window talking over the person who set it up. Whitespace is preserved, so an author can write more
+  than one line. It is deliberately NOT the composer placeholder as well; that would say the same
+  thing twice on an empty conversation, and the placeholder is where the host's wiring hints live
+  ("Add an LLM Call with a Model…"), which must not be displaced by a welcome message.
 
 ### Tool approval (`IToolApprover`, `ToolApprovalBroker`, `ApprovalCard.svelte`)
 One seam, not a dialog per tool: downloading, unpacking and (later) running a script all want the same

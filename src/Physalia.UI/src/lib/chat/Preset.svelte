@@ -50,7 +50,7 @@
 	function descriptionOf(preset: UiPreset): string {
 		return preset.description?.trim()
 			? preset.description
-			: 'No description. Add a Harness Notes panel inside the harness and save it again.';
+			: 'No description. Open the harness panel, describe what this pipeline is for, and save it again.';
 	}
 
 	// Opens on whichever side of the row has more room and is capped to it, so the description is

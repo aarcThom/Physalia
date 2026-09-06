@@ -1522,6 +1522,11 @@ public class ChatWindow : Form
         // Pipeline-wiring readiness: chat needs ConversationLog -> [compactor…] -> LLM Call -> Model. Shown
         // as a hint once a provider exists but the graph isn't fully wired.
         bool ready = !_home && PromptPipelineView.IsPipelineReady(_component, 0);
+
+        // What this harness's author wants said in place of the composer's usual send hint — the
+        // third field on the harness panel. Only on a Chat, never on Home, whose own prose belongs to
+        // the window rather than to any one pipeline.
+        string? chatText = _home ? null : Harness.PhyDocuments.Harness(_component)?.ChatText;
         string status = needsSetup ? "Setup mode"
             : busy ? "Working…"
             : _home ? "Choose an option above to begin."
@@ -1713,7 +1718,7 @@ public class ChatWindow : Form
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs, chatText }, WriteOpts);
 
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
@@ -1733,7 +1738,7 @@ public class ChatWindow : Form
             // would answer a question the user did not ask.
             bool home = _home;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, home, status, configuredProviders, providerStatuses, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs }, WriteOpts);
+                new { connected, busy, ready, needsSetup, home, status, configuredProviders, providerStatuses, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs, chatText }, WriteOpts);
 
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
@@ -1783,8 +1788,8 @@ public class ChatWindow : Form
                 folder = e.Folder,
                 name = Path.GetFileNameWithoutExtension(e.FileName),
 
-                // The text of the Harness Notes panel inside the preset, read straight out of the
-                // archive — the only description a .gh can carry.
+                // Read out of the package manifest without loading the pipeline. A legacy .gh
+                // preset carries no description, and shows as having none.
                 description = Harness.PresetLibrary.ReadDescription(
                     Path.Combine(Harness.PresetLibrary.RootDir, e.Folder, e.FileName)),
             })
@@ -3106,7 +3111,8 @@ public class ChatWindow : Form
 
         try
         {
-            GH_Document? contents = Harness.HarnessComponent.ReadDocumentFile(path);
+            GH_Document? contents = Harness.HarnessComponent.ReadDocumentFile(
+                path, out Core.Packaging.PhyManifest? manifest);
             if (contents is null)
             {
                 Rhino.RhinoApp.WriteLine($"[Physalia] Preset could not be read: {file}");
@@ -3125,7 +3131,7 @@ public class ChatWindow : Form
 
             // Always a NEW harness, never a swap of the one the window happens to be driving: a
             // preset is a pipeline to add, not a replacement for whatever is already running.
-            if (!DropPresetHarness(contents))
+            if (!DropPresetHarness(contents, path, manifest))
             {
                 Rhino.RhinoApp.WriteLine("[Physalia] No Grasshopper canvas to add the preset to.");
                 return;
@@ -3144,7 +3150,7 @@ public class ChatWindow : Form
     // window — beside whatever is already there, never on top of it. The preset arrives whole: it IS
     // a harness's document, so it needs no Chat of our own making (the caller has already refused a
     // preset that carries none). Returns false when there is no canvas to place onto.
-    private bool DropPresetHarness(GH_Document contents)
+    private bool DropPresetHarness(GH_Document contents, string path, Core.Packaging.PhyManifest? manifest)
     {
         GH_Canvas? canvas = Instances.ActiveCanvas;
         if (HostForPlacement(canvas) is not { } host)
@@ -3162,6 +3168,11 @@ public class ChatWindow : Form
         {
             chat.EnsureDistinctEmoji();
         }
+
+        // Only once the harness is on the document: the name it takes from the package has to be
+        // made unique against its new siblings, and its project files go into the folder that name
+        // resolves to.
+        harness.AdoptPackage(path, manifest);
 
         harness.ExpireSolution(true);
         return true;

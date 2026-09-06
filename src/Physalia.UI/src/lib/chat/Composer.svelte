@@ -32,6 +32,10 @@
 		/** Supplementary instruction text from the host (hook up a Conversation Log, add an LLM
 		 *  Call, …). Shown as this box's placeholder — the window has no separate status row. */
 		status?: string;
+		/** The harness's own opening text, shown in place of the generic send hint when it has one.
+		 *  Ranks BELOW the host's status hints: "wire a Conversation Log" is about whether the
+		 *  pipeline can run at all, and must not be hidden behind an author's welcome message. */
+		chatText?: string | null;
 		/** True when an Add Image human tool is wired — without it, image intake (paste, drag-drop,
 		 *  file picker) is fully disabled and prompts are text-only. */
 		imageToolWired?: boolean;
@@ -77,6 +81,7 @@
 		busy,
 		disabled = false,
 		status = '',
+		chatText = null,
 		imageToolWired = false,
 		snapshotAttachWired = false,
 		viewSnapshotAttachWired = false,
@@ -128,7 +133,9 @@
 						? status
 						: disconnected
 							? ''
-							: 'Send a message…  (Enter to send, Shift+Enter for a new line)'
+							: chatText?.trim()
+								? chatText
+								: 'Send a message…  (Enter to send, Shift+Enter for a new line)'
 	);
 
 	// All [image#N] tokens. Order in the text mirrors insertion order, which mirrors `pending`.

@@ -146,6 +146,9 @@
 	let markUpToolWired = $state(false);
 	let pdfToolWired = $state(false);
 	let pendingPdfs = $state<UiPdf[]>([]);
+	// Set by the harness this Chat lives in, so a pipeline shared across a firm opens with its
+	// author's instructions rather than a generic invitation to type.
+	let chatText = $state<string | null>(null);
 	let tokenCountToolWired = $state(false);
 	let markUp = $state<{
 		base64: string;
@@ -271,6 +274,7 @@
 				markUpToolWired = next.markUpToolWired ?? false;
 				pdfToolWired = next.pdfToolWired ?? false;
 				pendingPdfs = next.pendingPdfs ?? [];
+				chatText = next.chatText ?? null;
 				tokenCountToolWired = next.tokenCountToolWired ?? false;
 			},
 			setSetupResult: (result) => {
@@ -1171,6 +1175,7 @@
 				{busy}
 				disabled={showSetup}
 				status={showSetup ? '' : status}
+				{chatText}
 				{imageToolWired}
 				snapshotAttachWired={snapshotWired && !snapshotSendsMessage}
 			viewSnapshotAttachWired={viewSnapshotWired && !viewSnapshotSendsMessage}

@@ -9,7 +9,7 @@ namespace Physalia.GH.Attributes;
 
 /// <summary>
 /// The Physalia look, shared by everything that belongs to the harness family: the proxy node, the
-/// pill widgets shown inside a harness, and the Harness Notes panel.
+/// pill widgets shown inside a harness, and the harness panel.
 ///
 /// <para>Light-blue body, black edge, dark-purple text, and a pink-to-white rim traced just inside
 /// the edge. Kept in one place because these are the only nodes that opt out of Grasshopper's own

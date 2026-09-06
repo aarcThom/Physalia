@@ -162,6 +162,10 @@ export interface UiState {
 	 *  only; a PDF's bytes never cross the bridge from the host, because a drawing set can be
 	 *  hundreds of megabytes and the page has no use for the file itself. */
 	pendingPdfs: UiPdf[];
+	/** What this harness's author wants the composer to say instead of its usual send hint — the
+	 *  "Chat window opening text" field on the harness panel. Null on Home, and whenever the harness
+	 *  has none, in which case the composer keeps its own wording. */
+	chatText?: string | null;
 }
 
 /** One attached PDF, as the composer draws it. */
@@ -425,10 +429,10 @@ export interface UiPreset {
 	file: string;
 	/** Which library folder it came from — "Physalia", "User" or "Community". Groups the gallery. */
 	folder: string;
-	/** Display label: the file name without folder or .gh extension. */
+	/** Display label: the file name without its folder or extension. */
 	name: string;
-	/** The text of the Harness Notes panel inside the preset, read out of its archive by the host —
-	 *  the only description a .gh can carry. Null when the preset has no notes. */
+	/** What this pipeline is for, from the package manifest. Null for a legacy .gh preset, which
+	 *  carries no description of its own. */
 	description?: string | null;
 }
 

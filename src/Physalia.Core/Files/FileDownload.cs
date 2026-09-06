@@ -253,7 +253,12 @@ public static class FileDownload
         _ => bytes + " bytes",
     };
 
-    private static bool TryParseHttpUrl(string url, out Uri? parsed, out string problem)
+    // NotNullWhen so the caller does not have to null-check a Uri this method guarantees: it returns
+    // true only after assigning one, and the compiler cannot see that through an out parameter.
+    private static bool TryParseHttpUrl(
+        string url,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Uri? parsed,
+        out string problem)
     {
         parsed = null;
         problem = string.Empty;

@@ -675,6 +675,20 @@ Parenting rather than floating an owned form is what makes it behave: client coo
 corner for free, it z-orders above the canvas by construction, it takes its own input, and it cannot
 end up behind Rhino. It shows only inside a harness, carries Back / Name / Description / Chat text /
 Save / Load, and rolls up to its title bar (remembered in `Instances.Settings`).
+- **It opens COLLAPSED**, and **Back to document is the LAST row and stays visible in both states**.
+  Expanded it is a few hundred pixels square permanently over a working canvas, while its three
+  fields are edited about twice in a harness's life and the exit is wanted constantly — so rolled up
+  is the default, and the exit can never be behind the toggle (`ApplyCollapsed` excludes it along
+  with the toggle itself; hiding it would strand anyone who collapsed the panel). Bottom placement
+  is what puts it directly under the title strip when rolled up. Collapsed it is 260x79 at 100%.
+- **It uses the CHAT WINDOW's palette (`HarnessTheme.Panel`), not the canvas one.** The colours
+  above it draw a capsule among other nodes, where a hard black edge and a saturated fill are what
+  make a node read as a node; the panel is chrome with text fields in it, sits on screen beside the
+  chat window, and looked like a different application in aqua. `HarnessTheme.Panel` is the
+  `--neu-*` tokens from `app.css` converted to sRGB — keep the two in step, since there is no way
+  to share values across that boundary. Text boxes are `BorderStyle.None` with a soft rounded well
+  drawn in `OnPaint`, because `FixedSingle` takes the system window-frame colour and cannot be
+  softened; the panel's own corners are a `Region`, so the canvas shows through them.
 - Attached from `WidgetListCreated` — not because it is a widget, but because that is the one static
   hook firing once per canvas with the canvas in hand. Held in a `ConditionalWeakTable`.
 - **Every size in it is MEASURED, never a pixel constant** (fixed 2026-09-05 off a screenshot). The

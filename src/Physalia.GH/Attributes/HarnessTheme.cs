@@ -43,6 +43,45 @@ internal static class HarnessTheme
     /// </summary>
     internal static readonly Color Aqua = Color.FromArgb(255, 138, 194, 207);
 
+    /// <summary>
+    /// The chat window's own palette, for the harness panel.
+    ///
+    /// <para>The panel deliberately does NOT use the colours above. Those draw a capsule on a
+    /// Grasshopper canvas, where a hard black edge and a saturated fill are what make a node read as a
+    /// node among other nodes. The panel is a piece of chrome with text fields in it — the same kind
+    /// of thing as the chat window — and the two sit on screen together, so it takes the chat's soft
+    /// neumorphic palette instead. A hard-edged aqua box beside the chat window looked like a
+    /// different application.</para>
+    ///
+    /// <para>These are the <c>--neu-*</c> tokens from <c>app.css</c>, converted from oklch to sRGB.
+    /// If those change, these should follow — they are the same palette expressed twice, once for a
+    /// browser and once for WinForms, and there is no way to share the values across that boundary.</para>
+    /// </summary>
+    internal static class Panel
+    {
+        /// <summary>Panel body — <c>--neu-bg</c>, a very pale blue-white.</summary>
+        internal static readonly Color Surface = Color.FromArgb(255, 241, 249, 253);
+
+        /// <summary>Inside a text field — <c>--neu-light</c>, near white.</summary>
+        internal static readonly Color Well = Color.FromArgb(255, 253, 255, 255);
+
+        /// <summary>Every border — <c>--neu-dark</c>, the soft blue-grey the chat's shadows are made of.</summary>
+        internal static readonly Color Edge = Color.FromArgb(255, 207, 225, 237);
+
+        /// <summary>The title strip: <see cref="Surface"/> tinted towards <see cref="Edge"/>, so it
+        /// separates without becoming a band of colour.</summary>
+        internal static readonly Color Title = Color.FromArgb(255, 231, 242, 248);
+
+        /// <summary>The chat's accent blue — <c>--neu-accent</c>.</summary>
+        internal static readonly Color Accent = Color.FromArgb(255, 65, 138, 209);
+
+        /// <summary>Body text — <c>--foreground</c>.</summary>
+        internal static readonly Color Text = Color.FromArgb(255, 10, 10, 10);
+
+        /// <summary>Labels and secondary text — <c>--muted-foreground</c>.</summary>
+        internal static readonly Color Muted = Color.FromArgb(255, 115, 115, 115);
+    }
+
     // Width of the rim stroke; about half of it straddles outside the 1px black edge.
     private const float GlowWidth = 1f;
 

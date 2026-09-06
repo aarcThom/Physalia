@@ -9,6 +9,8 @@
 	// import 'katex/dist/katex.min.css';
 
 	import { mode } from 'mode-watcher';
+	import LinkPrompt from '$lib/chat/LinkPrompt.svelte';
+	import type { LinkSafetyModalProps } from 'streamdown-svelte';
 	import githubDarkDefault from '@shikijs/themes/github-dark-default';
 	import githubLightDefault from '@shikijs/themes/github-light-default';
 	import { cn } from '$lib/utils';
@@ -30,6 +32,14 @@
 			'github-dark-default': githubDarkDefault
 		}}
 		// plugins={{ code, mermaid, math, cjk }}
+		linkSafety={{ enabled: true, renderModal: linkPrompt }}
 		{...restProps}
 	/>
 </div>
+
+<!-- Streamdown intercepts every external link and asks before following it; this is the dialog it
+     asks with. Its own one is unusable here (see LinkPrompt.svelte), so it gets ours — which sends
+     the link out through the host rather than calling window.open. -->
+{#snippet linkPrompt(props: LinkSafetyModalProps)}
+	<LinkPrompt url={props.url} isOpen={props.isOpen} onClose={props.onClose} />
+{/snippet}

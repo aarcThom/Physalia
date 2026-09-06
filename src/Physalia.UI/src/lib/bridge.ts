@@ -508,3 +508,15 @@ declare global {
 		__physaliaTake?: () => string;
 	}
 }
+
+/** The custom scheme the page navigates to when it wants something of the host. The host cancels
+ *  the navigation and routes it by URI host (ChatWindow.OnDocumentLoading / Dispatch). */
+export const BRIDGE_SCHEME = 'phbridge';
+
+/** Opens an http/https link in the user's default browser. The chat itself runs from a file:// page,
+ *  so following a link in-page would replace the whole UI (and `window.open` inside the Eto WebView
+ *  reaches no browser at all) — every external link, typed by us or written by the model, goes out
+ *  through the host instead. */
+export function openExternalLink(url: string): void {
+	window.location.href = `${BRIDGE_SCHEME}://open?url=${encodeURIComponent(url)}`;
+}

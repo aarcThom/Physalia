@@ -34,8 +34,9 @@ Recipe (working scripts: `tools/uitest/` — `build_preview.py` builds the stubb
 - **Do not measure the DOM in the same tick as the click that changes it.** Svelte has not flushed;
   an overlay that did close still reads as present. Put the assertion in a later `setTimeout`.
 
-Also: `.fixed.inset-0.z-50` is not a unique selector — streamdown ships a link-safety modal with the
-same classes. Select the editor by "the fixed overlay containing a canvas".
+Also: `.fixed.inset-0.z-50` is not a unique selector — the link-safety prompt (`LinkPrompt.svelte`,
+see [[chat-link-prompt]]) is a fixed overlay too. Select the editor by "the fixed overlay containing
+a canvas", and the link prompt by its `[role="dialog"]`.
 
 **Synthetic events are not enough, and trusting them cost a false pass.** `dispatchEvent(new
 PointerEvent(...))` runs no DEFAULT ACTION, so it can neither reproduce nor disprove anything about

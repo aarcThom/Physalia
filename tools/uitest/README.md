@@ -11,6 +11,7 @@ python tools/uitest/test_all_tools.py file:///…/out.html shot.png
 python tools/uitest/test_text_canvas.py file:///…/out.html shot.png
 python tools/uitest/test_static_surface_layout.py out.html   # then --dump-dom for data-diag-*
 python tools/uitest/test_page_chrome.py out.html shot.png    # drives itself over CDP
+python tools/uitest/test_link_prompt.py out.html shot.png    # clicks a link in an answer
 ```
 
 `test_static_surface_layout.py` and `test_page_chrome.py` measure the window's chrome AROUND a
@@ -18,6 +19,12 @@ page rather than the page itself: that the prompt box and its action stack are a
 there is nothing to send a message to, that the page's scroller then reaches the bottom of the
 window, and that the back control is a raised button. Drive them at 460x620 — `ChatWindow`'s real
 client size — or the layout fits and says nothing.
+
+`test_link_prompt.py` clicks a MASKED markdown link in an assistant turn and measures the
+confirmation that comes up: that its overlay is fixed and covers the window, that the card is
+opaque and that `elementFromPoint` at the card's centre lands inside the card. The bug it covers
+rendered that dialog with none of its styling, so its text lay over the conversation and both were
+unreadable — "the dialog is in the DOM" was true throughout.
 
 `cdp.py` is a minimal Chrome DevTools Protocol client (hand-rolled WebSocket frames — there is no
 websocket library installed here) used to inject **trusted** input. That matters: a synthetic

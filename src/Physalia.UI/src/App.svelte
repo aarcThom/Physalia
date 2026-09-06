@@ -37,6 +37,7 @@
 	import OctagonIcon from '@lucide/svelte/icons/octagon';
 	import HouseIcon from '@lucide/svelte/icons/house';
 	import { cn } from '$lib/utils';
+	import { BRIDGE_SCHEME, openExternalLink } from '$lib/bridge';
 	import type {
 		ClusterInfo,
 		ClusterSelectionPayload,
@@ -67,8 +68,6 @@
 		ApiResult,
 		UiApiEndpoint
 	} from '$lib/bridge';
-
-	const BRIDGE_SCHEME = 'phbridge';
 
 	let messages = $state<UiMessage[]>([]);
 	let stream = $state<string | null>(null);
@@ -498,9 +497,8 @@
 	}
 
 	// Open an external setup link in the system browser (the host cancels the nav and shells out).
-	function openLink(url: string) {
-		window.location.href = `${BRIDGE_SCHEME}://open?url=${encodeURIComponent(url)}`;
-	}
+	// Shared with the markdown link prompt, which sends the model's links out the same way.
+	const openLink = openExternalLink;
 
 	// Ask the host to drop an empty harness — a Chat and nothing else — onto the canvas, and switch
 	// this window to it. Repeatable: a document can carry any number of harnesses, so this stays

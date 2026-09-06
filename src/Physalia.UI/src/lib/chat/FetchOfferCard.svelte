@@ -51,7 +51,7 @@
 </script>
 
 {#each offers as offer (offer.id)}
-	<div class="neu-raised mx-3 mb-2 flex flex-col gap-2.5 rounded-xl p-3 text-left">
+	<div class="neu-raised mb-2 flex flex-col gap-2.5 rounded-xl p-3 text-left">
 		<div class="flex items-start gap-2">
 			<DownloadIcon class="mt-0.5 size-4 shrink-0 text-[var(--neu-accent)]" />
 			<div class="flex min-w-0 flex-col gap-0.5">

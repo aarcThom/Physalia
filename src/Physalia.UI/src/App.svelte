@@ -1193,9 +1193,23 @@
 	     flex-1: a setup or grounding page then runs the full height of the window. -->
 	<!-- Above the composer, and OUTSIDE the staticSurface guard: a tool can ask while the window is
 	     on Home or a setup page, and a question the user cannot see is a round that stalls until the
-	     host times it out. -->
-	<ApprovalCard {approvals} />
-	<FetchOfferCard offers={fetchOffers} />
+	     host times it out.
+
+	     The row MIRRORS the composer's below it — px-3, gap-2, a flex-1 content column and a 36px
+	     column on the right — rather than carrying a margin of its own. That last column is the
+	     scrollbar channel and the action stack, which are the same width and centre on the same
+	     vertical line (see the .chat-scroll note in app.css); a card with a plain mx-3 spanned it and
+	     ran 44px past the conversation, clipping its own Allow button. Deriving the inset from the
+	     same three numbers the composer uses is what keeps the two aligned if any of them changes. -->
+	{#if approvals.length > 0 || fetchOffers.length > 0}
+		<div class="flex shrink-0 items-stretch gap-2 px-3">
+			<div class="flex min-w-0 flex-1 flex-col">
+				<ApprovalCard {approvals} />
+				<FetchOfferCard offers={fetchOffers} />
+			</div>
+			<div class="w-9 shrink-0"></div>
+		</div>
+	{/if}
 
 	{#if !staticSurface}
 	<div class="flex shrink-0 items-stretch gap-2 px-3 pb-3">

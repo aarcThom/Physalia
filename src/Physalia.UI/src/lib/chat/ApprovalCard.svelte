@@ -48,7 +48,7 @@
 
 {#if current}
 	<div
-		class="neu-raised mx-3 mb-2 flex flex-col gap-2.5 rounded-xl p-3 text-left"
+		class="neu-raised mb-2 flex flex-col gap-2.5 rounded-xl p-3 text-left"
 		role="alertdialog"
 		aria-label={current.title}
 	>

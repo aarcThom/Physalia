@@ -13,52 +13,17 @@ using System.Text;
 namespace Physalia.GH.Components;
 
 /// <summary>
-/// Resolves the folder of standing reference PDFs a <see cref="ReadPdf"/> node reads, named on that
-/// node's own PDF Folder input.
+/// Lists the PDFs in a folder, bounded.
 ///
-/// <para>Two spellings are accepted, and the difference is deliberate. A BARE NAME resolves under
-/// <c>Files/PDFS</c> beside the plug-in, sanitized to a single folder name exactly as
-/// <see cref="MemoryLocations"/> does — that name is ordinary internalized param data, so it is
-/// saved in the .gh and carried inside a preset, which is what lets a pipeline ship configured to
-/// read its own reference set. A ROOTED PATH is used as it stands, because the reference set an
-/// architectural practice actually wants to point at is a network share that already exists and is
-/// not going to be copied into a plug-in folder.</para>
-///
-/// <para>Sanitizing applies to the bare-name case only, and that is where the containment guard
-/// lives: separators and invalid characters become dashes and leading dots are trimmed, so a name
-/// can never walk out of the PDF root. A rooted path is not sanitized because it is not a name —
-/// it is a location the user typed on purpose, and the tool reads from it without writing.</para>
+/// <para>All that is left of what used to be a whole location scheme. PDFs had a library of their
+/// own under <c>Files/PDFS</c>, with its own name-or-path spelling rules and its own copy of the
+/// folder-name sanitizer; they are project material like anything else, so they now live in
+/// <c>&lt;project folder&gt;/PDF</c> and the rules live once, in <c>ProjectPaths</c>. What remains
+/// here is the one thing that was never about locations: enumerating a folder without letting a
+/// network share that has gone away take a solve down with it.</para>
 /// </summary>
 internal static class PdfLocations
 {
-    /// <summary>
-    /// Last-resort folder for a name that sanitizes away to nothing.
-    /// </summary>
-    private const string UnnamedKey = "unnamed";
-
-    /// <summary>
-    /// Resolves the PDF folder a node should read, or null when its input is blank.
-    /// </summary>
-    /// <param name="folderName">The node's PDF Folder value.</param>
-    /// <returns>The absolute directory to read, or null when nothing was configured.</returns>
-    internal static string? Resolve(string? folderName)
-    {
-        if (string.IsNullOrWhiteSpace(folderName))
-        {
-            return null;
-        }
-
-        string typed = folderName.Trim();
-
-        // A rooted path is a location, not a name: honour it verbatim.
-        if (IsRootedPath(typed))
-        {
-            return typed;
-        }
-
-        return Path.Combine(PdfsRoot(), FolderKey(typed));
-    }
-
     /// <summary>
     /// Lists the PDFs in a resolved folder, newest name order, bounded so a folder pointed at a
     /// whole project archive cannot stall a solve.
@@ -88,56 +53,6 @@ internal static class PdfLocations
         }
     }
 
-    /// <summary>
-    /// Reduces a typed folder name to a single safe folder name.
-    /// </summary>
-    /// <param name="folderName">The typed name.</param>
-    /// <returns>The folder name used on disk.</returns>
-    internal static string FolderKey(string? folderName)
-    {
-        string key = Sanitize(folderName ?? string.Empty);
-        return key.Length == 0 ? UnnamedKey : key;
-    }
 
-    /// <summary>
-    /// Determines whether a typed value should be treated as a filesystem location rather than a
-    /// folder name. Deliberately stricter than <see cref="Path.IsPathRooted(string)"/>, which calls
-    /// a leading slash rooted and would silently reinterpret a name somebody typed with one.
-    /// </summary>
-    /// <param name="value">The typed value.</param>
-    /// <returns>True when the value looks like a real path.</returns>
-    private static bool IsRootedPath(string value) =>
-        (value.Length >= 2 && value[1] == ':') ||
-        value.StartsWith(@"\\", StringComparison.Ordinal) ||
-        value.StartsWith("//", StringComparison.Ordinal) ||
-        value.StartsWith('/');
 
-    /// <summary>
-    /// Returns <c>Files/PDFS</c> beside the executing assembly.
-    /// </summary>
-    /// <returns>The PDF library root.</returns>
-    private static string PdfsRoot()
-    {
-        string? assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        return assemblyDir is null ? "PDFS" : Path.Combine(assemblyDir, "Files", "PDFS");
-    }
-
-    /// <summary>
-    /// Replaces anything that cannot appear in a file name — separators included, which is what
-    /// makes this a containment guard — with a dash, then trims dots and dashes off the ends so
-    /// <c>..</c> cannot address a parent.
-    /// </summary>
-    /// <param name="value">The typed name.</param>
-    /// <returns>The sanitized name.</returns>
-    private static string Sanitize(string value)
-    {
-        char[] invalid = Path.GetInvalidFileNameChars();
-        var builder = new StringBuilder(value.Length);
-        foreach (char c in value)
-        {
-            builder.Append(invalid.Contains(c) || char.IsWhiteSpace(c) ? '-' : c);
-        }
-
-        return builder.ToString().Trim('-', '.');
-    }
 }

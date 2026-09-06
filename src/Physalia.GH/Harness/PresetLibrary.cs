@@ -251,7 +251,7 @@ internal static class PresetLibrary
     /// <para>Archives directly rather than through <c>GH_DocumentIO</c>, and with
     /// <c>rememberPath: false</c> semantics, so saving leaves no trace on the live document: no
     /// stamped FilePath, no entry in Grasshopper's recent-files list. The chunk name matches what
-    /// <see cref="HarnessComponent.ReadDocumentFile"/> reads and what Grasshopper itself writes, so
+    /// <see cref="HarnessComponent.ReadDocumentFile(string, out Physalia.Core.Packaging.PhyManifest?)"/> reads and what Grasshopper itself writes, so
     /// these bytes are an ordinary Grasshopper definition — which is what lets a <c>.phy</c> be
     /// unzipped and the pipeline inside opened by hand.</para>
     /// </summary>

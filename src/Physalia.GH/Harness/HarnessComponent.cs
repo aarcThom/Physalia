@@ -1111,6 +1111,14 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
     }
 
     /// <summary>
+    /// Takes on a package's identity, from outside. Same work as the load path does for itself, for
+    /// the placement path, which builds the harness first and adds it to the document second.
+    /// </summary>
+    /// <param name="path">The package that was placed.</param>
+    /// <param name="manifest">Its manifest, or null for a plain Grasshopper file.</param>
+    internal void AdoptPackage(string path, PhyManifest? manifest) => ApplyPackage(path, manifest);
+
+    /// <summary>
     /// Takes on a loaded package's identity: its name, its description, the text its chat window
     /// opens with, and its project files.
     ///
@@ -1126,14 +1134,6 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
     /// </summary>
     /// <param name="path">The package that was loaded.</param>
     /// <param name="manifest">Its manifest, or null for a plain Grasshopper file.</param>
-    /// <summary>
-    /// Takes on a package's identity, from outside. Same work as the load path does for itself, for
-    /// the placement path, which builds the harness first and adds it to the document second.
-    /// </summary>
-    /// <param name="path">The package that was placed.</param>
-    /// <param name="manifest">Its manifest, or null for a plain Grasshopper file.</param>
-    internal void AdoptPackage(string path, PhyManifest? manifest) => ApplyPackage(path, manifest);
-
     private void ApplyPackage(string path, PhyManifest? manifest)
     {
         if (manifest is null)

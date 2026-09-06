@@ -677,6 +677,18 @@ end up behind Rhino. It shows only inside a harness, carries Back / Name / Descr
 Save / Load, and rolls up to its title bar (remembered in `Instances.Settings`).
 - Attached from `WidgetListCreated` — not because it is a widget, but because that is the one static
   hook firing once per canvas with the canvas in hand. Held in a `ConditionalWeakTable`.
+- **Every size in it is MEASURED, never a pixel constant** (fixed 2026-09-05 off a screenshot). The
+  first cut hard-coded row heights and a panel width, which is only right at 100% scaling: at any
+  other DPI the font grows and the boxes do not, so labels lost their descenders, the title ran into
+  the button below it, and the action button read "Save as .p". Three traps behind that. **A
+  single-line `TextBox` IGNORES an assigned Height** — WinForms derives it from the font — so
+  advancing a row by the number it was told drifts further down the panel with every row; ask
+  `PreferredHeight` and advance by the real `Height`. **Splitting a button row in half clips the
+  longer label** however wide the panel is, so both action buttons take the width of the wider one
+  and the panel is sized to fit two of those. And the panel must re-measure on `OnHandleCreated`
+  (`DeviceDpi` is 96 until the handle exists, so the constructor's numbers are provisional),
+  `OnFontChanged` and `OnDpiChangedAfterParent` (dragging Rhino to a monitor at another scaling).
+  Same lesson the harness capsule learned when its outlet labels stopped being three fixed letters.
 - **The name field needs the `NickName` override**, since `GH_DocumentObject`'s setter raises nothing
   (see the GH custom-attribute traps). Committed on Leave/Enter, never per keystroke — the name is a
   folder name and renaming a directory once per typed character is not a thing to do to a disk.

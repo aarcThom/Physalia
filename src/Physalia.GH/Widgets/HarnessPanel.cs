@@ -27,6 +27,17 @@ namespace Physalia.GH.Widgets;
 /// keyboard input without fighting the canvas for them, and it cannot end up behind Rhino or adrift
 /// on a second monitor the way an owned form can.</para>
 ///
+/// <para><b>Every size here is MEASURED, never a pixel constant.</b> The first cut hard-coded row
+/// heights and a panel width, which is only ever right at 100% scaling: at any other DPI the font
+/// grows and the boxes do not, so labels lose their descenders, buttons read "Save as .p", and the
+/// title runs into the button below it. Worse, a single-line <c>TextBox</c> IGNORES an assigned
+/// Height entirely — WinForms derives it from the font — so the row advance was wrong by however much
+/// the real height exceeded the number it had been told, and the error accumulated down the panel.
+/// So rows are laid out from each control's own measured height, text is measured with
+/// <c>TextRenderer</c> before anything is sized around it, and the fixed insets are scaled from
+/// <see cref="Control.DeviceDpi"/>. Same lesson the harness capsule learned when its outlet labels
+/// stopped being three fixed-width letters.</para>
+///
 /// <para>The three fields live on the <see cref="HarnessComponent"/>, not here — a setting is only
 /// worth anything if it travels, and these are exactly the fields a <c>.phy</c> carries to whoever
 /// the workflow is shared with. This panel is a view onto them.</para>
@@ -39,12 +50,19 @@ internal sealed class HarnessPanel : UserControl
 {
     private const string CollapsedKey = "Physalia.HarnessPanel.Collapsed";
 
-    private const int Margin = 14;
-    private const int PanelWidth = 260;
-    private const int Pad = 10;
-    private const int RowGap = 6;
-    private const int TitleHeight = 28;
-    private const int ButtonHeight = 24;
+    // Unscaled design sizes, in pixels at 100%. Everything that reaches a Bounds goes through S().
+    private const int MarginPx = 14;
+    private const int MinWidthPx = 260;
+    private const int MaxWidthPx = 420;
+    private const int PadPx = 10;
+    private const int RowGapPx = 6;
+    private const int ButtonPadXPx = 12;
+    private const int ButtonPadYPx = 6;
+
+    // How many lines of text the two multi-line boxes show. A description and an opening message are
+    // both a sentence or three; more than this is a lot of canvas to occupy permanently, and both
+    // boxes scroll.
+    private const int MultilineRows = 3;
 
     private readonly Button _collapse = new();
     private readonly Button _back = new();
@@ -74,13 +92,18 @@ internal sealed class HarnessPanel : UserControl
         this.DoubleBuffered = true;
         this.BackColor = HarnessTheme.Fill;
         this.ForeColor = HarnessTheme.Ink;
-        this.Width = PanelWidth;
+
+        // Explicit rather than inherited from the canvas: GH sets its own font on the canvas, and a
+        // panel of form controls should read as form controls. MessageBoxFont is the system UI font
+        // and is already correct for the current DPI.
+        this.Font = SystemFonts.MessageBoxFont ?? this.Font;
 
         this.BuildTitleRow();
         this.BuildFields();
         this.BuildActions();
 
-        this.Collapsed = Instances.Settings.GetValue(CollapsedKey, false);
+        this._collapsed = Instances.Settings.GetValue(CollapsedKey, false);
+        this.ApplyCollapsed();
     }
 
     /// <summary>
@@ -93,18 +116,8 @@ internal sealed class HarnessPanel : UserControl
         set
         {
             this._collapsed = value;
-
-            foreach (Control control in this.Controls)
-            {
-                if (!ReferenceEquals(control, this._collapse) && !ReferenceEquals(control, this._back))
-                {
-                    control.Visible = !value;
-                }
-            }
-
-            this._collapse.Text = value ? "▾" : "▴";
             Instances.Settings.SetValue(CollapsedKey, value);
-            this.LayoutPanel();
+            this.ApplyCollapsed();
         }
     }
 
@@ -135,6 +148,7 @@ internal sealed class HarnessPanel : UserControl
         }
 
         this.LayoutPanel();
+        this.Invalidate();
     }
 
     /// <summary>
@@ -159,12 +173,45 @@ internal sealed class HarnessPanel : UserControl
     }
 
     /// <inheritdoc/>
+    /// <remarks>A different font is a different layout — every row is measured from it.</remarks>
+    protected override void OnFontChanged(EventArgs e)
+    {
+        base.OnFontChanged(e);
+        this.LayoutPanel();
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Dragging Rhino onto a monitor at another scaling re-measures everything. Without this the
+    /// panel keeps the sizes it worked out for the monitor it was born on, which is the same clipping
+    /// as hard-coded constants, just delayed.
+    /// </remarks>
+    protected override void OnDpiChangedAfterParent(EventArgs e)
+    {
+        base.OnDpiChangedAfterParent(e);
+        this.LayoutPanel();
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The first layout that can be trusted. Before the handle exists <c>DeviceDpi</c> is the default
+    /// 96 whatever the monitor is doing, so the constructor's measurements are provisional.
+    /// </remarks>
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        this.LayoutPanel();
+    }
+
+    /// <inheritdoc/>
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
 
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        int titleHeight = this.TitleHeight;
 
         var body = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
         using (var edge = new Pen(HarnessTheme.Edge))
@@ -174,7 +221,7 @@ internal sealed class HarnessPanel : UserControl
 
         // The title strip carries the family's aqua so the panel reads as Physalia's at a glance,
         // the same job the pills' fill used to do.
-        var title = new Rectangle(1, 1, this.Width - 2, TitleHeight);
+        var title = new Rectangle(1, 1, this.Width - 2, titleHeight);
         using (var fill = new SolidBrush(HarnessTheme.Aqua))
         {
             g.FillRectangle(fill, title);
@@ -182,32 +229,69 @@ internal sealed class HarnessPanel : UserControl
 
         using (var rule = new Pen(HarnessTheme.Edge))
         {
-            g.DrawLine(rule, 1, TitleHeight + 1, this.Width - 2, TitleHeight + 1);
+            g.DrawLine(rule, 1, titleHeight + 1, this.Width - 2, titleHeight + 1);
         }
 
-        string caption = this._harness?.NickName ?? "Harness";
-        using var ink = new SolidBrush(HarnessTheme.Ink);
+        // Ellipsized rather than clipped: a four-word name is long, and a title cut off mid-glyph
+        // reads as a rendering fault where "humble-thorn-ladder-…" reads as a name that continues.
+        // The collapse button owns the right end of the strip, so the text stops before it.
+        int pad = this.S(PadPx);
+        var caption = new Rectangle(
+            pad,
+            1,
+            Math.Max(this.Width - (pad * 2) - this._collapse.Width, 1),
+            titleHeight);
+
         using var font = new Font(this.Font, FontStyle.Bold);
-        g.DrawString(caption, font, ink, new PointF(Pad, 7f));
+        TextRenderer.DrawText(
+            g,
+            this._harness?.NickName ?? "Harness",
+            font,
+            caption,
+            HarnessTheme.Ink,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis
+            | TextFormatFlags.NoPrefix);
+    }
+
+    // Scales an unscaled design size to this monitor. DeviceDpi is 96 until the handle exists, which
+    // is why OnHandleCreated re-lays out.
+    private int S(int pixels) => (int)Math.Round(pixels * this.DeviceDpi / 96.0);
+
+    // The title strip's height, from the bold font it has to hold rather than from a number.
+    private int TitleHeight
+    {
+        get
+        {
+            using var font = new Font(this.Font, FontStyle.Bold);
+            return font.Height + this.S(ButtonPadYPx * 2);
+        }
+    }
+
+    private void ApplyCollapsed()
+    {
+        foreach (Control control in this.Controls)
+        {
+            if (!ReferenceEquals(control, this._collapse))
+            {
+                control.Visible = !this._collapsed;
+            }
+        }
+
+        this._collapse.Text = this._collapsed ? "▾" : "▴";
+        this.LayoutPanel();
     }
 
     private void BuildTitleRow()
     {
-        this._collapse.Text = "▴";
-        this._collapse.FlatStyle = FlatStyle.Flat;
-        this._collapse.FlatAppearance.BorderSize = 0;
+        this.StyleButton(this._collapse);
         this._collapse.BackColor = HarnessTheme.Aqua;
-        this._collapse.ForeColor = HarnessTheme.Ink;
-        this._collapse.Size = new Size(22, 20);
         this._collapse.TabStop = false;
+        this._collapse.Text = "▴";
         this._collapse.Click += (_, _) => this.Collapsed = !this.Collapsed;
         this.Controls.Add(this._collapse);
 
+        this.StyleButton(this._back);
         this._back.Text = "← Back to document";
-        this._back.FlatStyle = FlatStyle.Flat;
-        this._back.BackColor = HarnessTheme.Fill;
-        this._back.ForeColor = HarnessTheme.Ink;
-        this._back.Height = ButtonHeight;
         this._back.Click += (_, _) => this._harness?.ReturnToHost();
         this.Controls.Add(this._back);
     }
@@ -252,20 +336,24 @@ internal sealed class HarnessPanel : UserControl
 
     private void BuildActions()
     {
+        this.StyleButton(this._save);
         this._save.Text = "Save as .phy";
-        this._load.Text = "Load…";
-
-        foreach (Button button in new[] { this._save, this._load })
-        {
-            button.FlatStyle = FlatStyle.Flat;
-            button.BackColor = HarnessTheme.Fill;
-            button.ForeColor = HarnessTheme.Ink;
-            button.Height = ButtonHeight;
-            this.Controls.Add(button);
-        }
-
         this._save.Click += (_, _) => this._harness?.SaveAsPreset();
+        this.Controls.Add(this._save);
+
+        this.StyleButton(this._load);
+        this._load.Text = "Load…";
         this._load.Click += (_, _) => this._harness?.LoadFromFile();
+        this.Controls.Add(this._load);
+    }
+
+    private void StyleButton(Button button)
+    {
+        button.FlatStyle = FlatStyle.Flat;
+        button.BackColor = HarnessTheme.Fill;
+        button.ForeColor = HarnessTheme.Ink;
+        button.UseVisualStyleBackColor = false;
+        button.AutoSize = false;
     }
 
     private void AddLabel(Label label, string text)
@@ -273,16 +361,20 @@ internal sealed class HarnessPanel : UserControl
         label.Text = text;
         label.ForeColor = HarnessTheme.Ink;
         label.AutoSize = false;
-        label.Height = 15;
+
+        // Truncated with an ellipsis rather than clipped, for the same reason the title is: a label
+        // that runs out of room should say so.
+        label.AutoEllipsis = true;
+        label.TextAlign = ContentAlignment.MiddleLeft;
         this.Controls.Add(label);
     }
 
     private void AddBox(TextBox box, bool multiline)
     {
         box.Multiline = multiline;
-        box.Height = multiline ? 46 : 22;
         box.BorderStyle = BorderStyle.FixedSingle;
         box.ScrollBars = multiline ? ScrollBars.Vertical : ScrollBars.None;
+        box.WordWrap = multiline;
         this.Controls.Add(box);
     }
 
@@ -309,37 +401,100 @@ internal sealed class HarnessPanel : UserControl
         Instances.ActiveCanvas?.Refresh();
     }
 
-    private void LayoutPanel()
+    // Measures the text a control has to hold, plus its padding.
+    private Size MeasureButton(Button button)
     {
-        this._collapse.Location = new Point(this.Width - this._collapse.Width - Pad, 5);
-
-        int y = TitleHeight + 2 + Pad;
-        int inner = this.Width - (Pad * 2);
-
-        this._back.SetBounds(Pad, y, inner, ButtonHeight);
-        y += ButtonHeight + RowGap;
-
-        if (!this.Collapsed)
-        {
-            y = this.Row(this._nameLabel, this._name, inner, y);
-            y = this.Row(this._descriptionLabel, this._description, inner, y);
-            y = this.Row(this._chatLabel, this._chat, inner, y);
-
-            int half = (inner - RowGap) / 2;
-            this._save.SetBounds(Pad, y, half, ButtonHeight);
-            this._load.SetBounds(Pad + half + RowGap, y, inner - half - RowGap, ButtonHeight);
-            y += ButtonHeight;
-        }
-
-        this.Height = y + Pad;
-        this.Location = new Point(Margin, Margin);
+        Size text = TextRenderer.MeasureText(button.Text, this.Font);
+        return new Size(text.Width + this.S(ButtonPadXPx * 2), text.Height + this.S(ButtonPadYPx * 2));
     }
 
-    private int Row(Label label, TextBox box, int inner, int y)
+    private void LayoutPanel()
     {
-        label.SetBounds(Pad, y, inner, label.Height);
-        y += label.Height + 2;
-        box.SetBounds(Pad, y, inner, box.Height);
-        return y + box.Height + RowGap;
+        int pad = this.S(PadPx);
+        int gap = this.S(RowGapPx);
+        int lineHeight = this.Font.Height;
+
+        Size back = this.MeasureButton(this._back);
+        Size save = this.MeasureButton(this._save);
+        Size load = this.MeasureButton(this._load);
+        int buttonHeight = Math.Max(back.Height, Math.Max(save.Height, load.Height));
+
+        // Both action buttons take the width of the WIDER one, and the panel is sized to fit two of
+        // those. Splitting the row in half instead is a subtler version of the bug this whole rewrite
+        // is about: "Save as .phy" is half again as wide as "Load…", so an even split clips the long
+        // one back to "Save as .p" however wide the panel is.
+        int action = Math.Max(save.Width, load.Width);
+
+        // The panel is sized to its CONTENT: the widest thing that has to fit, clamped so a long
+        // label cannot make the panel enormous (labels ellipsize) and a short one cannot make it
+        // too narrow to type a name into.
+        int needed = Math.Max(back.Width, (action * 2) + gap);
+        needed = Math.Max(needed, this.MeasureLabels());
+        this.Width = Math.Clamp(needed + (pad * 2), this.S(MinWidthPx), this.S(MaxWidthPx));
+
+        int inner = this.Width - (pad * 2);
+        int titleHeight = this.TitleHeight;
+
+        // The collapse glyph is square on the strip, right-aligned, vertically centred in it.
+        int glyph = titleHeight - this.S(ButtonPadYPx);
+        this._collapse.SetBounds(
+            this.Width - glyph - pad,
+            (titleHeight - glyph) / 2 + 1,
+            glyph,
+            glyph);
+
+        int y = titleHeight + 2 + pad;
+
+        this._back.SetBounds(pad, y, inner, buttonHeight);
+        y += buttonHeight + gap;
+
+        if (!this._collapsed)
+        {
+            y = this.Row(this._nameLabel, this._name, inner, pad, gap, lineHeight, y);
+            y = this.Row(this._descriptionLabel, this._description, inner, pad, gap, lineHeight, y);
+            y = this.Row(this._chatLabel, this._chat, inner, pad, gap, lineHeight, y);
+
+            // Equal widths, both wide enough for the longer label. Any slack from the clamp goes
+            // between them rather than into either button, so the pair stays balanced.
+            int width = Math.Min(action, (inner - gap) / 2);
+            this._save.SetBounds(pad, y, width, buttonHeight);
+            this._load.SetBounds(this.Width - pad - width, y, width, buttonHeight);
+            y += buttonHeight;
+        }
+
+        this.Height = y + pad;
+        this.Location = new Point(this.S(MarginPx), this.S(MarginPx));
+        this.Invalidate();
+    }
+
+    private int MeasureLabels()
+    {
+        int widest = 0;
+        foreach (Label label in new[] { this._nameLabel, this._descriptionLabel, this._chatLabel })
+        {
+            widest = Math.Max(widest, TextRenderer.MeasureText(label.Text, this.Font).Width);
+        }
+
+        return widest;
+    }
+
+    // One label-over-box row. The box's height is asked for, not assigned, because a single-line
+    // TextBox derives its own from the font and silently ignores anything else — assigning one and
+    // advancing by it is what made the first version's rows drift down the panel.
+    private int Row(Label label, TextBox box, int inner, int pad, int gap, int lineHeight, int y)
+    {
+        label.SetBounds(pad, y, inner, lineHeight + this.S(2));
+        y += label.Height + this.S(2);
+
+        if (box.Multiline)
+        {
+            box.SetBounds(pad, y, inner, (lineHeight * MultilineRows) + this.S(ButtonPadYPx));
+        }
+        else
+        {
+            box.SetBounds(pad, y, inner, box.PreferredHeight);
+        }
+
+        return y + box.Height + gap;
     }
 }

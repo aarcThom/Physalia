@@ -668,13 +668,32 @@ by hand — a format nobody can get their work back out of is not one a firm sho
   `UniqueName` suffixes a collision, and nothing already in the folder is deleted first.
 
 ### The harness panel (`HarnessPanel`, `HarnessPanelHost`)
-A real WinForms `UserControl` **parented to the `GH_Canvas`**, replacing `HarnessReturnWidget`,
-`HarnessMenuWidget` and `HarnessPill` (all deleted). A `GH_Widget` is painted in device pixels and has
-no input controls of any kind, which was fine for two pills and impossible for three text fields.
-Parenting rather than floating an owned form is what makes it behave: client coordinates pin it to the
-corner for free, it z-orders above the canvas by construction, it takes its own input, and it cannot
-end up behind Rhino. It shows only inside a harness, carries Back / Name / Description / Chat text /
-Save / Load, and rolls up to its title bar (remembered in `Instances.Settings`).
+A real WinForms window, replacing `HarnessReturnWidget`, `HarnessMenuWidget` and `HarnessPill` (all
+deleted). A `GH_Widget` is painted in device pixels and has no input controls of any kind, which was
+fine for two pills and impossible for three text fields. It shows only inside a harness, carries
+Name / Description / Chat text / Save / Load / Back, and rolls up to its title bar (remembered in
+`Instances.Settings`).
+- **It is an owned top-level `Form`, NOT a child of the canvas** (changed 2026-09-06, after typing
+  went to the Rhino command line twice). **A child of `GH_Canvas` cannot reliably HOLD keyboard
+  focus.** Rhino routes keystrokes to its prompt unless the focused window is a text control, and
+  `GH_Canvas` derives from `Control`, not `ContainerControl` — verified against the shipped assembly
+  — so it breaks the chain WinForms uses to restore focus into a child: the containing `Form` walks
+  `ContainerControl`s, finds a plain `Control`, and puts focus back on the canvas at every
+  re-activation. Calling `Focus()` explicitly does NOT fix it, because getting focus was never the
+  problem; keeping it is. **Grasshopper's own in-canvas editor concedes the same point rather than
+  disproving it** — `GH_TextBoxInputBase` focuses its `TextBox` outright and then **hides itself on
+  `LostFocus`**, so it is transient by design and never holds focus through anything. The chat window
+  has always accepted typing because it has always been its own window.
+- The form is borderless, `ShowInTaskbar = false`, `AutoScaleMode.None` (set BEFORE the children, or
+  WinForms rescales the manual layout), `ShowWithoutActivation` (it appears when the canvas enters a
+  harness, which is nobody asking to type), and **owned by `Instances.DocumentEditor`** — the owner
+  is what keeps it above Grasshopper, drops it behind another application, and hides it when the
+  editor minimises, all of which `TopMost` would break. Owned lazily as well as at attach, since
+  `WidgetListCreated` fires while the editor is still being built.
+- **What a window costs is position** — a child gets it from its parent for free. `HarnessPanelHost`
+  repositions on the canvas's `LocationChanged`/`SizeChanged`/`ParentChanged` and the editor's
+  `Move`/`Resize`, hides the panel when its canvas is not visible (another document's tab showing),
+  and disposes it with the canvas.
 - **It opens COLLAPSED**, and **Back to document is the LAST row and stays visible in both states**.
   Expanded it is a few hundred pixels square permanently over a working canvas, while its three
   fields are edited about twice in a harness's life and the exit is wanted constantly — so rolled up
@@ -703,18 +722,8 @@ Save / Load, and rolls up to its title bar (remembered in `Instances.Settings`).
   (`DeviceDpi` is 96 until the handle exists, so the constructor's numbers are provisional),
   `OnFontChanged` and `OnDpiChangedAfterParent` (dragging Rhino to a monitor at another scaling).
   Same lesson the harness capsule learned when its outlet labels stopped being three fixed letters.
-- **Every field must take focus EXPLICITLY on click, or typing goes to the RHINO COMMAND LINE**
-  (fixed 2026-09-05). Rhino routes keystrokes to its prompt unless the focused window is a text
-  control, so anything that leaves focus on the canvas turns what you type into a Rhino command.
-  Default click-to-focus is not enough here: `GH_Canvas` derives from `Control`, NOT
-  `ContainerControl`, so it carries none of the active-control machinery that moves focus into a
-  child. **Grasshopper's own in-canvas editors do the same thing** — `GH_TextBoxInputBase` adds its
-  `TextBox` to the canvas and calls `Focus()` on it outright rather than waiting for a click —
-  which is the proof the platform allows this at all, and the recipe to copy. Verified by
-  decompiling: the canvas steals focus nowhere (no `Focus()` call in it), forwards nothing to
-  Rhino, and `HasControlWithFocus` walks `Controls` checking `ContainsFocus`, so a hosted panel
-  is recognised for free once focus is genuinely in it. Labels focus the field they name, for the
-  same reason.
+- Clicking a label focuses the field it names, and Escape hands the keyboard back to the editor.
+  Both were kept from the attempt to fix the focus bug in place; both are worth having anyway.
 - **The name field needs the `NickName` override**, since `GH_DocumentObject`'s setter raises nothing
   (see the GH custom-attribute traps). Committed on Leave/Enter, never per keystroke — the name is a
   folder name and renaming a directory once per typed character is not a thing to do to a disk.

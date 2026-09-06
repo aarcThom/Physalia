@@ -18,14 +18,28 @@ namespace Physalia.GH.Widgets;
 /// The harness's own panel, floating at the top-left of the canvas while you are standing inside a
 /// harness: what it is called, what it is for, what its chat window opens with, and the way back out.
 ///
-/// <para><b>It is a real control, not a widget, and it had to be.</b> A <c>GH_Widget</c> is painted
-/// into the canvas in device pixels and has no input controls of any kind — fine for the two pills
-/// this replaces, impossible for three text fields. So the panel is an ordinary WinForms control
-/// parented to the <c>GH_Canvas</c>, which is itself a <c>Control</c>. Parenting rather than floating
-/// a separate form is what makes it behave: it is positioned in client coordinates so it stays pinned
-/// to the corner for free, it z-orders above the canvas by construction, it takes its own mouse and
-/// keyboard input without fighting the canvas for them, and it cannot end up behind Rhino or adrift
-/// on a second monitor the way an owned form can.</para>
+/// <para><b>It is a real control, not a widget.</b> A <c>GH_Widget</c> is painted into the canvas in
+/// device pixels and has no input controls of any kind — fine for the two pills this replaces,
+/// impossible for three text fields.</para>
+///
+/// <para><b>And it is an owned top-level WINDOW, not a child of the canvas, because a child of the
+/// canvas cannot reliably hold keyboard focus.</b> Parented to <c>GH_Canvas</c> it looked right and
+/// typed into the RHINO COMMAND LINE. <c>GH_Canvas</c> derives from <c>Control</c>, not
+/// <c>ContainerControl</c> (verified against the shipped assembly), so it breaks the chain WinForms
+/// uses to restore focus into a child: the containing <c>Form</c> walks <c>ContainerControl</c>s, finds
+/// a plain <c>Control</c>, and puts focus back on the canvas on every re-activation. Focus lands on
+/// the field on click and does not survive. Calling <c>Focus()</c> explicitly does not help, because
+/// the problem is not getting focus but keeping it.</para>
+///
+/// <para><b>Grasshopper's own in-canvas editor does not contradict this — it concedes the same
+/// point.</b> <c>GH_TextBoxInputBase</c> hosts a <c>TextBox</c> on the canvas, focuses it outright,
+/// and then <b>hides itself on LostFocus</b>: it is transient by design and never has to hold focus
+/// through anything. A panel that stays on screen does.</para>
+///
+/// <para>So: a borderless <c>Form</c> owned by the Grasshopper editor, positioned over the canvas's
+/// top-left corner and following it. It shows without activating, it follows the owner's z-order and
+/// hides with it when minimised, and — the point of the exercise — it has its own focus chain, which
+/// is what the chat window has always had and why typing has always worked there.</para>
 ///
 /// <para><b>Every size here is MEASURED, never a pixel constant.</b> The first cut hard-coded row
 /// heights and a panel width, which is only ever right at 100% scaling: at any other DPI the font
@@ -51,7 +65,7 @@ namespace Physalia.GH.Widgets;
 /// worth anything if it travels, and these are exactly the fields a <c>.phy</c> carries to whoever
 /// the workflow is shared with. This panel is a view onto them.</para>
 /// </summary>
-internal sealed class HarnessPanel : UserControl
+internal sealed class HarnessPanel : Form
 {
     private const string CollapsedKey = "Physalia.HarnessPanel.Collapsed";
 
@@ -97,11 +111,28 @@ internal sealed class HarnessPanel : UserControl
     // "collapsed" every time the panel was merely off screen, and lay itself out that way on return.
     private bool _collapsed = true;
 
+    // The canvas this window is pinned over. Not a parent any more — just the thing whose corner it
+    // follows.
+    private GH_Canvas? _owner;
+
     internal HarnessPanel()
     {
         this.DoubleBuffered = true;
         this.BackColor = HarnessTheme.Panel.Surface;
         this.ForeColor = HarnessTheme.Panel.Text;
+
+        // A tool window: no chrome, no taskbar entry, placed by us. Not TopMost — the OWNER is what
+        // keeps it above Grasshopper, so it drops behind whatever application the user switches to
+        // and disappears when the editor is minimised, both of which TopMost would break.
+        this.FormBorderStyle = FormBorderStyle.None;
+        this.ShowInTaskbar = false;
+        this.StartPosition = FormStartPosition.Manual;
+        this.MinimizeBox = false;
+        this.MaximizeBox = false;
+        this.ControlBox = false;
+        this.Text = "Harness";
+        this.AutoScaleMode = AutoScaleMode.None;
+        this.KeyPreview = true;
 
         // Explicit rather than inherited from the canvas: GH sets its own font on the canvas, and a
         // panel of form controls should read as form controls. MessageBoxFont is the system UI font
@@ -132,16 +163,28 @@ internal sealed class HarnessPanel : UserControl
     }
 
     /// <summary>
-    /// Points the panel at a harness, or at nothing.
+    /// Gets a value indicating whether showing this window should leave the focus where it is.
+    ///
+    /// <para>It must. The panel appears whenever the canvas enters a harness, which is not a moment
+    /// the user asked to type — stealing activation there would take focus off whatever they were
+    /// doing and, on entry from the proxy's menu, off Grasshopper itself.</para>
+    /// </summary>
+    protected override bool ShowWithoutActivation => true;
+
+    /// <summary>
+    /// Points the panel at a harness, or at nothing, and shows or hides it accordingly.
+    ///
+    /// <para>Deliberately not called Show: <c>Form.Show()</c> already exists, and an overload of it
+    /// that also took a harness would be a trap for anyone calling the base method by habit.</para>
     /// </summary>
     /// <param name="harness">The harness the canvas is inside, or null when it is not inside one.</param>
-    internal void Show(HarnessComponent? harness)
+    internal void Bind(HarnessComponent? harness)
     {
         this._harness = harness;
-        this.Visible = harness is not null;
 
         if (harness is null)
         {
+            this.Hide();
             return;
         }
 
@@ -157,8 +200,59 @@ internal sealed class HarnessPanel : UserControl
             this._loading = false;
         }
 
+        // Owned late as well as early: WidgetListCreated fires while the editor is still being
+        // built, so the first canvas of a session can be set up before there is a window to own the
+        // panel — and an UNOWNED tool window is one that outlives its editor's z-order and can end
+        // up stranded in front of another application.
+        if (this.Owner is null && Instances.DocumentEditor is { IsDisposed: false } editor)
+        {
+            this.Owner = editor;
+        }
+
         this.LayoutPanel();
+        this.Reposition();
+
+        if (!this.Visible)
+        {
+            this.Show();
+        }
+
         this.Invalidate();
+    }
+
+    /// <summary>
+    /// Puts the window over the canvas's top-left corner.
+    ///
+    /// <para>Screen coordinates now, rather than the client coordinates a child control had for
+    /// free — which is the one thing hosting it as a window costs, and why the host tracks the
+    /// canvas and the editor for anything that moves either.</para>
+    /// </summary>
+    internal void Reposition()
+    {
+        if (this._owner is not { IsDisposed: false, Visible: true } canvas)
+        {
+            return;
+        }
+
+        try
+        {
+            int margin = this.S(MarginPx);
+            this.Location = canvas.PointToScreen(new Point(margin, margin));
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        {
+            // A canvas whose handle has gone during a document switch; the next Bind repositions.
+        }
+    }
+
+    /// <summary>
+    /// The canvas this panel floats over. Named to stay clear of <c>Control.Anchor</c>, which means
+    /// something entirely different and is inherited.
+    /// </summary>
+    internal GH_Canvas? AnchorCanvas
+    {
+        get => this._owner;
+        set => this._owner = value;
     }
 
     /// <summary>
@@ -481,7 +575,11 @@ internal sealed class HarnessPanel : UserControl
             if (e.KeyCode == Keys.Escape)
             {
                 e.SuppressKeyPress = true;
-                Instances.ActiveCanvas?.Focus();
+
+                // Activation as well as focus: the panel is its own window now, so focusing a
+                // control in the editor without raising the editor would leave the keyboard here.
+                Instances.DocumentEditor?.Activate();
+                this._owner?.Focus();
             }
         };
 
@@ -584,7 +682,7 @@ internal sealed class HarnessPanel : UserControl
         y += buttonHeight;
 
         this.Height = y + pad;
-        this.Location = new Point(this.S(MarginPx), this.S(MarginPx));
+        this.Reposition();
 
         // Rounded corners are a Region rather than paint, so the canvas shows through them instead of
         // the panel's own colour squaring off the shape drawn in OnPaint.

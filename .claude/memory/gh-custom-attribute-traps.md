@@ -75,3 +75,24 @@ zoom level into the geometry (it once reserved a third of a node at high zoom an
 `TextRenderer.MeasureText` measures without a `Graphics`, which layout does not have. Text DRAWN at
 paint time still uses the adjusted font, and should be drawn from a measured point rather than clipped
 into a rect, so a name that outgrew the last measurement overhangs instead of losing its tail.
+
+## Hosting a real WinForms control on the canvas (added 2026-09-05)
+
+A control parented to `GH_Canvas` must take keyboard focus **explicitly on click**, or typing into it
+goes to the **Rhino command line**. Rhino routes keystrokes to its prompt unless the focused window
+is a text control, so leaving focus on the canvas turns what you type into a Rhino command.
+
+**Why default click-to-focus is not enough:** `GH_Canvas` derives from `Control`, not
+`ContainerControl`, so it carries none of the active-control machinery that moves focus into a child.
+
+**The recipe is Grasshopper's own.** `GH_TextBoxInputBase.ShowTextInputBox` adds its `TextBox` to the
+canvas and then calls `Focus()` on it outright — it never waits for a click. That in-canvas editor
+(component rename, slider entry) is the proof the platform allows this at all.
+
+Verified by decompiling `Grasshopper.dll` (`ilspycmd`, resolving against `Rhino 8\System`):
+- the canvas steals focus **nowhere** — there is no `Focus()` call in `GH_Canvas`;
+- it forwards **nothing** to Rhino;
+- `GH_Canvas.HasControlWithFocus` walks `Controls` checking `Focused`/`ContainsFocus`, so a hosted
+  panel is recognised for free once focus is genuinely in it.
+
+So the platform is innocent on all three counts and the fix is entirely on the hosted control.

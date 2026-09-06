@@ -703,6 +703,18 @@ Save / Load, and rolls up to its title bar (remembered in `Instances.Settings`).
   (`DeviceDpi` is 96 until the handle exists, so the constructor's numbers are provisional),
   `OnFontChanged` and `OnDpiChangedAfterParent` (dragging Rhino to a monitor at another scaling).
   Same lesson the harness capsule learned when its outlet labels stopped being three fixed letters.
+- **Every field must take focus EXPLICITLY on click, or typing goes to the RHINO COMMAND LINE**
+  (fixed 2026-09-05). Rhino routes keystrokes to its prompt unless the focused window is a text
+  control, so anything that leaves focus on the canvas turns what you type into a Rhino command.
+  Default click-to-focus is not enough here: `GH_Canvas` derives from `Control`, NOT
+  `ContainerControl`, so it carries none of the active-control machinery that moves focus into a
+  child. **Grasshopper's own in-canvas editors do the same thing** — `GH_TextBoxInputBase` adds its
+  `TextBox` to the canvas and calls `Focus()` on it outright rather than waiting for a click —
+  which is the proof the platform allows this at all, and the recipe to copy. Verified by
+  decompiling: the canvas steals focus nowhere (no `Focus()` call in it), forwards nothing to
+  Rhino, and `HasControlWithFocus` walks `Controls` checking `ContainsFocus`, so a hosted panel
+  is recognised for free once focus is genuinely in it. Labels focus the field they name, for the
+  same reason.
 - **The name field needs the `NickName` override**, since `GH_DocumentObject`'s setter raises nothing
   (see the GH custom-attribute traps). Committed on Leave/Enter, never per keystroke — the name is a
   folder name and renaming a directory once per typed character is not a thing to do to a disk.

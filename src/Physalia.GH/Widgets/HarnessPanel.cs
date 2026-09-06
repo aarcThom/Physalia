@@ -355,7 +355,7 @@ internal sealed class HarnessPanel : UserControl
 
     private void BuildFields()
     {
-        this.AddLabel(this._nameLabel, "Name");
+        this.AddLabel(this._nameLabel, "Name", this._name);
         this.AddBox(this._name, false);
 
         // Committed on leaving the box rather than per keystroke: the name is the project folder's
@@ -370,7 +370,7 @@ internal sealed class HarnessPanel : UserControl
             }
         };
 
-        this.AddLabel(this._descriptionLabel, "What this pipeline is for");
+        this.AddLabel(this._descriptionLabel, "What this pipeline is for", this._description);
         this.AddBox(this._description, true);
         this._description.TextChanged += (_, _) =>
         {
@@ -380,7 +380,7 @@ internal sealed class HarnessPanel : UserControl
             }
         };
 
-        this.AddLabel(this._chatLabel, "Chat window opening text");
+        this.AddLabel(this._chatLabel, "Chat window opening text", this._chat);
         this.AddBox(this._chat, true);
         this._chat.TextChanged += (_, _) =>
         {
@@ -408,8 +408,37 @@ internal sealed class HarnessPanel : UserControl
         this.Controls.Add(this._load);
     }
 
+    /// <summary>
+    /// Makes a click on this control take keyboard focus, explicitly.
+    ///
+    /// <para><b>Without this, typing into the panel went to the RHINO COMMAND LINE.</b> Rhino routes
+    /// keystrokes to its command prompt unless the focused window is a text control, so anything that
+    /// leaves focus where it was — on the canvas — means what you type is read as a Rhino command.
+    /// Relying on WinForms' default click-to-focus is what left the door open: <c>GH_Canvas</c>
+    /// derives from <c>Control</c>, not <c>ContainerControl</c>, so it carries none of the active-control
+    /// machinery a form uses to move focus into a child.</para>
+    ///
+    /// <para>Grasshopper's own in-canvas editors do exactly this — <c>GH_TextBoxInputBase</c> adds its
+    /// <c>TextBox</c> to the canvas and then calls <c>Focus()</c> on it outright, never waiting for a
+    /// click to do it. Copying that is what makes the panel's fields behave like the box you get when
+    /// you rename a component.</para>
+    ///
+    /// <para>Harmless where focus already worked: the handler runs after the control has taken focus
+    /// on its own and sees nothing to do.</para>
+    /// </summary>
+    /// <param name="control">The control to make focusable by click.</param>
+    private static void FocusOnClick(Control control) =>
+        control.MouseDown += (sender, _) =>
+        {
+            if (sender is Control clicked && clicked.CanFocus && !clicked.Focused)
+            {
+                clicked.Focus();
+            }
+        };
+
     private void StyleButton(Button button)
     {
+        FocusOnClick(button);
         button.FlatStyle = FlatStyle.Flat;
         button.BackColor = HarnessTheme.Panel.Surface;
         button.ForeColor = HarnessTheme.Panel.Muted;
@@ -419,8 +448,16 @@ internal sealed class HarnessPanel : UserControl
         button.AutoSize = false;
     }
 
-    private void AddLabel(Label label, string text)
+    private void AddLabel(Label label, string text, TextBox? labels = null)
     {
+        // A click on the label puts the caret in the field it names, the way a form label does. It
+        // also means the gap between rows is not dead space that swallows a click and leaves focus
+        // — and therefore typing — somewhere else entirely.
+        if (labels is not null)
+        {
+            label.MouseDown += (_, _) => labels.Focus();
+        }
+
         label.Text = text;
         label.ForeColor = HarnessTheme.Panel.Muted;
         label.AutoSize = false;
@@ -434,6 +471,20 @@ internal sealed class HarnessPanel : UserControl
 
     private void AddBox(TextBox box, bool multiline)
     {
+        FocusOnClick(box);
+
+        // Escape hands keyboard control back to the canvas. While a field holds focus the canvas
+        // sees no keys — correct, but it means Grasshopper's own shortcuts stop working until you
+        // click away, and there should be a way out that is not "find somewhere safe to click".
+        box.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Escape)
+            {
+                e.SuppressKeyPress = true;
+                Instances.ActiveCanvas?.Focus();
+            }
+        };
+
         box.Multiline = multiline;
 
         // No border of its own: FixedSingle draws in the system window-frame colour, which cannot be

@@ -188,6 +188,37 @@ panel(D, 2720, NOTE_Y,
       "\"Data conversion failed from Goo to ...\" on any output that returns a list.",
       w=320, h=520)
 
+# ------------------------------------------------------------------- 9 the C# alternative
+
+title(D, 3200, 400, "9 - OR C#, IF YOU WOULD RATHER", w=320, h=44)
+cstx = place(D, "C# Transmitter", 3320, 520, nick="C# Transmitter")
+panel(D, 3200, 600,
+      "NOT WIRED IN. It is the sibling of the Py Transmitter above: unplug that one, put this in "
+      "its place, and swap the preamble and schema in stage 2 to the C# Script pair."
+      
+      "\r\n" "\r\n"
+      "Almost everything else is identical, including the Set Script I/O lock - the two checks "
+      "compose, one pinning the declared parameters to the component's and the other pinning the "
+      "code to the declared parameters."
+      
+      "\r\n" "\r\n"
+      "ONE REAL DIFFERENCE, and it is worth knowing before you wonder why a submission was refused. "
+      "C# declares its parameters TWICE: once in the JSON, and again in the RunScript signature the "
+      "engine reads out of the source. So the push is gated on those two agreeing, and a "
+      "disagreeing submission is refused before anything reaches your canvas - with the expected "
+      "signature spelled out in the complaint."
+      
+      "\r\n" "\r\n"
+      "For the same reason a LOCKED C# submission has to declare the interface WHOLE. An undeclared "
+      "parameter has nothing in the signature to bind to, where Python simply never mentions the "
+      "variable."
+      
+      "\r\n" "\r\n"
+      "Link it to a C# Script component, not a Python one. Every Rhino 8 script component looks "
+      "identical from the outside - only its language setting differs - so the transmitters check "
+      "which language they are pointed at rather than trusting the pick.",
+      w=320, h=460)
+
 # --------------------------------------------------------------------------- 10 complaints
 
 title(D, 2780, 1120, "10 - WHEN A CHECK OBJECTS", w=320, h=44)
@@ -269,6 +300,7 @@ write_dump(D, DUMP)
 say("preamble:", [str(v) for v in pin(sysp, "in", "Preamble").VolatileData.AllData(True)])
 say("schema:", [str(v) for v in pin(sysp, "in", "Schema").VolatileData.AllData(True)])
 say("script I/O linked to transmitter:", scriptio.LinkedGuid == pytx.InstanceGuid)
+say("C# transmitter present and unwired:", pin(cstx, "in", "Signal").SourceCount == 0)
 bad = sweep(D, NAME)
 save_phy(H, OUT,
          description="The model writes Python into a Rhino 8 Script component on your canvas. Set "

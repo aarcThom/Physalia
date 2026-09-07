@@ -26,7 +26,7 @@ that need setting up say so in their intro panel and in their chat greeting.
 | 02 | What the Model Knows | Grounding: six components describing your document, canvas, units and folder | Claude Code |
 | 03 | Tools the Model Can Call | The Router and six tools; three return paths | Codex |
 | 04 | Building on the Canvas | Eight guardrails, then real components placed on your canvas | Claude Code |
-| 05 | Writing Python for You | Code pushed into a Rhino 8 Script component, fitted to its parameters | Claude Code |
+| 05 | Writing Python for You | Code pushed into a Rhino 8 Script component, fitted to its parameters (C# alongside) | Claude Code |
 | 06 | Letting It Look and Walk | Take Snapshot and Move In Space; the harness's own inputs and outputs | Codex |
 | 07 | Making the Pipeline Decide | Branching — Declare, Pipeline State, and a button-driven playground | Codex |
 | 08 | Running Without You | Triggers, and the three things that bound the bill | Claude Code |

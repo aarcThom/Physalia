@@ -272,8 +272,9 @@ To rebuild and verify the lot:
 python tools/presets/audit.py
 ```
 
-Last whole-set check across all 28: audit clean, 80 Feedback pairs resolved, 7 grip links resolved,
-57 Router tool slots correctly routed, 0 problems.
+Last full rebuild: all 28 regenerated from scratch in one `build_all.py` pass, 0 problems each,
+then 80 Feedback pairs resolved, 7 grip links resolved, 57 Router tool slots correctly routed and
+the audit clean.
 
 All three are worth re-running after any change, because every failure they look for is silent: a
 preset carrying somebody else's endpoint name; a Feedback whose collector guid no longer resolves,

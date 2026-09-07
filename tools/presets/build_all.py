@@ -10,8 +10,9 @@ is allowed and stdout dies with the process anyway. Run it, then read the log:
 
 Each build script clears the host canvas first, so they can run back to back in one session: the
 harness for preset N replaces the one for N-1, and only the written .phy survives. A build that
-throws is reported and the rest still run - one broken script should not cost you the other
-thirteen.
+throws is reported and the rest still run - one broken script should not cost you the rest.
+
+Both families are rebuilt: `build_NN_*` (the numbered presets) then `build_sNN_*` (the scenarios).
 """
 
 import glob
@@ -30,8 +31,11 @@ def note(text):
         f.write("\n".join(_lines))
 
 
-note("rebuilding every preset")
-scripts = sorted(glob.glob(os.path.join(HERE, "build_[0-9][0-9]_*.py")))
+note("rebuilding every preset - numbered, then scenarios")
+# Numbered first, then scenarios - the same order the README lists them in, so the log reads
+# alongside it. build_all itself is excluded by both patterns.
+scripts = (sorted(glob.glob(os.path.join(HERE, "build_[0-9][0-9]_*.py")))
+           + sorted(glob.glob(os.path.join(HERE, "build_s[0-9][0-9]_*.py"))))
 failed = []
 for script in scripts:
     name = os.path.basename(script)

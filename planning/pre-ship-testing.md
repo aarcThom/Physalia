@@ -294,10 +294,21 @@ to several components and a new file format under the project folder.
 
 ### C3. `.phy` round trip
 
-- **RUN** — save as `.phy`; import it on a fresh document; import it again.
+- **RUN** — with a **download in the project folder** (so `downloads.json` accounts for something) and
+  a hand-added file beside it: **Save .phy…** from the harness panel to a folder outside the library;
+  import it on a fresh document; import it again.
 - **EXPECT** — name, description and chat-window opening text all restored (these live on the proxy,
-  which is why a plain `.gh` cannot carry them); `UniqueName` suffixing the second import; project
-  files carried except what `downloads.json` accounts for.
+  which is why a plain `.gh` cannot carry them); `UniqueName` suffixing the second import; **every
+  file carried, the download included**, and NO "fetched rather than carried" line on the command
+  line. The preset path is the other half of this and asserts the opposite: C2's `.phy` records the
+  download and leaves its bytes behind. **The two differ in one flag** (`carryDownloads`), so testing
+  only one of them tests neither.
+- **ALSO RUN** — Save .phy… **into the harness's own project folder**, twice, same file name.
+- **EXPECT** — the second package is the same size as the first, and the size quoted in the
+  confirmation is the size written. **FAILS AS** a file that doubles on every save: the destination is
+  excluded from its own payload, and if that ever regresses nothing else will say so.
+- **ALSO EXPECT** — replacing an existing file asks first (WinForms `OverwritePrompt`; Rhino's own
+  save dialog exposes no such property, which is why this path does not use it).
 
 ### C4. Conversation autosave and resume
 

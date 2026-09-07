@@ -108,3 +108,17 @@ folder growth. It knows a Budget Guard legitimately overruns by exactly ONE call
 `-StopAfterMinutes` so the verdict writes itself.
 
 **Remaining ship blocker: F3 only.** Mac is deferred by decision (`planning/mac-port.md`).
+
+## 2026-09-07 — C3 was rewritten under the pass, by a feature landing after it
+
+**Save .phy… changed what C3 asserts, so the rig as written was testing the wrong thing.** Its old
+expectation — "project files carried except what `downloads.json` accounts for" — is the PRESET's
+rule; the new export carries the folder whole. Both saves now have their own line in C3, plus the
+double-save-into-the-project-folder check, because the two paths differ in one flag and testing one
+tests neither. See [[harness-names-and-phy-packages]].
+
+**And note what the Core suite does NOT cover here.** The note above is right that `PhyPackage`'s
+round trip and future-format refusal are pinned by Core tests — but the payload DECISION
+(`ProjectPayload`, `ProjectPayloadPlan.Excluding`) lives in `Physalia.GH`, which has no test project
+at all. So the flag that distinguishes the two saves is covered by nothing but C3. A rig that reads
+as "mostly pinned by tests" can still be the only cover for the part most recently changed.

@@ -1,11 +1,11 @@
 ---
 name: harness-names-and-phy-packages
-description: "2026-09-05 — harnesses get derived four-word names, a project folder that follows a rename, and a .phy package format; Harness Notes deleted"
+description: "2026-09-05/09-07 — harnesses get derived four-word names, a project folder that follows a rename, a .phy package format, and Save .phy… to any destination carrying the folder whole; Harness Notes deleted"
 metadata: 
   node_type: memory
   type: project
   originSessionId: 41930f90-4aec-4ebd-8c9e-359924617843
-  modified: 2026-09-06T05:31:34.125Z
+  modified: 2026-09-07T00:00:00.000Z
 ---
 
 Built 2026-09-05. Harnesses are named `curious-cake-soap-fun` by default, own a folder under
@@ -52,4 +52,13 @@ project folder, so it had to be settled first.
   `System.Windows.Forms.SaveFileDialog` wherever a silent overwrite would cost the user a file —
   `Serializer.PromptForSavePath` was already the precedent.
 
-Not run in Rhino. Related: [[harness-subdocument]], [[settings-ownership]], [[project-file-tools]].
+**Run status (2026-09-07):** the PRESET save is exercised live — rig C2 in
+`planning/pre-ship-testing.md` passed, though see [[pre-ship-testing-pass]] on C2 passing every
+assertion it stated while still being broken. **The `.phy` write has never been run in Rhino**: rig
+C3 covers it and is still outstanding, and it was REWRITTEN when Save .phy… landed, because its old
+expectation ("files carried except what `downloads.json` accounts for") is now the preset's rule and
+the exact opposite of this one. Testing one of the two saves tests neither. Committed on `main` as
+`5c5d621`, not pushed.
+
+Related: [[harness-subdocument]], [[settings-ownership]], [[project-file-tools]],
+[[pre-ship-testing-pass]].

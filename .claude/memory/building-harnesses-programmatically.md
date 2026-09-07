@@ -126,8 +126,10 @@ must add its own Chat, or the preset loader will refuse the result.
 
 **Picker option values carry the file extension** — `"Rhino Scripting.txt"`, not `"Rhino
 Scripting"`. Read `MenuValues` (also internal, also reflection) rather than guessing the spelling.
-And **delete a Picker whose input should stay empty**: System Prompt auto-places one on `Schema`, and
-left alone it snaps to `values[0]` and folds another pipeline's JSON schema into the prompt.
+And an input that should stay empty needs a **stored blank Panel**, NOT a deleted Picker: System
+Prompt auto-places one on `Schema`, and left alone it snaps to `values[0]` and folds another
+pipeline's JSON schema into the prompt — but deleting it does not survive a load. See the Picker
+trap section below, which corrects this.
 
 **Router variable outputs**, one per tool, inserted BEFORE the trailing Feedback output:
 
@@ -205,3 +207,21 @@ which the notes above skip because earlier sessions always had a canvas already 
 - **PowerShell variable names are case-INSENSITIVE**, so `$S` (a source directory) and `$s` (a loop
   variable) are one variable. The symptom is a nonsense path like
   `...\System.Collections.Hashtable\sheet_a.png`, not an error about an unset variable.
+
+## 2026-09-07 — the Picker trap, which applies to every scripted preset
+
+**An input left unwired in the FILE grows a fresh Picker every time the preset is LOADED**, not just
+when the component is placed. `AddedToDocument` places and wires a Picker for any input with
+`SourceCount == 0`, and deserialization adds objects BEFORE restoring wires — so a file storing 16
+objects and no Pickers loads as 19 with 3. Deleting them at build time does not help, and
+`ObjectCount` makes it look as though it did. Store a real source on every such input instead: a
+Picker where a choice is wanted (set the internal `SetSelectedValue` by reflection — no solve
+needed, `Write` serializes the field), a blank Panel where none is. Full account, including why the
+Schema case is actively harmful rather than untidy, in [[blender-mcp-preset]].
+
+Also measured that session: **`RhinoCode.exe -r <id> script <file>` returns success and runs
+NOTHING** against a live instance. The working channel is `-RunPythonScript` via SendKeys with the
+Grasshopper window MINIMIZED first, since GH steals the keystrokes — which is why the channel
+appears to work once and then silently stops. And the archive route's freedom from dialogs is now
+confirmed: `GH_DocumentIO.Open` pops a missing-plug-in prompt plus a per-object **Grasshopper Font
+Mapper** that ignores `{ENTER}`, while `GH_Archive` + `ExtractObject` raised none.

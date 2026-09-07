@@ -274,6 +274,25 @@ def picker_values(doc, obj, input_name):
     return [str(v) for v in prop.GetValue(pk)]
 
 
+def list_panel(doc, x, y, lines, w=200, h=90, nick=None):
+    """
+    A panel used as a LIST input: one item per line.
+
+    Multiline must be OFF for that. A Panel's only storage is one string, and its data collection
+    splits that string BY LINE - but only when Multiline is off. Left on, the whole thing arrives
+    as ONE item with newlines in it, which is how three routes typed into a Declare node become a
+    single nonsense route and the node reports "one route means the model has nothing to choose
+    between".
+    """
+    joined = ("\r\n").join(lines) if isinstance(lines, (list, tuple)) else lines
+    p = panel(doc, x, y, joined,
+              w, h, INPUT_WHITE)
+    p.Properties.Multiline = False
+    if nick:
+        p.NickName = nick
+    return p
+
+
 def blank_input(doc, obj, input_name, x, y, label="(none)"):
     """
     Leave an input deliberately EMPTY, in a way that survives a save and reload.

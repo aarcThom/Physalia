@@ -111,7 +111,8 @@ router = place(D, "Router", 1860, SPINE, nick="Router")
 wire(router, "Tool Calls", call, "Tool Calls")
 declare = place(D, "Declare", 2180, SPINE, nick="Declare")
 wire(declare, "Signal", router, 0)
-routes = input_panel(D, 1900, 620, "build\r\nexplain\r\nask", w=170, h=90, nick="the routes on offer")
+routes = list_panel(D, 1900, 620, ["build", "explain", "ask"], w=170, h=90,
+                    nick="the routes on offer")
 wire(declare, "Routes", routes, 0)
 decl_instr = input_panel(D, 1900, 730,
                          "Declare 'build' to make geometry, 'explain' to talk it through, or 'ask' "
@@ -146,7 +147,7 @@ wire(match, "Pattern", want, 0)
 gate = place(D, "Signal Gate", 2790, 570, nick="Signal Gate")
 wire(gate, "Signal", call, "Success Signal")
 wire(gate, "Open", match, "Match")
-readout(D and 3020, 640, gate, "Passed", "the reply took the BUILD branch", w=280, h=130)
+readout(3020, 640, gate, "Passed", "the reply took the BUILD branch", w=280, h=130)
 readout(3020, 800, gate, "Blocked", "it went some other way", w=280, h=130)
 panel(D, 2500, 960,
       "SIGNAL GATE decides NOW: a signal arrives, its OPEN input is true or false, and the signal "
@@ -208,121 +209,130 @@ def trigger(x, y, text, label):
     return cs
 
 
-PLAY_Y = 2420
+ROW1 = 2420
+ROW2 = 3200
 
-# --- merge ---------------------------------------------------------------
-title(D, 700, PLAY_Y - 80, "A - MERGE SIGNAL", w=300, h=44)
-m1 = trigger(700, PLAY_Y, "from branch one", "press A1")
-m2 = trigger(700, PLAY_Y + 200, "from branch two", "press A2")
-merge = place(D, "Merge Signal", 1080, PLAY_Y + 100, nick="Merge Signal")
+# --- A: merge ------------------------------------------------------------
+X = 700
+title(D, X, ROW1 - 80, "A - MERGE SIGNAL", w=300, h=44)
+m1 = trigger(X, ROW1, "from branch one", "press A1")
+m2 = trigger(X, ROW1 + 200, "from branch two", "press A2")
+merge = place(D, "Merge Signal", X + 430, ROW1 + 100, nick="Merge Signal")
 wire(merge, 0, m1, "Signal")
 wire(merge, 1, m2, "Signal")
-readout(1300, PLAY_Y + 100, merge, "Signal", "both branches, joined", w=270, h=130)
-panel(D, 700, PLAY_Y + 320,
+readout(X + 640, ROW1 + 100, merge, "Signal", "both branches, joined", w=250, h=130)
+panel(D, X, ROW1 + 380,
       "MERGE SIGNAL is a JOIN, not a passthrough. Press A1 and nothing comes out; press A2 and "
-      "BOTH arrive together as one signal.\r\n"
-      "\r\n"
+      "BOTH arrive together as one signal."
+      "\r\n" "\r\n"
       "That is the whole point. Parallel branches finish at different moments, so a component that "
       "emitted per branch would give you two conversation turns for one round. It holds the newest "
       "signal per wired input and emits once the whole wired set is in - watch its caption count "
-      "\"1 / 2\" while it waits.\r\n"
-      "\r\n"
-      "Add and remove inputs with the + and - when you zoom in. They are added at the END only.",
+      "1 / 2 while it waits."
+      "\r\n" "\r\n"
+      "Add and remove inputs with the + and - when you zoom in. They go on the END only.",
       w=520, h=300)
 
-# --- hold ----------------------------------------------------------------
-title(D, 1700, PLAY_Y - 80, "B - HOLD SIGNAL", w=300, h=44)
-h1 = trigger(1700, PLAY_Y, "waiting to be let out", "press B")
-hold = place(D, "Hold Signal", 2080, PLAY_Y + 10, nick="Hold Signal")
+# --- B: hold -------------------------------------------------------------
+X = 2100
+title(D, X, ROW1 - 80, "B - HOLD SIGNAL", w=300, h=44)
+h1 = trigger(X, ROW1, "waiting to be let out", "press B")
+hold = place(D, "Hold Signal", X + 430, ROW1 + 10, nick="Hold Signal")
 wire(hold, "Signal", h1, "Signal")
-release = boolean(D, 1950, PLAY_Y + 30, False, nick="let it go", toggle=True)
+release = boolean(D, X + 250, ROW1 + 40, False, nick="let it go", toggle=True)
 wire(hold, "Release", release, 0)
-timeout = slider(D, 1860, PLAY_Y + 70, 60, 5, 600, nick="give up after (seconds)")
+timeout = slider(D, X + 160, ROW1 + 120, 60, 5, 600, nick="give up after (seconds)")
 wire(hold, "Timeout", timeout, 0)
-readout(2320, PLAY_Y + 10, hold, "Released", "let through", w=250, h=110)
-readout(2320, PLAY_Y + 170, hold, "Timed Out", "waited too long", w=250, h=110)
-panel(D, 1700, PLAY_Y + 320,
+readout(X + 640, ROW1 + 10, hold, "Released", "let through", w=250, h=110)
+readout(X + 640, ROW1 + 170, hold, "Timed Out", "waited too long", w=250, h=110)
+panel(D, X, ROW1 + 380,
       "HOLD SIGNAL waits. Press B with the toggle off and the signal sits there; flip the toggle "
-      "and it goes. Leave it long enough and it comes out of TIMED OUT instead.\r\n"
-      "\r\n"
-      "It holds the OLDEST signal, so a queue keeps its order and nothing jumps a hold.\r\n"
-      "\r\n"
+      "and it goes. Leave it long enough and it comes out of TIMED OUT instead."
+      "\r\n" "\r\n"
+      "It holds the OLDEST signal, so a queue keeps its order and nothing jumps a hold."
+      "\r\n" "\r\n"
       "Its RECHECK input also expires whatever is wired into RELEASE, and it has to: expiring this "
-      "node alone would re-read nothing, because Grasshopper only recomputes what it marked stale. "
-      "That is the whole mechanism by which a wait on something OUTSIDE the data graph - a file "
-      "appearing, a job finishing - can ever end.",
+      "node alone would re-read nothing, because Grasshopper only recomputes what it has marked "
+      "stale. That is the whole mechanism by which a wait on something OUTSIDE the data graph - a "
+      "file appearing, a job finishing - can ever end.",
       w=520, h=300)
 
-# --- switch --------------------------------------------------------------
-title(D, 2700, PLAY_Y - 80, "C - SIGNAL SWITCH", w=300, h=44)
-s1 = trigger(2700, PLAY_Y, "please build the screen", "press C")
-switch = place(D, "Signal Switch", 3080, PLAY_Y + 10, nick="Signal Switch")
+# --- C: switch -----------------------------------------------------------
+X = 3500
+title(D, X, ROW1 - 80, "C - SIGNAL SWITCH", w=300, h=44)
+s1 = trigger(X, ROW1, "please build the screen", "press C")
+switch = place(D, "Signal Switch", X + 430, ROW1 + 10, nick="Signal Switch")
 wire(switch, "Signal", s1, "Signal")
-pattern = input_panel(D, 2880, PLAY_Y + 130, "build", w=160, h=40, nick="what to look for")
+pattern = input_panel(D, X + 230, ROW1 + 120, "build", w=160, h=40, nick="what to look for")
 wire(switch, "Pattern", pattern, 0)
-readout(3320, PLAY_Y + 10, switch, "Match", "the text matched", w=250, h=110)
-readout(3320, PLAY_Y + 170, switch, "No Match", "it did not", w=250, h=110)
-panel(D, 2700, PLAY_Y + 320,
+readout(X + 640, ROW1 + 10, switch, "Match", "the text matched", w=250, h=110)
+readout(X + 640, ROW1 + 170, switch, "No Match", "it did not", w=250, h=110)
+panel(D, X, ROW1 + 380,
       "SIGNAL SWITCH looks at the TEXT a signal is carrying and sends it one way or the other. "
-      "Change the white box to something the payload does not contain and press again.\r\n"
-      "\r\n"
+      "Change the white box to something the payload does not contain and press again."
+      "\r\n" "\r\n"
       "Its right-click menu turns on regular expressions. A pattern that will not compile sends "
-      "everything to NO MATCH rather than quietly pretending to match.\r\n"
-      "\r\n"
-      "Useful, but reach for DECLARE first when what you are trying to work out is what the MODEL "
-      "meant. Keyword matching on prose is how a pipeline ends up building something in answer to "
-      "a question about whether it should.",
+      "everything to NO MATCH rather than quietly pretending to match."
+      "\r\n" "\r\n"
+      "Useful, but reach for DECLARE first when what you are working out is what the MODEL meant. "
+      "Keyword matching on prose is how a pipeline ends up building something in answer to a "
+      "question about whether it should.",
       w=520, h=290)
 
-# --- throttle ------------------------------------------------------------
-title(D, 700, PLAY_Y + 700, "D - SIGNAL THROTTLE", w=300, h=44)
-t1 = trigger(700, PLAY_Y + 780, "one of many", "press D fast")
-throttle = place(D, "Signal Throttle", 1080, PLAY_Y + 790, nick="Signal Throttle")
+# --- D: throttle ---------------------------------------------------------
+X = 700
+title(D, X, ROW2 - 80, "D - SIGNAL THROTTLE", w=300, h=44)
+t1 = trigger(X, ROW2, "one of many", "press D fast")
+throttle = place(D, "Signal Throttle", X + 430, ROW2 + 10, nick="Signal Throttle")
 wire(throttle, "Signal", t1, "Signal")
-interval = slider(D, 880, PLAY_Y + 900, 10, 1, 120, nick="one every (seconds)")
+interval = slider(D, X + 160, ROW2 + 120, 10, 1, 120, nick="one every (seconds)")
 wire(throttle, "Interval", interval, 0)
-readout(1300, PLAY_Y + 790, throttle, "Signal", "what got through", w=270, h=130)
-panel(D, 700, PLAY_Y + 990,
+readout(X + 640, ROW2 + 10, throttle, "Signal", "what got through", w=250, h=130)
+panel(D, X, ROW2 + 320,
       "SIGNAL THROTTLE lets one signal through per interval. Press D several times quickly and "
-      "count how many come out.\r\n"
-      "\r\n"
+      "count how many come out."
+      "\r\n" "\r\n"
       "When it is holding something and a newer signal arrives, the NEWER one wins - an overtaken "
       "event is stale by definition. That is the opposite policy from Hold Signal, and it is the "
-      "right one here.\r\n"
-      "\r\n"
+      "right one here."
+      "\r\n" "\r\n"
       "Where it belongs: downstream of several triggers meeting, so the rate is stated once in one "
       "place rather than argued about at each source.",
       w=520, h=280)
 
-# --- for each ------------------------------------------------------------
-title(D, 1700, PLAY_Y + 700, "E - FOR EACH", w=300, h=44)
-items = input_panel(D, 1700, PLAY_Y + 780, "north wall\r\neast wall\r\nsouth wall", w=200,
-                    h=100, nick="the list to walk")
-start_b = boolean(D, 1700, PLAY_Y + 900, False, nick="press E to start", toggle=False)
-starter = place(D, "Construct Signal", 1930, PLAY_Y + 900, nick="start")
+# --- E: for each ---------------------------------------------------------
+X = 2100
+title(D, X, ROW2 - 80, "E - FOR EACH", w=300, h=44)
+items = list_panel(D, X, ROW2, ["north wall", "east wall", "south wall"], w=200, h=100,
+                   nick="the list to walk")
+start_b = boolean(D, X, ROW2 + 140, False, nick="press E to start", toggle=False)
+starter = place(D, "Construct Signal", X + 230, ROW2 + 140, nick="start")
 wire(starter, "Trigger", start_b, 0)
-next_b = boolean(D, 1700, PLAY_Y + 970, False, nick="press for the next one", toggle=False)
-nexter = place(D, "Construct Signal", 1930, PLAY_Y + 970, nick="next")
+next_b = boolean(D, X, ROW2 + 215, False, nick="press for the next one", toggle=False)
+nexter = place(D, "Construct Signal", X + 230, ROW2 + 215, nick="next")
 wire(nexter, "Trigger", next_b, 0)
-foreach = place(D, "For Each", 2180, PLAY_Y + 800, nick="For Each")
+foreach = place(D, "For Each", X + 480, ROW2 + 60, nick="For Each")
 wire(foreach, "Items", items, 0)
 wire(foreach, "Start", starter, "Signal")
 wire(foreach, "Next", nexter, "Signal")
-item_p = panel(D, 2420, PLAY_Y + 760, "the item it is on", w=250, h=90, colour=OUTPUT_GREY)
+item_p = panel(D, X + 700, ROW2, "the item it is on", w=250, h=90, colour=OUTPUT_GREY)
 item_p.AddSource(pin(foreach, "out", "Item"))
-idx_p = panel(D, 2420, PLAY_Y + 870, "which number it is", w=250, h=70, colour=OUTPUT_GREY)
+idx_p = panel(D, X + 700, ROW2 + 110, "which number it is", w=250, h=70, colour=OUTPUT_GREY)
 idx_p.AddSource(pin(foreach, "out", "Index"))
-readout(2180, PLAY_Y + 1000, foreach, "Done Signal", "finished the list", w=250, h=100)
-panel(D, 1700, PLAY_Y + 1140,
-      "FOR EACH walks a list one item at a time. Press START, then press NEXT to step.\r\n"
-      "\r\n"
-      "In a real pipeline NEXT is wired from the END of the per-item work, so each item's round "
-      "asks for the next one when it is finished. That is what makes it a loop.\r\n"
-      "\r\n"
+done_dec = place(D, "Deconstruct Signal", X + 480, ROW2 + 230, nick="Deconstruct Signal")
+wire(done_dec, "Signal", foreach, "Done Signal")
+done_p = panel(D, X + 700, ROW2 + 210, "finished the list", w=250, h=90, colour=OUTPUT_GREY)
+done_p.AddSource(pin(done_dec, "out", "Payload"))
+panel(D, X, ROW2 + 340,
+      "FOR EACH walks a list one item at a time. Press START, then press NEXT to step."
+      "\r\n" "\r\n"
+      "In a real pipeline NEXT is wired from the END of the per-item work, so each item round asks "
+      "for the next one when it has finished. That is what makes it a loop."
+      "\r\n" "\r\n"
       "STRICTLY SEQUENTIAL, and that is a rule rather than a limitation. There is ONE Conversation "
       "Log downstream, so twelve items at once would interleave into one conversation and none of "
-      "the answers would be trustworthy.\r\n"
-      "\r\n"
+      "the answers would be trustworthy."
+      "\r\n" "\r\n"
       "INDEX is what carries anything that is not text: put a List Item on the far end and it "
       "picks out the matching geometry. The list is snapshotted at START, or a pipeline that edits "
       "the canvas would extend the very list it is walking. An empty list is DONE, not broken.",

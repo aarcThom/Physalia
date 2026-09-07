@@ -101,8 +101,13 @@ cancel = boolean(D, 1350, 590, False, nick="stop", toggle=False)
 wire(call, "Cancel", cancel, 0)
 panel(D, 1030, 660,
       "The usual Conversation Log and LLM Call. CODEX, because Declare is a tool and Claude Code "
-      "cannot call tools - see preset 03.",
-      w=300, h=150)
+      "cannot call tools - see preset 03."
+      "\r\n" "\r\n"
+      "One practical thing about Codex: its model list is fetched LIVE from the CLI and it "
+      "changes. If a round fails saying the model does not exist or you do not have access "
+      "to it, open the little dropdown beside the Codex Model node and pick again - the list "
+      "you are looking at is current.",
+      w=300, h=300)
 
 # ------------------------------------------------------------------- 5 the model picks a route
 
@@ -340,7 +345,10 @@ panel(D, X, ROW2 + 340,
 
 commit_build(D, "build preset 07")
 solve(D)
-pick(D, model, "Model", "gpt-5.5")
+# The Codex model list is fetched LIVE from the CLI and changes under you - it went from
+# gpt-5.5/5.4/5.4-mini to gpt-5.6-sol/terra/luna/5.5/5.4-mini inside one session here. So the
+# Picker is deliberately NOT pinned: left alone it snaps to whatever the CLI offers first,
+# which self-heals. A pinned name that the account cannot use answers 404 and does not.
 solve(D)
 solve(D)
 write_dump(D, DUMP)

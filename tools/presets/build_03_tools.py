@@ -119,8 +119,13 @@ panel(D, 1600, 700,
       "grounding, tries to call one, and reports that no such tool is available. Nothing on the "
       "canvas looks wrong when that happens."
       "\r\n\r\n" "Anthropic, Gemini and OpenAI-compatible Model nodes all support tools properly - they just "
-      "need an API key, set up from the chat window's home screen.",
-      w=310, h=470)
+      "need an API key, set up from the chat window's home screen."
+      "\r\n" "\r\n"
+      "One practical thing about Codex: its model list is fetched LIVE from the CLI and it "
+      "changes. If a round fails saying the model does not exist or you do not have access "
+      "to it, open the little dropdown beside the Codex Model node and pick again - the list "
+      "you are looking at is current.",
+      w=310, h=600)
 
 # --------------------------------------------------------------------------- 6 the router
 
@@ -188,10 +193,10 @@ panel(D, 2400, 860,
 # --------------------------------------------------------------------------- 8 results home
 
 fb_res, co_res = back(D, drive, "Result", router, "Results",
-                      2760, 1250, 1520, 1250, nick="tool results")
+                      2760, 1250, 1400, 1400, nick="tool results")
 for t in TOOLS[1:]:
     wire(fb_res, "Signal", t, "Result")
-panel(D, 1700, 1180,
+panel(D, 1920, 1180,
       "RETURN PATH 1 - the tool answers.\r\n"
       "\r\n"
       "Every tool's RESULT goes into ONE Feedback node, and one Collector hands the whole lot to "
@@ -200,13 +205,13 @@ panel(D, 1700, 1180,
       "and it needs all three answers before the round is finished.\r\n"
       "\r\n"
       "So a new tool needs one extra wire here, not a new pair.",
-      w=520, h=280, colour=WARN_ORANGE)
+      w=460, h=300, colour=WARN_ORANGE)
 
 # --------------------------------------------------------------------------- 9 tool round home
 
 back(D, router, "Feedback", log, "LLM Tool Signal",
-     2160, 1620, 1000, 1620, nick="tool round to the log")
-panel(D, 1200, 1550,
+     2760, 1620, 1000, 1620, nick="tool round to the log")
+panel(D, 1920, 1520,
       "RETURN PATH 2 - the round becomes a turn.\r\n"
       "\r\n"
       "Once the Router has all the results it emits them on FEEDBACK, and this pair carries them "
@@ -215,16 +220,16 @@ panel(D, 1200, 1550,
       "\r\n"
       "A tool that answers with a picture - Take Snapshot, or a rendered PDF page - rides along "
       "here as an attachment on the same turn.",
-      w=520, h=280, colour=WARN_ORANGE)
+      w=460, h=300, colour=WARN_ORANGE)
 
 back(D, call, "Success Signal", log, "Response Signal",
-     1860, 1900, 1000, 1900, nick="reply back to the log")
-panel(D, 1200, 1830,
+     1600, 1900, 1000, 1900, nick="reply back to the log")
+panel(D, 1920, 1860,
       "RETURN PATH 3 - the reply, exactly as in presets 01 and 02.\r\n"
       "\r\n"
       "Three separate pairs, because a Collector cannot be shared between two different "
       "destination inputs. Give each return path its own.",
-      w=520, h=180, colour=WARN_ORANGE)
+      w=460, h=200, colour=WARN_ORANGE)
 
 # --------------------------------------------------------------------------- 10 the reply
 
@@ -266,7 +271,10 @@ panel(D, 2840, 1180,
 
 commit_build(D, "build preset 03")
 solve(D)
-pick(D, model, "Model", "gpt-5.5")
+# The Codex model list is fetched LIVE from the CLI and changes under you - it went from
+# gpt-5.5/5.4/5.4-mini to gpt-5.6-sol/terra/luna/5.5/5.4-mini inside one session here. So the
+# Picker is deliberately NOT pinned: left alone it snaps to whatever the CLI offers first,
+# which self-heals. A pinned name that the account cannot use answers 404 and does not.
 pick(D, sysp, "Preamble", "Rhino Scripting.txt")
 solve(D)
 solve(D)   # the Router renames its outputs once the tool nodes have advertised

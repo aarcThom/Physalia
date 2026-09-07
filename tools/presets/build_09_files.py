@@ -127,8 +127,13 @@ panel(D, 1560, 690,
       "CODEX, because this preset is all tools and Claude Code cannot call them - see preset 03.\r\n"
       "\r\n"
       "For the PDF work you also want a model that can SEE, since a rendered page comes back as a "
-      "picture. Codex, Anthropic and Gemini models all can.",
-      w=300, h=240)
+      "picture. Codex, Anthropic and Gemini models all can."
+      "\r\n" "\r\n"
+      "One practical thing about Codex: its model list is fetched LIVE from the CLI and it "
+      "changes. If a round fails saying the model does not exist or you do not have access "
+      "to it, open the little dropdown beside the Codex Model node and pick again - the list "
+      "you are looking at is current.",
+      w=300, h=380)
 
 # --------------------------------------------------------------------------- 6 the router
 
@@ -150,7 +155,9 @@ rf = place(D, "Read File", 2440, 620, nick="Read File")
 rpdf = place(D, "Read PDF", 2440, 730, nick="Read PDF", sub="LLM Tools")
 pdfin = place(D, "Read PDF", 2440, 850, nick="Attach PDFs", sub="Human Tools")
 
-max_dl = slider(D, 2180, 520, 200, 1, 2000, nick="max megabytes per file")
+# A short nickname on purpose: a slider is only as wide as its label, and there are 250
+# canvas units between the Router and the tool column. The note explains what it means.
+max_dl = slider(D, 2210, 560, 200, 1, 2000, nick="max MB")
 wire(dl, "Max Download", max_dl, 0)
 wire(dl, "Signal", router, 0)
 wire(rf, "Signal", router, 1)
@@ -180,7 +187,8 @@ panel(D, 2280, 960,
       "\r\n"
       "READ FILE does list, stat, text and search. Honestly sized: it is for the readmes, indexes "
       "and CSVs that say WHICH big file to reach for. It refuses a binary file with a description "
-      "of what it is rather than handing back rubbish.\r\n"
+      "of what it is rather than handing back rubbish. The MAX MB slider beside Download File is "
+      "the per-file size ceiling, enforced while the bytes are arriving.\r\n"
       "\r\n"
       "READ PDF (the LLM tool) is the interesting one. Four actions - list, text, search and "
       "render - and the loop it is built for is: get an overview, search for the thing, render "
@@ -274,7 +282,10 @@ panel(D, 3200, 400,
 
 commit_build(D, "build preset 09")
 solve(D)
-pick(D, model, "Model", "gpt-5.5")
+# The Codex model list is fetched LIVE from the CLI and changes under you - it went from
+# gpt-5.5/5.4/5.4-mini to gpt-5.6-sol/terra/luna/5.5/5.4-mini inside one session here. So the
+# Picker is deliberately NOT pinned: left alone it snaps to whatever the CLI offers first,
+# which self-heals. A pinned name that the account cannot use answers 404 and does not.
 solve(D)
 solve(D)
 write_dump(D, DUMP)

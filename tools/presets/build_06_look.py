@@ -144,8 +144,13 @@ panel(D, 1860, 640,
       "small local model very likely cannot, and will be handed pictures it cannot read.\r\n"
       "\r\n"
       "Walking is many short rounds rather than one long one, so expect a lot of back and forth "
-      "for a single question.",
-      w=300, h=280)
+      "for a single question."
+      "\r\n" "\r\n"
+      "One practical thing about Codex: its model list is fetched LIVE from the CLI and it "
+      "changes. If a round fails saying the model does not exist or you do not have access "
+      "to it, open the little dropdown beside the Codex Model node and pick again - the list "
+      "you are looking at is current.",
+      w=300, h=420)
 
 # --------------------------------------------------------------------------- 7 the router
 
@@ -290,7 +295,10 @@ panel(D, 3620, 1280,
 
 commit_build(D, "build preset 06")
 solve(D)
-pick(D, model, "Model", "gpt-5.5")
+# The Codex model list is fetched LIVE from the CLI and changes under you - it went from
+# gpt-5.5/5.4/5.4-mini to gpt-5.6-sol/terra/luna/5.5/5.4-mini inside one session here. So the
+# Picker is deliberately NOT pinned: left alone it snaps to whatever the CLI offers first,
+# which self-heals. A pinned name that the account cannot use answers 404 and does not.
 solve(D)
 solve(D)
 write_dump(D, DUMP)

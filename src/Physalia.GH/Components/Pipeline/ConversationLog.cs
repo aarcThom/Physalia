@@ -56,6 +56,9 @@ public class ConversationLog : StatefulComponentBase
 
     private Conversation _conversation = Conversation.Empty;
 
+    // The last autosave failure, so the same one is reported once rather than on every turn.
+    private string? _lastAutoSaveProblem;
+
     // Legacy settings, read out of a file written before each of them moved onto the component that
     // owns it — the component-catalog selection and signature toggle onto Component Catalog, the
     // cluster selection onto Cluster Grounding, the units override onto Document Units Grounding, the
@@ -617,7 +620,13 @@ public class ConversationLog : StatefulComponentBase
     {
         base.AppendAdditionalMenuItems(menu);
         Menu_AppendItem(menu, "Save Conversation", OnSaveConversation);
-        Menu_AppendItem(menu, "Load Conversation", OnLoadConversation);
+        Menu_AppendItem(
+            menu,
+            SavedTranscriptTurns is { } saved
+                ? $"Resume Saved Conversation ({saved} turns)"
+                : "Resume Saved Conversation",
+            OnLoadConversation,
+            enabled: SavedTranscriptTurns is not null);
     }
 
     /// <inheritdoc/>
@@ -701,6 +710,11 @@ public class ConversationLog : StatefulComponentBase
 
                 RecordResult result = ConversationLogBuilder.Record(_conversation, events);
                 _conversation = result.Conversation;
+
+                // Autosaved on every turn, so a crash or a Rhino restart costs nothing. Cheap: the
+                // transcript is small text and an image is written only the first time its key
+                // appears. See ConversationTranscript for why it goes in the project folder.
+                AutoSave();
                 _pendingOutcome = result.Outcome;
                 _pendingUserText = result.UserTraceText;
 
@@ -1178,15 +1192,83 @@ public class ConversationLog : StatefulComponentBase
         }
     }
 
+    /// <summary>
+    /// How many turns the saved transcript in this pipeline's project folder holds, or null when
+    /// there is none. Public so the chat window can offer to resume it; re-read each time rather
+    /// than cached, because the file may be written by another session or arrive with a package.
+    /// </summary>
+    public int? SavedTranscriptTurns => ConversationTranscript.SavedTurns(this);
+
+    /// <summary>
+    /// Gets a value indicating whether a saved conversation is worth offering: one exists, and this
+    /// log has nothing in it yet. A resume into a conversation already under way would interleave two
+    /// histories, and there is no correct way to do that.
+    /// </summary>
+    public bool CanResumeConversation => _conversation.Count == 0 && SavedTranscriptTurns is > 0;
+
+    /// <summary>
+    /// Replaces this log's conversation with the one saved in the project folder.
+    ///
+    /// <para>Explicit, never automatic. Loading on open would hand a shared pipeline its author's
+    /// conversation — paid for on the next call — and nobody would have asked for it.</para>
+    /// </summary>
+    /// <returns>Null on success, or why it could not be resumed.</returns>
+    public string? ResumeSavedConversation()
+    {
+        if (_conversation.Count > 0)
+        {
+            return "This conversation already has turns in it. Clear it first if you want to resume the saved one.";
+        }
+
+        if (!ConversationTranscript.Load(this).IsOk(out Conversation? loaded, out string? problem))
+        {
+            return problem;
+        }
+
+        _conversation = loaded!;
+        ExpireSolution(true);
+        return null;
+    }
+
     private void OnSaveConversation(object? sender, EventArgs e)
     {
-        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Save Conversation is not yet implemented.");
+        // The autosave already keeps this current; the menu item is here for the moment somebody
+        // wants to be certain, and for saying WHERE the file went.
+        string? problem = ConversationTranscript.Save(this, _conversation);
+
+        AddRuntimeMessage(
+            problem is null ? GH_RuntimeMessageLevel.Remark : GH_RuntimeMessageLevel.Warning,
+            problem ?? $"Conversation saved to {ConversationTranscript.PathFor(this)}");
+
         ExpireSolution(true);
     }
 
     private void OnLoadConversation(object? sender, EventArgs e)
     {
-        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Load Conversation is not yet implemented.");
-        ExpireSolution(true);
+        string? problem = ResumeSavedConversation();
+
+        if (problem is not null)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, problem);
+            ExpireSolution(true);
+        }
+    }
+
+    // Writes the transcript after a turn is recorded. Failures are surfaced ONCE rather than on every
+    // turn: a project folder on a disconnected network share would otherwise fill the node with the
+    // same warning and bury everything else it has to say.
+    private void AutoSave()
+    {
+        string? problem = ConversationTranscript.Save(this, _conversation);
+
+        if (problem is not null && problem != _lastAutoSaveProblem)
+        {
+            _lastAutoSaveProblem = problem;
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, problem);
+        }
+        else if (problem is null)
+        {
+            _lastAutoSaveProblem = null;
+        }
     }
 }

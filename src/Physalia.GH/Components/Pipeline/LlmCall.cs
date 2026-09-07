@@ -383,6 +383,11 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
         var ct = _cts.Token;
         _isRunning = true;
 
+        // Wall clock, for the run log. Started here rather than inside the task so it measures what a
+        // person would call the call's duration — including whatever the provider factory and a cold
+        // CLI session cost before the first byte.
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+
         // The try/catch must cover the ENTIRE body: an uncaught throw here is an
         // unobserved task exception — the read pass never fires and the component
         // hangs Active with no message.
@@ -475,12 +480,32 @@ public class LlmCall : RoutingComponentBase<Instructions>, IStreamingTextSource
                     _toolCalls = toolCalls;
                     _apiError = null;
                     _apiErrorKind = null;
+
+                    // Booked against this pipeline whether or not the provider reported usage: a call
+                    // with no token figure — a CLI provider on a subscription has none to give — still
+                    // counts as a call, which is what makes a Budget Guard's Max Calls the cap that
+                    // works for those. Only on success: a failed call was not billed for a reply.
+                    SpendLedger.Record(OnPingDocument(), _usage);
                 }
                 else
                 {
                     _apiError = error ?? "The LLM API returned an error.";
                     _apiErrorKind = errorKind;
                 }
+
+                // The run log records the failures too, unlike the spend ledger: a call that cost
+                // nothing still took time and still says something about why an afternoon went the way
+                // it did.
+                RunLedger.Append(this, new Physalia.Core.Recording.RunRecord(
+                    DateTime.UtcNow,
+                    Harness.PhyDocuments.Harness(this)?.NickName ?? string.Empty,
+                    config.ModelId ?? string.Empty,
+                    (_usage?.InputTokens ?? 0) + (_usage?.CacheWriteTokens ?? 0) + (_usage?.CacheReadTokens ?? 0),
+                    _usage?.OutputTokens ?? 0,
+                    clock.ElapsedMilliseconds,
+                    success,
+                    _stopReason,
+                    success ? null : _apiError));
 
                 RequestReadPass();
             }

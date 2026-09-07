@@ -153,3 +153,23 @@ as well as the `GH_DocumentIO.Open` above; the archive route never touches the d
 **Beware what a component does to shared Rhino state while you script through the MCP.** Arming
 Watch Modelling made every `run_python` call return blank — see [[watch-modelling]]. If MCP stdout
 goes silent mid-session, suspect a Physalia component you just switched on, not the MCP server.
+
+## 2026-09-06, later — two more from a session of scripted rigs
+
+**Write the persistent-data helper so it ALWAYS wraps.** The `IEnumerable<char>` trap above was
+already written down, and it still landed a second time the same evening: an earlier helper took a
+`text=True` flag, a fresh one written later did not, and a Signal Throttle test came back reporting
+payloads of `"b"` — the first character of `"burst-1"`. The relay's sequence numbers and counts were
+right, so the test *looked* like it had passed. A helper with an opt-in for the safe behaviour is a
+helper that will be called wrongly; make wrapping unconditional.
+
+**Rhino crashed mid-`run_python` once**, after a long session of arming and disarming watchers. It
+reproduced nothing — every component emits and creates attributes cleanly when probed one at a time —
+so it is not attributable. Two things follow: probe a batch by **writing progress to a file** rather
+than relying on stdout, which dies with the process; and a fresh Rhino RELOADS the `.gha`, which is
+the only way to deploy a build while Rhino has been holding the old one.
+
+**A rig does not need a harness.** The relay and For Each tests ran on a bare canvas with Construct
+Signal and Deconstruct Signal, no Chat and no Conversation Log — deterministic, instant and free.
+Only delegation needs harnesses, because a Delegate grip-links to one and Task In/Out live inside
+one. Reach for the bare-canvas rig first.

@@ -35,6 +35,15 @@ a participant in an ongoing model.
   Watch Modelling BOTH default to the nickname "Watch", so a name-keyed switch flips whichever it
   finds first. The list is read live off the document every tick because arming changes no data and
   runs no solution, so there is no event to push from.
+  **Both verbs verified live 2026-09-06**: an individual switch-off produced a NEW signal from an
+  armed recorder, while switch-all-off discarded a provably non-empty batch (4 events pending, read
+  off `PendingCount` rather than inferred) and minted nothing. Test the discard case by CHECKING
+  something was pending first — "no signal appeared" is otherwise consistent with there having been
+  nothing to discard, which is how a weak pass slips through.
+- **A recorder's caption did not tick up** (found live, fixed, NOT yet verified): a recorder mints
+  nothing while running, so the pending count on the node is the only sign it is catching anything —
+  and `Message` is only rewritten on a state transition, which a recorder makes none of until it
+  stops. `ReportEvent` now refreshes it when `FiresOnDisarm`.
 - **`PipelineWake.Ready(component)` before any scheduled solution from an external event.** GH drops
   scheduled solutions on a disabled document; a harness sub-document's `Enabled` is our invariant
   re-asserted by the proxy's solve, and the proxy only solves when the host does. Re-enable **only a

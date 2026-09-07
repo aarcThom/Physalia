@@ -13,7 +13,9 @@ only about repeated failures, a guardrail's Success/Fail pair only about its own
 on if…" had nowhere to live. `SignalRelayBase` (`Components/ControlFlow/`) is the conditional layer:
 **Signal Gate** (decides now), **Hold Signal** (waits), **Signal Switch** (payload text; regex is a
 context-menu toggle), **Signal Throttle** (one per interval, newest wins). Plus **For Each**
-(`ForEachSignal`), which is not on that base. BUILT, **not run in Rhino**.
+(`ForEachSignal`), which is not on that base. **ALL FIVE RUN LIVE IN RHINO AND VERIFIED
+2026-09-06**, driven by Construct Signal + Deconstruct Signal on a bare canvas — no LLM, no harness,
+so the tests are deterministic and cost nothing.
 
 **Why:** the trigger tier makes rounds start on their own, and rounds that start on their own need a
 way to be refused, delayed and rate-limited.
@@ -42,4 +44,25 @@ way to be refused, delayed and rate-limited.
   iterating. An empty list is DONE, not broken. For genuinely independent per-item work, use
   [[harness-delegation]] instead — that is the actual fix for a shared context.
 
-Related: [[trigger-tier]], [[intent-tools-declare-ask-human]], [[signal-carrier-discipline]].
+## What the live run proved
+
+Driven by Construct Signal and read with Deconstruct Signal, on a bare canvas:
+- **The forward-the-original rule holds through a chain.** Sequence `1` at the source, sequence `1`
+  after passing a Gate AND a Switch, and the signal still reads *"from Construct Signal"* rather than
+  from either relay. That is the contract, measured.
+- Gate shut: the new signal appeared on **Blocked** while **Passed** kept the older one latched —
+  correct, since latched signals persist and downstream consume-once is what prevents a re-fire.
+- Switch with a non-matching pattern routed to **No Match**; captions `open · 1/2`, `text · 1/2`.
+- **Hold Signal, including the timeout, which is the part that could not work by accident.** Held
+  (`waiting 0s`), released on the condition with the sequence intact, then a second signal came out
+  of **Timed Out** after 2s with `Recheck` at 0.5s. Without the self-poll nothing would ever have
+  noticed the timeout, so this is the `Recheck` mechanism verified end to end.
+- **Signal Throttle's trailing edge, by payload identity not just by count.** Three presses inside
+  the window: FIRST straight through, MIDDLE overtaken and NEVER forwarded, NEWEST out when the
+  window elapsed, caption `2 through, 1 overtaken`.
+- **For Each walked a 3-item list unattended**, with `Item Signal → Feedback ~~> Collector → Next`
+  as the self-feed — wiring it straight back is a self-dependency Grasshopper refuses. Ended
+  `done · 3`, Index 3, Item empty, `All 3 items are through.`
+
+Related: [[trigger-tier]], [[intent-tools-declare-ask-human]], [[signal-carrier-discipline]],
+[[building-harnesses-programmatically]].

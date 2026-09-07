@@ -11,7 +11,8 @@ metadata:
 A Physalia pipeline has exactly ONE Conversation Log, so every subtask ever asked stayed in that one
 context forever. **Delegate** (`DelegateTool`, grip-linked via `DelegateAttrib`) hands a task to
 another harness and waits; **Task In** / **Task Out** (`IO/`) are that harness's entry and exit;
-`DelegationBroker` (`Components/Delegation/`) runs the session. BUILT, **not run in Rhino**.
+`DelegationBroker` (`Components/Delegation/`) runs the session. **RUN LIVE IN RHINO AND VERIFIED
+2026-09-06.**
 
 **Why:** compaction can shrink a history but cannot SEPARATE it. Without this, a twelve-room survey
 is twelve tasks in one conversation, a classification and a generation share a model because they
@@ -47,6 +48,20 @@ so a delegated one gets compaction, guardrails, presets and even another delegat
   Description is what the model reads to decide whether to delegate, so it is required.
 - Tool names are namespaced `delegate__<name>` (sanitized, nickname as the default), because two
   delegates in one pipeline is the normal case and the Router dispatches on the name.
+
+## How to test it without spending an LLM round
+
+**Drive the Delegate with Construct Tool Call.** That node mints a signal carrying a
+`ToolCallContent`, and `LlmToolComponentBase` reads its calls out of the content blocks without
+caring who put them there — so a hand-made call runs the delegate exactly as the Router's would, with
+no model involved. Rig: harness A holds harness B plus a Delegate grip-linked to it and a Construct
+Tool Call wired into its Signal; inside B, Task In wires straight to Task Out (an echo).
+
+Verified with `{"task":"say this back to me"}`: `Task In` caption `1 received` with the task on its
+output, `Task Out` caption `1 answered` (so the broker found the waiting session), `Last Task` and
+`Last Answer` both the task, the round trip completing in well under a second, and the Tool output
+advertising `delegate__echo`. **`Result` was correctly `None`** — a `manual:` call answers nobody,
+which is the whole reason a manual batch emits no result signal.
 
 Related: [[harness-subdocument]], [[harness-io]], [[signal-relay-conditionals]],
 [[building-harnesses-programmatically]].

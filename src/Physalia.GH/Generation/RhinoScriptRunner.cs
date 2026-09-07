@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -107,6 +107,13 @@ public static class RhinoScriptRunner
         // left to RunContext.RecordDocumentUndo, so the label is ours and the behaviour is the same
         // whatever the engine's own default happens to be.
         uint undo = doc.BeginUndoRecord(undoName);
+
+        // Everything this script does belongs to the PIPELINE, not to the person at the keyboard.
+        // A Watch Modelling recorder would otherwise take a script's object events for a direct edit
+        // — they arrive with no Rhino command open, exactly like a gumball drag — and teach the model
+        // its own actions back as though somebody had demonstrated them.
+        using IDisposable pipelineWrite = Components.PipelineRhinoWrites.Scope();
+
         string? failure = null;
         try
         {

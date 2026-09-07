@@ -76,6 +76,10 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
 
     private int _fired;
 
+    // Set only while a disarm is handing the accumulated batch over, so Fire() may run for a trigger
+    // that is no longer armed. See FiresOnDisarm.
+    private bool _flushing;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="SignalSourceBase{TEvent}"/> class in the Triggers
     /// sub-category.
@@ -101,6 +105,21 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
     protected int FiredCount => _fired;
 
     /// <summary>
+    /// Gets how many events are waiting in the current batch. Useful in a caption for a recorder,
+    /// where the batch IS the thing being built rather than a burst about to be folded.
+    /// </summary>
+    protected int PendingCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _pending.Count;
+            }
+        }
+    }
+
+    /// <summary>
     /// Gets the tooltip for this trigger's Signal output — what the payload says and where it usually
     /// goes. Each subclass writes its own: the whole point of a trigger is WHICH event it is, and a
     /// shared default would say nothing about that.
@@ -118,6 +137,25 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
     /// input; the default suits a watcher reporting file-system or document events.
     /// </summary>
     protected virtual int SettleMs => 250;
+
+    /// <summary>
+    /// Gets a value indicating whether the whole batch is handed over when the trigger is switched
+    /// OFF, rather than whenever a burst of it goes quiet.
+    ///
+    /// <para>True for a RECORDER, where the batch is the thing being built rather than a burst about
+    /// to be folded: watching somebody model has to fire once, at the end, with the whole procedure —
+    /// firing per command would start a round per click, and there is no settle window that tells a
+    /// pause for thought apart from being finished. While this is true no settle timer is armed at
+    /// all, and disarming is the hand-over gesture.</para>
+    /// </summary>
+    protected virtual bool FiresOnDisarm => false;
+
+    /// <summary>
+    /// Gets the caption of the menu item that arms this trigger. "Armed" reads correctly for
+    /// something that waits for an event; a recorder wants "Recording", because switching it off is
+    /// the act that produces the result.
+    /// </summary>
+    protected virtual string ArmMenuText => "Armed";
 
     /// <summary>
     /// Composes the payload for one coalesced batch of events. Return an empty string to mint NOTHING
@@ -195,6 +233,14 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
 
             _pending.Add(e);
 
+            if (FiresOnDisarm)
+            {
+                // A recorder: the batch is the result, so nothing is minted until it is switched off.
+                // No settle timer at all — there is no pause length that tells thinking apart from
+                // finishing, and guessing at one would cut a demonstration in half.
+                return;
+            }
+
             // Restarts rather than accumulates: the window is "quiet for this long", so a burst of a
             // thousand events is one wake-up whose length is the burst's, not a thousand wake-ups.
             _settle?.Dispose();
@@ -207,11 +253,23 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
     }
 
     /// <summary>
-    /// Arms or disarms the trigger and refreshes the caption. Public so the harness panel's
-    /// disarm-everything button can reach it.
+    /// Arms or disarms the trigger, DROPPING anything pending. This is the kill-switch form — what
+    /// the harness panel's disarm-everything button calls — and it deliberately produces no signal
+    /// even on a recorder: somebody switching everything off is not asking for a round to start.
     /// </summary>
-    /// <param name="on">True to start listening; false to stop and drop anything pending.</param>
-    public void SetArmed(bool on)
+    /// <param name="on">True to start listening; false to stop.</param>
+    public void SetArmed(bool on) => SetArmed(on, flush: false);
+
+    /// <summary>
+    /// Arms or disarms the trigger and refreshes the caption.
+    /// </summary>
+    /// <param name="on">True to start listening; false to stop.</param>
+    /// <param name="flush">
+    /// When disarming a trigger whose <see cref="FiresOnDisarm"/> is true, hand the accumulated batch
+    /// over as a signal instead of dropping it. True for the node's own menu item, where switching a
+    /// recorder off IS the hand-over gesture; false for the kill switch, where it is not.
+    /// </param>
+    protected void SetArmed(bool on, bool flush)
     {
         lock (_gate)
         {
@@ -224,12 +282,23 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
 
             if (!on)
             {
-                // Disarming drops the batch as well as the listener. A trigger switched off mid-burst
-                // must not fire the burst it was switched off during.
-                _pending.Clear();
                 _settle?.Dispose();
                 _settle = null;
-                _doFire = false;
+
+                if (flush && FiresOnDisarm && _pending.Count > 0)
+                {
+                    // Kept for the solve this method's ExpireSolution is about to run. _flushing is
+                    // what lets Fire() proceed for a trigger that is no longer armed.
+                    _flushing = true;
+                    _doFire = true;
+                }
+                else
+                {
+                    // Disarming otherwise drops the batch as well as the listener: a trigger switched
+                    // off mid-burst must not fire the burst it was switched off during.
+                    _pending.Clear();
+                    _doFire = false;
+                }
             }
         }
 
@@ -297,8 +366,8 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
         Menu_AppendSeparator(menu);
         Menu_AppendItem(
             menu,
-            "Armed",
-            (_, _) => SetArmed(!_armed),
+            ArmMenuText,
+            (_, _) => SetArmed(!_armed, flush: true),
             enabled: true,
             @checked: _armed);
     }
@@ -330,6 +399,7 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
         {
             _pending.Clear();
             _doFire = false;
+            _flushing = false;
         }
 
         _fired = 0;
@@ -361,6 +431,7 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
             _settle?.Dispose();
             _settle = null;
             _doFire = false;
+            _flushing = false;
         }
 
         StopListening();
@@ -401,7 +472,7 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
         List<TEvent> batch;
         lock (_gate)
         {
-            if (!_armed || _pending.Count == 0)
+            if ((!_armed && !_flushing) || _pending.Count == 0)
             {
                 // Disarmed between the schedule and the solve, or already drained. Either way there is
                 // nothing to fire, and minting an empty signal would start a round about nothing.
@@ -410,6 +481,7 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
 
             batch = new List<TEvent>(_pending);
             _pending.Clear();
+            _flushing = false;
         }
 
         string payload = ComposePayload(batch);

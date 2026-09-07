@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -187,6 +187,11 @@ public class RhinoGeometryTool : LlmToolComponentBase
         // Stack below the referenced inputs already on the canvas (detected, not tracked — the
         // params themselves are the registry).
         int row = CanvasRhinoReferences.Collect(ghDoc).Count;
+
+        // Baking is the PIPELINE writing to the Rhino document, so a Watch Modelling recorder must
+        // not take it for the user's own modelling — see PipelineRhinoWrites.
+        using IDisposable pipelineWrite = PipelineRhinoWrites.Scope();
+
         foreach (Placement placement in batch)
         {
             IGH_Param? param = BakeAndReference(placement, rhinoDoc);

@@ -553,6 +553,48 @@ def save_phy(harness, path, description=None, chat_text=None):
 
 # --------------------------------------------------------------------------- checking
 
+def core_loop(doc, x, y, model_name="Claude Code Model", instruction=None,
+              nick=None, with_response_path=True):
+    """
+    The spine every pipeline has: Chat, System Prompt, Conversation Log, a Model, an LLM Call, and
+    the wireless path carrying the reply home.
+
+    Returns a dict of the pieces so a caller can wire grounding, tools and guardrails onto them.
+    Laid out on one row starting at (x, y); the return path sits 700 below.
+
+    It exists because the scenario presets repeat this exactly, and hand-wiring the same six
+    components ten more times is how a Feedback ends up pointing at nothing.
+    """
+    chat = place(doc, "Chat", x, y, nick="Chat")
+
+    sysp = place(doc, "System Prompt", x + 480, y, nick="System Prompt")
+    blank_input(doc, sysp, "Preamble", x + 280, y - 60, label="no preamble file")
+    blank_input(doc, sysp, "Schema", x + 280, y - 14, label="no schema file")
+    extra = None
+    if instruction is not None:
+        extra = input_panel(doc, x + 210, y + 70, instruction, w=250, h=130,
+                            nick="what it is told to do")
+        wire(sysp, "Additional Prompt", extra, 0)
+
+    log = place(doc, "Conversation Log", x + 900, y, nick="Conversation Log")
+    wire(log, "System Prompt", sysp, "System Prompt")
+    wire(log, "Prompt Signal", chat, "Prompt Signal")
+
+    model = place(doc, model_name, x + 1280, y - 70, nick=model_name)
+    call = place(doc, "LLM Call", x + 1280, y + 40, nick="LLM Call")
+    wire(call, "Model", model, "Model")
+    wire(call, "Signal", log, "Signal")
+    stop = boolean(doc, x + 1150, y + 85, False, nick="stop", toggle=False)
+    wire(call, "Cancel", stop, 0)
+
+    if with_response_path:
+        back(doc, call, "Success Signal", log, "Response Signal",
+             x + 1360, y + 700, x + 700, y + 700, nick=nick or "reply back to the log")
+
+    return {"chat": chat, "sysp": sysp, "instruction": extra, "log": log,
+            "model": model, "call": call, "stop": stop}
+
+
 def retire(doc):
     """
     Let a document go PROPERLY: RemoveObjects first, then Dispose.

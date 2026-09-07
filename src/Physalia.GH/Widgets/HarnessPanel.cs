@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #nullable enable
@@ -99,6 +99,18 @@ internal sealed class HarnessPanel : Form
     private readonly Button _save = new();
     private readonly Button _load = new();
 
+    // The kill switch. Shown only while something in this harness is armed, and — like Back — in both
+    // states, because "where is the thing that keeps calling the model" is a question that needs an
+    // answer faster than expanding a panel.
+    private readonly Button _disarm = new();
+
+    // Armed triggers cannot announce themselves: arming is a menu item on a node, which reaches no
+    // event this panel could subscribe to. A one-second poll of the registry is the whole mechanism,
+    // and it costs a list walk of a handful of weak references.
+    private readonly System.Windows.Forms.Timer _armedPoll = new() { Interval = 1000 };
+
+    private int _armedCount;
+
     private HarnessComponent? _harness;
 
     // True while the panel is writing its own fields from the harness, so the TextChanged handlers
@@ -146,6 +158,7 @@ internal sealed class HarnessPanel : Form
         this.BuildTitleRow();
         this.BuildFields();
         this.BuildActions();
+        this.BuildDisarm();
 
         this._collapsed = Instances.Settings.GetValue(CollapsedKey, true);
         this.ApplyCollapsed();
@@ -205,6 +218,10 @@ internal sealed class HarnessPanel : Form
         }
 
         this.EnsureHostWindow();
+
+        // The harness may have changed, so the armed count belongs to a different pipeline now.
+        this._armedCount = -1;
+        this.UpdateArmed();
 
         this.LayoutPanel();
         this.Reposition();
@@ -477,6 +494,15 @@ internal sealed class HarnessPanel : Form
             // The collapse toggle and the way OUT both survive rolling up. Back to document is the
             // only non-destructive exit from a harness, so hiding it behind the toggle would strand
             // anyone who collapsed the panel — and it is collapsed by default.
+            if (ReferenceEquals(control, this._disarm))
+            {
+                // Always visible while something is armed, collapsed or not — see BuildDisarm. Hiding
+                // the kill switch behind the toggle would strand anyone who had rolled the panel up,
+                // which is the default state.
+                control.Visible = this._armedCount > 0;
+                continue;
+            }
+
             if (!ReferenceEquals(control, this._collapse) && !ReferenceEquals(control, this._back))
             {
                 control.Visible = !this._collapsed;
@@ -557,6 +583,53 @@ internal sealed class HarnessPanel : Form
         this._load.Text = "Load…";
         this._load.Click += (_, _) => this._harness?.LoadFromFile();
         this.Controls.Add(this._load);
+    }
+
+    // The disarm-everything button and the poll that decides whether it is there at all.
+    //
+    // An armed trigger is the one thing in the plug-in that spends money with nobody present, and the
+    // node it lives on may be anywhere inside a harness the user is not looking at. So the count and
+    // the way to stop it belong on the panel that is already pinned to the harness they are standing
+    // in, next to the exit — which is the other control people want in a hurry.
+    private void BuildDisarm()
+    {
+        this.StyleButton(this._disarm);
+        this._disarm.ForeColor = HarnessTheme.Panel.Accent;
+        this._disarm.Visible = false;
+        this._disarm.Click += (_, _) =>
+        {
+            Components.TriggerRegistry.DisarmAll(this._harness?.InnerDocument);
+            this.UpdateArmed();
+        };
+
+        this.Controls.Add(this._disarm);
+
+        this._armedPoll.Tick += (_, _) => this.UpdateArmed();
+        this._armedPoll.Start();
+    }
+
+    // Re-reads the armed count and re-lays out only when it has changed, so the poll costs nothing in
+    // the normal case (nothing armed, nothing to do).
+    private void UpdateArmed()
+    {
+        int count = this._harness is null
+            ? 0
+            : Components.TriggerRegistry.Armed(this._harness.InnerDocument).Count;
+
+        if (count == this._armedCount)
+        {
+            return;
+        }
+
+        this._armedCount = count;
+
+        this._disarm.Text = count == 1
+            ? "Disarm 1 trigger"
+            : $"Disarm {count} triggers";
+
+        this._disarm.Visible = count > 0;
+        this.LayoutPanel();
+        this.Invalidate();
     }
 
     /// <summary>
@@ -693,7 +766,8 @@ internal sealed class HarnessPanel : Form
         Size back = this.MeasureButton(this._back);
         Size save = this.MeasureButton(this._save);
         Size load = this.MeasureButton(this._load);
-        int buttonHeight = Math.Max(back.Height, Math.Max(save.Height, load.Height));
+        Size disarm = this.MeasureButton(this._disarm);
+        int buttonHeight = Math.Max(back.Height, Math.Max(save.Height, Math.Max(load.Height, disarm.Height)));
 
         // Both action buttons take the width of the WIDER one, and the panel is sized to fit two of
         // those. Splitting the row in half instead is a subtler version of the bug the measured
@@ -705,6 +779,7 @@ internal sealed class HarnessPanel : Form
         // label cannot make the panel enormous (labels ellipsize) and a short one cannot make it
         // too narrow to type a name into.
         int needed = Math.Max(back.Width, (action * 2) + gap);
+        needed = Math.Max(needed, this._armedCount > 0 ? disarm.Width : 0);
         needed = Math.Max(needed, this.MeasureLabels());
         this.Width = Math.Clamp(needed + (pad * 2), this.S(MinWidthPx), this.S(MaxWidthPx));
 
@@ -730,6 +805,14 @@ internal sealed class HarnessPanel : Form
             int width = Math.Min(action, (inner - gap) / 2);
             this._save.SetBounds(pad, y, width, buttonHeight);
             this._load.SetBounds(this.Width - pad - width, y, width, buttonHeight);
+            y += buttonHeight + gap;
+        }
+
+        // Directly above the exit, and in both states for the same reason it is: an armed trigger is
+        // spending money and the way to stop it must not be behind the collapse toggle.
+        if (this._armedCount > 0)
+        {
+            this._disarm.SetBounds(pad, y, inner, buttonHeight);
             y += buttonHeight + gap;
         }
 

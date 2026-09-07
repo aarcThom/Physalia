@@ -38,11 +38,17 @@ tick you cannot defend.
 
 ### What is NOT a test, and must be fixed regardless
 
-- **Icons.** **29** ribbon components fall back to the brain placeholder — counted 2026-09-06 by
-  matching every type declaring `override Guid ComponentGuid` against the `.gha`'s embedded
-  `Physalia.GH.Resources.<TypeName>.png` names, so it is the shipped artifact's count rather than a
-  tally of what felt new. The `Param_*` types are exempt: `PhyParam` sets `GH_Exposure.hidden`, so
-  they never reach the ribbon. Blocking for a release.
+- **Icons — DONE 2026-09-07.** All 29 are generated, split and installed; the audit now reports
+  **0** components falling back. Four sheets, first generation, no rework — see the third pass in
+  `planning/component-icon-prompts.md`, including why the apparent line-weight drift was measured
+  and found not to exist.
+
+  The original count was **29**, taken on 2026-09-06 by matching every type declaring
+  `override Guid ComponentGuid` against the `.gha`'s embedded `Physalia.GH.Resources.<TypeName>.png`
+  names — the shipped artifact's count rather than a tally of what felt new, which is what caught
+  that the figure had been carried as 18. The `Param_*` types are exempt throughout: `PhyParam` sets
+  `GH_Exposure.hidden`, so they never reach the ribbon. **Re-run that audit after any pass** — it is
+  four lines of script and it is the only thing that answers the question.
 - **Mac.** Not testable on this machine. `McpServer.BridgeExecutable()` still hardcodes a `.exe`
   (memory: `mac-port-mcp-gaps`), and the new WinForms surfaces are Windows-only. Decide whether the
   release is Windows-only and say so, or schedule the port.
@@ -471,7 +477,7 @@ The case the whole trigger tier exists for, and the one with a bill attached.
 | F | F2 delegation with a real sub-model | ◐ | echo path verified; thinking worker and all four guards not |
 | F | F3 unattended overnight | ☐ | **ship blocker** |
 | F | F4 two harnesses at once | ☐ | |
-| — | icons for 29 components | ☐ | **ship blocker**; counted against the built `.gha`, not estimated |
+| — | icons for 29 components | ✅ done 09-07 | all 29 generated, split and installed; audit reports **0** fallbacks across 108 ribbon types |
 | — | Mac decision | ☐ | Windows-only, or schedule the port |
 
 ### What the 09-06/07 pass found
@@ -505,7 +511,7 @@ the third time this document's premise has held.
    Still the open blocker.
 3. ~~**C1**~~ — **verified 09-07**, clean round trip with no param or wire drift. **C2** passed its
    own assertions but exposed the nested-id defect above; re-run it against the fix.
-4. **Icons** (29 components).
+4. ~~**Icons**~~ — **done 09-07**, 0 fallbacks.
 
 ### Not blocking, but decide before shipping
 

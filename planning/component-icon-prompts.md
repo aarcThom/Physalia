@@ -301,6 +301,11 @@ recipe above is the part that matters). Two things to reuse if another one is dr
 
 ## Pending — no icon yet
 
+**Superseded by the third pass below, which carries these five prompts into Sheets C and D
+unchanged apart from the two grounders' ground line.** The count here was also wrong: an audit on
+2026-09-06 put the real figure at **29** components falling back to the brain, not two — see the
+third pass for how it was counted.
+
 `RunRhinoScript` and `RhinoDocumentGrounder` ship with no `Resources/<TypeName>.png`, so
 `PhyBase.Icon` falls back to the generic brain. Neither is broken, only unlabelled; draw them in the
 next pass.
@@ -312,3 +317,184 @@ next pass.
 | `ProjectFolderGrounder.png` | Project Folder | A folder seen face-on with its tab on the upper left, and a small solid dot at its lower-right corner standing for the files inside. The dot is cyan. Reads as "this pipeline has a place of its own" and stays distinct from `MemoryTool.png`, which is about notes rather than files. |
 | `DownloadFile.png` | Download File | A downward arrow landing on a short horizontal tray line, with a small cloud outline above the arrow tail. The arrow is cyan. Reads as "fetch it to disk" and stays distinct from `ReadUrl.png`, which is a page rather than a tray. |
 | `ReadFile.png` | Read File | A document page with one folded corner and three short horizontal lines of text, with a small magnifier resting over its lower-right corner. The magnifier is cyan. Reads as "look inside a file here" and stays distinct from `ReadPdf.png`, which carries the PDF wordmark. |
+
+---
+
+# Third pass — the 29 unlabelled components (2026-09-07)
+
+Everything built on the `events-and-delegation` branch shipped without an icon. Counted against the
+built `.gha` rather than estimated: every type declaring `override Guid ComponentGuid`, matched
+against the assembly's embedded `Physalia.GH.Resources.<TypeName>.png` names. **29 ribbon components
+fall back to `brain.png`.** The `Param_*` types are exempt — `PhyParam` sets `GH_Exposure.hidden`,
+so they never reach the ribbon and never need one.
+
+This is an **additive** pass, which is a different problem from the second one. There the whole set
+was made at once, so the bead size only had to be consistent within the generation. Here 29 new
+icons have to sit beside 76 existing ones, and the note at the end of the second pass is explicit
+that a lone regenerated cell comes back at a different bead size. Hence:
+
+> **Attach TWO reference images with every sheet:** `Images/phy_critter.svg` for the bead language,
+> **and a contact sheet of the existing icons** — build one with
+> `tools/icons/Contact.ps1 -Dir src\Physalia.GH\Resources -Out sheet.png -Zoom 6`. Say in the prompt
+> that the new icons must match the line weight and bead diameter of the attached set. Bead-size
+> drift between passes is the one failure that cannot be fixed in the splitter, and it is what will
+> make an addition read as foreign.
+
+Paste **the style preamble from the top of this document** with every sheet, unchanged. Four sheets,
+grids given per sheet, **row-major reading order is the cell → filename mapping** — do not reorder
+the lists.
+
+---
+
+## Sheet A — Triggers (6 icons, 3 columns × 2 rows)
+
+*Accent: magenta `#DE28C0`. Every icon on this sheet is a **signal source**, and they share one
+base — **the mint**: a bead with four short rays radiating from it and a short arrow leaving to the
+right, exactly as in the existing `ConstructSignal.png`. Draw the mint identically in all six, in
+magenta, at the right of the cell. The symbol beside it — what the trigger watches — is **navy**, so
+the mint carries the sheet's only accent and each icon still obeys "navy plus at most one accent".*
+
+| # | File | Component | Icon |
+|---|---|---|---|
+| 1 | `TimerTrigger.png` | Timer | A clock face — a circle with two straight hands, one short and one long — with the mint at its right. Reads as a round starting on a schedule. |
+| 2 | `FolderTrigger.png` | Folder Watcher | A folder seen face-on with its tab on the upper left, with the mint at its right. Stays distinct from `ProjectFolderGrounder.png`, which puts the same folder on a ground line instead of beside a mint. |
+| 3 | `RhinoTrigger.png` | Rhino Changed | A wireframe cube in simple isometric view, with the mint at its right. The cube is the one from `RhinoGeometryTool.png`. |
+| 4 | `DataTrigger.png` | Data Changed | Three beads joined by two short lines into a small graph — the same graph as `CanvasStateGrounder.png` — with the mint at its right. |
+| 5 | `ModellingWatch.png` | Watch Modelling | A simple mitten hand with one extended finger, its fingertip touching the top face of a wireframe cube, with the mint at its right. Reads as "what the person did by hand", which is exactly what this records. |
+| 6 | `ConstructToolCall.png` | Construct Tool Call | The mint alone, with an open C-shaped wrench jaw — the head from `ToolsInUse.png` — resting just above its bead. Stays distinct from `ConstructSignal.png`, which is the same mint with nothing above it. |
+
+---
+
+## Sheet B — Control Flow, the conditional layer (6 icons, 3 columns × 2 rows)
+
+*Accent: plum `#4E285E` — machinery that inspects and gates. All six share one base — **the signal
+line**: a horizontal beaded line running left to right across the cell, drawn in navy, the same line
+as in the existing `SignalLimiter.png`. Draw it identically in all six; only what acts on it changes,
+and that is the plum element.*
+
+| # | File | Component | Icon |
+|---|---|---|---|
+| 1 | `SignalGate.png` | Signal Gate | The signal line interrupted by two short vertical bars standing apart like an open gate, one reaching up from below the line and one down from above. The gate bars are plum. Stays distinct from `SignalLimiter.png`, which stops the line dead with a single bar and counts tallies above it. |
+| 2 | `HoldSignal.png` | Hold Signal | The signal line interrupted by an hourglass — two short triangles meeting point to point. The hourglass is plum. |
+| 3 | `SignalSwitch.png` | Signal Switch | The signal line arriving at a bead and forking into two lines leaving to the right, the upper ending in an arrowhead and the lower in a plain bead, with a small five-armed asterisk above the fork. The asterisk is plum — it is the pattern being matched. |
+| 4 | `SignalThrottle.png` | Signal Throttle | The signal line pinched to a narrow neck by two opposing arcs, one bead passing through the neck and two more queued behind it. The arcs are plum. |
+| 5 | `ForEachSignal.png` | For Each | A vertical stack of four short horizontal bars with a circular arrow loop to their left and one arrowhead pointing at the second bar down. The loop is plum. Stays distinct from `StallGuard.png`, whose loop is struck through by a straight bar. |
+| 6 | `BudgetGuard.png` | Budget Guard | The signal line stopped by a vertical bar, with a semicircular gauge arc above it — the arc from `TokenEstimator.png` — its needle swung close to the far end. The bar and needle are plum. Reads as "the budget is nearly spent". |
+
+---
+
+## Sheet C — LLM Tools (11 icons, 4 columns × 3 rows)
+
+*Accent: pale cyan `#83D2DE` throughout — everything here feeds the model or acts on its behalf.
+Eleven icons in twelve cells: leave the last cell of the bottom row **empty black**. Icons 3, 4 and
+5 are carried unchanged from the "Pending" section above.*
+
+| # | File | Component | Icon |
+|---|---|---|---|
+| 1 | `ApiCall.png` | API Call | A globe — a circle crossed by one horizontal and one vertical curve, the same globe as `WebSearch.png` — with a short beaded line leaving its right side and ending in an arrowhead. The globe is cyan. Stays distinct from `WebSearch.png`, which holds a magnifier over that globe instead of sending a line out of it. |
+| 2 | `McpServer.png` | MCP Server | A two-pin plug on the left seated into a matching socket on the right, with three short lines fanning out from the socket's far side. The plug is cyan. Reads as "one connection, many tools", which is what makes this the only node advertising a set. |
+| 3 | `DownloadFile.png` | Download File | A downward arrow landing on a short horizontal tray line, with a small cloud outline above the arrow tail. The arrow is cyan. Reads as "fetch it to disk" and stays distinct from `ReadUrl.png`, which is a page rather than a tray. |
+| 4 | `ReadFile.png` | Read File | A document page with one folded corner and three short horizontal lines of text, with a small magnifier resting over its lower-right corner. The magnifier is cyan. Reads as "look inside a file here" and stays distinct from `ReadPdf.png`, which carries the PDF wordmark. |
+| 5 | `RunRhinoScript.png` | Drive Rhino | A pair of curly braces with a small rightward play triangle between them, standing on a short horizontal ground line. The play triangle is cyan. Reads as "run this code" and stays distinct from `RhinoCommonSearch.png`, which puts a magnifier over braces rather than a triangle. |
+| 6 | `TakeSnapshot.png` | Take Snapshot | The camera from `GeometrySnapshot.png` — a rounded body with a small bump on top — with a four-pointed sparkle inside its round lens. The sparkle is cyan. The sparkle is what marks this as the MODEL's own look, against the human's cube in `GeometrySnapshot.png` and eye in `ViewSnapshot.png`; draw the camera body identically to both. |
+| 7 | `MoveInSpace.png` | Move In Space | A three-by-three grid of beads with a stepped path of two arrows running through it from the lower left to the upper right. The path is cyan. Reads as "one step at a time through a lattice". |
+| 8 | `AskHuman.png` | Ask Human | A round head with a curved shoulder line beneath it, and a speech bubble beside the head containing a question mark. The question mark is cyan. |
+| 9 | `DeclareTool.png` | Declare | A beaded line arriving from the left at a hub bead, with three lines leaving to the right — the topmost ending in an arrowhead, the other two ending in plain beads. The arrowhead is cyan. Reads as "one route of three, chosen", and stays distinct from `Router.png`, where all three lines end in arrowheads. |
+| 10 | `DelegateTool.png` | Delegate | A rounded-square container on the right holding two beads — the container from `HarnessComponent.png` — with an arrow entering its left edge and a second arrow curving back out below it to a bead on the left. The returning arrow is cyan. Reads as "handed over, and answered". |
+| 11 | `PipelineState.png` | Pipeline State | Three short horizontal bars stacked, each with a single bead sitting just off its left end — three key-and-value rows. The middle row's bead is cyan. Stays distinct from `MemoryTool.png`, which is a database stack with a bookmark ribbon. |
+
+---
+
+## Sheet D — Grounding, harness I/O and Human Tools (6 icons, 3 columns × 2 rows)
+
+*Mixed accents, stated per icon — this sheet is the leftovers of three families, so unlike the others
+it has no single accent. Icons 1 and 2 are the "Pending" prompts **with one change**: both now sit on
+the cyan ground line that Sheet 3 of the second pass draws identically under all nine grounders, and
+their own marks drop to navy so each icon still carries one accent. Without that, two grounders would
+be the only ones in the set standing on nothing.*
+
+| # | File | Component | Icon |
+|---|---|---|---|
+| 1 | `ProjectFolderGrounder.png` | Project Folder | A folder seen face-on with its tab on the upper left and a small bead at its lower-right corner standing for the files inside, sitting on the cyan ground line. The folder and bead are navy; the ground line is the accent. Reads as "this pipeline has a place of its own" and stays distinct from `MemoryTool.png`, which is about notes rather than files. |
+| 2 | `RhinoDocumentGrounder.png` | Rhino Document | A document page seen face-on with one folded corner, three stacked horizontal bars across its lower half standing for the layer rows, and a small wireframe cube resting on the topmost bar, sitting on the cyan ground line. Page, bars and cube are navy; the ground line is the accent. Reads as "what is in the file" and stays distinct from `CanvasStateGrounder.png`, which is about the Grasshopper canvas rather than the Rhino document. |
+| 3 | `HarnessIn.png` | Harness In | The rounded-square container from `HarnessComponent.png` with a straight beaded line entering through its left edge from outside the cell and ending in a bead just inside. The entering line is cyan. Deliberately **no mint** — this one is passive: data arrives and waits to be read, and starting no round is the whole point of it. |
+| 4 | `TaskIn.png` | Task In | The same container with an arrow entering through its left edge and a bead with two short rays sitting just inside it. The rays are cyan. Those rays are the one difference from `HarnessIn.png`, and they carry the meaning: a task arriving DOES start a round. |
+| 5 | `TaskOut.png` | Task Out | The same container with an arrow leaving through its right edge, carrying a single bead along its shaft. The arrow is magenta `#DE28C0` — magenta rather than cyan because this writes out of the harness, pairing it with the existing `HarnessOut.png`. |
+| 6 | `TriggerControl.png` | Trigger Control | The chat-window frame — a rounded rectangle with a strip across its top, as in `SignalTrace.png` and `TokenCount.png` — containing three short horizontal tracks, each with a round knob, the knobs at different positions along their tracks. The knobs are cyan. The knob is the one from the tweaker sliders; reads as a row of switches. |
+
+---
+
+## Notes for this pass
+
+**Sheet A and Sheet B are the ones to check first.** Both hang on a shared base drawn six times over
+(the mint; the signal line), and a sheet where that base drifts cell to cell is worth regenerating
+rather than splitting — the families read as families or they read as noise.
+
+**Expect all three of the second pass's surprises again**, none of which were fixed by asking:
+sheets come back **numbered in reverse**, so map by CONTENT; the **strict even grid is ignored**, so
+read the actual row layout off the image and pass it to the splitter; and an **extra blank cell**
+may appear. Sheet C is *specified* with an empty twelfth cell, so on that sheet a blank is expected
+rather than a fault — discard it by name placeholder either way.
+
+**Split with `tools/icons/Run.ps1 -ReportOnly` first**, to a scratch folder, never straight into
+`Resources\`. Downscale on black first and key second; alpha per palette entry, not per luminance.
+All of that is unchanged from the second pass.
+
+**Two of the 29 have no sheet cell and are drawn instead**, if generation returns them badly: nothing
+here is a candidate for the `System.Drawing` route on principle, but `TriggerControl.png` is the
+closest — it is a window frame plus three sliders, which is geometry code hits exactly, and the
+recipe at the end of the second pass covers it.
+
+**After the sheets land:** 29 files into `src/Physalia.GH/Resources/`, `dotnet build
+src/Physalia.slnx -c Debug`, **restart Rhino** (Grasshopper caches icons). Then re-run the audit —
+every type declaring `override Guid ComponentGuid`, minus the hidden `Param_*` types, matched against
+the assembly's embedded resource names — and it should report **nothing** falling back except
+`brain.png` itself and `Chat`, which overrides `Icon` by design.
+
+---
+
+## What actually happened (2026-09-07)
+
+**All four sheets came back usable on the first generation, and none of the second pass's three
+surprises recurred.** Filenames matched the sheets (`sheet_a` really was Sheet A), the grids were
+even, row-major order held throughout, and Sheet C's twelfth cell came back empty exactly as
+specified. Actual layouts: **3/3, 3/3, 4/4/3, 3/3**; the first three sheets 1254×1254, Sheet D
+1536×1024. Whether the improvement came from attaching the contact sheet, from asking for the blank
+cell rather than discovering one, or from a better model is not knowable from one pass — but ask for
+all three again.
+
+`Split.ps1` needed no changes: projection segmentation found all 29 cells, and every output was
+24×24 with a transparent corner and real ink.
+
+### The drift check said the opposite of what the eye said, and it was right
+
+A side-by-side of eight new icons against the existing sibling each was drawn to match read clearly
+as "the new ones are thinner". Measured — median horizontal run of opaque pixels as a stroke proxy,
+plus total ink at alpha > 110 — it is **not true**:
+
+| set | median stroke | mean stroke | mean ink | icons at stroke 1 |
+|---|---|---|---|---|
+| existing 80 | 2 | 1.86 | 130 | **17** |
+| new 29 | 2 | 2.10 | 128 | **1** |
+
+The new set is very slightly *heavier* than the old average. The eyeball comparison misled because
+every obvious sibling to compare against — `SignalLimiter`, `StallGuard`, `Router`,
+`ConstructSignal` — happens to sit at the heavy end of the existing set, so the honest comparison
+was against outliers rather than against the set. **Measure this before changing the splitter**: the
+"fix" would have been a change to shared code, applied to a problem that was not there.
+
+One real outlier in the new set: **`SignalGate` at ink 37**, the sparsest of the 29 — it is a line
+and two short bars and nothing else. Left as generated, because the existing floor is `ComponentResolver`
+at 46 and `DetectJson` at 48, so it is within the set's own range and it reads at 24 px.
+
+### Result
+
+**0 components fall back to `brain.png`.** 108 ribbon component types, 131 embedded png resources
+(the surplus is `brain`, `critter`, `Chat` and the bundled Noto emoji). The icon line in the
+pre-ship sign-off table can be closed.
+
+### One more PowerShell gotcha for the pile
+
+**Variable names are case-INSENSITIVE**, so `$S` (a source directory) and `$s` (the loop variable
+over the sheet table) are the same variable. The symptom is a nonsense path —
+`...\System.Collections.Hashtable\sheet_a.png` — rather than an unset-variable error.

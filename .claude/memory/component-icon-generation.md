@@ -28,7 +28,7 @@ palette (neon green, pink, blue, cyan, yellow, coral + navy outline, white glint
 off the assembly manifest (an explicit `IconPath` field overrides the name), and
 `Physalia.GH.csproj` embeds `Resources\*.png` by glob — `Exclude="Resources\sprite_*.png"`, a guard
 added after the mishap below. A missing resource falls back to `Physalia.GH.Resources.brain.png`
-(as CsTransmitter, TextTransmitter, Harness and ScriptIO currently do).
+(since 2026-09-07 **nothing does** — see the fourth case below).
 
 **Three gotchas:**
 - **Grasshopper caches icons — restart Rhino** or a replaced PNG never shows.
@@ -106,3 +106,40 @@ Recipe (full write-up at the end of `planning/component-icon-prompts.md`):
   boundary pixels classify wrong.
 - Nothing thinner than ~1.8 units on the 24 grid. Two 1.2-unit window-title dots came out as smears.
 - Same install contract as ever: drop `<ClassName>.png` in `Resources\`, rebuild, restart Rhino.
+
+
+---
+
+## Fourth case — the additive pass (2026-09-07): 29 icons, and a drift scare that measured false
+
+The `events-and-delegation` components all shipped iconless. **29** of them, counted against the
+built `.gha` rather than estimated — the figure had been carried in the planning doc as 18, and the
+audit is what caught it: every type declaring `override Guid ComponentGuid`, minus the hidden
+`Param_*` types, matched against the assembly's embedded `Physalia.GH.Resources.<TypeName>.png`
+names. Four sheets (Triggers 3x2, Control Flow 3x2, LLM Tools 4x4x3, Grounding+IO 3x2), prompts in
+`planning/component-icon-prompts.md` under "Third pass". **Result: 0 fallbacks across 108 ribbon
+types.**
+
+**Everything the second pass warned about failed to happen this time.** Filenames matched the
+sheets, grids were even, row-major order held, and the one blank cell was the one that had been
+ASKED for. Two things were done differently and either may be why: a **contact sheet of the existing
+80 icons** was attached as a second style reference alongside the critter (`Contact.ps1 -Dir
+<Resources> -Zoom 6`), and the short sheet was *specified* with an empty last cell instead of
+leaving generation to invent one. Ask for both again.
+
+**The lesson worth keeping is about the drift check.** An additive pass has one real risk — new bead
+size not matching the old set — so eight new icons were put side by side with the existing sibling
+each was drawn to match, and it read unmistakably as "the new ones are thinner". **Measured, it was
+false**: median horizontal opaque run and total ink came out new 2.10 / 128 against existing
+1.86 / 130, and the OLD set has 17 icons at stroke 1 where the new set has one. The comparison had
+been made against `SignalLimiter`, `StallGuard`, `Router` and `ConstructSignal` — every obvious
+sibling happens to sit at the heavy end of the set, so the honest-looking check sampled outliers.
+Had it been trusted, the "fix" would have been a change to `Split.ps1`'s shared scaling for a
+problem that did not exist. **Measure stroke and ink before touching the splitter.**
+
+`Split.ps1` needed no changes at all; projection segmentation found all 29 cells first time. The one
+genuine outlier is `SignalGate` at ink 37, the sparsest of the 29 — left as generated, since the
+existing floor is `ComponentResolver` at 46.
+
+PowerShell, again: **variable names are case-insensitive**, so `$S` (a directory) and `$s` (a loop
+variable) are one variable. It surfaces as a nonsense path, not an error.

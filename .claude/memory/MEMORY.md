@@ -127,7 +127,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Core console harness](core-console-harness.md) — test a provider from a throwaway net7.0 console app; no Rhino.
 - [Inspecting Rhino assemblies](inspecting-rhino-assemblies.md) — reflect over Rhino 8's shipped DLLs from PowerShell.
 - [SVG → transparent PNG](svg-rasterization-headless-chrome.md) — no magick/inkscape here; use headless Chrome.
-- [Component icon generation](component-icon-generation.md) — splitter in `tools/icons/`; whole set replaced 2026-08-17.
+- [Component icon generation](component-icon-generation.md) — splitter in `tools/icons/`; whole set replaced 2026-08-17, **+29 added 2026-09-07 → 0 fallbacks**. An apparent bead-size drift measured FALSE; check stroke/ink before touching Split.ps1.
 - [Physalia repo gotchas](physalia-repo-gotchas.md) — slnx in `src/`; the `Files` → bin pipeline + its two MSBuild gotchas.
 - [ILRepack Release double-merge](ilrepack-release-double-merge.md) — the empty `ILRepack.targets` suppresses the package's failing target. Don't delete it.
 - [Mac todo](mac-todo.md) — four `#if WINDOWS` files, 22 more importing WinForms unguarded, GhPythonBridge HintPaths.

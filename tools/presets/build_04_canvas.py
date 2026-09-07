@@ -3,7 +3,7 @@
 """
 Preset 04 - "Building on the Canvas".
 
-The flagship pipeline: the model writes a Grasshopper definition as JSON, seven guardrails check it
+The flagship pipeline: the model writes a Grasshopper definition as JSON, eight guardrails check it
 one after another, and the Component Transmitter places it on your canvas. Anything a guardrail
 objects to goes back to the model as a complaint, and it tries again.
 
@@ -35,7 +35,7 @@ panel(D, 40, 40,
       "\r\n"
       "The interesting part is everything in between. A model writing a definition gets things "
       "wrong - a component name that does not exist, an input left unwired, a graph that solves to "
-      "nothing. So the JSON runs a GAUNTLET of seven checks, in stages 7 to 15. Each one either "
+      "nothing. So the JSON runs a GAUNTLET of eight checks, in stages 7 to 16. Each one either "
       "passes the definition on or sends a complaint back to the model, which fixes it and tries "
       "again. You watch that happen in the chat window.\r\n"
       "\r\n"
@@ -105,6 +105,7 @@ img = place(D, "Add Image", 1210, 430, nick="Add Image")
 vsnap = place(D, "View Snapshot", 1210, 480, nick="View Snapshot")
 strace = place(D, "Signal Trace", 1210, 530, nick="Signal Trace")
 expc = place(D, "Export Conversation", 1210, 580, nick="Export Conversation")
+gsnap = place(D, "Geometry Snapshot", 1210, 630, nick="Geometry Snapshot")
 panel(D, 1140, 650,
       "ADD IMAGE lets you sketch something, drop the sketch in and say \"like this\".\r\n"
       "\r\n"
@@ -116,8 +117,13 @@ panel(D, 1140, 650,
       "component sent it and which consumed it. When a round does something you did not expect, "
       "that list tells you which guardrail objected and what it said.\r\n"
       "\r\n"
-      "EXPORT CONVERSATION saves the transcript.",
-      w=280, h=420)
+      "EXPORT CONVERSATION saves the transcript."
+      "\r\n" "\r\n"
+      "GEOMETRY SNAPSHOT is the one that only makes sense on a preset like this: it frames the "
+      "camera on geometry THIS pipeline built and sends the picture. It is armed only while "
+      "such geometry exists, so it stays greyed out until the transmitter in stage 13 has "
+      "placed something.",
+      w=280, h=520)
 
 # --------------------------------------------------------------------------- 5 conversation log
 
@@ -127,7 +133,7 @@ wire(log, "System Prompt", sysp, "System Prompt")
 wire(log, "Prompt Signal", chat, "Prompt Signal")
 for g in (catalog, canvas, groupc, units):
     wire(log, "Grounding", g, 0)
-for t in (img, vsnap, strace, expc):
+for t in (img, vsnap, strace, expc, gsnap):
     wire(log, "Human Tools", t, "Human Tool")
 panel(D, 1500, NOTE_Y,
       "The input that matters on this preset is FEEDBACK SIGNAL - the second of the three return "
@@ -196,7 +202,7 @@ panel(D, 2660, NOTE_Y,
       "a tap, not a gate: the definition passes straight through untouched.\r\n"
       "\r\n"
       "Its PROGRESS output is the running tally, and it goes all the way along to the Geometry "
-      "Report in stage 15 - which is how each report ends by telling the model which stage to do "
+      "Report in stage 16 - which is how each report ends by telling the model which stage to do "
       "next, rather than just describing what it built.",
       w=300, h=400)
 
@@ -215,7 +221,7 @@ panel(D, 3040, NOTE_Y,
       "\r\n"
       "From here on, every component in the chain has TWO signal outputs: SUCCESS carries the "
       "definition to the next check, FAIL carries a complaint. Follow the fail wires down to stage "
-      "16 - they all end up in the same place.",
+      "17 - they all end up in the same place.",
       w=300, h=340)
 
 # --------------------------------------------------------------------------- 10 definition validator
@@ -286,13 +292,35 @@ panel(D, 4560, NOTE_Y,
       "aim the output somewhere specific.",
       w=300, h=440)
 
-# --------------------------------------------------------------------------- 14 runtime health
+# --------------------------------------------------------------------------- 14 fidelity
 
-title(D, 4940, TITLE_Y, "14 - DID IT ACTUALLY WORK?", w=300, h=44)
-health = place(D, "Runtime Health Check", 5060, SPINE, nick="Runtime Health Check")
-wire(health, "Signal", tx, "Success Signal")
+title(D, 4940, TITLE_Y, "14 - IS IT WHAT IT SAID IT WOULD BE?", w=340, h=44)
+fidelity = place(D, "Fidelity Check", 5060, SPINE, nick="Fidelity Check")
+wire(fidelity, "Signal", tx, "Success Signal")
 panel(D, 4940, NOTE_Y,
-      "GUARDRAIL 5, and the first one that looks at the definition RUNNING rather than at its "
+      "GUARDRAIL 5, and the only one that compares INTENT against RESULT."
+      "\r\n" "\r\n"
+      "Placement is not a copy. Grasshopper can substitute a component, refuse a wire, convert a "
+      "value or drop something it did not like - all without failing. So this reads back what "
+      "actually landed on the canvas and diffs it against the definition the model asked for. A "
+      "wire that quietly did not get made is caught here and nowhere else."
+      "\r\n" "\r\n"
+      "Its DEFINITION input is deliberately left empty. It keeps a ledger of what was authored at "
+      "placement time and uses that, which is more trustworthy than anything you could wire in - "
+      "and it means there is no long wire back to stage 9 to get wrong."
+      "\r\n" "\r\n"
+      "Full graphs only. A patch passes straight through, because a patch also MODIFIES existing "
+      "components and nothing recorded what those looked like beforehand, so there is nothing "
+      "honest to diff against.",
+      w=340, h=400)
+
+# --------------------------------------------------------------------------- 15 runtime health
+
+title(D, 5320, TITLE_Y, "15 - DID IT ACTUALLY WORK?", w=300, h=44)
+health = place(D, "Runtime Health Check", 5440, SPINE, nick="Runtime Health Check")
+wire(health, "Signal", fidelity, "Success Signal")
+panel(D, 5320, NOTE_Y,
+      "GUARDRAIL 6, and the first one that looks at the definition RUNNING rather than at its "
       "description.\r\n"
       "\r\n"
       "It scans what was just placed for Grasshopper's own errors, for components producing "
@@ -304,16 +332,16 @@ panel(D, 4940, NOTE_Y,
 
 # --------------------------------------------------------------------------- 15 what it built
 
-title(D, 5320, TITLE_Y, "15 - LOOK AT WHAT IT BUILT", w=300, h=44)
-geoobs = place(D, "Geometry Observation", 5440, 420, nick="Geometry Observation")
-georep = place(D, "Geometry Report", 5440, 560, nick="Geometry Report")
+title(D, 5700, TITLE_Y, "16 - LOOK AT WHAT IT BUILT", w=300, h=44)
+geoobs = place(D, "Geometry Observation", 5820, 420, nick="Geometry Observation")
+georep = place(D, "Geometry Report", 5820, 560, nick="Geometry Report")
 wire(geoobs, "Signal", health, "Success Signal")
 wire(georep, "Signal", health, "Success Signal")
-blank_geo = input_panel(D, 5230, 442, "", w=150, h=40, nick="no extra message")
+blank_geo = input_panel(D, 5610, 442, "", w=150, h=40, nick="no extra message")
 wire(geoobs, "Message", blank_geo, 0)
 wire(georep, "Message", plan, "Progress")
-panel(D, 5320, 680,
-      "GUARDRAIL 6 and 7, and they are a pair: the same thing seen two ways.\r\n"
+panel(D, 5700, 680,
+      "GUARDRAIL 7 and 8, and they are a pair: the same thing seen two ways.\r\n"
       "\r\n"
       "GEOMETRY OBSERVATION frames the camera on the geometry that was just built and sends the "
       "model a PICTURE of it. That is the only check that can catch \"technically correct, "
@@ -331,11 +359,11 @@ panel(D, 5320, 680,
 
 # --------------------------------------------------------------------------- 16 complaints home
 
-title(D, 3800, 1180, "16 - WHEN A CHECK OBJECTS", w=320, h=44)
+title(D, 3800, 1180, "17 - WHEN A CHECK OBJECTS", w=320, h=44)
 stall_limit = slider(D, 3580, 1250, 3, 1, 10, nick="how many identical failures")
 stall = place(D, "Stall Guard", 4020, 1300, nick="Stall Guard")
 wire(stall, "Stall Limit", stall_limit, 0)
-for g in (schemav, defv, resolver, reqin, tx, health):
+for g in (schemav, defv, resolver, reqin, tx, fidelity, health):
     wire(stall, "Signal", g, "Fail Signal")
 panel(D, 3800, 1400,
       "Every FAIL wire in the chain arrives here.\r\n"
@@ -357,7 +385,7 @@ panel(D, 3800, 1400,
 
 fb_stall, co_fb = back(D, stall, "Success Signal", log, "Feedback Signal",
                        4400, 1300, 1300, 1300, nick="complaints to the log")
-fb_rep = place(D, "Feedback", 5520, 1300, nick="geometry report to the log")
+fb_rep = place(D, "Feedback", 5900, 1300, nick="geometry report to the log")
 wire(fb_rep, "Signal", georep, "Signal")
 fb_rep.AddCollector(co_fb.InstanceGuid)
 
@@ -393,7 +421,7 @@ panel(D, 1560, 1620,
 
 # --------------------------------------------------------------------------- 18 what to try
 
-panel(D, 5800, 1180,
+panel(D, 6180, 1180,
       "THINGS TO TRY\r\n"
       "\r\n"
       "1. \"Build me a grid of circles, 10 by 10, that get bigger towards the middle.\" Watch the "
@@ -428,12 +456,12 @@ say("preamble:", [str(v) for v in pin(sysp, "in", "Preamble").VolatileData.AllDa
 say("schema:", [str(v) for v in pin(sysp, "in", "Schema").VolatileData.AllData(True)])
 bad = sweep(D, NAME)
 save_phy(H, OUT,
-         description="The flagship: the model writes a Grasshopper definition as JSON, seven "
+         description="The flagship: the model writes a Grasshopper definition as JSON, eight "
                      "guardrails check it, and the Component Transmitter places it on your canvas. "
                      "Anything a guardrail objects to goes back as a complaint and it tries again.",
          chat_text="Building on the Canvas\r\n\r\n"
                    "Describe what you want and this pipeline builds it on your Grasshopper canvas "
-                   "as real, editable components - after seven checks have agreed the definition "
+                   "as real, editable components - after eight checks have agreed the definition "
                    "is sound.\r\n\r\n"
                    "Try: \"build me a grid of circles, 10 by 10, that get bigger towards the "
                    "middle.\" Then: \"now make the spacing adjustable with a slider.\"\r\n\r\n"

@@ -25,7 +25,7 @@ that need setting up say so in their intro panel and in their chat greeting.
 | 01 | Talk to a Model | The core loop, and the wireless return path that makes it possible | Claude Code |
 | 02 | What the Model Knows | Grounding: six components describing your document, canvas, units and folder | Claude Code |
 | 03 | Tools the Model Can Call | The Router and six tools; three return paths | Codex |
-| 04 | Building on the Canvas | Seven guardrails, then real components placed on your canvas | Claude Code |
+| 04 | Building on the Canvas | Eight guardrails, then real components placed on your canvas | Claude Code |
 | 05 | Writing Python for You | Code pushed into a Rhino 8 Script component, fitted to its parameters | Claude Code |
 | 06 | Letting It Look and Walk | Take Snapshot and Move In Space; the harness's own inputs and outputs | Codex |
 | 07 | Making the Pipeline Decide | Branching — Declare plus a button-driven playground for five relays | Codex |
@@ -59,7 +59,8 @@ errors and for overlapping annotation, and **run live in Rhino**:
 - **02** — asked with no tools how many objects were in the file and on which layers, it answered
   "4 objects total, on layers Beams and Slabs" from grounding alone.
 - **03** — wrote Python, ran it in Rhino through `run_rhino_script`, and reported per-layer counts.
-- **04** — the whole gauntlet passed in one round and placed a working grid-of-circles definition.
+- **04** — the whole gauntlet passed in one round, Fidelity Check included, and placed a working
+  row-of-circles definition with a spacing slider.
 - **05** — pushed a running-cumulative-total script into a linked Python 3 Script component.
 - **06** — reported its position, stepped `{0,0,0}` → `{0,4000,0}`, and looked north.
 - **07** — declared `build`, the Gate opened, and the playground's five relays behaved exactly as

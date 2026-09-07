@@ -40,26 +40,33 @@ def _index_proxies():
     if _PROXY:
         return
     for p in Instances.ComponentServer.ObjectProxies:
+        _PROXY.setdefault((p.Desc.Category, p.Desc.SubCategory, p.Desc.Name), p.Guid)
         _PROXY.setdefault((p.Desc.Category, p.Desc.Name), p.Guid)
         _PROXY.setdefault(p.Desc.Name, p.Guid)
 
 
-def proxy_guid(name, category="Physalia"):
-    """The ComponentGuid for a component, preferring the Physalia one when names collide."""
+def proxy_guid(name, category="Physalia", sub=None):
+    """
+    The ComponentGuid for a component.
+
+    The ribbon SECTION has to be spellable, because Physalia has names that collide inside its own
+    category: "Component Catalog" is both a Grounding component and a Params type, and "Read PDF"
+    is both an LLM tool and a human tool. Without the section, whichever loaded first wins.
+    """
     _index_proxies()
-    key = (category, name)
-    if key in _PROXY:
-        return _PROXY[key]
-    if name in _PROXY:
-        return _PROXY[name]
-    raise Exception("no proxy named %r in category %r" % (name, category))
+    for key in ((category, sub, name), (category, name), name):
+        if sub is None and key == (category, sub, name):
+            continue
+        if key in _PROXY:
+            return _PROXY[key]
+    raise Exception("no proxy named %r in %r / %r" % (name, category, sub))
 
 
 # --------------------------------------------------------------------------- placing
 
-def place(doc, name, x, y, nick=None, category="Physalia"):
+def place(doc, name, x, y, nick=None, category="Physalia", sub=None):
     """Emit a component and drop it at a canvas pivot. Returns the object."""
-    obj = Instances.ComponentServer.EmitObject(proxy_guid(name, category))
+    obj = Instances.ComponentServer.EmitObject(proxy_guid(name, category, sub))
     if obj is None:
         raise Exception("EmitObject returned None for %r" % name)
     if obj.Attributes is None:

@@ -146,3 +146,24 @@ public sealed record TokenCountTool : HumanTool;
 /// </para>
 /// </summary>
 public sealed record ReadPdfTool : HumanTool;
+
+/// <summary>
+/// Puts a button in the chat window that opens a page listing every trigger in this pipeline, with a
+/// switch for each and one for all of them at once.
+///
+/// <para>A marker record: which triggers exist is not a setting to be stored anywhere, it is whatever
+/// is on the canvas right now, so the chat window reads the harness each time it shows the page.</para>
+///
+/// <para><b>Why a human tool rather than something on the nodes.</b> Arming a trigger already has a
+/// home — its own right-click menu — and that is fine for one. It stops being fine at three, because
+/// they are scattered inside a harness the user is not looking at, and arming is the act with a bill
+/// attached: the question "what is switched on right now" had no answer short of visiting every node.
+/// The harness panel can only say how many are armed and switch them all off; this is where the
+/// individual answer and the individual switch live.</para>
+///
+/// <para><b>The window can only offer what the pipeline was built with.</b> No triggers in the
+/// harness means an empty page saying so — the same contract as every other human tool, where the
+/// affordance exists because a component was wired, never because the window felt like offering
+/// it.</para>
+/// </summary>
+public sealed record TriggerControlTool : HumanTool;

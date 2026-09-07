@@ -23,11 +23,41 @@ public interface IArmableTrigger
     /// <summary>Gets the trigger's nickname, for naming it in a panel or a menu.</summary>
     string NickName { get; }
 
+    /// <summary>Gets the trigger's display name — what kind of trigger it is.</summary>
+    string Name { get; }
+
+    /// <summary>Gets the trigger's instance id, which is how a UI addresses one.</summary>
+    Guid InstanceGuid { get; }
+
+    /// <summary>Gets the caption the trigger is showing, so a UI can say what it is waiting for.</summary>
+    string Message { get; }
+
     /// <summary>
-    /// Arms or disarms the trigger.
+    /// Gets a value indicating whether switching this trigger OFF produces a signal.
+    ///
+    /// <para>True for a recorder, where the batch is the result and disarming is the hand-over
+    /// gesture. A UI offering a switch has to know: for these, "off" is not merely "stop", and
+    /// telling somebody after the fact that their recording went nowhere is not good enough.</para>
+    /// </summary>
+    bool HandsOverOnDisarm { get; }
+
+    /// <summary>
+    /// Arms or disarms the trigger, DROPPING anything pending. The kill-switch verb: use it for
+    /// "switch everything off", where nobody is asking for a round to start.
     /// </summary>
     /// <param name="on">True to start listening; false to stop.</param>
     void SetArmed(bool on);
+
+    /// <summary>
+    /// Arms or disarms the trigger exactly as its own right-click menu does — so disarming a recorder
+    /// HANDS THE BATCH OVER rather than discarding it.
+    ///
+    /// <para>The verb for a switch aimed at one named trigger, which is a deliberate act on that
+    /// trigger and should mean what the node's own menu means. <see cref="SetArmed"/> stays the verb
+    /// for switching everything off at once.</para>
+    /// </summary>
+    /// <param name="on">True to start listening; false to stop and hand over.</param>
+    void SetArmedAndHandOver(bool on);
 
     /// <summary>
     /// Resolves the document this trigger sits on, so a caller can ask about one pipeline's triggers
@@ -105,6 +135,19 @@ internal static class TriggerRegistry
             Order.RemoveAll(w => !w.TryGetTarget(out IArmableTrigger? t) || ReferenceEquals(t, trigger));
         }
     }
+
+    /// <summary>
+    /// Every trigger on one document, or on every document, armed or not.
+    ///
+    /// <para>A UI offering switches needs the whole set — a trigger that is off is precisely the one
+    /// somebody came to switch on.</para>
+    /// </summary>
+    /// <param name="document">Restrict to this document, or null for all of them.</param>
+    /// <returns>The triggers, in no particular order.</returns>
+    internal static IReadOnlyList<IArmableTrigger> All(GH_Document? document) =>
+        Live()
+            .Where(t => document is null || ReferenceEquals(t.OnPingDocument(), document))
+            .ToList();
 
     /// <summary>
     /// The armed triggers on one document, or on every document.

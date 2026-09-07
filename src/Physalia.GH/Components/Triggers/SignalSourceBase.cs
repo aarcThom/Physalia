@@ -260,6 +260,18 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
     /// <param name="on">True to start listening; false to stop.</param>
     public void SetArmed(bool on) => SetArmed(on, flush: false);
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// What the node's own menu item does. Exposed on the interface so the chat window's Trigger
+    /// Control page can offer the same act rather than a subtly different one — switching a recorder
+    /// off from a list of switches must send the recording, exactly as switching it off on the canvas
+    /// does.
+    /// </remarks>
+    public void SetArmedAndHandOver(bool on) => SetArmed(on, flush: true);
+
+    /// <inheritdoc/>
+    public bool HandsOverOnDisarm => FiresOnDisarm;
+
     /// <summary>
     /// Arms or disarms the trigger and refreshes the caption.
     /// </summary>

@@ -118,6 +118,8 @@ public class ConversationLog : StatefulComponentBase
     private bool _hasAddImageTool;
     private bool _hasExportTool;
     private bool _hasSignalTraceTool;
+
+    private bool _hasTriggerControlTool;
     private bool _hasImageMarkUpTool;
     private bool _hasTokenCountTool;
     private bool _hasReadPdfTool;
@@ -339,6 +341,90 @@ public class ConversationLog : StatefulComponentBase
     /// can show the button that opens the signal-trace window).
     /// </summary>
     public bool HasSignalTraceTool => _hasSignalTraceTool;
+
+    /// <summary>
+    /// Gets a value indicating whether a Trigger Control human tool is wired, which is what puts the
+    /// trigger list in the chat window.
+    /// </summary>
+    public bool HasTriggerControlTool => _hasTriggerControlTool;
+
+    /// <summary>
+    /// Gets every trigger in this pipeline, armed or not, in canvas order (top to bottom, then left
+    /// to right) so the list reads the way the nodes are laid out.
+    ///
+    /// <para>Scanned from this component's own document each time it is asked, never cached: which
+    /// triggers exist is not a setting, it is whatever is on the canvas now, and a cached list goes
+    /// stale the moment somebody drops a Timer in while the window is open. The scan asks the
+    /// components rather than the solver — a trigger that has not re-solved still knows whether it is
+    /// armed, and the chat window's own tick is not a solution.</para>
+    /// </summary>
+    public IReadOnlyList<IArmableTrigger> LiveTriggers =>
+        OnPingDocument() is { } document
+            ? document.Objects
+                .OfType<IArmableTrigger>()
+                .OrderBy(t => (t as IGH_DocumentObject)?.Attributes?.Pivot.Y ?? 0f)
+                .ThenBy(t => (t as IGH_DocumentObject)?.Attributes?.Pivot.X ?? 0f)
+                .ToList()
+            : Array.Empty<IArmableTrigger>();
+
+    /// <summary>
+    /// Arms or disarms one trigger by its instance id, exactly as its own right-click menu would —
+    /// so switching a recorder off HANDS THE BATCH OVER rather than discarding it.
+    ///
+    /// <para>Keyed on the instance id and never on a nickname: two triggers can carry the same
+    /// nickname, and a name-keyed switch would then flip whichever one it found first. That is the
+    /// same mistake the old name-keyed tool selection made.</para>
+    /// </summary>
+    /// <param name="id">The trigger's instance id.</param>
+    /// <param name="on">True to arm; false to disarm.</param>
+    /// <returns>True when a trigger with that id was found in this pipeline.</returns>
+    public bool SetTriggerArmed(Guid id, bool on)
+    {
+        IArmableTrigger? trigger = LiveTriggers.FirstOrDefault(t => t.InstanceGuid == id);
+        if (trigger is null)
+        {
+            return false;
+        }
+
+        trigger.SetArmedAndHandOver(on);
+        return true;
+    }
+
+    /// <summary>
+    /// Arms every trigger in this pipeline, or switches every one off.
+    ///
+    /// <para>Switching them all off uses the KILL-SWITCH verb, which discards anything a recorder had
+    /// accumulated. Deliberate, and the same contract as the harness panel's disarm-everything
+    /// button: somebody stopping all of them is not asking for a round to start. Arming has no such
+    /// distinction, so it goes through the ordinary verb.</para>
+    /// </summary>
+    /// <param name="on">True to arm all; false to switch all off.</param>
+    /// <returns>How many triggers changed state.</returns>
+    public int SetAllTriggersArmed(bool on)
+    {
+        int changed = 0;
+
+        foreach (IArmableTrigger trigger in LiveTriggers)
+        {
+            if (trigger.IsArmed == on)
+            {
+                continue;
+            }
+
+            if (on)
+            {
+                trigger.SetArmedAndHandOver(true);
+            }
+            else
+            {
+                trigger.SetArmed(false);
+            }
+
+            changed++;
+        }
+
+        return changed;
+    }
 
     /// <summary>
     /// Gets a value indicating whether an Image Mark Up human tool is currently wired (so the chat UI
@@ -1064,6 +1150,7 @@ public class ConversationLog : StatefulComponentBase
         // window's header (a transcript export, a door onto the session's signal trace).
         _hasExportTool = tools.OfType<ExportConversationTool>().Any();
         _hasSignalTraceTool = tools.OfType<SignalTraceTool>().Any();
+        _hasTriggerControlTool = tools.OfType<TriggerControlTool>().Any();
         _hasImageMarkUpTool = tools.OfType<ImageMarkUpTool>().Any();
         _hasTokenCountTool = tools.OfType<TokenCountTool>().Any();
         _hasReadPdfTool = tools.OfType<ReadPdfTool>().Any();

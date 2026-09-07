@@ -8,11 +8,17 @@ machinery is the Router - it takes the calls the model made and hands each one t
 implements it - plus a second and third wireless return path.
 """
 
-exec(open(r"C:\Users\rober\repos\Physalia\tools\presets\phybuild.py").read())
+# The ONE machine-specific line in this file. Set ROOT before exec'ing this script to build
+# from a checkout somewhere else:  ROOT = r"D:\\code\\Physalia"
+try:
+    ROOT
+except NameError:
+    ROOT = r"C:\Users\rober\repos\Physalia"
+exec(open(ROOT + r"\tools\presets\phybuild.py").read())
 
 NAME = "03 - Tools the Model Can Call"
-OUT = r"C:\Users\rober\repos\Physalia\wip_presets\%s.phy" % NAME
-DUMP = r"C:\Users\rober\AppData\Local\Temp\claude\dump03.txt"
+OUT = PRESETS + r"\%s.phy" % NAME
+DUMP = SCRATCH + r"\dump03.txt"
 
 host = clear_host()
 H, D = new_harness(host, 200, 200, name="tools-the-model-can-call")

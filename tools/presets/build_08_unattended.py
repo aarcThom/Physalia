@@ -8,11 +8,17 @@ folder, the Rhino document, data on your canvas, or a recording of you modelling
 carries the three things that bound what an unattended pipeline can do to your bill.
 """
 
-exec(open(r"C:\Users\rober\repos\Physalia\tools\presets\phybuild.py").read())
+# The ONE machine-specific line in this file. Set ROOT before exec'ing this script to build
+# from a checkout somewhere else:  ROOT = r"D:\\code\\Physalia"
+try:
+    ROOT
+except NameError:
+    ROOT = r"C:\Users\rober\repos\Physalia"
+exec(open(ROOT + r"\tools\presets\phybuild.py").read())
 
 NAME = "08 - Running Without You"
-OUT = r"C:\Users\rober\repos\Physalia\wip_presets\%s.phy" % NAME
-DUMP = r"C:\Users\rober\AppData\Local\Temp\claude\dump08.txt"
+OUT = PRESETS + r"\%s.phy" % NAME
+DUMP = SCRATCH + r"\dump08.txt"
 
 host = clear_host()
 H, D = new_harness(host, 200, 200, name="running-without-you")

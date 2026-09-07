@@ -8,11 +8,17 @@ modelled complies with it. It reads the relevant pages, measures the model, and 
 discrepancy with a clause reference and a number.
 """
 
-exec(open(r"C:\Users\rober\repos\Physalia\tools\presets\phybuild.py").read())
+# The ONE machine-specific line in this file. Set ROOT before exec'ing this script to build
+# from a checkout somewhere else:  ROOT = r"D:\\code\\Physalia"
+try:
+    ROOT
+except NameError:
+    ROOT = r"C:\Users\rober\repos\Physalia"
+exec(open(ROOT + r"\tools\presets\phybuild.py").read())
 
 NAME = "S08 - Check the Model Against the Document"
-OUT = r"C:\Users\rober\repos\Physalia\wip_presets\%s.phy" % NAME
-DUMP = r"C:\Users\rober\AppData\Local\Temp\claude\dumpS08.txt"
+OUT = PRESETS + r"\%s.phy" % NAME
+DUMP = SCRATCH + r"\dumpS08.txt"
 
 host = clear_host()
 H, D = new_harness(host, 200, 200, name="check-against-the-document")

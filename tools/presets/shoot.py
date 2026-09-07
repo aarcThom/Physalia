@@ -5,7 +5,13 @@ Screenshot a harness's inner canvas to a PNG, so a layout can actually be LOOKED
 inferred from pivots. Set SHOOT_DOC (a GH_Document) and SHOOT_PNG before exec'ing this.
 """
 
-exec(open(r"C:\Users\rober\repos\Physalia\tools\presets\phybuild.py").read())
+# The ONE machine-specific line in this file. Set ROOT before exec'ing this script to build
+# from a checkout somewhere else:  ROOT = r"D:\\code\\Physalia"
+try:
+    ROOT
+except NameError:
+    ROOT = r"C:\Users\rober\repos\Physalia"
+exec(open(ROOT + r"\tools\presets\phybuild.py").read())
 
 from System.Drawing import Rectangle, Size
 

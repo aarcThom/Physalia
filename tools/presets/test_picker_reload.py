@@ -18,7 +18,13 @@ stays empty across a save and reload, the prompt stays short over repeated solve
 saved WITH its Pickers still reloads with them wired and not duplicated.
 """
 
-exec(open(r"C:\Users\rober\repos\Physalia\tools\presets\phybuild.py").read())
+# The ONE machine-specific line in this file. Set ROOT before exec'ing this script to build
+# from a checkout somewhere else:  ROOT = r"D:\\code\\Physalia"
+try:
+    ROOT
+except NameError:
+    ROOT = r"C:\Users\rober\repos\Physalia"
+exec(open(ROOT + r"\tools\presets\phybuild.py").read())
 
 import GH_IO
 

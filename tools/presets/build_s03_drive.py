@@ -7,11 +7,17 @@ The model writes Python and runs it against your live document, so you can ask i
 your model in plain English and have it do the boring fixes.
 """
 
-exec(open(r"C:\Users\rober\repos\Physalia\tools\presets\phybuild.py").read())
+# The ONE machine-specific line in this file. Set ROOT before exec'ing this script to build
+# from a checkout somewhere else:  ROOT = r"D:\\code\\Physalia"
+try:
+    ROOT
+except NameError:
+    ROOT = r"C:\Users\rober\repos\Physalia"
+exec(open(ROOT + r"\tools\presets\phybuild.py").read())
 
 NAME = "S03 - Interrogate and Tidy Your Rhino Model"
-OUT = r"C:\Users\rober\repos\Physalia\wip_presets\%s.phy" % NAME
-DUMP = r"C:\Users\rober\AppData\Local\Temp\claude\dumpS03.txt"
+OUT = PRESETS + r"\%s.phy" % NAME
+DUMP = SCRATCH + r"\dumpS03.txt"
 
 host = clear_host()
 H, D = new_harness(host, 200, 200, name="interrogate-and-tidy")

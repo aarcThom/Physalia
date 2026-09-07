@@ -6,7 +6,7 @@ Rebuild every preset and run both whole-set checks, in one go.
 Progress is written to a LOG FILE rather than returned, because this takes longer than an MCP call
 is allowed and stdout dies with the process anyway. Run it, then read the log:
 
-    C:/Users/rober/AppData/Local/Temp/claude/build_all.log
+    <your system temp dir>/claude/build_all.log
 
 Each build script clears the host canvas first, so they can run back to back in one session: the
 harness for preset N replaces the one for N-1, and only the written .phy survives. A build that
@@ -17,10 +17,21 @@ Both families are rebuilt: `build_NN_*` (the numbered presets) then `build_sNN_*
 
 import glob
 import os
+import tempfile
 import traceback
 
-HERE = r"C:\Users\rober\repos\Physalia\tools\presets"
-LOG = r"C:\Users\rober\AppData\Local\Temp\claude\build_all.log"
+# The ONE machine-specific line in this file. Set ROOT before exec'ing to build from a checkout
+# somewhere else:  ROOT = r"D:\code\Physalia"
+# This script does NOT exec phybuild, so it cannot use PRESETS/SCRATCH from there.
+try:
+    ROOT
+except NameError:
+    ROOT = r"C:\Users\rober\repos\Physalia"
+
+HERE = os.path.join(ROOT, "tools", "presets")
+LOG = os.path.join(tempfile.gettempdir(), "claude", "build_all.log")
+if not os.path.isdir(os.path.dirname(LOG)):
+    os.makedirs(os.path.dirname(LOG))
 
 _lines = []
 
@@ -43,7 +54,9 @@ for script in scripts:
         # Its own namespace, so one script's leftovers cannot be read as another's - but keep a
         # handle on it, because each build leaves its PROBLEMS count in `bad` and that is the
         # number worth reporting.
-        scope = {"__name__": "__main__"}
+        # ROOT must be pushed in, or each script falls back to ITS OWN default and a run
+        # from another checkout silently rebuilds the wrong repo.
+        scope = {"__name__": "__main__", "ROOT": ROOT}
         exec(compile(open(script).read(), script, "exec"), scope)
         problems = scope.get("bad", "?")
         note("  %-28s built, %s problem(s)" % (name, problems))
@@ -62,7 +75,9 @@ note("---- whole-set checks ----")
 for check in ("check_pairs.py",):
     path = os.path.join(HERE, check)
     try:
-        scope = {"__name__": "__main__"}
+        # ROOT must be pushed in, or each script falls back to ITS OWN default and a run
+        # from another checkout silently rebuilds the wrong repo.
+        scope = {"__name__": "__main__", "ROOT": ROOT}
         exec(compile(open(path).read(), path, "exec"), scope)
         found = scope.get("broken", scope.get("total", "?"))
         note("  %-16s ran, %s finding(s) - full output is in Rhino above" % (check, found))

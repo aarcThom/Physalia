@@ -7,11 +7,17 @@ Check the part against how it is going to be manufactured - draft, wall thicknes
 minimum radii, sheet sizes - before the quote comes back saying no.
 """
 
-exec(open(r"C:\Users\rober\repos\Physalia\tools\presets\phybuild.py").read())
+# The ONE machine-specific line in this file. Set ROOT before exec'ing this script to build
+# from a checkout somewhere else:  ROOT = r"D:\\code\\Physalia"
+try:
+    ROOT
+except NameError:
+    ROOT = r"C:\Users\rober\repos\Physalia"
+exec(open(ROOT + r"\tools\presets\phybuild.py").read())
 
 NAME = "S14 - Can This Actually Be Made"
-OUT = r"C:\Users\rober\repos\Physalia\wip_presets\%s.phy" % NAME
-DUMP = r"C:\Users\rober\AppData\Local\Temp\claude\dumpS14.txt"
+OUT = PRESETS + r"\%s.phy" % NAME
+DUMP = SCRATCH + r"\dumpS14.txt"
 
 host = clear_host()
 H, D = new_harness(host, 200, 200, name="can-this-be-made")

@@ -9,7 +9,13 @@ longer resolves swallows the signal and hands it nowhere, so a reply never reach
 Log and the pipeline just stops. Nothing errors.
 """
 
-exec(open(r"C:\Users\rober\repos\Physalia\tools\presets\phybuild.py").read())
+# The ONE machine-specific line in this file. Set ROOT before exec'ing this script to build
+# from a checkout somewhere else:  ROOT = r"D:\\code\\Physalia"
+try:
+    ROOT
+except NameError:
+    ROOT = r"C:\Users\rober\repos\Physalia"
+exec(open(ROOT + r"\tools\presets\phybuild.py").read())
 
 import glob
 import os
@@ -20,7 +26,7 @@ readfile = [c for c in hc.GetMethods(BindingFlags.Static | BindingFlags.NonPubli
 
 broken = 0
 pairs = 0
-for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")):
+for path in sorted(glob.glob(PRESETS + r"\*.phy")):
     name = os.path.basename(path)
     doc = readfile.Invoke(None, System.Array[System.Object]([path, None]))
     if doc is None:
@@ -78,7 +84,7 @@ LINKED = {"Token Count": ("Token Estimator",),
           "Set Script I/O": ("Py Transmitter", "C# Transmitter"),
           "Delegate": ("Harness",)}
 links = 0
-for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")):
+for path in sorted(glob.glob(PRESETS + r"\*.phy")):
     name = os.path.basename(path)
     doc = readfile.Invoke(None, System.Array[System.Object]([path, None]))
     if doc is None:
@@ -149,7 +155,7 @@ def routers_in(d, where):
             routers_in(o.InnerDocument, where + "inner/")
 
 
-for path in sorted(glob.glob(r"C:/Users/rober/repos/Physalia/wip_presets/*.phy")):
+for path in sorted(glob.glob(PRESETS + r"/*.phy")):
     doc = readfile.Invoke(None, System.Array[System.Object]([path, None]))
     if doc is None:
         continue
@@ -158,4 +164,4 @@ for path in sorted(glob.glob(r"C:/Users/rober/repos/Physalia/wip_presets/*.phy")
 
 say("---- %d router tool slots checked, %d misrouted ----" % (slots, misrouted))
 
-write_log(r"C:\Users\rober\AppData\Local\Temp\claude\check_pairs.log")
+write_log(SCRATCH + r"\check_pairs.log")

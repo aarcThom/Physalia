@@ -11,7 +11,13 @@ Params are excluded - they are wire types, not things a preset teaches - and so 
 proxy, which every preset is.
 """
 
-exec(open(r"C:\Users\rober\repos\Physalia\tools\presets\phybuild.py").read())
+# The ONE machine-specific line in this file. Set ROOT before exec'ing this script to build
+# from a checkout somewhere else:  ROOT = r"D:\\code\\Physalia"
+try:
+    ROOT
+except NameError:
+    ROOT = r"C:\Users\rober\repos\Physalia"
+exec(open(ROOT + r"\tools\presets\phybuild.py").read())
 
 import glob
 import os
@@ -44,7 +50,7 @@ def collect(doc, preset):
             collect(o.InnerDocument, preset)
 
 
-for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")):
+for path in sorted(glob.glob(PRESETS + r"\*.phy")):
     # The token before " - " -- basename[:2] gave "S0" for every scenario preset, so they all
     # collapsed into one column and the table said nothing about which one covered what.
     preset = os.path.basename(path).split(" - ")[0]
@@ -77,4 +83,4 @@ say("==== %d of %d components appear in the set; %d do not ====" % (covered, tot
 for section, name in missing:
     say("   NOT COVERED  %-14s %s" % (section, name))
 
-write_log(r"C:\Users\rober\AppData\Local\Temp\claude\coverage.log")
+write_log(SCRATCH + r"\coverage.log")

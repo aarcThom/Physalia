@@ -22,6 +22,21 @@ from Grasshopper.Kernel.Special import GH_Panel
 from System.Drawing import PointF, RectangleF, Color
 from System.Reflection import BindingFlags
 
+import os as _os
+import tempfile as _tempfile
+
+# Everything else in the toolkit derives its paths from these two, so a build script carries
+# exactly one machine-specific line (its ROOT bootstrap) and nothing else.
+try:
+    ROOT
+except NameError:
+    ROOT = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))         if "__file__" in dir() else _os.getcwd()
+
+PRESETS = _os.path.join(ROOT, "wip_presets")
+SCRATCH = _os.path.join(_tempfile.gettempdir(), "claude")
+if not _os.path.isdir(SCRATCH):
+    _os.makedirs(SCRATCH)
+
 LOG = []
 
 

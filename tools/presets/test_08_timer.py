@@ -7,7 +7,13 @@ nobody typing, and then to see the Budget Guard refuse once Max Calls is used up
 Run test_08_timer_arm.py, wait, then test_08_timer_read.py. Set PHY first.
 """
 
-exec(open(r"C:\Users\rober\repos\Physalia\tools\presets\phybuild.py").read())
+# The ONE machine-specific line in this file. Set ROOT before exec'ing this script to build
+# from a checkout somewhere else:  ROOT = r"D:\\code\\Physalia"
+try:
+    ROOT
+except NameError:
+    ROOT = r"C:\Users\rober\repos\Physalia"
+exec(open(ROOT + r"\tools\presets\phybuild.py").read())
 
 H = find_harnesses()[0]
 D = H.InnerDocument

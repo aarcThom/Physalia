@@ -5,7 +5,13 @@ Round-trip test for a written .phy: read it back the way the preset loader does,
 the other end would get. Set PHY before exec'ing this.
 """
 
-exec(open(r"C:\Users\rober\repos\Physalia\tools\presets\phybuild.py").read())
+# The ONE machine-specific line in this file. Set ROOT before exec'ing this script to build
+# from a checkout somewhere else:  ROOT = r"D:\\code\\Physalia"
+try:
+    ROOT
+except NameError:
+    ROOT = r"C:\Users\rober\repos\Physalia"
+exec(open(ROOT + r"\tools\presets\phybuild.py").read())
 
 hc = _type("Physalia.GH.Harness.HarnessComponent")
 pkg = _type("Physalia.Core.Packaging.PhyPackage")

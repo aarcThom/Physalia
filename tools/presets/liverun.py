@@ -7,7 +7,13 @@ window: Chat.SubmitFromWindow mints the Prompt Signal, and the LLM Call answers 
 Set PHY, and optionally PROMPT. Leaves the harness on the canvas so a follow-up call can poll it.
 """
 
-exec(open(r"C:\Users\rober\repos\Physalia\tools\presets\phybuild.py").read())
+# The ONE machine-specific line in this file. Set ROOT before exec'ing this script to build
+# from a checkout somewhere else:  ROOT = r"D:\\code\\Physalia"
+try:
+    ROOT
+except NameError:
+    ROOT = r"C:\Users\rober\repos\Physalia"
+exec(open(ROOT + r"\tools\presets\phybuild.py").read())
 
 try:
     PROMPT

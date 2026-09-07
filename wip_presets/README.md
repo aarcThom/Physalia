@@ -28,7 +28,7 @@ that need setting up say so in their intro panel and in their chat greeting.
 | 04 | Building on the Canvas | Eight guardrails, then real components placed on your canvas | Claude Code |
 | 05 | Writing Python for You | Code pushed into a Rhino 8 Script component, fitted to its parameters | Claude Code |
 | 06 | Letting It Look and Walk | Take Snapshot and Move In Space; the harness's own inputs and outputs | Codex |
-| 07 | Making the Pipeline Decide | Branching — Declare plus a button-driven playground for five relays | Codex |
+| 07 | Making the Pipeline Decide | Branching — Declare, Pipeline State, and a button-driven playground | Codex |
 | 08 | Running Without You | Triggers, and the three things that bound the bill | Claude Code |
 | 09 | Files, Downloads and Drawings | The project folder, Download File, Read File, Read PDF | Codex |
 | 10 | When the Conversation Gets Long | Compaction, and what each kind costs you as well as saves | Claude Code |
@@ -63,8 +63,11 @@ errors and for overlapping annotation, and **run live in Rhino**:
   row-of-circles definition with a spacing slider.
 - **05** — pushed a running-cumulative-total script into a linked Python 3 Script component.
 - **06** — reported its position, stepped `{0,0,0}` → `{0,4000,0}`, and looked north.
-- **07** — declared `build`, the Gate opened, and the playground's five relays behaved exactly as
-  their notes claim.
+- **07** — the branch was demonstrated in BOTH directions. Asked to build something, it declared
+  `build`, Match Text returned True and the Gate opened; asked something under-specified, it
+  declared `ask` with a note saying what it needed, Match returned False and the Gate read
+  "shut · 0/1". Pipeline State set `phase` = `survey` and the value arrived on its wire. The
+  playground's five relays behave exactly as their notes claim, verified headlessly.
 - **08** — the Timer fired 20 times unattended; the Throttle paced it, the Limiter capped it, and
   the Budget Guard refused.
 - **09** — listed the folder, errored correctly on a missing file, downloaded one and read it.

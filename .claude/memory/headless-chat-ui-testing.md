@@ -93,3 +93,29 @@ the frame matching its request id), so drain the socket yourself and keep the fr
 
 Working example: `tools/uitest/test_trigger_send.py`, which is how the Trigger Control page's
 "addressed by instance id, never by nickname" contract was actually verified.
+
+
+## 2026-09-07 — the whole suite run at once, and one trap in how I drove it
+
+All **11** rigs in `tools/uitest` pass (page chrome, static-surface layout, setup visibility,
+provider edit, trigger control, trigger send, all-tools, text canvas, link prompt, markdown styles,
+pdf intake). Worth knowing they divide in two:
+
+- **Self-driving** (`test_page_chrome`, `test_trigger_control`, `test_trigger_send`,
+  `test_all_tools`, `test_text_canvas`, `test_pdf_intake`, `test_link_prompt`,
+  `test_markdown_styles`) — they launch Chrome themselves and print their own findings.
+- **Writer-only** (`test_static_surface_layout`, `test_setup_visible`, `test_provider_edit`) — they
+  only WRITE an instrumented html and exit saying "wrote ...". Nothing has been tested at that
+  point; you must then run Chrome yourself and read the `data-diag-*` attributes out of
+  `--dump-dom`. Easy to mistake the "wrote" line for a pass.
+
+**The trap I hit driving those three:** `chrome --headless=new --window-size=460,620 --dump-dom`
+did **not** give a 460x620 layout viewport — the pages self-reported **548x517**. So a layout claim
+from the dump-dom path is not trustworthy, and the note above about driving at the real
+`ChatWindow.ClientSize` only holds when the viewport is set over CDP the way `test_page_chrome`
+does. Their non-layout assertions (is the pill a button, is the key box blank, does Disconnect ask
+twice) are unaffected.
+
+Also: decode Chrome's stdout as **UTF-8 explicitly**. `subprocess.run(..., text=True)` uses the
+Windows ANSI codepage and dies on the bundle's own bytes with a `charmap` `UnicodeDecodeError`
+that looks like a page fault rather than an encoding one.

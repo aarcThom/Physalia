@@ -52,6 +52,13 @@ unqualified crefs to a nested type on a generic base. Two traps worth knowing: a
 base-passed primary-constructor parameter is NOT a property of the derived record (cref
 `ModelConfig.ApiKey`, never `OpenAIProtocolConfig.ApiKey`), and a cref only resolves if the type's
 namespace is imported in that file — several pointed at Grasshopper types the file never imported.
+**Adding an OVERLOAD breaks every existing `cref` to that method name.** Splitting
+`DocumentIds.MutateAll` into a public entry point plus a recursive private one immediately produced
+CS0419 in `IGuidLinked.cs` and `HarnessComponent.cs`, which had done nothing wrong — an unqualified
+`<see cref="DocumentIds.MutateAll"/>` is unambiguous only while there is one of them. Give the
+private half a different NAME (`MutateNested`) rather than overloading, or fix up every cref. Cheap
+to hit, cheap to avoid, and only visible because doc validation is on.
+
 **When filtering build output for doc warnings, match `warning CS1[45678]` AND `CS0419`
 (ambiguous cref) — a narrower pattern misses the CS173x family and CS0419 entirely.**
 

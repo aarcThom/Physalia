@@ -173,3 +173,35 @@ the only way to deploy a build while Rhino has been holding the old one.
 Signal and Deconstruct Signal, no Chat and no Conversation Log — deterministic, instant and free.
 Only delegation needs harnesses, because a Delegate grip-links to one and Task In/Out live inside
 one. Reach for the bare-canvas rig first.
+
+
+## 2026-09-07 — driving GH documents themselves, not just harness contents
+
+From a session of pre-ship rigs ([[pre-ship-testing-pass]]). These are about the DOCUMENT layer,
+which the notes above skip because earlier sessions always had a canvas already open.
+
+- **A freshly started Grasshopper has NO document.** `Instances.ActiveCanvas.Document` is null and
+  `DocumentServer.DocumentCount` is 0. `AddNewDocument()` is the one that works — `AddDocument`
+  takes a *path*, not a `GH_Document`, and `GH_Document.DisplayName` is read-only.
+- **`ActiveCanvas.Document` is read-only to Python, but `canvas.set_Document(doc)` works** — the
+  property setter reached as a method. That is also how you script "Edit Harness": point the canvas
+  at `harness.InnerDocument` and back.
+- **Compare documents by `DocumentID`, never with `is`.** Python.NET hands out different proxy
+  objects for one .NET document, so `canvas.Document is host` is False while they are the same
+  document. This reads as a real failure and sent me chasing a non-existent bug.
+- **`GH_DocumentIO.Copy` / `Paste` return True and do nothing** from a script, for every
+  `GH_ClipboardType`. There is no canvas/undo context, so GH's paste path cannot be exercised
+  headlessly — which means the copy/paste rig has no scripted form.
+- **Scripted preset placement, which DOES work:** `HarnessComponent.ReadDocumentFile(path)` (fresh
+  ids, host targets cleared) → `HarnessComponent.CreateWith(doc)` → `AddObject`. Both are static and
+  reachable by reflection. `DelegateTool.LinkTo(Guid)` is public, so a delegation preset can be
+  built end to end.
+- **A `Panel`'s `UserText` is only the user-TYPED field.** A panel fed by a wire still reports the
+  placeholder there; read `panel.VolatileData` for what actually arrived. I briefly recorded "the
+  panel never updates" off the wrong property.
+- **`RhinoDoc.Objects.Count` keeps counting deleted objects** held for undo, so it still read 501
+  after a successful purge while the table enumerated empty. Iterate the table, or ask the MCP's
+  `get_context`, to know what is really there.
+- **PowerShell variable names are case-INSENSITIVE**, so `$S` (a source directory) and `$s` (a loop
+  variable) are one variable. The symptom is a nonsense path like
+  `...\System.Collections.Hashtable\sheet_a.png`, not an error about an unset variable.

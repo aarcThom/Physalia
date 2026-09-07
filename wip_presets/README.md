@@ -32,6 +32,8 @@ that need setting up say so in their intro panel and in their chat greeting.
 | 08 | Running Without You | Triggers, and the three things that bound the bill | Claude Code |
 | 09 | Files, Downloads and Drawings | The project folder, Download File, Read File, Read PDF | Codex |
 | 10 | When the Conversation Gets Long | Compaction, and what each kind costs you as well as saves | Claude Code |
+| 11 | Reading Live Data | An HTTP API of your own, and an MCP server's tools | Codex |
+| 12 | Handing Work to a Helper | Delegation — a harness inside a harness, called as a tool | Codex |
 
 ## Two things to know before you start
 
@@ -65,6 +67,15 @@ errors and for overlapping annotation, and **run live in Rhino**:
 - **09** — listed the folder, errored correctly on a missing file, downloaded one and read it.
 - **10** — crossed the threshold, compacted, and then still knew the number from turn 1 while
   honestly having lost the middle of the conversation.
+- **11** — made real requests against a live open-data API, recovered from a 404 on a wrong dataset
+  name, and put records on the wire one item per record.
+- **12** — the nested helper harness round-trips whole, and the Delegate's link is remapped
+  correctly through the id reissue a preset load performs.
+
+Two presets need something set up before they do anything, and say so in their intro panel and
+their chat greeting: **05** needs the Py Transmitter linked to a Python 3 Script component on your
+canvas, and **11** needs at least one API endpoint or MCP server configured from the chat window's
+Home screen. **06** needs points wired into the Harness node's inputs.
 
 ## Building them
 

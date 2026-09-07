@@ -123,15 +123,15 @@ panel(D, 1520, 850,
 title(D, 1900, TITLE_Y, "6 - THE DELEGATE", w=320, h=44)
 deleg = place(D, "Delegate", 2100, SPINE, nick="Delegate")
 wire(deleg, "Signal", router, 0)
-d_name = input_panel(D, 1900, 480, "measure", w=180, h=44, nick="what to call it")
+d_name = input_panel(D, 1880, 480, "measure", w=160, h=44, nick="what to call it")
 wire(deleg, "Tool Name", d_name, 0)
-d_desc = input_panel(D, 1900, 560,
+d_desc = input_panel(D, 1880, 560,
                      "Hands a measuring or counting job to a helper that can run scripts against "
                      "the Rhino document. Say exactly what you want measured and in what units. "
                      "It answers in one or two sentences.",
-                     w=180, h=150, nick="what it is for")
+                     w=160, h=160, nick="what it is for")
 wire(deleg, "Description", d_desc, 0)
-d_timeout = slider(D, 1900, 730, 300, 30, 1800, nick="give up after (s)")
+d_timeout = slider(D, 1880, 745, 300, 30, 1800, nick="give up after (s)")
 wire(deleg, "Timeout", d_timeout, 0)
 last_task = panel(D, 1900, 790, "the last task it was handed", w=320, h=100, colour=OUTPUT_GREY)
 last_task.AddSource(pin(deleg, "out", "Last Task"))

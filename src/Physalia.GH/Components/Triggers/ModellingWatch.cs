@@ -77,6 +77,11 @@ public class ModellingWatch : SignalSourceBase<ModellingEntry>
     // or the recording stops.
     private DeltaBuilder _directDelta = new();
 
+    // How many captured command-line rows have already been attributed. The buffer is read WITHOUT
+    // clearing it — see ReadTranscript — so a mark is what separates this command's output from the
+    // last one's.
+    private int _transcriptMark;
+
     private string _steps = string.Empty;
 
     private int _stepCount;
@@ -210,7 +215,7 @@ public class ModellingWatch : SignalSourceBase<ModellingEntry>
             // wanted this on, and turning it off for them would be a quiet regression in their tool.
             _captureWasEnabled = RhinoApp.CommandWindowCaptureEnabled;
             RhinoApp.CommandWindowCaptureEnabled = true;
-            RhinoApp.CapturedCommandWindowStrings(true);
+            MarkTranscript();
         }
     }
 
@@ -284,8 +289,9 @@ public class ModellingWatch : SignalSourceBase<ModellingEntry>
 
         if (_captureCommandLine)
         {
-            // Cleared so what is read at EndCommand is this command's output and not the last one's.
-            RhinoApp.CapturedCommandWindowStrings(true);
+            // A mark rather than a clear, so what is read at EndCommand is this command's output
+            // without taking anybody else's away. See ReadTranscript.
+            MarkTranscript();
         }
     }
 
@@ -479,16 +485,49 @@ public class ModellingWatch : SignalSourceBase<ModellingEntry>
         }
     }
 
+    // Reads the command-line rows this command produced, WITHOUT clearing Rhino's buffer.
+    //
+    // Found live, and it cost an hour: `CapturedCommandWindowStrings(clearBuffer: true)` empties a
+    // SHARED GLOBAL that other plug-ins read their own output from. Clearing it silently ate the
+    // Rhino MCP server's stdout — every script it ran came back successful and blank — and it would
+    // do the same to anything else capturing the command line. Nothing about the API says the buffer
+    // is shared, and nothing complains when you take it.
+    //
+    // So the buffer is read whole and a high-water mark says which rows are ours. If it has SHRUNK,
+    // another consumer cleared it and the mark means nothing any more, so it is reset rather than
+    // trusted — a partial transcript is the honest outcome of two destructive readers sharing one
+    // global, and it is better than either an empty one or stealing theirs.
     private string[] ReadTranscript()
     {
         try
         {
-            // Cleared as it is read, so the next command starts from nothing.
-            return RhinoApp.CapturedCommandWindowStrings(true) ?? Array.Empty<string>();
+            string[] all = RhinoApp.CapturedCommandWindowStrings(false) ?? Array.Empty<string>();
+
+            if (_transcriptMark > all.Length)
+            {
+                _transcriptMark = 0;
+            }
+
+            string[] mine = all.Skip(_transcriptMark).ToArray();
+            _transcriptMark = all.Length;
+            return mine;
         }
         catch (Exception)
         {
             return Array.Empty<string>();
+        }
+    }
+
+    // Notes where the shared buffer has got to, so the next read takes only what follows.
+    private void MarkTranscript()
+    {
+        try
+        {
+            _transcriptMark = (RhinoApp.CapturedCommandWindowStrings(false) ?? Array.Empty<string>()).Length;
+        }
+        catch (Exception)
+        {
+            _transcriptMark = 0;
         }
     }
 

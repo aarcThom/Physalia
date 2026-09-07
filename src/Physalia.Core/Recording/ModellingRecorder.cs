@@ -445,7 +445,12 @@ public static class ModellingRecorder
 
         if (delta.InputCount > 0)
         {
-            parts.Add($"{Count(delta.InputCount)} {Kinds(delta.InputTypes)} in");
+            // "selected", never "in". Rhino does not say which objects a command CONSUMED, only what
+            // was selected when it started — and for a creation command that is usually leftover
+            // selection from the step before. Wording it as an input claimed a circle was made FROM
+            // the three things that happened to be highlighted (seen live). A command that did use
+            // its selection is still readable from the counts beside it.
+            parts.Add($"{Count(delta.InputCount)} {Kinds(delta.InputTypes)} selected");
         }
 
         if (delta.Added > 0)

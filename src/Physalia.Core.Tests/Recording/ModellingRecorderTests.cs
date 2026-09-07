@@ -308,6 +308,22 @@ public class ModellingRecorderTests
     // ---- rendering ----------------------------------------------------------------------------
 
     [Fact]
+    public void TheSelectionIsReportedAsSELECTED_NotAsAnInput()
+    {
+        // Rhino never says which objects a command consumed, only what was highlighted when it
+        // started — which for a creation command is leftover selection. Calling it an input claimed
+        // a circle was made FROM the three things that happened to be selected.
+        string text = ModellingRecorder.Render(ModellingRecorder.Distil(new[]
+        {
+            Cmd("Circle", new ObjectDelta(
+                3, new[] { "Curve" }, 1, 0, 0, 0, new[] { "Curve" }, Array.Empty<string>(), null)),
+        }));
+
+        Assert.Contains("3 Curve selected", text);
+        Assert.DoesNotContain("3 Curve in", text);
+    }
+
+    [Fact]
     public void RenderNumbersTheStepsAndSaysWhatEachDid()
     {
         string text = ModellingRecorder.Render(ModellingRecorder.Distil(new[]

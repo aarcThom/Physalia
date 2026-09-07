@@ -154,9 +154,9 @@ lim_count = slider(D, 1600, 640, 20, 1, 200, nick="at most N rounds")
 wire(limiter, "Count", lim_count, 0)
 lim_reset = boolean(D, 1640, 680, False, nick="reset the count", toggle=True)
 wire(limiter, "Reset", lim_reset, 0)
-over = panel(D, 2060, 640, "rounds that were refused land here", w=280, h=110,
+over = panel(D, 1620, 1420, "rounds that were refused land here", w=300, h=100,
              colour=ERROR_PINK)
-over_dec = place(D, "Deconstruct Signal", 1860, 700, nick="Deconstruct Signal")
+over_dec = place(D, "Deconstruct Signal", 1660, 1330, nick="Deconstruct Signal")
 wire(over_dec, "Signal", limiter, "Over Limit")
 over.AddSource(pin(over_dec, "out", "Payload"))
 panel(D, 1620, 800,
@@ -164,11 +164,16 @@ panel(D, 1620, 800,
       "where they go once the count is used up, so a loop can notice and say something rather than "
       "just stopping.\r\n"
       "\r\n"
-      "Flip the toggle to start counting again.\r\n"
+      "Flip the toggle to start counting again."
+      "\r\n" "\r\n"
+      "Expect the count to run slightly PAST the number you set - the caption read 23 / 20 in "
+      "testing here. Rounds are asynchronous, so several can be in flight before any of them "
+      "has been counted. A limiter bounds a runaway loop; it is not an exact quota."
+      "\r\n" "\r\n"
       "\r\n"
       "This bounds ONE LOOP. It does not bound a session: a pipeline that has been triggered "
       "fifty times has had its limit reset fifty times over. That is what stage 6 is for.",
-      w=320, h=340)
+      w=320, h=440)
 
 # --------------------------------------------------------------------------- 4 the prompt side
 
@@ -285,7 +290,7 @@ panel(D, 3660, 780,
 
 back(D, call, "Success Signal", log, "Response Signal",
      3780, 1200, 2400, 1200, nick="reply back to the log")
-panel(D, 2560, 1130,
+panel(D, 2400, 1600,
       "THE WAY BACK, as always.\r\n"
       "\r\n"
       "One last thing worth knowing about triggers, because it is invisible: Grasshopper drops "

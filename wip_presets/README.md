@@ -69,11 +69,14 @@ preset that has it.
 | S08 | Check the Model Against the Document | Read the code, spec or drawing set and the model together, and report the discrepancy | Codex |
 | S09 | Build the Site Context from Open Data | Find it, fetch it, work out its coordinate system, get it into Rhino | Codex |
 | S10 | A Take-off That Keeps Itself Up To Date | Quantities that re-count when the model changes, onto a wire rather than into a chat | Codex |
+| S11 | Explain the Definition Nobody Documented | Inherit a file and get back what it does, which sliders matter and where it breaks — read-only | Codex |
+| S12 | From a Sketch to a Massing | Photograph the sketch, draw on it, get the massing built — then it looks at its own result | Codex |
 
-S08, S09 and S10 are the ones nobody asked for. They are here because the question this set has to
+S08 to S12 are the ones nobody asked for. They are here because the question this set has to
 answer for a working architect or designer is not "what can it do to my Grasshopper canvas" but
-"what does it save me on Thursday", and the three best answers to that have nothing to do with
-generating node graphs.
+"what does it save me on Thursday", and the best answers to that have nothing to do with
+generating node graphs: read a document against the model, get the site context in, keep the
+quantities honest, understand the file you inherited, and get the sketch off the desk.
 
 Three of them are structurally unlike anything in the numbered set and are worth reading for that
 alone: **S06 puts two Conversation Logs in one harness** (the join is one wire — the writer's
@@ -215,7 +218,7 @@ the feedback path: it was never dispatched and never advertised, and the model w
 been told the tool does not exist. Nothing errors, no sweep can see it, and the canvas looks right.
 
 `check_pairs.py` now walks every Router's last output in every preset and reports anything but a
-Feedback sender on it. All 44 tool slots across the 24 presets are clean.
+Feedback sender on it. All 50 tool slots across the 26 presets are clean.
 
 ## Building them
 
@@ -252,8 +255,8 @@ To rebuild and verify the lot:
 python tools/presets/audit.py
 ```
 
-Last whole-set check across all 24: audit clean, 67 Feedback pairs resolved, 7 grip links resolved,
-44 Router tool slots correctly routed, 0 problems.
+Last whole-set check across all 26: audit clean, 73 Feedback pairs resolved, 7 grip links resolved,
+50 Router tool slots correctly routed, 0 problems.
 
 All three are worth re-running after any change, because every failure they look for is silent: a
 preset carrying somebody else's endpoint name; a Feedback whose collector guid no longer resolves,

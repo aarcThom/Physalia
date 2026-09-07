@@ -122,3 +122,89 @@ presets rather than teaching something that does not work.
   call"; the limiter note in preset 08 now says the equivalent. Neither is an exact quota.
 - **`runs.jsonl` and `conversation.json` really are written per turn** — read them off disk after
   the timer test.
+
+## The SCENARIO set (added 2026-09-07, same branch)
+
+Ten more, `S01`–`S10`, and the framing is the point: the numbered set teaches the PARTS, these
+teach the WORK. Each is a job somebody has — record a procedure and repeat it, walk a scheme and
+review it, interrogate the Rhino model, generate nodes, generate C#, get a second opinion, delegate
+the legwork, check the model against a document, build site context from open data, keep a take-off
+up to date. The last three are ones nobody asked for; they exist because the question a working
+architect asks is not "what can it do to my canvas" but "what does it save me on Thursday".
+
+`phybuild.core_loop()` was added first and is why this was affordable: it builds Chat + System
+Prompt + Conversation Log + Model + LLM Call + the reply path in one call. Hand-wiring that ten more
+times is how a Feedback ends up pointing at nothing.
+
+### Three topologies the numbered set never used
+
+- **S06 puts TWO Conversation Logs in one harness.** A pipeline normally has one. The join between
+  writer and critic is ONE WIRE — the writer's `Success Signal` into the critic's `Prompt Signal` —
+  because a signal carries its text, so an answer simply becomes the next question. Each half keeps
+  its own System Prompt and its own history. `Signal Switch` on the word APPROVED decides whether
+  the answer reaches the canvas or goes back as an objection. Verified: the critic's log assembled
+  Instructions from the writer's signal, live.
+- **S07 nests TWO harnesses**, each a complete pipeline with its own Chat. Both Delegate grip links
+  and both inner documents survive the loader's id reissue (27 and 24 objects).
+- **S10 puts a VALUE rather than prose on a Harness Out** (`Pipeline State`'s `Value`). That is what
+  separates a tool from a chat about the same subject.
+
+### The silent-failure class S10 found — now a standing check
+
+Wiring a tool node's `Signal` to a Router output index **past the last tool slot** lands it on the
+**Feedback** output. Nothing errors, no sweep sees it, the canvas looks right — and the tool is
+never dispatched AND never advertised, so the model is told it does not exist. `router_slots(r, n)`
+adds n slots to the default one, so `router_slots(r, 1)` gives TWO, and index 2 is Feedback.
+
+`check_pairs.py` now walks every Router's last output in every preset and reports anything but a
+Feedback sender on it — 44 slots across 24 presets, clean. It sits beside the two checks that were
+already there for the same reason (a Feedback whose collector guid no longer resolves; a preset
+carrying machine-specific text).
+
+Two checker corrections found while there: **Set Script I/O links to EITHER script transmitter**
+(the checker hard-coded Py Transmitter and called S05 broken), and `coverage.py` keyed presets on
+`basename[:2]`, which made every scenario preset "S0".
+
+### C# Transmitter RUN LIVE for the first time (S05)
+
+Previously "built, not run in Rhino". Placed a real Rhino 8 C# Script component on the host canvas,
+linked the transmitter, asked for a sum, and got working code in — `private void RunScript(double x,
+double y, ref object a)` — with Schema Validator, C# Transmitter and Runtime Health Check all
+Success. Two things confirmed: `IsLinkTarget` accepts `CSharpComponent` (`b6ba1144-…`) and REFUSES
+the obsolete `Component_CSNET_Script` (`a9a8ebd2-…`), which is the `LanguageSpec` guard working; and
+Set Script I/O reads its target THROUGH the transmitter's link, so pre-linking those two inside the
+preset leaves the user only the one link that must be made on their own canvas.
+
+**S04 also ran live** — the whole guardrail chain Success in one round, placing a slider + XY Plane
++ Circle + Panel grouped as "Circle at Origin". S04 and S05 between them prove both transmitter
+paths.
+
+### A broken PATH inside Rhino is indistinguishable from a broken Codex install
+
+The other eight scenarios could not be live-run. In the Rhino process reached by the scripting
+bridge, **`cmd.exe` cannot resolve ANY bare command name** — not `node`, not even `where` — although
+`%PATH%` expands correctly (2331 chars, nodejs present) and `C:\Windows\System32\where.exe node`
+finds node. Codex ships as a `.cmd` shim that runs `node`, so every Codex round dies with
+`'"node"' is not recognized`. Claude Code is unaffected: it is a real `.exe` resolved by absolute
+path. Not fixable from in-process (`Environment.SetEnvironmentVariable("PATH", …)` changes nothing),
+survived a full Rhino restart from a PowerShell with a good PATH, and Codex ran fine earlier in this
+project — so it is a session condition, not a Physalia regression. Worth remembering because the
+symptom points squarely at the wrong thing; `codex --version` from a normal shell separates them.
+
+### Component-name corrections found by building
+
+- `Read PDF`'s input is **`Reference Folder`**, not `PDF Folder` as CLAUDE.md says, and it means the
+  SHARED office library rather than a per-pipeline folder.
+- `Folder Watcher` takes `Project Folder / Filter / Subfolders / Settle` — no `Instruction` input.
+- `Signal Limiter` takes `Count` and emits `Within Limit` / `Over Limit`.
+- `LLM Call` has no `Response` output; the reply text rides the signal, so read it with a
+  Deconstruct Signal.
+- `C# Transmitter` publishes no code output — the code is in the target component.
+- The web tool node is `Read URL`, not `Read Url`.
+
+### Bash-tool gotcha that cost several edits
+
+In this environment a quoted heredoc (`<<'EOF'`) still collapses `\r\n` to `\r\n`, so a Python
+patch script that means to match the literal text `\r\n` in a source file silently writes REAL
+newlines into it instead. Use the Edit tool for anything containing backslash escapes, and
+forward-slash paths inside heredocs to dodge `\U`/`\W` escape errors.

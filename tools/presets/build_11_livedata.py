@@ -281,6 +281,11 @@ say("router outputs:", [p.NickName for p in router.Params.Output])
 say("endpoints offered:", picker_values(D, api, "Endpoint"))
 say("servers offered:", picker_values(D, mcp, "Server"))
 bad = sweep(D, NAME)
+# Which endpoints exist is a fact about THIS machine. Blank the saved choice before writing, or the
+# preset ships with somebody else's endpoint name in it - and on a machine with no endpoints at all
+# a stale name reports "not found" where an empty one asks to be picked.
+clear_pick(D, api, "Endpoint")
+clear_pick(D, mcp, "Server")
 save_phy(H, OUT,
          description="Reading real data: an HTTP API you configure yourself, with the tool walking "
                      "the paging and every record landing on a wire, plus an MCP server connection "

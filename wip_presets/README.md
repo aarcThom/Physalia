@@ -116,3 +116,11 @@ Home screen. **06** needs points wired into the Harness node's inputs.
 - `shoot.py` — renders a harness's canvas to a PNG, so a layout can be looked at.
 - `liverun.py` — places a `.phy` and drives one real round through it, no chat window needed.
 - `test_07_playground.py`, `test_08_timer.py` — the two headless behaviour tests.
+- `audit.py` — sweeps every written `.phy` for anything machine-specific: absolute paths, this
+  user's name, an endpoint or provider that only exists here, an armed trigger.
+- `check_pairs.py` — confirms every wireless Feedback pair still resolves to a Collector *after* the
+  id reissue a preset load performs. 32 pairs across the set, all resolving.
+
+Both of those are whole-set checks worth re-running after any change, because the two failures they
+look for are silent: a preset carrying somebody else's endpoint name, and a Feedback whose collector
+guid no longer resolves — which swallows the signal, hands it nowhere, and errors about nothing.

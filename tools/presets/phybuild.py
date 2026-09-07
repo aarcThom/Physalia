@@ -279,6 +279,23 @@ def pick(doc, obj, input_name, value):
     return pk
 
 
+def clear_pick(doc, obj, input_name):
+    """
+    Blank a Picker's saved choice, so a per-machine value is not written into a shared preset.
+
+    Call it AFTER the last solve and immediately before saving: a further solve snaps the Picker to
+    values[0] again. On the reader's machine an empty pick lands on whatever their own list offers
+    first, which is what self-healing looks like.
+    """
+    pk = picker_of(doc, obj, input_name)
+    if pk is None:
+        return None
+    m = pk.GetType().GetMethod("SetSelectedValue",
+                               BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
+    m.Invoke(pk, System.Array[System.Object]([""]))
+    return pk
+
+
 def picker_values(doc, obj, input_name):
     pk = picker_of(doc, obj, input_name)
     if pk is None:

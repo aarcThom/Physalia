@@ -11,8 +11,10 @@ metadata:
 Physalia had **no event sources** until 2026-09-06: a round could only start because a human typed in
 the chat, a Button drove Construct Signal, or a Feedback loop re-entered — so every pipeline was
 downstream of somebody sitting there. `SignalSourceBase<TEvent>` (`Components/Triggers/`) is the
-source tier, with four concrete sources: **Timer**, **Folder Watcher**, **Rhino Changed**, **Data
-Changed**. BUILT, full solution compiles, **not run in Rhino**.
+source tier, with five concrete sources: **Timer**, **Folder Watcher**, **Rhino Changed**, **Data
+Changed** and **Watch Modelling**. **Watch Modelling has been run live in Rhino and works**
+([[watch-modelling]]) — which also exercised the base's arming, caption and fire path. The other four
+are BUILT and compile but have **not been run in Rhino**.
 
 **Why:** an "adaptable harness" that can only react to a person present is not a harness, it is a
 chat window. The Rhino Changed one is the character change — it turns Physalia from a generator into

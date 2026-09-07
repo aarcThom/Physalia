@@ -9,8 +9,10 @@ metadata:
 ---
 
 Three things a pipeline needs once it can start rounds on its own: a bound on what it may spend, a
-memory that survives a restart, and a record of what it actually did. BUILT 2026-09-06 (Core tested,
-**not run in Rhino**).
+memory that survives a restart, and a record of what it actually did. BUILT 2026-09-06.
+**The autosave and the run log are VERIFIED ON DISK** from a live Rhino run — a Budget Guard with
+caps also solved and passed a signal through. The extension card, the resume button and the state
+tool have still not been exercised.
 
 **Why:** Signal Limiter caps one loop's rounds and Stall Guard catches a loop repeating itself, but
 neither bounds a SESSION — and until [[trigger-tier]] existed, a session was bounded by a person
@@ -61,5 +63,24 @@ thing about the memory model.
 - **Undo Last Placement** on the Component Transmitter removes what the last placement ADDED and says
   so — a ghpatch also modifies existing components and nothing recorded their prior state.
 
+## Verified live 2026-09-06, and one thing it changed my mind about
+
+After two rounds in a harness named `watch-and-repeat`,
+`Files/PROJECT_FILES/watch-and-repeat/` (under `bin`, beside the `.gha` — NOT the repo `Files/`)
+held exactly what it should:
+
+- `conversation.json`, 12KB, `{"version": 1, "saved": ..., "turns": [...]}` with text blocks — the
+  per-turn autosave works.
+- `runs.jsonl`, one line per call:
+  `{"when":"...","harness":"watch-and-repeat","model":"sonnet","inputTokens":6,"outputTokens":1925,"ms":24993,"ok":true}`
+
+**`inputTokens: 6` on a 5,650-character system prompt.** That is not a bug — a CLI provider holds
+the context itself, so what it reports is the DELTA it was sent this turn, not the size of the
+prompt. This sharpens the "a call with no usage still counts as a call" rule into something stronger:
+**on a CLI provider a token cap is not merely incomplete, it is MEANINGLESS** — the numbers are real
+but they measure a different thing, and 300k tokens would never be reached however long the session
+ran. `Max Calls` is the only cap that bounds a Claude Code or Codex pipeline, and a harness built on
+one should set it and leave Max Tokens at zero rather than setting both.
+
 Related: [[trigger-tier]], [[harness-names-and-phy-packages]], [[project-file-tools]],
-[[token-count-human-tool]].
+[[token-count-human-tool]], [[watch-modelling]], [[claudecode-warm-process]].

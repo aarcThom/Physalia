@@ -90,3 +90,66 @@ and walking `Params.Input[].Sources` prints the whole wire list. Reading each co
 
 See [[harness-subdocument]] for what a harness is, and [[run-rhino-script-tool]] for the component
 this was built to exercise.
+
+## 2026-09-06 — a second build, and the traps that were mine rather than Grasshopper's
+
+Built the Watch-and-Repeat harness (21 components) the same way. The wiring rule above held exactly
+as written — **read this file before wiring, not after**; the recursion error came back verbatim
+because it was re-derived instead of recalled.
+
+**`SetPersistentData` APPENDS to the default the component registered.** It does not replace. So
+setting a boolean input that was registered with `true` leaves `[True, False]` — **two items on an
+item-access input, which makes Grasshopper solve the whole component TWICE**. Every output came out
+duplicated and the trigger minted its signal twice (same sequence number, two items on the wire).
+Clear first — and the method is **`Script_ClearPersistentData()`**; `ClearPersistentData` does not
+exist on the param.
+
+**A string handed to `SetPersistentData` resolves to `IEnumerable<char>`** and stores ONE ITEM PER
+CHARACTER — `"modelling-procedures"` became 20 items, so the component solved twenty times. Always
+wrap: `p.SetPersistentData(System.Array[System.Object]([value]))`. Sweep for this after any scripted
+build:
+
+```python
+for p in obj.Params.Input:
+    if p.SourceCount == 0 and getattr(p, "PersistentData", None) and p.PersistentData.DataCount > 1:
+        print("DOUBLED", obj.Name, p.Name)   # not every param HAS PersistentData - guard with getattr
+```
+
+**Placing a harness from a script points the canvas INTO it.** After `AddObject` +
+`EnsureInnerDocument()`, `Instances.ActiveCanvas.Document` IS the inner document — so a follow-up
+script that looks for the `HarnessComponent` on "the host canvas" finds nothing and dies on `[0]`.
+Detect which document you are on by its contents rather than assuming.
+
+**A harness emitted by `ComponentServer.EmitObject` comes up EMPTY** — no Chat at (0,0). That note
+above applies to "Place empty harness" from the chat window, not to a scripted one; a scripted build
+must add its own Chat, or the preset loader will refuse the result.
+
+**Picker option values carry the file extension** — `"Rhino Scripting.txt"`, not `"Rhino
+Scripting"`. Read `MenuValues` (also internal, also reflection) rather than guessing the spelling.
+And **delete a Picker whose input should stay empty**: System Prompt auto-places one on `Schema`, and
+left alone it snaps to `values[0]` and folds another pipeline's JSON schema into the prompt.
+
+**Router variable outputs**, one per tool, inserted BEFORE the trailing Feedback output:
+
+```python
+idx = router.Params.Output.Count - 1
+p = router.CreateParameter(Grasshopper.Kernel.GH_ParameterSide.Output, idx)
+router.Params.RegisterOutputParam(p, idx)
+router.Params.OnParametersChanged(); router.VariableParameterMaintenance()
+```
+
+**Writing a preset without a dialog.** `HarnessComponent.SaveAsPreset()` shows an edit box and would
+block an MCP call forever. Write the archive directly instead — and refuse if there is no Chat, since
+the loader will:
+
+```python
+arch = GH_IO.Serialization.GH_Archive(); arch.AppendObject(inner, "Definition")
+arch.WriteToFile(path, True, False)
+```
+
+Reading one back works with `GH_Archive.ReadFromFile` + `ExtractObject(GH_Document(), "Definition")`
+as well as the `GH_DocumentIO.Open` above; the archive route never touches the document server.
+
+**Beware what a component does to shared Rhino state while you script through the MCP.** Arming
+Watch Modelling made every `run_python` call return blank — see [[watch-modelling]]. If MCP stdout
+goes silent mid-session, suspect a Physalia component you just switched on, not the MCP server.

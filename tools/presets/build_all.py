@@ -52,7 +52,10 @@ for script in scripts:
 
 note("")
 note("---- whole-set checks ----")
-for check in ("audit.py", "check_pairs.py"):
+# Only check_pairs runs here: it must resolve guids inside a loaded document, so it needs Rhino.
+# audit.py deliberately does NOT - it reads the package bytes - so it is a shell command, and
+# exec'ing it in here would fail anyway since it uses __file__ to find the presets.
+for check in ("check_pairs.py",):
     path = os.path.join(HERE, check)
     try:
         scope = {"__name__": "__main__"}
@@ -65,6 +68,9 @@ for check in ("audit.py", "check_pairs.py"):
         note("  %s FAILED: %s" % (check, ex))
         failed.append("%s: %s" % (check, ex))
 
+note("")
+note("now run the other check from a shell, outside Rhino:")
+note("    python tools/presets/audit.py")
 note("")
 note("BUILT %d preset(s), %d problem(s)" % (len(scripts), len(failed)))
 for f in failed:

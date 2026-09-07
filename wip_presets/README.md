@@ -239,7 +239,18 @@ Feedback sender on it. All 57 tool slots across the 28 presets are clean.
 
 ## Building them
 
-`tools/presets/` holds the scripts that generate these files, driven through the Rhino MCP:
+`tools/presets/` holds the scripts that generate these files, driven through the Rhino MCP.
+
+**Every script carries exactly one machine-specific line** — a `ROOT` default. To build from
+a checkout somewhere else, set it first and everything follows:
+
+```python
+ROOT = r"D:\code\Physalia"
+exec(open(ROOT + r"	ools\presetsuild_s01_record.py").read())
+```
+
+`phybuild` derives `PRESETS` (`<ROOT>/wip_presets`) and `SCRATCH` (your temp dir) from it, and
+`audit.py` finds the repo from its own location. The files:
 
 - `phybuild.py` — the shared helpers.
 - `build_NN_*.py` — one per numbered preset. `build_sNN_*.py` — one per scenario preset.

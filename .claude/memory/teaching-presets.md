@@ -208,3 +208,32 @@ In this environment a quoted heredoc (`<<'EOF'`) still collapses `\r\n` to `\r\n
 patch script that means to match the literal text `\r\n` in a source file silently writes REAL
 newlines into it instead. Use the Edit tool for anything containing backslash escapes, and
 forward-slash paths inside heredocs to dodge `\U`/`\W` escape errors.
+
+## The set is 28 (S11–S14 added, same day)
+
+- **S11 Explain the Definition Nobody Documented** — inherit a file and get back what it does, which
+  sliders matter, where it breaks. **Read-only on purpose**: no Drive Rhino, no transmitter. The
+  first thing you do with somebody else's definition is understand it, and a tool that could
+  rearrange it while you are still working that out is not what you want in the room. Canvas State is
+  the whole trick — it hands over the real graph, so "which slider does nothing" is answerable.
+- **S12 From a Sketch to a Massing** — the vision loop. Its argument is that the model must LOOK at
+  what it built (`take_snapshot` after `run_rhino_script`); a model that never sees its own output
+  will tell you confidently that it did what you asked. Image Mark Up is the underused half: an
+  arrow is never ambiguous and takes four seconds.
+- **S13 Run the Options Overnight** — the For Each preset, and the whole thing is ONE wire: `Next`
+  comes from the END of the per-item work, so nothing advances until the current round has genuinely
+  finished. Strictly sequential is not a limitation to work around — one Conversation Log downstream
+  means parallel options would interleave into one thread.
+- **S14 Can This Actually Be Made?** — the industrial-design one. Draft, wall thickness, undercuts,
+  radii, sheet sizes, against rules the user writes. Two sentences in its brief are load-bearing
+  whatever you make: **check the units FIRST** (a model in metres passes a 1.5 mm wall check for
+  entirely the wrong reason) and **NOT-MEASURED is a good answer**, because a rule quietly skipped
+  reads exactly like a rule passed.
+
+`build_all.py` globbed `build_NN_*` only, so a whole-set rebuild silently skipped every scenario —
+and reported "14", which looked right. Both families now, and it must push `ROOT` into each script's
+exec scope or a run from another checkout rebuilds the wrong repo's presets.
+
+**The toolkit is now machine-portable**: one `ROOT` bootstrap per script, `PRESETS`/`SCRATCH`
+derived in phybuild. See [[preset-build-runbook]] — that is the file to read when asked to build
+more.

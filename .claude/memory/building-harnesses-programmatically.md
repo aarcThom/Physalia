@@ -205,3 +205,68 @@ which the notes above skip because earlier sessions always had a canvas already 
 - **PowerShell variable names are case-INSENSITIVE**, so `$S` (a source directory) and `$s` (a loop
   variable) are one variable. The symptom is a nonsense path like
   `...\System.Collections.Hashtable\sheet_a.png`, not an error about an unset variable.
+
+## 2026-09-07 — twenty-eight of them, and the toolkit that made it repeatable
+
+Hand-writing the same `EmitObject` / `CreateAttributes` / `AddObject` dance per preset does not
+scale past about three. `tools/presets/phybuild.py` wraps all of it; **read
+[[preset-build-runbook]] before building anything** — it is the operational procedure and the
+helper reference. What follows is only the GH-level knowledge that was added.
+
+### `core_loop()` — the six components every pipeline repeats
+
+Chat + System Prompt + Conversation Log + a Model + LLM Call + the reply Feedback path, in one call,
+returning a dict of the pieces. Written after the third scenario preset, because hand-wiring that
+spine ten more times is how a Feedback ends up pointing at nothing. It also takes an `instruction=`
+string and hangs it off System Prompt's **`Additional Prompt`** as a white `input_panel`, which is
+where a preset's per-job wording belongs (it ships in the file, unlike anything typed in the chat).
+
+### Router slot counting is off by one, and getting it wrong is SILENT
+
+**`router_slots(router, n)` adds n slots to the default one**, so it yields `n + 1` tool outputs, and
+the LAST Router output is always **Feedback**. Wiring a tool's `Signal` to an index past the last
+tool slot therefore lands it on the feedback path: the tool is never dispatched AND never advertised,
+so the model is told it does not exist. Nothing errors, no sweep sees it, the canvas looks right.
+Hit on S10 with Pipeline State. `check_pairs.py` now walks every Router's last output across every
+preset.
+
+### Topologies that are legal and were not obvious
+
+- **TWO Conversation Logs in one harness.** A pipeline normally has one, but nothing enforces that.
+  Writer and critic, joined by ONE wire: the writer's `Success Signal` into the critic's
+  `Prompt Signal`. A signal carries its text, so an answer simply becomes the next question. Each
+  half keeps its own System Prompt and its own history — which is the point, since the critic must
+  not see the writer's reasoning. Only one Chat is needed (the loader requires ≥1).
+- **Nested harnesses inside a preset.** `place(D, "Harness", ...)` then `EnsureInnerDocument()`, and
+  `delegate.LinkTo(harness.InstanceGuid)`. Verified that both grip links AND both inner documents
+  survive the loader's id reissue.
+- **A VALUE rather than prose on a Harness Out** (Pipeline State's `Value`). That is what separates
+  a tool from a chat about the same subject.
+- **Pre-linking a grip link inside a preset works** and is worth doing: `scriptio.LinkTo(cstx.
+  InstanceGuid)` leaves the user only the ONE link that must be made on their own canvas.
+
+### Component API corrections found by building against the real components
+
+CLAUDE.md is wrong or stale on several of these — **trust `pin()`'s error message, which lists the
+real parameter names.**
+
+| Component | Reality |
+|---|---|
+| Read PDF (LLM tool) | input is **`Reference Folder`**, not `PDF Folder`, and it means the SHARED office library, not a per-pipeline folder |
+| Folder Watcher | `Project Folder / Filter / Subfolders / Settle` — there is **no `Instruction` input** |
+| Signal Limiter | takes **`Count`**; emits **`Within Limit` / `Over Limit`** |
+| LLM Call | has **no `Response` output** — the reply text rides the signal, so read it with a Deconstruct Signal |
+| C# Transmitter | publishes **no code output** — the code is in the target component (`GhPythonBridge.GetScript` reads it back) |
+| Construct Signal | the button input is **`Trigger`**, not "Boolean Trigger" |
+| For Each | `Items / Start / Next / Reset` → `Item Signal / Done Signal / Item / Index` |
+| Take Snapshot | `Current Location` is a **Point** — a `blank_input` text panel into it is a conversion error |
+| Web tools | the node is **`Read URL`**, not "Read Url" |
+| `place()` | `sub=` (ribbon section) is REQUIRED where names collide — `"Read PDF"` is both an LLM tool and a Human tool |
+
+### Two script-component facts, confirmed live
+
+`IsLinkTarget` accepts the Rhino 8 **`CSharpComponent`** (`b6ba1144-02d6-4a2d-b53c-ec62e290eeb7`)
+and REFUSES the obsolete **`Component_CSNET_Script`** (`a9a8ebd2-fff5-4c44-a8f5-739736d129ba`). Both
+are called "C# Script" and both sit under Maths / Script, so the `LanguageSpec` test is the only
+thing separating them. And **Set Script I/O reads its target THROUGH the transmitter's link**, so it
+never needs one of its own.

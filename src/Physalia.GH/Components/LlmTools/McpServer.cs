@@ -395,6 +395,20 @@ public class McpServer : LlmToolComponentBase, IPickableValuesSource
     /// Absent is not an error until a remote server is actually asked for, which is what makes a
     /// stdio-only install perfectly usable. Internal rather than private because the chat window's
     /// MCP page connects on its own, to run the OAuth sign-in at setup time.
+    ///
+    /// <para><b>Both apphost spellings are probed, and that is a platform fix rather than
+    /// belt-and-braces.</b> A net8.0 console app's apphost is <c>Physalia.McpBridge.exe</c> on
+    /// Windows and <c>Physalia.McpBridge</c> — no extension — everywhere else. Probing only the
+    /// <c>.exe</c> made this return null on an otherwise healthy macOS build, so EVERY remote server
+    /// reported the bridge missing while local stdio servers kept working: a platform fault wearing
+    /// the costume of a server-specific one.</para>
+    ///
+    /// <para>Deliberately NOT falling back to <c>dotnet Physalia.McpBridge.dll</c>: the consumer
+    /// (<c>McpSession.StartProcess</c>) assigns this straight to <c>ProcessStartInfo.FileName</c> and
+    /// then appends its own <c>--header</c>/<c>--scope</c> arguments, so a two-part command would
+    /// have to change that contract. The apphost is produced for whichever platform built the
+    /// bridge, so it is present in every normal install — but note that means a package built on
+    /// Windows carries no macOS apphost, and vice versa.</para>
     /// </remarks>
     internal static string? BridgeExecutable()
     {
@@ -406,8 +420,18 @@ public class McpServer : LlmToolComponentBase, IPickableValuesSource
             return null;
         }
 
-        string path = System.IO.Path.Combine(assemblyDir, "Bridge", "Physalia.McpBridge.exe");
-        return System.IO.File.Exists(path) ? path : null;
+        string folder = System.IO.Path.Combine(assemblyDir, "Bridge");
+
+        foreach (string name in new[] { "Physalia.McpBridge.exe", "Physalia.McpBridge" })
+        {
+            string path = System.IO.Path.Combine(folder, name);
+            if (System.IO.File.Exists(path))
+            {
+                return path;
+            }
+        }
+
+        return null;
     }
 
     private bool IsAdvertised(LlmToolDefinition tool) =>

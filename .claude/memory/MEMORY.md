@@ -11,6 +11,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Design fork, then build through](design-fork-then-build-through.md) — investigate the whole path, ask the ONE question the code can't settle, then finish the vertical slice (Core→GH→UI, tests, docs) and say what hasn't run live.
 
 ## Latest
+- [Pre-ship testing pass](pre-ship-testing-pass.md) — 2026-09-06/07. Off-canvas half green; then **B0/B1/B2/B3/C1/A6 RUN LIVE IN RHINO and passing**, incl. the `PipelineWake` re-enable that had never been exercised. **New defect: `DocumentIds.MutateAll` does not recurse into a NESTED harness**, so a delegation preset placed twice yields two components sharing one `InstanceGuid`.
 - [Trigger Control](trigger-tier.md) — 2026-09-06, UI headless + host half RUN LIVE: arming moved into the chat window as a human tool. **Two arming verbs** — one switch hands a recorder's batch over, switch-all-off discards — and triggers are addressed by `InstanceGuid`, because Folder Watcher and Watch Modelling both default to the nickname "Watch".
 - [Building harnesses programmatically](building-harnesses-programmatically.md) — extended 2026-09-06 after a second scripted build: **`SetPersistentData` APPENDS** to the registered default (two items on an item input solves the component twice), **a string becomes one item per CHARACTER**, placing a harness points the canvas INTO it, and a scripted harness comes up with no Chat. The backward-path rule was already written down — read it before wiring.
 - [Watch Modelling](watch-modelling.md) — 2026-09-06, **RUN LIVE IN RHINO and working**: record what the USER does in Rhino as a repeatable procedure. Built on Rhino's own command events, not a geometry diff; **`BeforeTransformObjects`, not After**; fires on DISARM. Running it found two defects a green build hid — chiefly that **`CapturedCommandWindowStrings(clear:true)` empties a SHARED buffer and ate the Rhino MCP's stdout**. Harness preset committed.
@@ -126,10 +127,10 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Core console harness](core-console-harness.md) — test a provider from a throwaway net7.0 console app; no Rhino.
 - [Inspecting Rhino assemblies](inspecting-rhino-assemblies.md) — reflect over Rhino 8's shipped DLLs from PowerShell.
 - [SVG → transparent PNG](svg-rasterization-headless-chrome.md) — no magick/inkscape here; use headless Chrome.
-- [Component icon generation](component-icon-generation.md) — splitter in `tools/icons/`; whole set replaced 2026-08-17.
+- [Component icon generation](component-icon-generation.md) — splitter in `tools/icons/`; whole set replaced 2026-08-17, **+29 added 2026-09-07 → 0 fallbacks**. An apparent bead-size drift measured FALSE; check stroke/ink before touching Split.ps1.
 - [Physalia repo gotchas](physalia-repo-gotchas.md) — slnx in `src/`; the `Files` → bin pipeline + its two MSBuild gotchas.
 - [ILRepack Release double-merge](ilrepack-release-double-merge.md) — the empty `ILRepack.targets` suppresses the package's failing target. Don't delete it.
-- [Mac todo](mac-todo.md) — four `#if WINDOWS` files, 22 more importing WinForms unguarded, GhPythonBridge HintPaths.
+- [Mac todo](mac-todo.md) — **superseded by `planning/mac-port.md`** (2026-09-07, release deferred). Two blockers found FROM WINDOWS: the non-Windows TFM fails restore on a System.Drawing.Common downgrade, and the Grasshopper NuGet asset is the WINDOWS build. 29 WinForms files but only 4 real items; Core is completely clean.
 - [GH code editor abandoned](gh-code-editor-abandoned.md) — native GH script editor unreachable; custom Eto dialog instead.
 - [Python output list access](python-output-list-access.md) — RESOLVED 2026-06-29. Fix = `MarshOutputs` on, plus No Type Hint + List access.
 - Two projects only: Physalia.Core (net7.0), Physalia.GH (net7.0-windows / net7.0 on Mac). CA1416 warnings are false positives.

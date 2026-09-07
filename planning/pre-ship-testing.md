@@ -1,6 +1,10 @@
 # Pre-ship testing — the harness passes
 
 **Status:** written 2026-09-06, for the `events-and-delegation` branch and everything before it.
+**Last pass:** 2026-09-07 on `final-pass` — A1–A6, B0–B3, B7 (page half), C1, C2 done; two defects
+found, fixed and **re-verified against the fixed build**. Icons done. Mac deferred
+(`planning/mac-port.md`). **F3 is the only remaining ship blocker** — run it with
+`tools/overnight/Watch-OvernightRun.ps1`. B4, B5, B6, C3, C5, D, E, F1, F2, F4 still open.
 **Scope:** the last full pass before a release. Every rig here is driven from a harness on a real
 canvas in a real Rhino, because that is the only place several of these features exist at all.
 
@@ -36,10 +40,30 @@ tick you cannot defend.
 
 ### What is NOT a test, and must be fixed regardless
 
-- **Icons.** All 18 new components fall back to the brain placeholder. Blocking for a release.
-- **Mac.** Not testable on this machine. `McpServer.BridgeExecutable()` still hardcodes a `.exe`
-  (memory: `mac-port-mcp-gaps`), and the new WinForms surfaces are Windows-only. Decide whether the
-  release is Windows-only and say so, or schedule the port.
+- **Icons — DONE 2026-09-07.** All 29 are generated, split and installed; the audit now reports
+  **0** components falling back. Four sheets, first generation, no rework — see the third pass in
+  `planning/component-icon-prompts.md`, including why the apparent line-weight drift was measured
+  and found not to exist.
+
+  The original count was **29**, taken on 2026-09-06 by matching every type declaring
+  `override Guid ComponentGuid` against the `.gha`'s embedded `Physalia.GH.Resources.<TypeName>.png`
+  names — the shipped artifact's count rather than a tally of what felt new, which is what caught
+  that the figure had been carried as 18. The `Param_*` types are exempt throughout: `PhyParam` sets
+  `GH_Exposure.hidden`, so they never reach the ribbon. **Re-run that audit after any pass** — it is
+  four lines of script and it is the only thing that answers the question.
+- **Mac — DECIDED 2026-09-07: deferred a few weeks, this release is Windows-only.** Say so in the
+  release notes, and note the two features that would be *absent rather than broken* on Mac even
+  once it builds (the in-window browser fetch, the interactive `.ghjson` export) plus the one that
+  would be *weaker* (credentials fall back to a plaintext-but-owner-only file until a Keychain
+  `ISecretStore` exists).
+
+  **`planning/mac-port.md` is the plan**, written so the work is a checklist rather than a discovery
+  exercise: a full re-audit of the platform surface, the port ordered by what gates what, and the
+  list of things already Mac-safe that must NOT be re-audited. Two blockers were found *from
+  Windows* while writing it — the non-Windows TFM fails restore on a `System.Drawing.Common`
+  downgrade, and the `Grasshopper` NuGet package's only usable asset is the **Windows** build (it
+  references `RhinoWindows`, `Eto.Wpf` and WPF). `McpServer.BridgeExecutable()`'s `.exe` hardcode is
+  **fixed**.
 
 ---
 
@@ -415,6 +439,22 @@ The case the whole trigger tier exists for, and the one with a bill attached.
 
 - **BUILD** — `Folder Watcher` or `Timer` → `Signal Throttle` → `Conversation Log`, with a
   `Budget Guard` (**both** caps set) and a `Signal Limiter`. `Trigger Control` wired.
+- **MONITOR IT** — `tools/overnight/Watch-OvernightRun.ps1`, which exists because this rig asks a
+  question about a night nobody watched, and the answer has to come off disk:
+
+  ```
+  tools\overnight\Watch-OvernightRun.ps1 -MaxCalls 200 -MaxTokens 2000000 `
+      -MinIntervalSeconds 300 -StopAfterMinutes 600
+  ```
+
+  It tails `runs.jsonl` by byte offset (append-only, so a partial last line is skipped and re-read
+  whole next poll), tracks `conversation.json`'s turn count and the project folder's growth, and is
+  **read-only on purpose** — asking Grasshopper anything could expire a component, and a monitor
+  that perturbs the run it is measuring is worthless here. The caps you pass become assertions; it
+  knows a Budget Guard legitimately overruns by exactly ONE call, since the check happens before a
+  call against what is already spent. Set `-StopAfterMinutes` so the verdict is written for you
+  rather than waiting on a Ctrl+C. It ends in PASS, FAIL with the violations listed, or **NOTHING
+  HAPPENED** — which is not a pass, and usually means no trigger was armed.
 - **RUN** — arm it and leave it for several hours with intermittent input.
 - **EXPECT** — it wakes, works, and **stops at the budget**; `runs.jsonl` accounts for every call;
   `conversation.json` is current; nothing has run away; the harness panel's disarm button shows the
@@ -441,20 +481,20 @@ The case the whole trigger tier exists for, and the one with a bill attached.
 | A | A3 Hold + self-poll | ✅ verified 09-06 | timeout fired at 2s with Recheck 0.5 |
 | A | A4 Throttle by payload | ✅ verified 09-06 | FIRST through, MIDDLE overtaken, NEWEST out |
 | A | A5 For Each | ✅ verified 09-06 | empty-list and restart cases still to do |
-| A | A6 Pipeline State (graph) | ☐ | |
-| B | B0 **wake-up in a harness** | ☐ | **highest risk on the branch** |
-| B | B1 Timer | ☐ | |
-| B | B2 Folder Watcher + loop | ☐ | |
-| B | B3 Rhino Changed | ☐ | |
-| B | B4 **transcript with parameters** | ☐ | close the MCP server first |
+| A | A6 Pipeline State (graph) | ✅ verified 09-07 | caps and last-set order pass. Found a case-variant duplicate defect, **fixed**, and **re-verified against the fixed build**: the board now returns ONE item where it returned two, and `Clear` no longer orphans an order entry |
+| B | B0 **wake-up in a harness** | ✅ verified 09-07 | the mechanism was genuinely exercised: with `inner.Enabled` FORCED false the Timer kept firing 4→8 and the flag came back True. Then with `host.Enabled` false it fired 9→14 and the host flag **stayed false** — the user's solver lock is not overridden |
+| B | B1 Timer | ✅ verified 09-07 | a FRESH timer arms to `every 1m` with no count, so nothing fires on arming — check a fresh one, a re-armed timer keeps its old count and reads as if it had; 0.2s → clamp warning; disarm immediate; reopens `off` |
+| B | B2 Folder Watcher + loop | ◐ verified 09-07 | all five file cases pass — 160MB flushed in 160 chunks gave **exactly one** signal, a removed file's path stayed **off** `Changed Files`, create-then-delete gave nothing. The download-loop and browser-fetch halves still need a model |
+| B | B3 Rhino Changed | ◐ verified 09-07 | (a)–(d) pass: **500 objects = one signal**, and the selection payload carries its counts ("501 objects in the document, 7 selected"). (e) New File not tested |
+| B | B4 **transcript with parameters** | ☐ blocked | needs the Rhino MCP closed, and that MCP is the only way this session can drive Rhino. Must be done by hand |
 | B | B5 Watch Modelling, the rest | ◐ | folding/undo/discard verified; drags and script-suppression not |
 | B | B6 Data Changed + hazard | ☐ | |
-| B | B7 Trigger Control in Rhino | ◐ | host half verified by script; UI in place not |
-| C | C1 everything harness round-trip | ☐ | |
-| C | C2 preset placed twice | ☐ | |
-| C | C3 `.phy` round trip | ☐ | |
-| C | C4 autosave + resume | ◐ | autosave verified on disk; resume button never pressed |
-| C | C5 copy and paste | ☐ | |
+| B | B7 Trigger Control in Rhino | ◐ verified 09-06/07 | page half measured headlessly: rail button tinted while armed, rows carry counts + captions, discard warning only with a recorder armed, and every send is `armtrigger?id=<guid>` — no name crosses the bridge. The UI in Rhino not |
+| C | C1 everything harness round-trip | ✅ verified 09-07 | 27 components: guids preserved and — the documented hazard — **no param-order drift, no wire moved, no value changed**. Router's outputs came back named `declare`/`ask_human`/`state`; Regex flag, Budget caps, For Each items, port nicknames all restored; **all five triggers `off`**, including two armed before saving |
+| C | C2 preset placed twice | ✅ verified 09-07 | names differ, each Delegate links to its OWN worker. Found nested-harness ids not being re-issued, **fixed** (`MutateAll` now descends), and **re-verified**: 14 ids across two nesting levels, 0 duplicates |
+| C | C3 `.phy` round trip | ☐ | Core half already pinned (`PhyPackageTests`, incl. future-format refusal); the import-twice path is not |
+| C | C4 autosave + resume | ◐ | autosave verified on disk; the three ALSO-TEST edges are already pinned by the Core suite (`ANewerFormatIsRefused_NotGuessedAt`, `AMissingImageFileLosesTheBlockAndKeepsTheTurn`, `AHalfWrittenLastLineCostsOneRecord_NotTheFile`) — only the resume BUTTON is untested |
+| C | C5 copy and paste | ◐ verified 09-07 | the arming half is settled: nothing in the trigger tier overrides `Write`/`Read` **at all**, so arming cannot serialize, and C1 confirmed it live. The paste path itself is untested — `GH_DocumentIO.Copy`/`Paste` return true and do nothing from a script |
 | D | D regression sweep | ☐ | |
 | D | D1 Undo Last Placement | ☐ | |
 | E | E1 Declare | ☐ | |
@@ -463,21 +503,50 @@ The case the whole trigger tier exists for, and the one with a bill attached.
 | E | E4 Pipeline State (model) | ☐ | |
 | F | F1 watch and repeat | ☐ | |
 | F | F2 delegation with a real sub-model | ◐ | echo path verified; thinking worker and all four guards not |
-| F | F3 unattended overnight | ☐ | **ship blocker** |
+| F | F3 unattended overnight | ☐ | **ship blocker** — the last one. Drive it with `tools/overnight/Watch-OvernightRun.ps1`, which tails `runs.jsonl` read-only and writes its own verdict; pass the Budget Guard's caps and the Throttle interval so they become assertions |
 | F | F4 two harnesses at once | ☐ | |
-| — | icons for 18 components | ☐ | **ship blocker** |
-| — | Mac decision | ☐ | Windows-only, or schedule the port |
+| — | icons for 29 components | ✅ done 09-07 | all 29 generated, split and installed; audit reports **0** fallbacks across 108 ribbon types |
+| — | Mac decision | ↪ deferred | release deliberately deferred a few weeks (2026-09-07). Plan, audit and ordered checklist in **`planning/mac-port.md`**; the `BridgeExecutable` `.exe` hardcode is fixed |
+
+### What the 09-06/07 pass found
+
+Two defects, both fixed on `final-pass`, and both worth recording because of *how* they were found.
+
+1. **`StateStore.All()` duplicated a key on a case-variant re-set.** `Board.Values` is keyed
+   `OrdinalIgnoreCase`; `Board.Order` was a plain `List<string>` whose `Remove` is case-SENSITIVE. So
+   `set stage` then `set STAGE` left ONE board entry and put TWO items on the `Keys`/`Values`
+   outputs, both carrying the newest value — which shifts anything downstream matching by index.
+   Reproduced live on the shipped `.gha` (§A6). `Clear` had the same mismatch, masked, because
+   `All()` filters the order log through `Values` and so hid the orphaned name rather than showing
+   it. **A masked copy of a bug is the one that survives a test pass; look for it every time.**
+2. **`DocumentIds.MutateAll` did not descend into a nested harness.** A preset placed twice
+   re-issued ids for the document it was handed and for the nested harness COMPONENT, but never for
+   that harness's own `InnerDocument` — so two placements gave two Timers sharing one
+   `InstanceGuid`, which is exactly what Trigger Control's guid addressing exists to prevent. Not a
+   corner case: a Delegate links to a worker harness, so every delegation preset is that shape.
+   **C2's stated assertions all PASSED** — the names differed, `RemapLinks` sent each Delegate to its
+   own worker — so the rig as written would have been ticked. It was caught only by also asserting
+   "no duplicate `InstanceGuid`s **anywhere**", which meant walking two levels down.
+
+Neither was reachable from `Physalia.Core`, which stayed at 964/964 green throughout. That is now
+the third time this document's premise has held.
 
 ### Blocking for a release
 
-1. **B0** — if a trigger cannot wake a harness the user has left, the entire trigger tier is inert in
-   the only configuration that matters.
+1. ~~**B0**~~ — **verified 09-07**, including the `PipelineWake` re-enable that had never been
+   exercised and the host-solver-lock case.
 2. **F3** — an unattended run that overspends its budget is worse than no trigger tier at all.
-3. **C1/C2** — a save/load or preset defect ships broken pipelines to other people.
-4. **Icons.**
+   Still the open blocker.
+3. ~~**C1**~~ — **verified 09-07**, clean round trip with no param or wire drift. **C2** passed its
+   own assertions but exposed the nested-id defect above; re-run it against the fix.
+4. ~~**Icons**~~ — **done 09-07**, 0 fallbacks.
 
 ### Not blocking, but decide before shipping
 
 - Whether `Budget Guard` should say on the node that a token cap is meaningless on a CLI provider.
 - Whether `Data Changed` should ship at all, or ship behind a warning, given its cycle hazard.
 - Whether the Watch-and-Repeat preset should be a `.phy` so it carries its own opening text.
+- Whether a trigger's fire count should **reset when it is re-armed** (noticed in §B1). It does not
+  today, so a re-armed Timer immediately reads `every 10s · 14` and looks as though it fired on
+  arming — which is the one thing B1 exists to check. Cosmetic for a user, actively misleading for a
+  tester, so the test note matters more than the change: **check a FRESH trigger**.

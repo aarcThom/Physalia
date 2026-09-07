@@ -19,6 +19,7 @@
 	import Grounding from '$lib/chat/Grounding.svelte';
 	import ConnectOptions from '$lib/chat/ConnectOptions.svelte';
 	import McpServers from '$lib/chat/McpServers.svelte';
+	import TriggerControl from '$lib/chat/TriggerControl.svelte';
 	import ApiEndpoints from '$lib/chat/ApiEndpoints.svelte';
 	import {
 		DropdownMenu,
@@ -40,8 +41,15 @@
 	import OctagonIcon from '@lucide/svelte/icons/octagon';
 	import HouseIcon from '@lucide/svelte/icons/house';
 	import HistoryIcon from '@lucide/svelte/icons/history';
+	import ZapIcon from '@lucide/svelte/icons/zap';
 	import { cn } from '$lib/utils';
-	import { BRIDGE_SCHEME, openExternalLink, resumeConversation } from '$lib/bridge';
+	import {
+		BRIDGE_SCHEME,
+		openExternalLink,
+		resumeConversation,
+		armTrigger,
+		armAllTriggers
+	} from '$lib/bridge';
 	import type {
 		ClusterInfo,
 		ClusterSelectionPayload,
@@ -64,6 +72,7 @@
 		UiApproval,
 		UiFetchOffer,
 		UiQuestion,
+		UiTrigger,
 		UiChat,
 		UiMessage,
 		UiPdf,
@@ -146,6 +155,10 @@
 	// writes this conversation to a .txt transcript, and a door onto the session's signal trace.
 	let exportToolWired = $state(false);
 	let signalTraceToolWired = $state(false);
+	// Trigger Control: the button, and the live list behind it. Read off the canvas on the host's own
+	// tick — arming changes no data and runs no solution, so there is nothing to push from.
+	let triggerControlWired = $state(false);
+	let triggers = $state<UiTrigger[]>([]);
 
 	// The Image Mark Up tool adds no button of its own — it puts the image editor in front of every
 	// image the human sends. `markUp` is that editor's whole state: the image being drawn on plus where
@@ -219,7 +232,7 @@
 
 	// Other full-screen pages opened from the header menu (mutually exclusive with the chat view
 	// and with setup). null = none open.
-	let panel = $state<'preset' | 'grounding' | 'mcp' | 'api' | null>(null);
+	let panel = $state<'preset' | 'grounding' | 'mcp' | 'api' | 'triggers' | null>(null);
 
 	// MCP config state, pushed by the host whenever the server store changes — from this page,
 	// from another window, or from the user editing the file by hand.
@@ -289,6 +302,8 @@
 				imageToolWired = next.imageToolWired ?? false;
 				exportToolWired = next.exportToolWired ?? false;
 				signalTraceToolWired = next.signalTraceToolWired ?? false;
+				triggerControlWired = next.triggerControlWired ?? false;
+				triggers = next.triggers ?? [];
 				markUpToolWired = next.markUpToolWired ?? false;
 				pdfToolWired = next.pdfToolWired ?? false;
 				pendingPdfs = next.pendingPdfs ?? [];
@@ -1001,6 +1016,24 @@
 				<ActivityIcon class="size-4" />
 			</Button>
 		{/if}
+
+		{#if triggerControlWired}
+			<!-- Trigger button: appears while a Trigger Control human tool is wired, and opens the list
+			     of every trigger in the pipeline. Stays live while the pipeline is busy — switching a
+			     runaway trigger off mid-round is exactly when you want it — and it is tinted while
+			     anything is armed, so the one state worth noticing is visible without opening the page. -->
+			<Button
+				variant="outline"
+				size="icon-lg"
+				class={triggers.some((t) => t.armed) ? 'text-[var(--neu-accent)]' : ''}
+				onclick={() => (panel = 'triggers')}
+				title={triggers.some((t) => t.armed)
+					? `${triggers.filter((t) => t.armed).length} trigger(s) armed - open the trigger list`
+					: 'Open the trigger list'}
+			>
+				<ZapIcon class="size-4" />
+			</Button>
+		{/if}
 	</header>
 
 	<!-- flex-1 + min-h-0 lets this region size to the space left by the composer and
@@ -1058,6 +1091,13 @@
 					ondelete={deleteApiEndpoint}
 					onforgetkey={forgetApiKey}
 					ontest={testApiEndpoint}
+					onclose={closePanel}
+				/>
+			{:else if panel === 'triggers'}
+				<TriggerControl
+					{triggers}
+					onarm={armTrigger}
+					onarmall={armAllTriggers}
 					onclose={closePanel}
 				/>
 			{:else if panel === 'grounding'}

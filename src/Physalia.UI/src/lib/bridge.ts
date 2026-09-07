@@ -173,6 +173,11 @@ export interface UiState {
 	 *  Offered rather than loaded: a pipeline shared across a firm would otherwise arrive with its
 	 *  author's conversation already in it, paid for on the very next call. */
 	resumeTurns?: number | null;
+	/** True when a Trigger Control human tool is wired (shows the trigger button). */
+	triggerControlWired?: boolean;
+	/** Every trigger in this pipeline, armed or not, in canvas order. Null when no Trigger Control
+	 *  tool is wired — the window offers nothing it was not built with. */
+	triggers?: UiTrigger[] | null;
 }
 
 /** One attached PDF, as the composer draws it. */
@@ -471,6 +476,24 @@ export interface UiApproval {
 	harness: string;
 }
 
+/** One trigger in the pipeline, for the Trigger Control page. Read live off the canvas each tick —
+ *  arming changes no data and runs no solution, so there is nothing to push from. */
+export interface UiTrigger {
+	/** Instance id. The address for switching it; never the name, since two can share a nickname. */
+	id: string;
+	/** What kind of trigger it is — "Timer", "Folder Watcher", "Watch Modelling". */
+	kind: string;
+	/** Its nickname on the canvas, which is what the user renamed it to if they did. */
+	name: string;
+	armed: boolean;
+	/** The caption the node itself is showing: "every 30s", "recording · 4", "off". Shown verbatim so
+	 *  the page says the same thing the canvas does. */
+	caption: string;
+	/** True when switching this OFF hands its batch over — a recorder. The row has to say so:
+	 *  discovering afterwards that a demonstration went nowhere cannot be undone. */
+	handsOver: boolean;
+}
+
 /** What sort of answer an Ask Human card is waiting for. */
 export type UiQuestionKind = 'text' | 'choice' | 'rhino-selection';
 
@@ -614,6 +637,24 @@ export function openExternalLink(url: string): void {
 export function answerApproval(id: string, allow: boolean): void {
 	window.location.href =
 		`${BRIDGE_SCHEME}://approve?id=${encodeURIComponent(id)}&allow=${allow ? '1' : '0'}`;
+}
+
+/** Arms or disarms one trigger, by instance id.
+ *
+ *  This is the same act as the node's own right-click menu, which means switching a recorder OFF
+ *  SENDS what it recorded. Switching everything off is a different verb on purpose — see
+ *  armAllTriggers. */
+export function armTrigger(id: string, on: boolean): void {
+	window.location.href =
+		`${BRIDGE_SCHEME}://armtrigger?id=${encodeURIComponent(id)}&on=${on ? '1' : '0'}`;
+}
+
+/** Arms every trigger in the pipeline, or switches every one off.
+ *
+ *  Switching all off DISCARDS what a recorder had accumulated — the kill-switch contract, matching
+ *  the harness panel's own button. Somebody stopping everything is not asking for a round to start. */
+export function armAllTriggers(on: boolean): void {
+	window.location.href = `${BRIDGE_SCHEME}://armtriggers?on=${on ? '1' : '0'}`;
 }
 
 /** Loads the transcript saved in the project folder into the Conversation Log. */

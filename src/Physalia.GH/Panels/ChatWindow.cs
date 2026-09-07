@@ -606,6 +606,12 @@ public class ChatWindow : Form
                 // solve of a node the user has not placed yet.
                 BeginMcpSignIn(GetQueryValue(uri.Query, "name"));
                 break;
+            case "armtrigger":
+                HandleArmTrigger(uri);
+                break;
+            case "armtriggers":
+                HandleArmAllTriggers(uri);
+                break;
             case "resume":
                 HandleResume();
                 break;
@@ -1816,6 +1822,33 @@ public class ChatWindow : Form
         bool exportToolWired = conversationLog?.HasExportTool == true;
         bool signalTraceToolWired = conversationLog?.HasSignalTraceTool == true;
 
+        // Trigger Control: the button, plus the list itself. Read LIVE off the Conversation Log on
+        // every tick rather than pushed when something changes — arming a trigger changes no data and
+        // runs no solution, so there is no event to push from, and the trigger's own caption is the
+        // only place its state lives. The tick's change-detection on the serialized payload is what
+        // keeps that free.
+        bool triggerControlWired = conversationLog?.HasTriggerControlTool == true;
+        var triggers = triggerControlWired && conversationLog is not null
+            ? conversationLog.LiveTriggers
+                .Select(t => new
+                {
+                    id = t.InstanceGuid.ToString(),
+                    kind = t.Name,
+                    name = t.NickName,
+                    armed = t.IsArmed,
+
+                    // The caption the node is showing — "every 30s", "recording · 4", "off". It is
+                    // what a person reads on the canvas to know what a trigger is waiting for, so the
+                    // list says the same thing rather than inventing its own wording.
+                    caption = t.Message ?? string.Empty,
+
+                    // Switching a recorder off SENDS its batch. The page has to say so on the row:
+                    // finding out afterwards that a demonstration went nowhere is not recoverable.
+                    handsOver = t.HandsOverOnDisarm,
+                })
+                .ToList()
+            : null;
+
         // Another marker tool, but this one changes what the two snapshot buttons do rather than adding
         // one of its own: with it wired, every capture detours through the window's image editor, and
         // each image already in the prompt box grows an edit button.
@@ -1842,7 +1875,7 @@ public class ChatWindow : Form
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs, chatText, resumeTurns }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs, chatText, resumeTurns, triggerControlWired, triggers }, WriteOpts);
 
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
@@ -1862,7 +1895,7 @@ public class ChatWindow : Form
             // would answer a question the user did not ask.
             bool home = _home;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, home, status, configuredProviders, providerStatuses, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs, chatText, resumeTurns }, WriteOpts);
+                new { connected, busy, ready, needsSetup, home, status, configuredProviders, providerStatuses, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs, chatText, resumeTurns, triggerControlWired, triggers }, WriteOpts);
 
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
@@ -2907,6 +2940,33 @@ public class ChatWindow : Form
         {
             BrowserFetchOffers.Dismiss(id);
         }
+    }
+
+    // Arms or disarms one trigger, addressed by instance id.
+    //
+    // The id, never the name: two triggers can share a nickname, and a name-keyed switch would flip
+    // whichever one it found first. Routed through the Conversation Log so the window only ever acts
+    // on triggers in the pipeline it is looking at — a Timer in a different harness is not this
+    // page's business.
+    private void HandleArmTrigger(Uri uri)
+    {
+        if (!Guid.TryParse(GetQueryValue(uri.Query, "id"), out Guid id))
+        {
+            return;
+        }
+
+        PromptPipelineView.FindConversationLog(_component, 0)?
+            .SetTriggerArmed(id, GetQueryValue(uri.Query, "on") == "1");
+    }
+
+    // Arms every trigger in this pipeline, or switches every one off.
+    //
+    // Switching all off DISCARDS what a recorder had accumulated, which is the kill-switch contract
+    // the harness panel's own button uses. The page says so; see ConversationLog.SetAllTriggersArmed.
+    private void HandleArmAllTriggers(Uri uri)
+    {
+        PromptPipelineView.FindConversationLog(_component, 0)?
+            .SetAllTriggersArmed(GetQueryValue(uri.Query, "on") == "1");
     }
 
     // Resumes the saved transcript into the Conversation Log this window is looking at.

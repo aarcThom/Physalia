@@ -119,9 +119,20 @@ Home screen. **06** needs points wired into the Harness node's inputs.
 - `audit.py` — sweeps every written `.phy` for anything machine-specific. Runs OUTSIDE Rhino: a
   `.phy` is a zip and its `harness.gh` is raw deflate, so reading the bytes answers the question
   directly and in under a second. Exits non-zero on a finding.
-- `build_all.py` — rebuilds all fourteen and runs both whole-set checks, logging to a file.
+- `build_all.py` — rebuilds all fourteen and runs the Rhino-side check, logging to a file.
 - `check_pairs.py` — confirms every wireless Feedback pair still resolves to a Collector *after* the
-  id reissue a preset load performs. 32 pairs across the set, all resolving.
+  id reissue a preset load performs, and does the same for the Token Count, Set Script I/O and
+  Delegate grip links. 32 pairs and 4 links across the set.
+
+To rebuild and verify the lot:
+
+```
+# in Rhino, through the MCP:  exec(open("tools/presets/build_all.py").read())
+python tools/presets/audit.py
+```
+
+Last full run on a freshly restarted Rhino — so a clean plug-in load, not a warm one: 14 built, 0
+problems each, 0 broken pairs, 0 broken links, audit clean, 23 seconds.
 
 Both of those are whole-set checks worth re-running after any change, because the two failures they
 look for are silent: a preset carrying somebody else's endpoint name, and a Feedback whose collector

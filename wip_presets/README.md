@@ -34,6 +34,7 @@ that need setting up say so in their intro panel and in their chat greeting.
 | 10 | When the Conversation Gets Long | Compaction, and what each kind costs you as well as saves | Claude Code |
 | 11 | Reading Live Data | An HTTP API of your own, and an MCP server's tools | Codex |
 | 12 | Handing Work to a Helper | Delegation — a harness inside a harness, called as a tool | Codex |
+| 13 | Choosing and Tuning a Model | Every Model node, its Model API and its Tweaker, side by side | Claude Code |
 
 ## Two things to know before you start
 
@@ -75,6 +76,9 @@ errors and for overlapping annotation, and **run live in Rhino**:
   and the reply. None of the helper's script or its output is in it. The helper's own conversation
   holds the four turns it took. That is the argument for delegation, demonstrated rather than
   described.
+- **13** — answered on Claude Code, and Model Information reported blanks for it, which is the case
+  the note is written around: a CLI provider's shorthand is not a catalogue id, and unknown is not
+  no.
 
 Two presets need something set up before they do anything, and say so in their intro panel and
 their chat greeting: **05** needs the Py Transmitter linked to a Python 3 Script component on your

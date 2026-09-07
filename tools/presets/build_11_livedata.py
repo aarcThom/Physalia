@@ -284,8 +284,14 @@ bad = sweep(D, NAME)
 # Which endpoints exist is a fact about THIS machine. Blank the saved choice before writing, or the
 # preset ships with somebody else's endpoint name in it - and on a machine with no endpoints at all
 # a stale name reports "not found" where an empty one asks to be picked.
+# Blanking the Picker is NOT enough. ApiCall serializes its own _endpointName, and the Router and
+# the Tool output both carry the derived tool name (api__Vancouver_Open_Data) - so the file shipped
+# with this machine's endpoint in it three times over. Found by reading the archive bytes, not by
+# any component complaining. Clear all three.
 clear_pick(D, api, "Endpoint")
 clear_pick(D, mcp, "Server")
+forget_setting(api, "_endpointName")
+reset_derived_names(router, api, mcp)
 save_phy(H, OUT,
          description="Reading real data: an HTTP API you configure yourself, with the tool walking "
                      "the paging and every record landing on a wire, plus an MCP server connection "

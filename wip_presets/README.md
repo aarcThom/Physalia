@@ -116,11 +116,20 @@ Home screen. **06** needs points wired into the Harness node's inputs.
 - `shoot.py` — renders a harness's canvas to a PNG, so a layout can be looked at.
 - `liverun.py` — places a `.phy` and drives one real round through it, no chat window needed.
 - `test_07_playground.py`, `test_08_timer.py` — the two headless behaviour tests.
-- `audit.py` — sweeps every written `.phy` for anything machine-specific: absolute paths, this
-  user's name, an endpoint or provider that only exists here, an armed trigger.
+- `audit.py` — sweeps every written `.phy` for anything machine-specific. Runs OUTSIDE Rhino: a
+  `.phy` is a zip and its `harness.gh` is raw deflate, so reading the bytes answers the question
+  directly and in under a second. Exits non-zero on a finding.
+- `build_all.py` — rebuilds all fourteen and runs both whole-set checks, logging to a file.
 - `check_pairs.py` — confirms every wireless Feedback pair still resolves to a Collector *after* the
   id reissue a preset load performs. 32 pairs across the set, all resolving.
 
 Both of those are whole-set checks worth re-running after any change, because the two failures they
 look for are silent: a preset carrying somebody else's endpoint name, and a Feedback whose collector
 guid no longer resolves — which swallows the signal, hands it nowhere, and errors about nothing.
+
+**If you script against Rhino this way, retire a document with `RemoveObjects` and *then* `Dispose`,
+never `Dispose` alone.** Every component's `RemovedFromDocument` is what releases its
+subscriptions — a Rhino Document grounder holds thirteen RhinoDoc handlers, a Project Folder holds a
+FileSystemWatcher — and reading these presets back a few dozen times with a bare `Dispose()` left
+enough stale handlers to slow the session until a trivial script could not finish. `phybuild.retire()`
+does it in the right order.

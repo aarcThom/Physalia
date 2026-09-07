@@ -56,4 +56,4 @@ else:
     xs = [b[2] for b in boxes] + [b[4] for b in boxes]
     ys = [b[3] for b in boxes] + [b[5] for b in boxes]
     say("extent: x %.0f..%.0f  y %.0f..%.0f" % (min(xs), max(xs), min(ys), max(ys)))
-    doc.Dispose()
+    retire(doc)

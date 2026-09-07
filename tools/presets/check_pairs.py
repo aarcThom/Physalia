@@ -63,7 +63,7 @@ for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")
     before = broken
     check(doc, "")
     say("%-42s %s" % (name, "all pairs resolve" if broken == before else "PROBLEM"))
-    doc.Dispose()
+    retire(doc)
 
 say("---- %d Feedback pairs checked, %d broken ----" % (pairs, broken))
 
@@ -110,7 +110,7 @@ for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")
         say("%-42s" % name)
         for f in found:
             say("    ", f)
-    doc.Dispose()
+    retire(doc)
 
 say("---- %d grip links checked, %d broken in total ----" % (links, broken))
 

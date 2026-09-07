@@ -296,6 +296,39 @@ def clear_pick(doc, obj, input_name):
     return pk
 
 
+def forget_setting(obj, field, value=""):
+    """
+    Blank a private field a component serializes, so a per-machine setting is not written into a
+    shared preset. Call it after the last solve and immediately before saving.
+    """
+    f = obj.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)
+    if f is None:
+        raise Exception("%s has no field %r" % (obj.Name, field))
+    f.SetValue(obj, value)
+    return obj
+
+
+def reset_derived_names(*objs):
+    """
+    Put any tool-derived output nickname back to a neutral one.
+
+    A Router renames its outputs after whatever tool they reached, and an MCP or API node's names
+    are namespaced from something configured on this machine - so those names travel in the file.
+    They are re-derived on the reader's first solve, which makes resetting them free.
+    """
+    n = 0
+    for obj in objs:
+        ps = getattr(obj, "Params", None)
+        if ps is None:
+            continue
+        for i, p in enumerate(ps.Output):
+            if p.NickName.startswith("api__") or p.NickName.startswith("mcp__"):
+                p.NickName = "T%d" % (i + 1)
+                p.Name = p.NickName
+                n += 1
+    return n
+
+
 def picker_values(doc, obj, input_name):
     pk = picker_of(doc, obj, input_name)
     if pk is None:
@@ -516,6 +549,33 @@ def save_phy(harness, path, description=None, chat_text=None):
 
 
 # --------------------------------------------------------------------------- checking
+
+def retire(doc):
+    """
+    Let a document go PROPERLY: RemoveObjects first, then Dispose.
+
+    Dispose() on its own is not enough and the difference is cumulative. Every component's
+    RemovedFromDocument is what releases its subscriptions - a Rhino Document grounder holds
+    THIRTEEN RhinoDoc event handlers, a Project Folder holds a FileSystemWatcher, a model node may
+    hold a warm CLI process - and none of that is released by Dispose alone.
+
+    Learned the hard way: reading the fourteen presets back several times in one session with a bare
+    Dispose() left enough stale handlers that every RhinoDoc event fanned out to hundreds of dead
+    grounders, and the session slowed until a trivial script could not finish inside the MCP call's
+    300-second window. HarnessComponent.ApplyPackage does it in this order for exactly this reason.
+    """
+    objects = System.Collections.Generic.List[Grasshopper.Kernel.IGH_DocumentObject]()
+    for o in doc.Objects:
+        # a nested harness owns another document, and it leaks the same way
+        if o.Name == "Harness":
+            inner = getattr(o, "InnerDocument", None)
+            if inner is not None:
+                retire(inner)
+        objects.Add(o)
+    if objects.Count:
+        doc.RemoveObjects(objects, False)
+    doc.Dispose()
+
 
 def sweep(doc, label=""):
     """Every runtime message in the document, plus the silent-defect checks. The build's own test."""

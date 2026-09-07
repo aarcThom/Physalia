@@ -130,7 +130,7 @@ panel(D, 1600, 700,
 # --------------------------------------------------------------------------- 6 the router
 
 title(D, 1980, 340, "6 - THE ROUTER", w=300, h=44)
-router = place(D, "Router", 2100, 470, nick="Router")
+router = place(D, "Router", 2100, 505, nick="Router")
 wire(router, "Tool Calls", call, "Tool Calls")
 panel(D, 1960, 860,
       "The ROUTER is the switchboard. One output per tool, plus a FEEDBACK output carrying the "
@@ -158,14 +158,18 @@ askh = place(D, "Ask Human", 2470, 680, nick="Ask Human")
 mem = place(D, "Memory", 2470, 756, nick="Memory")
 memfolder = input_panel(D, 2250, 778, "tools-demo", w=190, h=40, nick="memory folder")
 wire(mem, "Memory Folder", memfolder, 0)
+csearch = place(D, "Component Search", 2470, 836, nick="Component Search")
+catalog = place(D, "Component Catalog", 2330, 858, nick="Component Catalog", sub="Grounding")
+wire(csearch, "Component Catalog", catalog, 0)
+rhinogeo = place(D, "Create/Ref. Rhino Geometry", 2470, 906, nick="Create/Ref. Rhino Geometry")
 
-TOOLS = [drive, rcs, readurl, websearch, askh, mem]
+TOOLS = [drive, rcs, readurl, websearch, askh, mem, csearch, rhinogeo]
 router_slots(router, len(TOOLS) - 1)   # the Router ships with one slot already
 for i, t in enumerate(TOOLS):
     wire(t, "Signal", router, i)
 
-panel(D, 2400, 860,
-      "SIX TOOLS, each its own node, each with its own switches on its right-click menu.\r\n"
+panel(D, 2400, 960,
+      "EIGHT TOOLS, each its own node, each with its own switches on its right-click menu.\r\n"
       "\r\n"
       "DRIVE RHINO runs Python against your live Rhino document. This is the big one: whatever the "
       "model prints comes straight back to it, so it can ask your document any question it likes "
@@ -187,8 +191,17 @@ panel(D, 2400, 860,
       "\r\n"
       "MEMORY is notes the model writes for its future self, kept as files. The white box gives "
       "this pipeline's own set a name; two Memory nodes given the same name share their notes, "
-      "which is how a rebuilt pipeline picks up where it left off.",
-      w=330, h=700)
+      "which is how a rebuilt pipeline picks up where it left off."
+      "\r\n" "\r\n"
+      "COMPONENT SEARCH looks a Grasshopper component up by name or by what it does, in the "
+      "catalog wired beside it. Cheap, and it is what stops the model guessing at a component "
+      "name - see preset 04, where guessing costs a whole round of correction."
+      "\r\n" "\r\n"
+      "CREATE/REF. RHINO GEOMETRY does two things and the second is the interesting one: it "
+      "makes geometry in the RHINO document, and then drops a parameter on your Grasshopper "
+      "canvas REFERENCING it. So the model can hand your definition a real Rhino input rather "
+      "than only describing one.",
+      w=330, h=760)
 
 # --------------------------------------------------------------------------- 8 results home
 
@@ -282,12 +295,14 @@ write_dump(D, DUMP)
 say("router outputs:", [p.NickName for p in router.Params.Output])
 bad = sweep(D, NAME)
 save_phy(H, OUT,
-         description="Adds tools: a Router plus six tool nodes the model can call mid-answer - run "
-                     "Python in Rhino, search the RhinoCommon API, read a web page, search the "
-                     "web, ask you a question, keep notes. Three wireless return paths.",
+         description="Adds tools: a Router plus eight tool nodes the model can call mid-answer - "
+                     "run Python in Rhino, search the RhinoCommon API and the Grasshopper "
+                     "catalog, read a web page, search the web, ask you a question, keep notes, "
+                     "and make Rhino geometry. Three wireless return paths.",
          chat_text="Tools the Model Can Call\r\n\r\n"
                    "The model can now do things as well as say them: run Python against your Rhino "
-                   "document, look up the Rhino API, read a web page, ask you a question, and keep "
+                   "document, look up the Rhino API and the Grasshopper component catalog, read a "
+                   "web page, ask you a question, make geometry in Rhino, and keep "
                    "notes between conversations.\r\n\r\n"
                    "Try: \"how many curves are on each layer? Check, do not guess.\" Then look at "
                    "the panel showing the Python it ran.\r\n\r\n"

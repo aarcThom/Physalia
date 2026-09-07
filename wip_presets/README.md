@@ -37,7 +37,7 @@ that need setting up say so in their intro panel and in their chat greeting.
 |---|---|---|---|
 | 01 | Talk to a Model | The core loop, and the wireless return path that makes it possible | Claude Code |
 | 02 | What the Model Knows | Grounding: six components describing your document, canvas, units and folder | Claude Code |
-| 03 | Tools the Model Can Call | The Router and six tools; three return paths | Codex |
+| 03 | Tools the Model Can Call | The Router and eight tools; three return paths | Codex |
 | 04 | Building on the Canvas | Eight guardrails, then real components placed on your canvas | Claude Code |
 | 05 | Writing Python for You | Code pushed into a Rhino 8 Script component, fitted to its parameters (C# alongside) | Claude Code |
 | 06 | Letting It Look and Walk | Take Snapshot and Move In Space; the harness's own inputs and outputs | Codex |
@@ -49,6 +49,24 @@ that need setting up say so in their intro panel and in their chat greeting.
 | 12 | Handing Work to a Helper | Delegation — a harness inside a harness, called as a tool | Codex |
 | 13 | Choosing and Tuning a Model | Every Model node, its Model API and its Tweaker, side by side | Claude Code |
 | 14 | Looking Inside the Pipeline | The debugging preset: read a signal, read the real prompt, drive it by hand | Claude Code |
+
+## What the set covers
+
+**103 of the 107 placeable Physalia components appear in at least one preset.** That is measured,
+not asserted — `tools/presets/coverage.py` reads every `.phy` and checks it against what the
+plug-in offers, and prints which preset each component appears in. Run it after adding a preset to
+see what is still uncovered.
+
+Four are deliberately absent:
+
+| | Why |
+|---|---|
+| Cluster Grounding | a scaffold; not finished in the plug-in |
+| Python Grounding | a scaffold; not finished in the plug-in |
+| Image Sources | its `/<alias>` prompt reference has no consumer left in the chat window, so a preset would teach something that does not work |
+| LlamaCpp Model Info | it would sit on preset 13's canvas warning about an unwired input forever; the note there says what it is for instead |
+
+Params are excluded from the count — they are wire types, not things a preset teaches.
 
 ## Two things to know before you start
 
@@ -120,6 +138,7 @@ Home screen. **06** needs points wired into the Harness node's inputs.
   `.phy` is a zip and its `harness.gh` is raw deflate, so reading the bytes answers the question
   directly and in under a second. Exits non-zero on a finding.
 - `build_all.py` — rebuilds all fourteen and runs the Rhino-side check, logging to a file.
+- `coverage.py` — every component the plug-in offers against every component the presets use.
 - `check_pairs.py` — confirms every wireless Feedback pair still resolves to a Collector *after* the
   id reissue a preset load performs, and does the same for the Token Count, Set Script I/O and
   Delegate grip links. 32 pairs and 4 links across the set.

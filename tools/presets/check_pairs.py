@@ -72,7 +72,11 @@ say("---- %d Feedback pairs checked, %d broken ----" % (pairs, broken))
 # pointing at nothing advertises no tool. All of them implement IGuidLinked; this proves the remap.
 say("")
 say("==== grip links ====")
-LINKED = {"Token Count": "Token Estimator", "Set Script I/O": "Py Transmitter", "Delegate": "Harness"}
+# A Set Script I/O links to EITHER script transmitter -- it reads the target through whichever
+# one it points at, and the language is the transmitter's business, not this node's.
+LINKED = {"Token Count": ("Token Estimator",),
+          "Set Script I/O": ("Py Transmitter", "C# Transmitter"),
+          "Delegate": ("Harness",)}
 links = 0
 for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")):
     name = os.path.basename(path)
@@ -95,9 +99,10 @@ for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")
                 if target is None:
                     found.append("BROKEN %s%s -> nothing" % (where, o.NickName or o.Name))
                     broken += 1
-                elif target.Name != LINKED[o.Name]:
-                    found.append("BROKEN %s%s -> a %s, expected a %s"
-                                 % (where, o.NickName or o.Name, target.Name, LINKED[o.Name]))
+                elif target.Name not in LINKED[o.Name]:
+                    found.append("BROKEN %s%s -> a %s, expected one of %s"
+                                 % (where, o.NickName or o.Name, target.Name,
+                                    " / ".join(LINKED[o.Name])))
                     broken += 1
                 else:
                     found.append("ok %s%s -> %s %r"
@@ -113,5 +118,44 @@ for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")
     retire(doc)
 
 say("---- %d grip links checked, %d broken in total ----" % (links, broken))
+
+# ---------------------------------------------------------------------------
+# A Router's LAST output is Feedback, not a tool slot. Wiring a tool node's
+# Signal to it costs nothing at build time and no sweep can see it: the tool is
+# never dispatched and never advertised, so the model is simply told it does not
+# exist. Found live on S10, where Pipeline State was one slot past the end.
+say("")
+slots = 0
+misrouted = 0
+
+
+def routers_in(d, where):
+    global slots, misrouted
+    for o in d.Objects:
+        if o.Name == "Router":
+            outs = o.Params.Output
+            last = outs.Count - 1
+            for i in range(outs.Count):
+                for rec in outs[i].Recipients:
+                    owner = rec.Attributes.GetTopLevel.DocObject
+                    if i == last:
+                        if owner.Name not in ("Feedback", "Feedback Collector", "Panel"):
+                            say("    MISROUTED %s%s is wired to the Router's FEEDBACK output"
+                                % (where, owner.NickName or owner.Name))
+                            misrouted += 1
+                    else:
+                        slots += 1
+        if o.Name == "Harness" and o.InnerDocument is not None:
+            routers_in(o.InnerDocument, where + "inner/")
+
+
+for path in sorted(glob.glob(r"C:/Users/rober/repos/Physalia/wip_presets/*.phy")):
+    doc = readfile.Invoke(None, System.Array[System.Object]([path, None]))
+    if doc is None:
+        continue
+    routers_in(doc, os.path.basename(path)[:24] + " ")
+    retire(doc)
+
+say("---- %d router tool slots checked, %d misrouted ----" % (slots, misrouted))
 
 write_log(r"C:\Users\rober\AppData\Local\Temp\claude\check_pairs.log")

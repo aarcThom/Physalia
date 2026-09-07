@@ -45,7 +45,9 @@ def collect(doc, preset):
 
 
 for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")):
-    preset = os.path.basename(path)[:2]
+    # The token before " - " -- basename[:2] gave "S0" for every scenario preset, so they all
+    # collapsed into one column and the table said nothing about which one covered what.
+    preset = os.path.basename(path).split(" - ")[0]
     doc = readfile.Invoke(None, System.Array[System.Object]([path, None]))
     if doc is None:
         say("!! %s unreadable" % preset)
@@ -65,7 +67,7 @@ for section in sorted(offered):
         where = sorted(used.get(name, []))
         if where:
             covered += 1
-            say("  %-32s %s" % (name, ", ".join(where)))
+            say("  %-32s %s" % (name, " ".join(where)))
         else:
             missing.append((section, name))
             say("  %-32s --" % name)

@@ -13,7 +13,12 @@ exec(open(r"C:\Users\rober\repos\Physalia\tools\presets\phybuild.py").read())
 import glob
 import os
 
-SUSPECT = ["C:\\", "/Users/", "rober", "AppData", "repos\\Physalia", "Vancouver"]
+# Two lists, because the two places have different rules. A PATH or this user's name is wrong
+# wherever it appears, prose included. A provider or endpoint name is only wrong as stored
+# DATA - in prose it is usually a legitimate example ("Vancouver, Toronto and London all
+# publish one"), and flagging that on every build is how a check teaches people to ignore it.
+PATHY = ["C:" + chr(92), "/Users/", "rober", "AppData", "repos" + chr(92) + "Physalia"]
+MACHINE = PATHY + ["Vancouver Open Data", "deepseek", "tavily"]
 
 hc = _type("Physalia.GH.Harness.HarnessComponent")
 readfile = [c for c in hc.GetMethods(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)
@@ -40,7 +45,7 @@ for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")
             except Exception:
                 pass
             if txt:
-                for bad in SUSPECT:
+                for bad in PATHY:
                     if bad.lower() in txt.lower():
                         findings.append("%s panel text mentions %r: %s" % (where, bad, txt[:70]))
             ps = getattr(o, "Params", None)
@@ -53,7 +58,7 @@ for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")
                         n = 0
                     if n:
                         vals = " ".join(str(v) for v in pd.AllData(True))
-                        for bad in SUSPECT:
+                        for bad in MACHINE:
                             if bad.lower() in vals.lower():
                                 findings.append("%s %s.%s holds %r: %s"
                                                 % (where, o.NickName or o.Name, p.Name, bad, vals[:70]))
@@ -80,7 +85,7 @@ for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")
                                          BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
             v = str(pr.GetValue(o)) if pr is not None else "?"
             if v and v not in ("", "None"):
-                for bad in SUSPECT:
+                for bad in MACHINE:
                     if bad.lower() in v.lower():
                         findings.append("%s Picker saved choice %r" % (where, v))
             if o.Name == "Harness":
@@ -98,3 +103,5 @@ for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")
     doc.Dispose()
 
 say("---- total findings:", total)
+
+write_log(r"C:\Users\rober\AppData\Local\Temp\claude\audit.log")

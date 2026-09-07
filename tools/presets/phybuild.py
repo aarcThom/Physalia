@@ -629,6 +629,18 @@ def layout(doc):
             o.Attributes.PerformLayout()
 
 
+def write_log(path):
+    """
+    Dump everything say() has collected to a file.
+
+    Worth doing at the end of any long sweep: the MCP call's RESPONSE times out at 300 seconds even
+    when the work finished, and stdout goes with it. A file survives.
+    """
+    with open(path, "w") as f:
+        f.write(chr(10).join(LOG))
+    return path
+
+
 def write_dump(doc, path):
     """Park the full wire dump in a file - it is the build's test, but far too long to read back
     through a tool call every time."""

@@ -65,4 +65,53 @@ for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")
     say("%-42s %s" % (name, "all pairs resolve" if broken == before else "PROBLEM"))
     doc.Dispose()
 
-say("---- %d pairs checked, %d broken ----" % (pairs, broken))
+say("---- %d Feedback pairs checked, %d broken ----" % (pairs, broken))
+
+# The same class of silent failure applies to every other guid-based link: a Token Count pointing
+# at nothing shows no counter, a Set Script I/O pointing at nothing emits no contract, a Delegate
+# pointing at nothing advertises no tool. All of them implement IGuidLinked; this proves the remap.
+say("")
+say("==== grip links ====")
+LINKED = {"Token Count": "Token Estimator", "Set Script I/O": "Py Transmitter", "Delegate": "Harness"}
+links = 0
+for path in sorted(glob.glob(r"C:\Users\rober\repos\Physalia\wip_presets\*.phy")):
+    name = os.path.basename(path)
+    doc = readfile.Invoke(None, System.Array[System.Object]([path, None]))
+    if doc is None:
+        continue
+    found = []
+
+    def links_in(d, where):
+        global broken, links
+        for o in d.Objects:
+            if o.Name in LINKED:
+                pr = o.GetType().GetProperty(
+                    "LinkedGuid", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
+                if pr is None:
+                    continue
+                g = pr.GetValue(o)
+                target = d.FindObject(g, False)
+                links += 1
+                if target is None:
+                    found.append("BROKEN %s%s -> nothing" % (where, o.NickName or o.Name))
+                    broken += 1
+                elif target.Name != LINKED[o.Name]:
+                    found.append("BROKEN %s%s -> a %s, expected a %s"
+                                 % (where, o.NickName or o.Name, target.Name, LINKED[o.Name]))
+                    broken += 1
+                else:
+                    found.append("ok %s%s -> %s %r"
+                                 % (where, o.NickName or o.Name, target.Name, target.NickName))
+            if o.Name == "Harness" and o.InnerDocument is not None:
+                links_in(o.InnerDocument, where + "inner/")
+
+    links_in(doc, "")
+    if found:
+        say("%-42s" % name)
+        for f in found:
+            say("    ", f)
+    doc.Dispose()
+
+say("---- %d grip links checked, %d broken in total ----" % (links, broken))
+
+write_log(r"C:\Users\rober\AppData\Local\Temp\claude\check_pairs.log")

@@ -69,8 +69,12 @@ errors and for overlapping annotation, and **run live in Rhino**:
   honestly having lost the middle of the conversation.
 - **11** — made real requests against a live open-data API, recovered from a 404 on a wrong dataset
   name, and put records on the wire one item per record.
-- **12** — the nested helper harness round-trips whole, and the Delegate's link is remapped
-  correctly through the id reissue a preset load performs.
+- **12** — a full delegated round. The caller wrote its own task, Task In read "1 received", the
+  helper ran a script and got 10, Task Out read "1 answered", and `10` arrived on the caller's Last
+  Answer wire. The caller's conversation holds four turns — the request, the call, the answer `10`,
+  and the reply. None of the helper's script or its output is in it. The helper's own conversation
+  holds the four turns it took. That is the argument for delegation, demonstrated rather than
+  described.
 
 Two presets need something set up before they do anything, and say so in their intro panel and
 their chat greeting: **05** needs the Py Transmitter linked to a Python 3 Script component on your

@@ -85,8 +85,10 @@ panel(D, 720, 510,
       "that it exists.\r\n"
       "\r\n"
       "That instruction is necessary. A model merely told it CAN declare a route will usually just "
-      "answer in prose, which is the exact thing this pipeline exists to stop.",
-      w=250, h=290)
+      "answer in prose, which is the exact thing this pipeline exists to stop."
+      "\r\n" "\r\n"
+      "There is a second tool on the Router: PIPELINE STATE, in stage 6b.",
+      w=250, h=350)
 
 title(D, 1030, TITLE_Y, "4 - THE LOOP", w=300, h=44)
 log = place(D, "Conversation Log", 1150, SPINE, nick="Conversation Log")
@@ -114,6 +116,7 @@ panel(D, 1030, 660,
 title(D, 1780, TITLE_Y, "5 - THE MODEL PICKS A ROUTE", w=320, h=44)
 router = place(D, "Router", 1860, SPINE, nick="Router")
 wire(router, "Tool Calls", call, "Tool Calls")
+router_slots(router, 1)
 declare = place(D, "Declare", 2180, SPINE, nick="Declare")
 wire(declare, "Signal", router, 0)
 routes = list_panel(D, 1900, 620, ["build", "explain", "ask"], w=170, h=90,
@@ -170,10 +173,55 @@ panel(D, 2500, 960,
       "reach the combined outcome at all.",
       w=320, h=400)
 
+# ------------------------------------------------------- 6b state the graph can branch on
+
+title(D, 2900, 1400, "6b - STATE THE GRAPH CAN READ", w=320, h=44)
+pstate = place(D, "Pipeline State", 3040, 1520, nick="Pipeline State")
+wire(pstate, "Signal", router, 1)
+st_key = input_panel(D, 2840, 1560, "phase", w=170, h=44, nick="a key to watch")
+wire(pstate, "Key", st_key, 0)
+st_instr = input_panel(D, 2840, 1620,
+                       "Keep a key called 'phase' set to survey, design or check, so the pipeline "
+                       "knows where we are.",
+                       w=170, h=110, nick="which keys matter")
+wire(pstate, "Instruction", st_instr, 0)
+st_keys = panel(D, 3260, 1470, "every key it has set", w=280, h=80, colour=OUTPUT_GREY)
+st_keys.AddSource(pin(pstate, "out", "Keys"))
+st_vals = panel(D, 3260, 1560, "their values", w=280, h=80, colour=OUTPUT_GREY)
+st_vals.AddSource(pin(pstate, "out", "Values"))
+st_one = panel(D, 3260, 1650, "the value of the key above", w=280, h=80, colour=OUTPUT_GREY)
+st_one.AddSource(pin(pstate, "out", "Value"))
+panel(D, 2900, 1760,
+      "PIPELINE STATE lets the model put a NAMED VALUE somewhere the graph can read it, and that "
+      "third grey panel is the point: wire it into a Match Text and a Signal Gate exactly as stage "
+      "6 does with the declared route, and you have a pipeline that branches on something the "
+      "model decided several rounds ago."
+      
+      "\r\n" "\r\n"
+      "IT IS NOT THE MEMORY TOOL, and the difference is worth being clear about. Memory is prose "
+      "files the model writes for its future self, and the pipeline never looks inside them. This "
+      "puts a value on a WIRE."
+      
+      "\r\n" "\r\n"
+      "A DECLARE is a decision about THIS round; state persists across rounds. Use Declare for "
+      "\"what should happen next\" and state for \"where have we got to\"."
+      
+      "\r\n" "\r\n"
+      "The white instruction panel earns its place. An author who does not say which keys matter "
+      "gets keys the model invented, and a Gate watching one nobody ever set. Unlike the Memory "
+      "tool it does NOT make calling mandatory, because a pipeline that never branches on state has "
+      "no use for it."
+      
+      "\r\n" "\r\n"
+      "Session-only, per harness, and capped - 64 keys, 8KB a value. It is scratch space, not a "
+      "database.",
+      w=320, h=420)
+
 # --------------------------------------------------------------------------- return paths
 
 fb_res, co_res = back(D, declare, "Result", router, "Results",
                       2540, 1450, 1600, 1450, nick="tool results")
+wire(fb_res, "Signal", pstate, "Result")
 back(D, router, "Feedback", log, "LLM Tool Signal",
      1860, 1620, 1000, 1620, nick="tool round to the log")
 back(D, call, "Success Signal", log, "Response Signal",
@@ -352,7 +400,7 @@ solve(D)
 solve(D)
 solve(D)
 write_dump(D, DUMP)
-say("router outputs:", [p.NickName for p in router.Params.Output])
+say("router outputs:", [q.NickName for q in router.Params.Output])
 say("declare routes:", [str(v) for v in pin(declare, "in", "Routes").VolatileData.AllData(True)])
 bad = sweep(D, NAME)
 save_phy(H, OUT,

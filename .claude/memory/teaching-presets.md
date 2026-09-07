@@ -39,14 +39,27 @@ headless behaviour tests. Read `wip_presets/README.md` for the set and what each
   404s and does not.
 - **Codex is slow** — two to four minutes per round in these tests. Claude Code answers in seconds.
 
-## A product defect worth fixing
+## A product defect — found here, and FIXED here
 
-**System Prompt re-places a Picker on Preamble/Schema every time a file is READ**, and on its SECOND
-solve that Picker snaps to `values[0]`. Measured: a plain conversational preset reloaded with the
-11,900-character *C# Script* preamble folded into its system prompt. `AddedToDocument` only guards on
-`GhJsonBridge.IsImporting`, which a preset load is not. Removing the Picker at build time is not
-enough — it comes back. `blank_input()` works around it by giving the input a real source holding
-nothing, so `SourceCount` is 1 and no Picker is ever added.
+**System Prompt re-placed a Picker on Preamble/Schema every time a file was READ**, and on its
+SECOND solve that Picker snapped to `values[0]`. Measured: a plain conversational preset reloaded
+with the 11,900-character *C# Script* preamble folded into its system prompt. `AddedToDocument` only
+guarded on `GhJsonBridge.IsImporting`, which a preset load is not, so deleting the Picker — the
+documented workaround — did not survive a save.
+
+**Fixed 2026-09-07.** `PhyBase.Read` sets `WasRestored`, and the new `PhyBase.AutoPlacePicker` skips
+a restored component — so auto-placing is finally what its own doc comment always claimed, something
+that happens when you DROP a component on the canvas. The discriminator works because Grasshopper
+deserializes an object by emitting it, calling `Read`, and only then adding it to the document; a
+fresh placement never gets a `Read`. Eight components shared the defect (System Prompt, both CLI
+models, Model API, ModelComponentBase, OpenAI-compatible, Token Estimator, Tokenization Techniques),
+so the guard is central and a new component cannot get it wrong. Regression test:
+`tools/presets/test_picker_reload.py` — ten assertions plus all eight components, including that a
+fresh placement STILL gets its Pickers and a document saved with them reloads unchanged.
+
+Still open, and separate: **`ApiCall` and `McpServer` tell the user to "right-click and add a
+Picker" and no such menu item exists anywhere.** Those two never auto-placed one, so that promise
+was already empty before this change.
 
 Related, smaller: **`ImageSources`'s `/<alias>` prompt reference looks dead.** Nothing outside the
 component and its own dialog reads it, and only PDFs have aliases in `ChatWindow`. Left out of the

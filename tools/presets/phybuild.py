@@ -362,16 +362,19 @@ def list_panel(doc, x, y, lines, w=200, h=90, nick=None):
 
 def blank_input(doc, obj, input_name, x, y, label="(none)"):
     """
-    Leave an input deliberately EMPTY, in a way that survives a save and reload.
+    Leave an input deliberately EMPTY, and SAY on the canvas that it is empty on purpose.
 
-    Removing an auto-placed Picker is not enough. AddedToDocument re-places one whenever the input
-    has no source, and that fires again when a preset is read back - so the Picker returns, and on
-    its SECOND solve (the first one its list is still empty) it snaps to values[0]. Measured: a
-    plain conversational preset reloaded with the 11,900-character C# script preamble folded into
-    its system prompt.
+    This began as a workaround. Removing an auto-placed Picker was not enough, because
+    AddedToDocument re-placed one whenever the input had no source and that fires again on every
+    file READ - and a fresh Picker snaps to values[0] on its second solve. Measured: a plain
+    conversational preset reloaded with the 11,900-character C# script preamble folded into its
+    system prompt.
 
-    So the input gets a real source holding nothing: SourceCount is 1, no Picker is ever added, and
-    DA.GetData simply returns false.
+    That defect is FIXED in the plug-in as of 2026-09-07 (PhyBase.AutoPlacePicker skips a restored
+    component), so the empty source is no longer load-bearing. It is kept because it is better
+    teaching: a small labelled white box reading "no preamble file" tells a reader the slot is empty
+    deliberately, where a bare unwired input tells them nothing. SourceCount is 1, so no Picker is
+    added on a fresh placement either, and DA.GetData simply returns false.
     """
     drop_picker(doc, obj, input_name)
     t = input_panel(doc, x, y, "", w=140, h=40, nick=label)

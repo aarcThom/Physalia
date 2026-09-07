@@ -70,11 +70,7 @@ public class TokenizationTechniques : PhyBase, IPickableValuesSource
     public override void AddedToDocument(GH_Document document)
     {
         base.AddedToDocument(document);
-        if (GhJsonBridge.IsImporting) return;
-
-        if (Params.Input[0].SourceCount > 0) return;
-
-        ComponentHelpers.PickerAdd(this, document, 0);
+        AutoPlacePicker(document, 0);
     }
 
     /// <inheritdoc/>

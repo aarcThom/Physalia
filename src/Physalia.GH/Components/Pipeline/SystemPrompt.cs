@@ -80,19 +80,17 @@ public class SystemPrompt : PhyBase, IPickableValuesSource
     }
 
     /// <summary>
-    /// When dropped onto the canvas, auto-places three Pickers staggered to the left.
+    /// When dropped onto the canvas, auto-places two Pickers staggered to the left — one for the
+    /// preamble file and one for the schema. Neither is placed on a component read out of a file;
+    /// see <see cref="PhyBase.AutoPlacePicker"/>.
     /// </summary>
     /// <param name="document">The active Grasshopper document.</param>
     public override void AddedToDocument(GH_Document document)
     {
         base.AddedToDocument(document);
-        if (GhJsonBridge.IsImporting) return;
 
-        if (Params.Input[0].SourceCount == 0)
-            ComponentHelpers.PickerAdd(this, document, 0, xOffset: -300f, yOffset: -15f);
-
-        if (Params.Input[1].SourceCount == 0)
-            ComponentHelpers.PickerAdd(this, document, 1, xOffset: -300f, yOffset: 15f);
+        AutoPlacePicker(document, 0, xOffset: -300f, yOffset: -15f);
+        AutoPlacePicker(document, 1, xOffset: -300f, yOffset: 15f);
     }
 
     /// <inheritdoc/>

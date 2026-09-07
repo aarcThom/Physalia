@@ -77,3 +77,19 @@ scroll" bug.** `tools/uitest/test_setup_visible.py` puts the bundle in first-run
 
 Same lesson as the pixel-assertion note above: measure the geometry, not the mere presence of the
 element. "The node is in the DOM" was true the whole time it was invisible.
+
+## Verifying what the page SENDS the host (added 2026-09-06)
+
+A page-side interception of the bridge does not work: the UI reaches the host by assigning
+`window.location.href = 'phbridge://...'`, and Chrome refuses to let that be replaced —
+`Object.defineProperty(window, 'location', ...)` throws **"Cannot redefine property: location"**. The
+DOM assertions still run; the navigation is simply never captured, so a test written that way passes
+while proving nothing about the send.
+
+Capture it from OUTSIDE instead, over the DevTools Protocol (`tools/uitest/cdp.py` already has the
+socket): `Log.enable`, click, then read the event frames — Chrome reports the blocked custom-scheme
+navigation and the report carries the whole URI. Note `cdp.WS.call` DISCARDS events (it returns only
+the frame matching its request id), so drain the socket yourself and keep the frames with no `id`.
+
+Working example: `tools/uitest/test_trigger_send.py`, which is how the Trigger Control page's
+"addressed by instance id, never by nickname" contract was actually verified.

@@ -25,6 +25,16 @@ a participant in an ongoing model.
   on whatever machine opened it. Same family of reasoning as first-observation baselining. The kill
   switch is `TriggerRegistry` (weak registry) + the harness panel's "Disarm N triggers" button, which
   is visible in BOTH panel states because the panel opens collapsed.
+- **Arming lives in the chat window now, via the `TriggerControl` human tool** (added 2026-09-06,
+  UI verified headlessly). A node's own menu is right for ONE trigger and useless for finding the
+  three that are armed inside a harness. Two things about it generalise:
+  **(a) there are TWO arming verbs and conflating them makes one case silently wrong** —
+  `SetArmedAndHandOver` for a switch aimed at one named trigger (what its own menu does, so a
+  recorder SENDS its batch) and `SetArmed` for switch-everything-off (the kill switch, which
+  discards). **(b) address a trigger by `InstanceGuid`, never by nickname** — Folder Watcher and
+  Watch Modelling BOTH default to the nickname "Watch", so a name-keyed switch flips whichever it
+  finds first. The list is read live off the document every tick because arming changes no data and
+  runs no solution, so there is no event to push from.
 - **`PipelineWake.Ready(component)` before any scheduled solution from an external event.** GH drops
   scheduled solutions on a disabled document; a harness sub-document's `Enabled` is our invariant
   re-asserted by the proxy's solve, and the proxy only solves when the host does. Re-enable **only a

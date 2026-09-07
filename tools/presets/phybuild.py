@@ -231,6 +231,23 @@ def back(doc, src, src_out, dst, dst_in, fx, fy, cx, cy, nick=None):
 
 # --------------------------------------------------------------------------- pickers
 
+def add_picker(doc, obj, input_name, x=None, y=None):
+    """
+    Attach a Picker to an input that does not auto-place one.
+
+    Some nodes place their own (System Prompt, the Model nodes); API Call and MCP Server do not,
+    because what they offer comes from a per-machine store. A Picker learns its list from whatever
+    it is wired to, so wiring it up is all there is to it.
+    """
+    p = pin(obj, "in", input_name)
+    pk = place(doc, "Picker", 0, 0, sub="Extra")
+    pk.Attributes.Pivot = PointF(
+        float(x) if x is not None else obj.Attributes.Pivot.X - 200.0,
+        float(y) if y is not None else obj.Attributes.Pivot.Y)
+    p.AddSource(pk.Params.Output[0])
+    return pk
+
+
 def picker_of(doc, obj, input_name):
     """The Picker that auto-placed itself on one of a component's inputs, if any."""
     p = pin(obj, "in", input_name)

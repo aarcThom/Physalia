@@ -8,11 +8,24 @@ They are designed to be worked through in order. Each assumes the ones before it
 
 ## How to use them
 
-1. Open the Physalia chat window (bottom-right widget on the Grasshopper canvas).
-2. On the **Home** screen, choose **Place predefined harness** — or drop the `.phy` file straight
-   onto your canvas.
-3. Right-click the Harness node and choose **Edit Harness** to go inside and read it.
-4. Double-click the Harness node to open the chat window on the Chat inside it. Each preset's
+These files live outside the preset library, so the chat window's gallery does not list them yet.
+There are two ways in, and **there is no drag-and-drop onto the canvas** — that was checked.
+
+**Either put them in the library.** Copy the `.phy` files into `Files/PRESETS/User/` beside the
+plug-in (the folder is `.../Physalia.GH/bin/<config>/net7.0-windows/Files/PRESETS/User` when running
+from a build). They then appear in the chat window's **Home → Place predefined harness** gallery,
+each with the one-line description out of its manifest. Verified: the library enumerates `.phy` as
+well as `.gh`, and reads the description back.
+
+**Or load one into a harness you already have.** Chat window **Home → Place empty harness**, then
+right-click that Harness node and choose **Load Harness from .gh File…**. It accepts a `.phy` from
+anywhere on disk. Note it REPLACES that harness's contents — conversation, solve state and all — and
+asks you first.
+
+Once it is on the canvas:
+
+1. Right-click the Harness node and choose **Edit Harness** to go inside and read it.
+2. Double-click the Harness node to open the chat window on the Chat inside it. Each preset's
    greeting says what to try first.
 
 Nothing is armed and nothing is linked to your own components until you do it yourself. Presets

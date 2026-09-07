@@ -322,9 +322,13 @@ public class ChatWindow : Form
             }
         });
 
-    // Close this window when its host goes away, so it never orphans on the desktop:
-    //   - Grasshopper editor closed (X button) — Windows only (the editor is WinForms).
-    //   - Rhino quitting — cross-platform.
+    // Go with this window's host, so it never sits on the desktop over a Grasshopper that has gone:
+    //   - Grasshopper editor closed (X button) — HIDDEN, and restored when it comes back. Windows
+    //     only (the editor is WinForms).
+    //   - Grasshopper or Rhino torn down for real — closed. Cross-platform via RhinoApp.Closing.
+    //
+    // FormClosing is the hook that carries the X-click and FormClosed is NOT — see OnGhEditorClosing.
+    // All three are subscribed because each covers a different gesture.
     private void HookHostClose()
     {
         Rhino.RhinoApp.Closing += OnHostClosing;
@@ -333,7 +337,9 @@ public class ChatWindow : Form
         if (editor is not null)
         {
             _ghEditor = editor;
+            editor.FormClosing += OnGhEditorClosing;
             editor.FormClosed += OnGhEditorClosed;
+            editor.VisibleChanged += OnGhEditorVisibleChanged;
         }
 #endif
     }
@@ -344,13 +350,20 @@ public class ChatWindow : Form
 #if WINDOWS
         if (_ghEditor is not null)
         {
+            _ghEditor.FormClosing -= OnGhEditorClosing;
             _ghEditor.FormClosed -= OnGhEditorClosed;
+            _ghEditor.VisibleChanged -= OnGhEditorVisibleChanged;
             _ghEditor = null;
         }
 #endif
     }
 
     private void OnHostClosing(object? sender, EventArgs e) => CloseFromHost();
+
+    // True while the window is put away because Grasshopper was closed — see HideForHost. Session
+    // state, and the only thing CanAskUser is derived from. Not under #if WINDOWS: CanAskUser is
+    // read on every platform.
+    private bool _hiddenForHost;
 
     // Host-close callbacks may arrive off the UI thread — marshal the Close onto it.
     private void CloseFromHost() => Application.Instance.AsyncInvoke(() =>
@@ -365,12 +378,116 @@ public class ChatWindow : Form
         }
     });
 
+    /// <summary>
+    /// Gets a value indicating whether a person could actually answer something asked in this window.
+    ///
+    /// <para>It exists because <b>putting the window away for a closed Grasshopper would otherwise
+    /// defeat every fail-closed gate that keys on <c>Chat.ActiveWindow is null</c></b>. Those gates
+    /// are what stop a tool call waiting out its full timeout with nowhere to ask; a hidden window is
+    /// still a window, so without this a card would be posted to a surface nobody can see and the
+    /// model would wait five or ten minutes for it. Asked of the window rather than derived from
+    /// <c>Visible</c> so that it means one thing only — put away with its host — and never a window
+    /// that has simply not finished being shown.</para>
+    /// </summary>
+    internal bool CanAskUser => !_hiddenForHost;
+
+    /// <summary>
+    /// Puts the window away with its host, keeping the conversation loaded for when it comes back.
+    ///
+    /// <para><b>Hidden rather than closed</b> so that reopening Grasshopper reopens the chat where it
+    /// was — which is what Grasshopper itself does with the documents it was holding, closing being a
+    /// cancelled close and a <c>Hide()</c> rather than a teardown. See
+    /// <see cref="OnGhEditorClosing"/>.</para>
+    ///
+    /// <para><b>Anything already waiting on an answer is still failed closed here</b>, exactly as a
+    /// real close would fail it. There is nowhere to answer until Grasshopper comes back, and a card
+    /// left pending behind a hidden window is the five minutes of silence the brokers exist to
+    /// avoid — so an approval is denied and a question goes back unanswered, which the model can act
+    /// on while a person is still here.</para>
+    /// </summary>
+    private void HideForHost() => Application.Instance.AsyncInvoke(() =>
+    {
+        if (_hiddenForHost)
+        {
+            return;
+        }
+
+        _hiddenForHost = true;
+
+        try
+        {
+            Visible = false;
+        }
+        catch
+        {
+            // already torn down — nothing to hide
+        }
+
+        ToolApprovalBroker.DenyAll();
+        HumanQuestionBroker.AbandonAll();
+    });
+
+    /// <summary>
+    /// Brings the window back when its host returns.
+    ///
+    /// <para>Guarded on <c>_hiddenForHost</c> so this only ever undoes <see cref="HideForHost"/>. The
+    /// editor becomes visible for reasons that are none of this window's business — docked into
+    /// Rhino, switching back to the Grasshopper panel tab is one — and a chat window nobody put away
+    /// must not be summoned by any of them.</para>
+    /// </summary>
+    private void RestoreFromHost() => Application.Instance.AsyncInvoke(() =>
+    {
+        if (!_hiddenForHost)
+        {
+            return;
+        }
+
+        _hiddenForHost = false;
+
+        try
+        {
+            // Show rather than Visible = true, and the position is left alone so it comes back where
+            // the user had it. The Shown handler is _loaded-guarded, so the page is not reloaded.
+            Show();
+        }
+        catch
+        {
+            // torn down while away — nothing to bring back
+        }
+    });
+
 #if WINDOWS
     // The Grasshopper editor window this chat was opened from; held so we can unsubscribe.
     private System.Windows.Forms.Form? _ghEditor;
 
+    // CLOSING, not Closed, and that is the whole point: GRASSHOPPER NEVER CLOSES. Its own
+    // GH_DocumentEditor.DocumentEditorFormClosing (verified against the shipped assembly) sets
+    // e.Cancel = true and calls Hide() for every CloseReason except a real teardown — which is why
+    // reopening Grasshopper brings back the same documents. So FormClosed fires only on
+    // Instances.CloseGrasshopper()/Rhino shutdown, and the latter is already covered by
+    // RhinoApp.Closing: hooking Closed alone left this window sitting on the desktop over a
+    // Grasshopper that had visibly gone. FormClosing still fires, cancel or not, and it IS the
+    // gesture — the user asked for Grasshopper to go away.
+    //
+    // Keyed on the gesture rather than on the editor's visibility deliberately. Docked into Rhino,
+    // the editor is hidden by switching to another panel tab, and putting the conversation away
+    // there — denying every pending approval card with it — is not what that click meant.
+    private void OnGhEditorClosing(object? sender, System.Windows.Forms.FormClosingEventArgs e)
+        => HideForHost();
+
     private void OnGhEditorClosed(object? sender, System.Windows.Forms.FormClosedEventArgs e)
         => CloseFromHost();
+
+    // The restore half. It fires far more often than the chat is ever put away — which is why
+    // RestoreFromHost is guarded — but it is the one event that says Grasshopper is back: the editor
+    // returns from its cancelled close by being SHOWN again, so there is nothing else to listen for.
+    private void OnGhEditorVisibleChanged(object? sender, EventArgs e)
+    {
+        if (sender is System.Windows.Forms.Form { Visible: true })
+        {
+            RestoreFromHost();
+        }
+    }
 #endif
 
     // Logical name of the chat UI bundle embedded by Physalia.GH's EmbedChatHtml build target.
@@ -2795,7 +2912,10 @@ public class ChatWindow : Form
     /// <returns>True when the browser is now showing; false to fall back to a window of its own.</returns>
     internal bool TryShowFetch(Uri target, string folder)
     {
-        if (!_loaded)
+        // Not loaded yet, or put away with a closed Grasshopper: either way this is not a surface
+        // anyone can see, so the standalone window takes it. A fetch offer has no timeout to fall
+        // back on — it would simply never be acted on.
+        if (!_loaded || _hiddenForHost)
         {
             return false;
         }

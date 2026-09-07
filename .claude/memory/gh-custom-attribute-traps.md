@@ -106,3 +106,51 @@ Also verified while chasing this, and useful in itself: the canvas steals focus 
 `Focus()` call in `GH_Canvas`), it forwards **nothing** to Rhino, and `GH_Canvas.HasControlWithFocus`
 walks `Controls` checking `Focused`/`ContainsFocus`. Decompile with `ilspycmd -r "C:\Program
 Files\Rhino 8\System"`.
+
+## Closing Grasshopper reaches NEITHER `FormClosed` NOR a child's `VisibleChanged` (2026-09-07)
+
+Both the harness panel and the chat window stayed on screen after the Grasshopper window was closed.
+Two unrelated causes, each verified by decompiling the shipped assembly.
+
+**1. Grasshopper never closes.** `GH_DocumentEditor.DocumentEditorFormClosing` sets
+`e.Cancel = true` and calls `Hide()` for every `CloseReason` except `m_closeForReal` / app exit /
+owner-closing / Windows shutdown — which is exactly why reopening it restores the same documents. So
+`FormClosed` fires only on `Instances.CloseGrasshopper()` or Rhino shutdown (already covered by
+`RhinoApp.Closing`), and a hook on it is dead for the X-click. **`FormClosing` still fires, cancelled
+or not** — that is the hook, and it is the *gesture*, which is what the chat window keys on.
+
+**2. A WinForms control is NEVER told an ancestor was hidden.** `Control.SetVisibleCore` does
+`SetState(States.Visible, false)` **before** raising, and `OnVisibleChanged` forwards to children
+only `if (control.Visible)` — and the `Visible` getter walks the parent chain
+(`if (ParentInternal != null) return ParentInternal.Visible;`), so by then every child already reads
+false. They get `internal OnParentBecameInvisible()` instead, which raises nothing. **A control hears
+`VisibleChanged` when IT is hidden and never when an ancestor is**; only the form whose own state
+changed raises anything. `HarnessPanelHost`'s `canvas.VisibleChanged` subscription was therefore
+unreachable code for the case it was written for.
+
+**And owning a window to a form does not cover it**: Windows hides an owned window when the owner is
+MINIMISED, not when the owner is hidden.
+
+**How to follow a host window, then:** subscribe `VisibleChanged` on the form itself — resolved via
+`canvas.FindForm()`, lazily, never `Instances.DocumentEditor` (see [[harness-subdocument]] / the
+panel's own note: docked, the canvas lives in Rhino's window). Hide, don't dispose, and come back
+through the rebind path rather than a bare `Show()` — a hidden Grasshopper returns with its documents
+intact but possibly pointed somewhere else.
+
+**The two directions need two different hooks.** Going away keys on the GESTURE (`FormClosing`);
+coming back keys on the editor's `VisibleChanged`, since a cancelled close is undone by the editor
+merely being shown again. Do NOT key going away on visibility: docked into Rhino, switching panel
+tabs hides the editor, and putting a conversation away over that click is not what it meant. Guard
+the restore on having done the hiding, or every unrelated visibility change summons the window.
+
+**Hiding a window instead of closing it silently breaks whatever fails closed on its ABSENCE.**
+`ToolApprovalBroker`/`HumanQuestionBroker` refuse immediately when `Chat.ActiveWindow is null` — that
+is what stops a tool call waiting out five or ten minutes with nowhere to ask — and a hidden window
+is still an open window. So the window answers `CanAskUser` (put away with its host, not merely
+"not shown yet"), the gates ask for that rather than for non-null, and anything already pending is
+denied/abandoned at hide time. Same class of question for any surface with no timeout at all: a
+browser-fetch offer falls back to its standalone window instead.
+
+Eto detail worth keeping: `Visible = false` on a Form maps to WPF `Window.Hide()`
+(`Eto.Wpf.Forms.WpfWindow`), so the HWND — and any Win32 ownership set on it — survives, and
+`Show()` on an already-loaded Eto form is just `Visible = true` and reloads nothing.

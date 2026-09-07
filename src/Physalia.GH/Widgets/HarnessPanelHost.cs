@@ -56,6 +56,10 @@ internal static class HarnessPanelHost
         Follow(h => canvas.SizeChanged += h, panel);
         Follow(h => canvas.ParentChanged += h, panel);
 
+        // The canvas being hidden on its OWN account — nothing does that today, but it is the cheap
+        // half of the pair. The Grasshopper window closing does NOT reach here: WinForms never raises
+        // VisibleChanged on a child when an ancestor is hidden, which is why the panel follows its
+        // host window's visibility instead. See HarnessPanel.OnHostVisibleChanged.
         canvas.VisibleChanged += (sender, _) => Refresh(sender as GH_Canvas);
         canvas.DocumentChanged += (sender, _) => Refresh(sender);
 

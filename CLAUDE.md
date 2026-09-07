@@ -960,6 +960,20 @@ Name / Description / Chat text / Save / Load / Back, and rolls up to its title b
   hosted in a Rhino panel and it is Rhino's window that moves it. Re-checked on each show, so
   docking or undocking mid-session re-points the panel instead of leaving it tracking a window the
   canvas has left.
+- **It also FOLLOWS that window's visibility, which is the only way it can hear Grasshopper being
+  closed** (fixed 2026-09-07: the panel sat on screen over a Grasshopper that had gone). Two
+  independent reasons the obvious hooks are dead. (1) **Grasshopper never closes** —
+  `GH_DocumentEditor.DocumentEditorFormClosing` sets `e.Cancel = true` and calls `Hide()` for every
+  `CloseReason` but a real teardown, which is why reopening it restores the same documents. (2) **A
+  WinForms control is never told an ANCESTOR was hidden** — `SetVisibleCore` flips `States.Visible`
+  before raising, and `OnVisibleChanged` forwards to a child only `if (control.Visible)`, whose
+  getter walks the parent chain and so already reads false; children get the internal
+  `OnParentBecameInvisible()`, which raises nothing. So `canvas.VisibleChanged` (which
+  `HarnessPanelHost` had been relying on) structurally cannot fire, and only the form whose own
+  state changed raises anything. Owning the panel to that form does not cover it either — Windows
+  hides an owned window when the owner is MINIMISED, not when it is hidden. The panel is HIDDEN, not
+  disposed, and returns through `HarnessPanelHost.Refresh` rather than a bare `Show()`: the canvas
+  comes back intact but may be pointed at a different document, or none.
 - **It opens COLLAPSED**, and **Back to document is the LAST row and stays visible in both states**.
   Expanded it is a few hundred pixels square permanently over a working canvas, while its three
   fields are edited about twice in a harness's life and the exit is wanted constantly — so rolled up
@@ -1001,6 +1015,32 @@ Name / Description / Chat text / Save / Load / Back, and rolls up to its title b
   than one line. It is deliberately NOT the composer placeholder as well; that would say the same
   thing twice on an empty conversation, and the placeholder is where the host's wiring hints live
   ("Add an LLM Call with a Model…"), which must not be displaced by a welcome message.
+
+The **chat window goes with Grasshopper too — HIDDEN on the way out, restored on the way back in**
+(fixed 2026-09-07). It hooked `Instances.DocumentEditor.FormClosed`, which — per the harness panel's
+point (1) above — fires only on `Instances.CloseGrasshopper()`/Rhino shutdown, and `RhinoApp.Closing`
+already covered that; the X-click reached nothing at all.
+- **The two halves listen to different things, and each is the only thing that works for its
+  direction.** Going away keys on the **gesture** (`FormClosing`, which fires whether or not the
+  close is cancelled) and NOT on the editor's visibility: docked into Rhino, the editor is hidden by
+  switching to another panel tab, and putting the conversation away over that click — denying its
+  pending cards with it — is not what it meant. Coming back keys on the editor's `VisibleChanged`,
+  because a cancelled close is undone by the editor simply being SHOWN again; there is no other
+  event. The restore is guarded on having done the hiding, so the far more frequent visibility
+  changes summon nothing.
+- **Hidden, not closed**, so the conversation, the loaded page and the window position all survive —
+  the same bargain Grasshopper strikes with the documents it was holding. `Visible = false` maps to
+  WPF's `Window.Hide()` through `Eto.Wpf.Forms.WpfWindow`, so the HWND survives and the Win32
+  ownership set by `OwnToGrasshopperEditor` still holds when it returns; `Show()` on an
+  already-loaded Eto form is just `Visible = true`, so nothing is re-loaded.
+- **`ChatWindow.CanAskUser` is what keeps hiding honest, and without it this change would have
+  quietly broken every fail-closed gate.** `ToolApprovalBroker` and `HumanQuestionBroker` refuse
+  immediately when there is nowhere to ask, and both keyed that on `Chat.ActiveWindow is null` — but
+  a hidden window is still an open window, so a card would have been posted to a surface nobody
+  could see and the model would have waited out the full five or ten minutes. Both now ask
+  `is not { CanAskUser: true }`, `TryShowFetch` refuses (so a blocked download falls back to the
+  standalone `BrowserFetchWindow`, which has no timeout to save it), and whatever was already
+  pending is denied/abandoned at hide time exactly as a real close would have done it.
 
 ### Tool approval (`IToolApprover`, `ToolApprovalBroker`, `ApprovalCard.svelte`)
 One seam, not a dialog per tool: downloading, unpacking and (later) running a script all want the same

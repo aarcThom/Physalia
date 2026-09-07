@@ -249,6 +249,10 @@ internal sealed class HarnessPanel : Form
     /// built — so there was no window yet, nothing was ever subscribed, and moving Grasshopper left
     /// the panel behind on screen. Doing it here means it happens the first time the panel is
     /// actually shown, by which point the window certainly exists.</para>
+    ///
+    /// <para><b>The host's own <c>VisibleChanged</c> is also the only place the panel can hear
+    /// Grasshopper being closed</b> — see <see cref="OnHostVisibleChanged"/> for why the canvas's
+    /// cannot.</para>
     /// </summary>
     private void EnsureHostWindow()
     {
@@ -262,11 +266,13 @@ internal sealed class HarnessPanel : Form
         {
             previous.Move -= this.OnHostMoved;
             previous.Resize -= this.OnHostMoved;
+            previous.VisibleChanged -= this.OnHostVisibleChanged;
         }
 
         this._host = host;
         host.Move += this.OnHostMoved;
         host.Resize += this.OnHostMoved;
+        host.VisibleChanged += this.OnHostVisibleChanged;
 
         // Owning the panel to that window is what keeps it above Grasshopper, drops it behind
         // whatever application the user switches to, and hides it when the window is minimised.
@@ -281,6 +287,44 @@ internal sealed class HarnessPanel : Form
         }
     }
 
+    /// <summary>
+    /// Goes with the window the canvas lives in — Grasshopper closed is Grasshopper HIDDEN, and this
+    /// is the only event that says so.
+    ///
+    /// <para><b>The canvas's own <c>VisibleChanged</c> structurally cannot fire here, which is what
+    /// left the panel floating over a closed Grasshopper.</b> <c>Control.SetVisibleCore</c> flips
+    /// <c>States.Visible</c> BEFORE raising the event, and <c>OnVisibleChanged</c> forwards to a child
+    /// only <c>if (control.Visible)</c> — whose getter walks the parent chain and therefore already
+    /// reads false. Children get the internal <c>OnParentBecameInvisible()</c> instead, which raises
+    /// nothing. So a control hears <c>VisibleChanged</c> when IT is hidden and never when an ancestor
+    /// is; only the form whose state actually changed raises anything. (Verified against the shipped
+    /// WinForms assembly.) Owning the panel to that form does not cover it either: Windows hides an
+    /// owned window when its owner is MINIMISED, not when the owner is hidden.</para>
+    ///
+    /// <para>Hidden, not disposed, and it comes back through <see cref="HarnessPanelHost.Refresh"/>
+    /// rather than a bare <c>Show()</c>: Grasshopper's X cancels the close and hides the editor, so
+    /// the canvas returns with its documents intact but may be pointed somewhere else entirely by
+    /// then — possibly at no harness at all, in which case the panel must stay away.</para>
+    /// </summary>
+    /// <param name="sender">The host window whose visibility changed.</param>
+    /// <param name="e">Unused.</param>
+    private void OnHostVisibleChanged(object? sender, EventArgs e)
+    {
+        if (this.IsDisposed || sender is not Form host)
+        {
+            return;
+        }
+
+        if (host.Visible)
+        {
+            HarnessPanelHost.Refresh(this._owner);
+        }
+        else
+        {
+            this.Hide();
+        }
+    }
+
     /// <inheritdoc/>
     protected override void Dispose(bool disposing)
     {
@@ -288,6 +332,7 @@ internal sealed class HarnessPanel : Form
         {
             host.Move -= this.OnHostMoved;
             host.Resize -= this.OnHostMoved;
+            host.VisibleChanged -= this.OnHostVisibleChanged;
             this._host = null;
         }
 

@@ -73,7 +73,10 @@ internal static class ToolApprovalBroker
 
         // Nothing to ask through. Deny now rather than after five minutes of silence: the answer is
         // the same and the model can act on it while the user is still here.
-        if (Components.Chat.ActiveWindow is null)
+        //
+        // CanAskUser, not merely a non-null window: a chat put away because Grasshopper was closed is
+        // still an open window, and a card posted to it would be one nobody could see.
+        if (Components.Chat.ActiveWindow is not { CanAskUser: true })
         {
             return false;
         }

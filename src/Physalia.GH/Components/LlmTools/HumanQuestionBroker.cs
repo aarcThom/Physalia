@@ -67,7 +67,10 @@ internal static class HumanQuestionBroker
 
         // Nothing to ask through. Say so now rather than after ten minutes of silence: the answer is
         // the same and the model can say "I need someone to tell me X" while a person is still here.
-        if (Components.Chat.ActiveWindow is null)
+        //
+        // CanAskUser, not merely a non-null window: a chat put away because Grasshopper was closed is
+        // still an open window, and a question posted to it would be one nobody could see.
+        if (Components.Chat.ActiveWindow is not { CanAskUser: true })
         {
             return HumanAnswer.Unanswered;
         }

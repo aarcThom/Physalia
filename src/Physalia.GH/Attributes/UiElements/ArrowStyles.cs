@@ -35,4 +35,7 @@ public static class ArrowStyles
 
     /// <summary>ZoomGuid → any component link: gold to royal blue.</summary>
     public static readonly WireGradient ZoomGuid = new(Color.Gold, Color.RoyalBlue);
+
+    /// <summary>Delegate tool to the harness it calls.</summary>
+    public static readonly WireGradient Delegate = new(Color.DarkOrange, Color.MidnightBlue);
 }

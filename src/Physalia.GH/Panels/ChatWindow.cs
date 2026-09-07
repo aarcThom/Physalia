@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -79,6 +79,11 @@ public class ChatWindow : Form
     // the bytes come over and are spooled to temp. The file PICKER, which is the path for anything
     // large, opens host-side and never moves a byte across the bridge.
     private const string PdfDropKind = "pdf-drop";
+
+    // Marks a payload carrying an answer to an Ask Human card rather than a message. It rides the
+    // submit channel because that is the one path already proven for text of any length — a typed
+    // answer can be a pasted paragraph, and a custom-URI query is not the place for that.
+    private const string HumanAnswerKind = "human-answer";
 
 
     private static readonly JsonSerializerOptions WriteOpts =
@@ -175,6 +180,8 @@ public class ChatWindow : Form
 
     private string? _lastFetchOffers;
 
+    private string? _lastQuestions;
+
     private readonly PixelLayout _root;
 
     // Built on first use: most sessions never fetch anything in a browser, and a second Chromium view
@@ -269,6 +276,7 @@ public class ChatWindow : Form
         // already waiting, and a visible delay between the model deciding and the question arriving
         // reads as the pipeline having stalled. The tick still pushes as a safety net.
         ToolApprovalBroker.Changed += OnApprovalsChanged;
+        HumanQuestionBroker.Changed += OnQuestionsChanged;
         BrowserFetchOffers.Changed += OnFetchOffersChanged;
 
         Closed += (_, _) =>
@@ -276,6 +284,7 @@ public class ChatWindow : Form
             _timer.Stop();
             UnhookHostClose();
             ToolApprovalBroker.Changed -= OnApprovalsChanged;
+            HumanQuestionBroker.Changed -= OnQuestionsChanged;
             BrowserFetchOffers.Changed -= OnFetchOffersChanged;
         };
     }
@@ -288,6 +297,17 @@ public class ChatWindow : Form
             if (_loaded)
             {
                 MaybePushApprovals();
+            }
+        });
+
+    // Same marshalling as the approval one, and for the same reason: the question is raised on
+    // whatever thread the tool call is running on.
+    private void OnQuestionsChanged() =>
+        Application.Instance.AsyncInvoke(() =>
+        {
+            if (_loaded)
+            {
+                MaybePushQuestions();
             }
         });
 
@@ -585,6 +605,9 @@ public class ChatWindow : Form
                 // sign-in — so the browser handshake happens during setup rather than on the first
                 // solve of a node the user has not placed yet.
                 BeginMcpSignIn(GetQueryValue(uri.Query, "name"));
+                break;
+            case "resume":
+                HandleResume();
                 break;
             case "cancel":
                 HandleCancel();
@@ -1297,6 +1320,14 @@ public class ChatWindow : Form
             return;
         }
 
+        // An answer to an Ask Human card. Not a prompt either — it goes back to the tool call that is
+        // waiting on it, and never into the conversation as a turn of its own.
+        if (message.Kind == HumanAnswerKind)
+        {
+            ReceiveHumanAnswer(raw);
+            return;
+        }
+
 
         string msgText = NormalizeRefs(message.Text ?? string.Empty);
         IReadOnlyList<SubmitImage> images = message.Images ?? (IReadOnlyList<SubmitImage>)Array.Empty<SubmitImage>();
@@ -1613,6 +1644,13 @@ public class ChatWindow : Form
         // third field on the harness panel. Only on a Chat, never on Home, whose own prose belongs to
         // the window rather than to any one pipeline.
         string? chatText = _home ? null : Harness.PhyDocuments.Harness(_component)?.ChatText;
+
+        // A saved transcript sitting in the project folder, offered rather than loaded. Only while
+        // this conversation is still empty: resuming into one already under way would interleave two
+        // histories, and there is no correct way to do that. Nulled on Home, which has no pipeline.
+        int? resumeTurns = !_home && conversationLog?.CanResumeConversation == true
+            ? conversationLog.SavedTranscriptTurns
+            : null;
         string status = needsSetup ? "Setup mode"
             : busy ? "Working…"
             : _home ? "Choose an option above to begin."
@@ -1804,7 +1842,7 @@ public class ChatWindow : Form
         int componentCount = availableComponents.Sum(c => c.components.Count);
 
         string groundingSignature = JsonSerializer.Serialize(
-            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs, chatText }, WriteOpts);
+            new { groundingWired, exposeSignatures, groundingTree, groundingSelection, componentCount, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs, chatText, resumeTurns }, WriteOpts);
 
 
         if (_forcePush || connected != _lastConnected || busy != _lastBusy || ready != _lastReady
@@ -1824,7 +1862,7 @@ public class ChatWindow : Form
             // would answer a question the user did not ask.
             bool home = _home;
             string state = JsonSerializer.Serialize(
-                new { connected, busy, ready, needsSetup, home, status, configuredProviders, providerStatuses, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs, chatText }, WriteOpts);
+                new { connected, busy, ready, needsSetup, home, status, configuredProviders, providerStatuses, groundingWired, exposeSignatures, groundingTree, groundingSelection, availableComponents, clustersWired, availableClusters, clusterSelection, toolsWired, availableTools, toolsSelection, referencedGeometryWired, availableReferencedGeometry, pythonWired, pythonFunctions, unitsWired, documentUnits, unitsOverride, unitOptions, snapshotWired, snapshotGeometryPresent, snapshotSendsMessage, snapshotDefaultMessage, snapshotMessage, viewSnapshotWired, viewSnapshotSendsMessage, viewSnapshotDefaultMessage, viewSnapshotMessage, imageToolWired, exportToolWired, signalTraceToolWired, markUpToolWired, tokenCountToolWired, pdfToolWired, pendingPdfs, chatText, resumeTurns }, WriteOpts);
 
             Exec($"window.physalia&&window.physalia.setState({state});");
         }
@@ -1844,6 +1882,9 @@ public class ChatWindow : Form
 
         // Switcher row: one circle per Chat on the canvas, pushed when the set/active changes.
         MaybePushChats();
+
+        // Ask Human cards, on the same terms as the approval cards below.
+        MaybePushQuestions();
 
         // Tool approval cards. Also pushed straight off ToolApprovalBroker.Changed, so a card appears
         // the moment the model asks rather than up to a tick later; this is the safety net that
@@ -2672,6 +2713,39 @@ public class ChatWindow : Form
         Exec($"window.physalia&&window.physalia.setApprovals&&window.physalia.setApprovals({json});");
     }
 
+    // Pushes the outstanding Ask Human cards. Change-detected on the serialized set like every other
+    // push, so the 0.15 s tick costs nothing while none are waiting.
+    private void MaybePushQuestions()
+    {
+        var list = HumanQuestionBroker.Pending()
+            .Select(p => new
+            {
+                id = p.Id,
+                title = p.Question.Title,
+                prompt = p.Question.Prompt,
+
+                // Lower-cased so the page can switch on it without knowing about C# enum casing.
+                kind = p.Question.Kind switch
+                {
+                    Physalia.Core.Tools.HumanAnswerKind.RhinoSelection => "rhino-selection",
+                    Physalia.Core.Tools.HumanAnswerKind.Choice => "choice",
+                    _ => "text",
+                },
+                choices = p.Question.Choices.ToList(),
+                harness = p.HarnessName ?? string.Empty,
+            })
+            .ToList();
+
+        string json = JsonSerializer.Serialize(list, WriteOpts);
+        if (json == _lastQuestions)
+        {
+            return;
+        }
+
+        _lastQuestions = json;
+        Exec($"window.physalia&&window.physalia.setQuestions&&window.physalia.setQuestions({json});");
+    }
+
     /// <summary>
     /// Shows a browser over the chat, saving what it downloads into the project folder.
     ///
@@ -2833,6 +2907,92 @@ public class ChatWindow : Form
         {
             BrowserFetchOffers.Dismiss(id);
         }
+    }
+
+    // Resumes the saved transcript into the Conversation Log this window is looking at.
+    //
+    // Offered rather than automatic: a pipeline shared across a firm would otherwise arrive with its
+    // author's conversation already loaded and paid for on the next call. The button only exists
+    // while the conversation is empty, so there is no interleaving to worry about here.
+    private void HandleResume()
+    {
+        ConversationLog? log = PromptPipelineView.FindConversationLog(_component, 0);
+        if (log is null)
+        {
+            return;
+        }
+
+        string? problem = log.ResumeSavedConversation();
+
+        if (problem is not null)
+        {
+            Rhino.RhinoApp.WriteLine($"[Physalia] {problem}");
+            return;
+        }
+
+        // The conversation reference has changed underneath the window, so the next push must send
+        // the history rather than compare it against what it last sent.
+        _forcePush = true;
+    }
+
+    // Routes an Ask Human answer back to the tool call waiting on it.
+    //
+    // The Rhino selection is read HERE, at the moment the person pressed the button, and not when the
+    // question was asked: the whole point of a select-in-Rhino question is that they go and select
+    // something after reading it. It is read on the UI thread, which is where this runs.
+    private void ReceiveHumanAnswer(string raw)
+    {
+        HumanAnswerPayload? payload;
+        try
+        {
+            payload = JsonSerializer.Deserialize<HumanAnswerPayload>(raw, ReadOpts);
+        }
+        catch
+        {
+            return;
+        }
+
+        if (payload is null || string.IsNullOrEmpty(payload.Id))
+        {
+            return;
+        }
+
+        if (payload.Skip)
+        {
+            HumanQuestionBroker.Skip(payload.Id);
+            return;
+        }
+
+        List<string> selected = payload.ReadSelection ? ReadRhinoSelection() : new List<string>();
+
+        HumanQuestionBroker.Answer(payload.Id, payload.Text ?? string.Empty, selected);
+    }
+
+    // The ids of whatever is selected in Rhino right now.
+    private static List<string> ReadRhinoSelection()
+    {
+        var ids = new List<string>();
+
+        try
+        {
+            Rhino.RhinoDoc? doc = Rhino.RhinoDoc.ActiveDoc;
+            if (doc is null)
+            {
+                return ids;
+            }
+
+            foreach (Rhino.DocObjects.RhinoObject obj in doc.Objects.GetSelectedObjects(includeLights: false, includeGrips: false))
+            {
+                ids.Add(obj.Id.ToString());
+            }
+        }
+        catch
+        {
+            // A selection that cannot be read is reported as none selected. The answer still goes
+            // back, and the model is told the count, so it can ask again rather than assume.
+        }
+
+        return ids;
     }
 
     // Routes a card's Allow/Deny back to the tool call waiting on it. Anything but an explicit
@@ -4015,6 +4175,12 @@ public class ChatWindow : Form
     // marked up — it carries no text, because the message that speaks for it is read from the wired
     // tool host-side (see SubmitJsonPayload).
     private sealed record SubmitMessage(string Text, List<SubmitImage>? Images, string? Kind);
+
+
+    // An answer to an Ask Human card, riding the submit channel under its own Kind. Skip is its own
+    // field rather than an empty Text: answering with nothing and refusing to answer are different
+    // facts, and the model is told which it got.
+    private sealed record HumanAnswerPayload(string? Id, string? Text, bool Skip, bool ReadSelection);
 
 
     // Grounding selection pushed from the window: all=true clears to include-everything; otherwise

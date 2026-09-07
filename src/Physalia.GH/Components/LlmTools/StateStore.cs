@@ -80,7 +80,13 @@ internal static class StateStore
             }
 
             board.Values[name] = body;
-            board.Order.Remove(name);
+
+            // Removed WITHOUT regard to case, because Values is keyed that way and List.Remove is
+            // not: setting "stage" and then "STAGE" left one board entry but two order entries, and
+            // All() — which filters the order log through the case-insensitive Values — then handed
+            // the outputs the same value twice under two spellings. A duplicate on Keys/Values
+            // shifts anything downstream matching by index, which is most of what this node is for.
+            board.Order.RemoveAll(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase));
             board.Order.Add(name);
         }
 
@@ -167,7 +173,11 @@ internal static class StateStore
             }
 
             string name = key.Trim();
-            board.Order.Remove(name);
+
+            // Case-insensitively, for the same reason as Set: a case-variant spelling would
+            // otherwise remove the value and leave its name in the order log. All() filters that
+            // out, so nothing shows — which is exactly why it would accumulate unnoticed.
+            board.Order.RemoveAll(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase));
             return board.Values.Remove(name) ? 1 : 0;
         }
     }

@@ -36,7 +36,11 @@ tick you cannot defend.
 
 ### What is NOT a test, and must be fixed regardless
 
-- **Icons.** All 18 new components fall back to the brain placeholder. Blocking for a release.
+- **Icons.** **29** ribbon components fall back to the brain placeholder — counted 2026-09-06 by
+  matching every type declaring `override Guid ComponentGuid` against the `.gha`'s embedded
+  `Physalia.GH.Resources.<TypeName>.png` names, so it is the shipped artifact's count rather than a
+  tally of what felt new. The `Param_*` types are exempt: `PhyParam` sets `GH_Exposure.hidden`, so
+  they never reach the ribbon. Blocking for a release.
 - **Mac.** Not testable on this machine. `McpServer.BridgeExecutable()` still hardcodes a `.exe`
   (memory: `mac-port-mcp-gaps`), and the new WinForms surfaces are Windows-only. Decide whether the
   release is Windows-only and say so, or schedule the port.
@@ -465,7 +469,7 @@ The case the whole trigger tier exists for, and the one with a bill attached.
 | F | F2 delegation with a real sub-model | ◐ | echo path verified; thinking worker and all four guards not |
 | F | F3 unattended overnight | ☐ | **ship blocker** |
 | F | F4 two harnesses at once | ☐ | |
-| — | icons for 18 components | ☐ | **ship blocker** |
+| — | icons for 29 components | ☐ | **ship blocker**; counted against the built `.gha`, not estimated |
 | — | Mac decision | ☐ | Windows-only, or schedule the port |
 
 ### Blocking for a release

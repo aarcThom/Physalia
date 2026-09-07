@@ -130,7 +130,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Component icon generation](component-icon-generation.md) — splitter in `tools/icons/`; whole set replaced 2026-08-17, **+29 added 2026-09-07 → 0 fallbacks**. An apparent bead-size drift measured FALSE; check stroke/ink before touching Split.ps1.
 - [Physalia repo gotchas](physalia-repo-gotchas.md) — slnx in `src/`; the `Files` → bin pipeline + its two MSBuild gotchas.
 - [ILRepack Release double-merge](ilrepack-release-double-merge.md) — the empty `ILRepack.targets` suppresses the package's failing target. Don't delete it.
-- [Mac todo](mac-todo.md) — four `#if WINDOWS` files, 22 more importing WinForms unguarded, GhPythonBridge HintPaths.
+- [Mac todo](mac-todo.md) — **superseded by `planning/mac-port.md`** (2026-09-07, release deferred). Two blockers found FROM WINDOWS: the non-Windows TFM fails restore on a System.Drawing.Common downgrade, and the Grasshopper NuGet asset is the WINDOWS build. 29 WinForms files but only 4 real items; Core is completely clean.
 - [GH code editor abandoned](gh-code-editor-abandoned.md) — native GH script editor unreachable; custom Eto dialog instead.
 - [Python output list access](python-output-list-access.md) — RESOLVED 2026-06-29. Fix = `MarshOutputs` on, plus No Type Hint + List access.
 - Two projects only: Physalia.Core (net7.0), Physalia.GH (net7.0-windows / net7.0 on Mac). CA1416 warnings are false positives.

@@ -90,5 +90,21 @@ five triggers share the one path. Note `StatefulComponentBase.ScheduleAt`'s earl
 does not go back through `Ready`** — harmless today because the proxy only ever re-asserts `Enabled`
 true, but it is the seam to look at first if B0 fails intermittently rather than outright.
 
-Still open and NOT checkable off-canvas: B0 itself, F3, C1/C2. `McpServer.BridgeExecutable()` still
-hardcodes `.exe` ([[mac-port-mcp-gaps]]).
+## 2026-09-07 later — both fixes re-verified, icons done, F3 is the last blocker
+
+Rhino restarted onto the fixed build, and **A6 and C2 were re-run against it**: the state board
+returns ONE item for a case-variant re-set (was two) and `Clear` no longer orphans an order entry;
+two placements of a delegation preset gave **14 ids across two nesting levels with 0 duplicates**,
+with each Delegate still linked to its own worker. A fix that is only "compiles clean" is worth
+re-running — the whole reason this doc exists.
+
+**Icons: 0 fallbacks** across 108 ribbon types (see [[component-icon-generation]]).
+
+**A monitor now exists for F3**: `tools/overnight/Watch-OvernightRun.ps1`, tested against fixtures
+on all three verdict paths (PASS / FAIL / NOTHING HAPPENED). It is **read-only by design** — asking
+Grasshopper anything could expire a component, and a monitor that perturbs the run it measures is
+worthless for this rig — so it tails `runs.jsonl` by byte offset and watches `conversation.json` and
+folder growth. It knows a Budget Guard legitimately overruns by exactly ONE call. Use
+`-StopAfterMinutes` so the verdict writes itself.
+
+**Remaining ship blocker: F3 only.** Mac is deferred by decision (`planning/mac-port.md`).

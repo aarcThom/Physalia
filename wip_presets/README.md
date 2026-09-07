@@ -35,6 +35,7 @@ that need setting up say so in their intro panel and in their chat greeting.
 | 11 | Reading Live Data | An HTTP API of your own, and an MCP server's tools | Codex |
 | 12 | Handing Work to a Helper | Delegation — a harness inside a harness, called as a tool | Codex |
 | 13 | Choosing and Tuning a Model | Every Model node, its Model API and its Tweaker, side by side | Claude Code |
+| 14 | Looking Inside the Pipeline | The debugging preset: read a signal, read the real prompt, drive it by hand | Claude Code |
 
 ## Two things to know before you start
 
@@ -79,6 +80,9 @@ errors and for overlapping annotation, and **run live in Rhino**:
 - **13** — answered on Claude Code, and Model Information reported blanks for it, which is the case
   the note is written around: a CLI provider's shorthand is not a catalogue id, and unknown is not
   no.
+- **14** — both hand-minted paths. `Construct Tool Call` ran `print(1+1)` through Drive Rhino with
+  no model in the loop at all, and `Construct Signal` drove a real round whose answer — "14 objects
+  … Structure (10), Beams (3), Slabs (1)" — was correct.
 
 Two presets need something set up before they do anything, and say so in their intro panel and
 their chat greeting: **05** needs the Py Transmitter linked to a Python 3 Script component on your

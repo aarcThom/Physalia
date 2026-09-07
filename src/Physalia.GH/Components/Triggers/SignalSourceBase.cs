@@ -224,6 +224,8 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
     /// <param name="e">The event to report.</param>
     protected void ReportEvent(TEvent e)
     {
+        bool needsCaption = false;
+
         lock (_gate)
         {
             if (!_armed)
@@ -238,6 +240,15 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
                 // A recorder: the batch is the result, so nothing is minted until it is switched off.
                 // No settle timer at all — there is no pause length that tells thinking apart from
                 // finishing, and guessing at one would cut a demonstration in half.
+                //
+                // The caption IS refreshed, though, and it has to be: a recorder mints nothing while
+                // it runs, so the count on the node is the only sign it is catching anything. Without
+                // this it read a flat "recording" however much was recorded (seen live with four
+                // events pending), because Message is otherwise only rewritten on a state
+                // transition and a recorder makes none until it stops. Gated on FiresOnDisarm so the
+                // event-per-tick sources keep costing nothing, which also keeps this on the UI
+                // thread: a recorder's events come from Rhino command and document callbacks.
+                needsCaption = true;
                 return;
             }
 
@@ -249,6 +260,13 @@ public abstract class SignalSourceBase<TEvent> : StatefulComponentBase, IArmable
                 null,
                 Math.Max(1, SettleMs),
                 System.Threading.Timeout.Infinite);
+        }
+
+        if (needsCaption)
+        {
+            // Outside the lock: this reaches the component's attributes, and holding the gate across
+            // a display refresh is how a UI callback ends up waiting on an event handler.
+            UpdateStateDisplay();
         }
     }
 

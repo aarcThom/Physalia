@@ -11,7 +11,7 @@ Physalia is a Grasshopper (Rhino) AI plugin. It builds a visual node-based pipel
 
 - **Working dir:** `C:\Users\rober\repos\Physalia\src`
 - **Projects:** `Physalia.Core` (net7.0), `Physalia.GH` (net7.0-windows on Windows, net7.0 on Mac — OS-conditional TargetFrameworks), `Physalia.McpBridge` (**net8.0 console exe**, launched as a subprocess, never linked — see MCP below)
-- **Planning docs:** `planning/data-marshalling.md` (**authoritative** for signals + component lifecycle), `planning/physalia-primitives.md` (component spec), `planning/model-defaults.md` (**authoritative** for the known-model-defaults registry), `planning/incremental-building.md` (**authoritative** for staged generation: the plan block, the Build Plan tracker, why the digest owns the report's closing instruction), `planning/pdf-tools.md` (**authoritative** for the Read PDF pair: the session registry, the zoom loop, the descriptor), `planning/api_research.md`, `src/planning/ghjson-implementation.md`
+- **Planning docs:** `planning/data-marshalling.md` (**authoritative** for signals + component lifecycle), `planning/physalia-primitives.md` (component spec), `planning/model-defaults.md` (**authoritative** for the known-model-defaults registry), `planning/incremental-building.md` (**authoritative** for staged generation: the plan block, the Build Plan tracker, why the digest owns the report's closing instruction), `planning/pdf-tools.md` (**authoritative** for the Read PDF pair: the session registry, the zoom loop, the descriptor), `planning/pre-ship-testing.md` (**authoritative** for the last pass before a release: the harness rigs, what each one's FAILURE looks like, and the four ship blockers), `planning/api_research.md`, `src/planning/ghjson-implementation.md`
 
 ---
 

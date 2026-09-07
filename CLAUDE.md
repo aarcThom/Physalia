@@ -548,8 +548,20 @@ proxy's LEFT edge (inlets). See the I/O row below.
   the user), **`Community/`** (reserved, empty). Nothing outside those folders is listed. Wire values
   are library-relative (`User/mine.gh`) and resolved by MATCH against the enumerated library, never by
   composing a path. **Save Harness as Preset…** writes to `User/` — on the proxy's right-click menu and
-  on the **Harness** widget pill (second in the top-left column inside a harness, under "Back to
-  document"); it refuses a harness with no Chat, since the loader would reject it. The same two menus
+  on the harness panel; it refuses a harness with no Chat, since the loader would reject it.
+  **Save .phy…** (`HarnessComponent.SavePackage`) is the same write to a destination the user PICKS —
+  the way a workflow leaves this machine — and it differs in one thing: **the project folder is
+  carried WHOLE, ledger-accounted downloads included** (`ProjectPayload.Plan(carryDownloads: true)`),
+  because a preset is placed on the machine that wrote it, where a re-fetch is something the pipeline
+  knows how to do, while an exported package is a file somebody sends somewhere and is worth its size
+  if it opens with no network and no URL that has since moved. `ProjectPayloadPlan.Downloads` still
+  means "what is NOT in the package" under both settings, so carrying everything leaves only the
+  ledger entries whose file has since been deleted — otherwise the import message sends the user off
+  to download files sitting in their own project folder. The destination is EXCLUDED from its own
+  payload (`Excluding`, applied before the size is quoted): saving twice into the project folder would
+  otherwise carry the previous package inside the new one and double the file on every save. It uses
+  the WinForms `SaveFileDialog` for its explicit `OverwritePrompt` — `Rhino.UI.SaveFileDialog`
+  exposes no such property, and this one writes anywhere the user can reach. The same two menus
   carry its reverse, **Load Harness from .gh File…** (`HarnessComponent.LoadFromFile`), which reads ANY
   `.gh` — not just one in the library — and REPLACES this harness's contents with it: the file is read
   exactly as a preset is (fresh ids, host targets cleared), one carrying no Chat is refused, and a
@@ -930,8 +942,8 @@ by hand — a format nobody can get their work back out of is not one a firm sho
 A real WinForms window, replacing `HarnessReturnWidget`, `HarnessMenuWidget` and `HarnessPill` (all
 deleted). A `GH_Widget` is painted in device pixels and has no input controls of any kind, which was
 fine for two pills and impossible for three text fields. It shows only inside a harness, carries
-Name / Description / Chat text / Save / Load / Back, and rolls up to its title bar (remembered in
-`Instances.Settings`).
+Name / Description / Chat text / Save as preset / Save .phy / Load / Back, and rolls up to its title
+bar (remembered in `Instances.Settings`).
 - **It is an owned top-level `Form`, NOT a child of the canvas** (changed 2026-09-06, after typing
   went to the Rhino command line twice). **A child of `GH_Canvas` cannot reliably HOLD keyboard
   focus.** Rhino routes keystrokes to its prompt unless the focused window is a text control, and

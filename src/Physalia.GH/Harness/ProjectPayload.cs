@@ -24,6 +24,11 @@ namespace Physalia.GH.Harness;
 ///
 /// <para>The ledger file itself is carried, because it is the knowledge: without it the other end has
 /// a manifest of URLs and no idea which local file each one was meant to become.</para>
+///
+/// <para><b>A saved <c>.phy</c> carries everything instead</b> (<c>carryDownloads</c>). A preset is
+/// placed on the machine that wrote it, where a re-fetch is a download the pipeline knows how to do;
+/// an exported package is a file somebody sends somewhere, and it is worth its size to have the
+/// workflow open and run at the other end with no network and no dead URL.</para>
 /// </summary>
 internal static class ProjectPayload
 {
@@ -31,8 +36,20 @@ internal static class ProjectPayload
     /// Works out what a package should carry from a project folder.
     /// </summary>
     /// <param name="projectFolder">The harness's project folder; may not exist.</param>
+    /// <param name="carryDownloads">
+    /// True to bundle every byte in the folder, ledger-accounted downloads included — a
+    /// self-contained export that needs no network at the other end, and can be enormous. False for
+    /// the split described on this class, which is what a preset wants.
+    /// </param>
     /// <returns>The files to bundle, the downloads to record, and what it all weighs.</returns>
-    internal static ProjectPayloadPlan Plan(string? projectFolder)
+    /// <remarks>
+    /// <see cref="ProjectPayloadPlan.Downloads"/> means the same thing under both settings: what the
+    /// other end has to fetch because it is NOT in the package. Carrying everything therefore leaves
+    /// only the ledger entries whose file has since been deleted, which keeps the import message
+    /// honest — telling somebody to download files that are sitting in their project folder is worse
+    /// than saying nothing.
+    /// </remarks>
+    internal static ProjectPayloadPlan Plan(string? projectFolder, bool carryDownloads = false)
     {
         if (string.IsNullOrWhiteSpace(projectFolder) || !Directory.Exists(projectFolder))
         {
@@ -75,7 +92,7 @@ internal static class ProjectPayload
             }
 
             PhyDownloadRecord? record = ledger.FirstOrDefault(r => Same(r.File, relative));
-            if (record is not null)
+            if (record is not null && !carryDownloads)
             {
                 // Re-fetchable: the URL goes in the manifest, the bytes stay here.
                 refetched.Add(record with { Bytes = size });
@@ -87,13 +104,20 @@ internal static class ProjectPayload
             bundled += size;
         }
 
-        // A ledger entry whose file has since been deleted is still worth carrying: the URL is the
-        // knowledge, and the other end can decide whether it wants the file.
+        // A ledger entry with no file in the package is still worth carrying: the URL is the
+        // knowledge, and the other end can decide whether it wants the file. Anything actually
+        // bundled is skipped, which is what empties this list when everything is carried.
         foreach (PhyDownloadRecord record in ledger)
         {
-            if (!refetched.Any(r => Same(r.File, record.File)))
+            if (!refetched.Any(r => Same(r.File, record.File))
+                && !files.Any(f => Same(f.RelativeName, record.File)))
             {
                 refetched.Add(record);
+
+                // Its recorded size, since there is no file on disk to measure — otherwise a plan
+                // whose downloads have all been deleted reports "recorded to fetch again (0 bytes
+                // not carried)".
+                deferred += Math.Max(record.Bytes, 0);
             }
         }
 
@@ -152,6 +176,41 @@ internal sealed record ProjectPayloadPlan(
         new(Array.Empty<PhyPackageFile>(), Array.Empty<PhyDownloadRecord>(), 0, 0);
 
     /// <summary>
+    /// Drops one file from the payload — the package's own destination, when it is being written
+    /// into the folder it is packaging.
+    ///
+    /// <para>Without it, saving twice into the project folder carries the previous package inside the
+    /// new one, so the file doubles in size on every save with nothing saying why. Applied before the
+    /// size is quoted, so the figure the user agrees to is the one that gets written.</para>
+    /// </summary>
+    /// <param name="path">The file to leave out.</param>
+    /// <returns>This plan without that file, or this plan unchanged when it never held it.</returns>
+    internal ProjectPayloadPlan Excluding(string? path)
+    {
+        PhyPackageFile? hit = this.Files.FirstOrDefault(f => SamePath(f.SourcePath, path));
+        if (hit is null)
+        {
+            return this;
+        }
+
+        long size;
+        try
+        {
+            size = new FileInfo(hit.SourcePath).Length;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            size = 0;
+        }
+
+        return this with
+        {
+            Files = this.Files.Where(f => !ReferenceEquals(f, hit)).ToList(),
+            BundledBytes = Math.Max(this.BundledBytes - size, 0),
+        };
+    }
+
+    /// <summary>
     /// Gets a one-line summary of what the package will contain, or null when it carries nothing.
     /// </summary>
     internal string? Summary
@@ -173,6 +232,27 @@ internal sealed record ProjectPayloadPlan(
             }
 
             return parts.Count == 0 ? null : string.Join(", ", parts);
+        }
+    }
+
+    // Compares two paths as the file system would, tolerating one that cannot be resolved.
+    private static bool SamePath(string? a, string? b)
+    {
+        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
+        {
+            return false;
+        }
+
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(a),
+                Path.GetFullPath(b),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            return false;
         }
     }
 }

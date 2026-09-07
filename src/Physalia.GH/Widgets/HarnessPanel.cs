@@ -97,6 +97,7 @@ internal sealed class HarnessPanel : Form
     private readonly Label _chatLabel = new();
     private readonly TextBox _chat = new();
     private readonly Button _save = new();
+    private readonly Button _export = new();
     private readonly Button _load = new();
 
     // The kill switch. Shown only while something in this harness is armed, and — like Back — in both
@@ -624,6 +625,16 @@ internal sealed class HarnessPanel : Form
         this._save.Click += (_, _) => this._harness?.SaveAsPreset();
         this.Controls.Add(this._save);
 
+        // The other save, and here the FORMAT is the name — because that is the difference the user
+        // is choosing between. A preset goes into the library, invisibly; this one goes wherever they
+        // say, as a file they will then attach to something, so what it is called on disk is the
+        // point of the button.
+        this.StyleButton(this._export);
+        this._export.Text = "Save .phy…";
+        this._export.ForeColor = HarnessTheme.Panel.Accent;
+        this._export.Click += (_, _) => this._harness?.SavePackage();
+        this.Controls.Add(this._export);
+
         this.StyleButton(this._load);
         this._load.Text = "Load…";
         this._load.Click += (_, _) => this._harness?.LoadFromFile();
@@ -810,20 +821,26 @@ internal sealed class HarnessPanel : Form
 
         Size back = this.MeasureButton(this._back);
         Size save = this.MeasureButton(this._save);
+        Size export = this.MeasureButton(this._export);
         Size load = this.MeasureButton(this._load);
         Size disarm = this.MeasureButton(this._disarm);
-        int buttonHeight = Math.Max(back.Height, Math.Max(save.Height, Math.Max(load.Height, disarm.Height)));
+        int buttonHeight = Math.Max(
+            back.Height,
+            Math.Max(save.Height, Math.Max(export.Height, Math.Max(load.Height, disarm.Height))));
 
-        // Both action buttons take the width of the WIDER one, and the panel is sized to fit two of
-        // those. Splitting the row in half instead is a subtler version of the bug the measured
-        // layout is about: "Save as preset" is half again as wide as "Load…", so an even split clips
-        // the long one however wide the panel is.
-        int action = Math.Max(save.Width, load.Width);
+        // The two save verbs share a row and both take the width of the WIDER one, and the panel is
+        // sized to fit two of those. Splitting a row in half instead is a subtler version of the bug
+        // the measured layout is about: an even split clips the longer label however wide the panel
+        // is. "Load…" is on its own full-width row below them, which is why it is not in this
+        // measurement — a full-width button cannot clip, and pairing it with a save verb would have
+        // the widest of the three set the width of all of them.
+        int action = Math.Max(save.Width, export.Width);
 
         // The panel is sized to its CONTENT: the widest thing that has to fit, clamped so a long
         // label cannot make the panel enormous (labels ellipsize) and a short one cannot make it
         // too narrow to type a name into.
         int needed = Math.Max(back.Width, (action * 2) + gap);
+        needed = Math.Max(needed, load.Width);
         needed = Math.Max(needed, this._armedCount > 0 ? disarm.Width : 0);
         needed = Math.Max(needed, this.MeasureLabels());
         this.Width = Math.Clamp(needed + (pad * 2), this.S(MinWidthPx), this.S(MaxWidthPx));
@@ -849,7 +866,10 @@ internal sealed class HarnessPanel : Form
 
             int width = Math.Min(action, (inner - gap) / 2);
             this._save.SetBounds(pad, y, width, buttonHeight);
-            this._load.SetBounds(this.Width - pad - width, y, width, buttonHeight);
+            this._export.SetBounds(this.Width - pad - width, y, width, buttonHeight);
+            y += buttonHeight + gap;
+
+            this._load.SetBounds(pad, y, inner, buttonHeight);
             y += buttonHeight + gap;
         }
 

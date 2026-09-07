@@ -198,6 +198,12 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
     internal static string SavePresetLabel => "Save Harness as Preset…";
 
     /// <summary>
+    /// Gets the menu label for saving this harness as a <c>.phy</c> package anywhere on disk. Shared
+    /// with the harness panel, for the same reason the preset label is.
+    /// </summary>
+    internal static string SavePackageLabel => "Save .phy…";
+
+    /// <summary>
     /// Gets the menu label for loading a harness pipeline in from a file. Shared with the canvas
     /// widget inside the harness, for the same reason the save label is.
     /// </summary>
@@ -215,6 +221,7 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
         Menu_AppendSeparator(menu);
         Menu_AppendItem(menu, "Edit Harness", (_, _) => OpenInCanvas());
         Menu_AppendItem(menu, SavePresetLabel, (_, _) => SaveAsPreset());
+        Menu_AppendItem(menu, SavePackageLabel, (_, _) => SavePackage());
         Menu_AppendItem(menu, LoadFileLabel, (_, _) => LoadFromFile());
     }
 
@@ -228,22 +235,8 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
     /// </summary>
     public void SaveAsPreset()
     {
-        if (_inner is not { ObjectCount: > 0 } contents)
+        if (!TryGetSaveableContents(SavePresetLabel, "loaded back as a preset", out GH_Document contents))
         {
-            Rhino.UI.Dialogs.ShowMessage(
-                "This harness is empty — there is no pipeline to save.", SavePresetLabel);
-            return;
-        }
-
-        // A preset the gallery cannot load is worse than none: placing one re-points the chat window
-        // at the Chat inside it, so one without a Chat is refused at LOAD time. Refuse to write it
-        // too, while there is still a user here to be told why.
-        if (!contents.Objects.OfType<Chat>().Any())
-        {
-            Rhino.UI.Dialogs.ShowMessage(
-                "This harness has no Chat component, so it could not be loaded back as a preset. "
-                + "Add a Chat inside the harness and save again.",
-                SavePresetLabel);
             return;
         }
 
@@ -268,14 +261,97 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
             return;
         }
 
-        // What travels with the pipeline, and what is recorded to be fetched again instead. Shown
-        // before writing rather than after, because the size is the thing that decides whether a
-        // package is something a person will actually send to a colleague.
-        ProjectPayloadPlan payload = ProjectPayload.Plan(ProjectFolderPath);
+        WritePackage(path, contents, carryDownloads: false, SavePresetLabel, "preset");
+    }
+
+    /// <summary>
+    /// Saves this harness as a <c>.phy</c> package anywhere on disk — the way a workflow leaves this
+    /// machine.
+    ///
+    /// <para>The same package <see cref="SaveAsPreset"/> writes, with two differences, and both come
+    /// from where the file is going. The destination is chosen in a file dialog rather than being the
+    /// user preset folder; and the project folder is carried WHOLE, downloads included, so the
+    /// package opens and runs at the other end with no network and no URL that has since moved. A
+    /// preset is placed on the machine that wrote it, where a re-fetch is something the pipeline
+    /// knows how to do — hence the split there and not here.</para>
+    ///
+    /// <para>Shows dialogs, so it must run on the UI thread. Reachable from this component's
+    /// right-click menu and from the harness panel shown while you are inside the harness.</para>
+    /// </summary>
+    public void SavePackage()
+    {
+        if (!TryGetSaveableContents(SavePackageLabel, "loaded back in", out GH_Document contents))
+        {
+            return;
+        }
+
+        if (PromptForPackagePath() is not { } path)
+        {
+            return; // cancelled
+        }
+
+        WritePackage(path, contents, carryDownloads: true, SavePackageLabel, "package");
+    }
+
+    /// <summary>
+    /// Checks that there is a pipeline here worth writing out, and complains to the user when there
+    /// is not.
+    ///
+    /// <para>A package the loader will refuse is worse than none: loading one re-points the chat
+    /// window at the Chat inside it, so one carrying no Chat is refused at LOAD time. Refuse to write
+    /// it too, while there is still a user here to be told why.</para>
+    /// </summary>
+    /// <param name="label">The dialog title of the action asking.</param>
+    /// <param name="loadPhrase">How to name loading it back, in the refusal message.</param>
+    /// <param name="contents">The sub-document to write.</param>
+    /// <returns>True when there is something to save.</returns>
+    private bool TryGetSaveableContents(string label, string loadPhrase, out GH_Document contents)
+    {
+        contents = default!;
+
+        if (_inner is not { ObjectCount: > 0 } inner)
+        {
+            Rhino.UI.Dialogs.ShowMessage(
+                "This harness is empty — there is no pipeline to save.", label);
+            return false;
+        }
+
+        if (!inner.Objects.OfType<Chat>().Any())
+        {
+            Rhino.UI.Dialogs.ShowMessage(
+                $"This harness has no Chat component, so it could not be {loadPhrase}. "
+                + "Add a Chat inside the harness and save again.",
+                label);
+            return false;
+        }
+
+        contents = inner;
+        return true;
+    }
+
+    /// <summary>
+    /// Plans the payload, tells the user what it weighs, and writes the package.
+    ///
+    /// <para>The size is shown before writing rather than after, because it is the thing that decides
+    /// whether a package is something a person will actually send to a colleague.</para>
+    /// </summary>
+    /// <param name="path">Where to write it.</param>
+    /// <param name="contents">The harness's sub-document.</param>
+    /// <param name="carryDownloads">True to carry the project folder whole — see <see cref="ProjectPayload.Plan"/>.</param>
+    /// <param name="label">The dialog title of the action asking.</param>
+    /// <param name="noun">What to call the file in the messages: "preset" or "package".</param>
+    private void WritePackage(string path, GH_Document contents, bool carryDownloads, string label, string noun)
+    {
+        // A package written INTO the folder it is packaging would swallow the previous one on every
+        // save, doubling in size each time and never saying so. Saving beside the project files is a
+        // perfectly reasonable thing to choose, so the destination is excluded rather than refused —
+        // and excluded here, before the size is quoted, so the figure is the one that gets written.
+        ProjectPayloadPlan payload = ProjectPayload.Plan(ProjectFolderPath, carryDownloads).Excluding(path);
+
         if (payload.Summary is { Length: > 0 } summary
             && Rhino.UI.Dialogs.ShowMessage(
-                $"This preset will carry {summary}.\n\nSave it?",
-                SavePresetLabel,
+                $"This {noun} will carry {summary}.\n\nSave it?",
+                label,
                 Rhino.UI.ShowMessageButton.YesNo,
                 Rhino.UI.ShowMessageIcon.Information) != Rhino.UI.ShowMessageResult.Yes)
         {
@@ -284,14 +360,48 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
 
         PhyManifest manifest = PhyManifest.For(NickName, _importDescription, _chatText, payload.Downloads);
 
-        if (!PresetLibrary.TryWritePackage(path, manifest, contents, payload.Files, out long bytes, out error))
+        if (!PresetLibrary.TryWritePackage(path, manifest, contents, payload.Files, out long bytes, out string error))
         {
-            Rhino.UI.Dialogs.ShowMessage($"The preset could not be saved: {error}", SavePresetLabel);
+            Rhino.UI.Dialogs.ShowMessage($"The {noun} could not be saved: {error}", label);
             return;
         }
 
         Rhino.RhinoApp.WriteLine(
-            $"[Physalia] Saved harness preset: {path} ({ProjectPayload.Describe(bytes)})");
+            $"[Physalia] Saved harness {noun}: {path} ({ProjectPayload.Describe(bytes)})");
+    }
+
+    /// <summary>
+    /// Asks where to write the package, starting in the folder the host file lives in and offering
+    /// this harness's own name as the file name.
+    ///
+    /// <para>Uses the WinForms dialog rather than Rhino's, for its explicit
+    /// <c>OverwritePrompt</c>: this writes anywhere the user can reach, so replacing a file has to be
+    /// something they were asked about.</para>
+    /// </summary>
+    /// <returns>The chosen path, or null when the user cancelled.</returns>
+    private string? PromptForPackagePath()
+    {
+        using var dialog = new SaveFileDialog
+        {
+            Title = SavePackageLabel,
+            Filter = $"Physalia harnesses (*{PhyPackage.Extension})|*{PhyPackage.Extension}|All files (*.*)|*.*",
+            DefaultExt = PhyPackage.Extension.TrimStart('.'),
+            FileName = NickName + PhyPackage.Extension,
+            AddExtension = true,
+            OverwritePrompt = true,
+        };
+
+        // The host file's folder is where the rest of the job lives; an unsaved document leaves the
+        // dialog on its own last-used folder.
+        string? hostFile = PhyDocuments.Host(this)?.FilePath;
+        if (!string.IsNullOrEmpty(hostFile) && Path.GetDirectoryName(hostFile) is { Length: > 0 } dir)
+        {
+            dialog.InitialDirectory = dir;
+        }
+
+        return dialog.ShowDialog() == DialogResult.OK && !string.IsNullOrWhiteSpace(dialog.FileName)
+            ? dialog.FileName
+            : null;
     }
 
     /// <summary>

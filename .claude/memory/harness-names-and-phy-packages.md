@@ -32,8 +32,24 @@ project folder, so it had to be settled first.
 - A `.phy` records re-fetchable downloads (`downloads.json` / `DownloadLedger`) instead of carrying
   them, so a 400MB tile costs ~200 bytes. Hand-added files are carried in full — nothing can re-fetch
   those.
+- **Save .phy… (added 2026-09-07) inverts that one choice and nothing else.** Same package, same
+  writer, destination picked in a file dialog — but `carryDownloads: true`, so the project folder goes
+  whole. The split is right for a preset (placed on the machine that wrote it, where a re-fetch is a
+  thing the pipeline does) and wrong for a file somebody sends somewhere. `ProjectPayloadPlan.Downloads`
+  keeps meaning "what is NOT in the package" either way, which is what stops the import message telling
+  the user to download files sitting in their own folder — and it is why the two modes share one code
+  path instead of one having its own manifest rule. The destination is excluded from its own payload
+  BEFORE the size is quoted, or a second save into the project folder carries the first package inside
+  it and the file doubles every time.
 - Format is decided by content (`PK`), never extension. Legacy `.gh` presets still load.
-- The harness panel is a WinForms control PARENTED to `GH_Canvas`, not a `GH_Widget` — widgets have no
-  input controls. Its name field needs the `NickName` override, per [[gh-custom-attribute-traps]].
+- The harness panel is its own owned top-level WinForms `Form` (it was parented to `GH_Canvas` until
+  2026-09-06), not a `GH_Widget` — widgets have no input controls. Its name field needs the `NickName`
+  override, per [[gh-custom-attribute-traps]]. Every size in it is MEASURED: adding the third action
+  button meant re-deciding the row split (the two save verbs share a row at the width of the wider,
+  Load… went full-width below), because an even split clips the longer label however wide the panel is.
+- `Rhino.UI.SaveFileDialog` exposes **no `OverwritePrompt`** (checked by reflection against the shipped
+  RhinoCommon) and its base is internal, so whether it warns is unknowable from outside. Use
+  `System.Windows.Forms.SaveFileDialog` wherever a silent overwrite would cost the user a file —
+  `Serializer.PromptForSavePath` was already the precedent.
 
 Not run in Rhino. Related: [[harness-subdocument]], [[settings-ownership]], [[project-file-tools]].

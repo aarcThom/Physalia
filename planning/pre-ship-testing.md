@@ -1,6 +1,8 @@
 # Pre-ship testing — the harness passes
 
 **Status:** written 2026-09-06, for the `events-and-delegation` branch and everything before it.
+**Last pass:** 2026-09-07 on `final-pass` — A1–A6, B0–B3, B7 (page half), C1, C2 done; two defects
+found and fixed (see *What the 09-06/07 pass found*). B4 onwards, D, E and F still open.
 **Scope:** the last full pass before a release. Every rig here is driven from a harness on a real
 canvas in a real Rhino, because that is the only place several of these features exist at all.
 
@@ -445,20 +447,20 @@ The case the whole trigger tier exists for, and the one with a bill attached.
 | A | A3 Hold + self-poll | ✅ verified 09-06 | timeout fired at 2s with Recheck 0.5 |
 | A | A4 Throttle by payload | ✅ verified 09-06 | FIRST through, MIDDLE overtaken, NEWEST out |
 | A | A5 For Each | ✅ verified 09-06 | empty-list and restart cases still to do |
-| A | A6 Pipeline State (graph) | ☐ | |
-| B | B0 **wake-up in a harness** | ☐ | **highest risk on the branch** |
-| B | B1 Timer | ☐ | |
-| B | B2 Folder Watcher + loop | ☐ | |
-| B | B3 Rhino Changed | ☐ | |
-| B | B4 **transcript with parameters** | ☐ | close the MCP server first |
+| A | A6 Pipeline State (graph) | ✅ verified 09-07 | caps + last-set order pass; 65th key refused with nothing evicted, 9000 chars → 8192. Found a DEFECT: a case-variant re-set (`stage` then `STAGE`) put two items on `Keys`/`Values`. **Fixed**; re-run after a Rhino restart to confirm the fix rather than the bug |
+| B | B0 **wake-up in a harness** | ✅ verified 09-07 | the mechanism was genuinely exercised: with `inner.Enabled` FORCED false the Timer kept firing 4→8 and the flag came back True. Then with `host.Enabled` false it fired 9→14 and the host flag **stayed false** — the user's solver lock is not overridden |
+| B | B1 Timer | ✅ verified 09-07 | a FRESH timer arms to `every 1m` with no count, so nothing fires on arming — check a fresh one, a re-armed timer keeps its old count and reads as if it had; 0.2s → clamp warning; disarm immediate; reopens `off` |
+| B | B2 Folder Watcher + loop | ◐ verified 09-07 | all five file cases pass — 160MB flushed in 160 chunks gave **exactly one** signal, a removed file's path stayed **off** `Changed Files`, create-then-delete gave nothing. The download-loop and browser-fetch halves still need a model |
+| B | B3 Rhino Changed | ◐ verified 09-07 | (a)–(d) pass: **500 objects = one signal**, and the selection payload carries its counts ("501 objects in the document, 7 selected"). (e) New File not tested |
+| B | B4 **transcript with parameters** | ☐ blocked | needs the Rhino MCP closed, and that MCP is the only way this session can drive Rhino. Must be done by hand |
 | B | B5 Watch Modelling, the rest | ◐ | folding/undo/discard verified; drags and script-suppression not |
 | B | B6 Data Changed + hazard | ☐ | |
-| B | B7 Trigger Control in Rhino | ◐ | host half verified by script; UI in place not |
-| C | C1 everything harness round-trip | ☐ | |
-| C | C2 preset placed twice | ☐ | |
-| C | C3 `.phy` round trip | ☐ | |
-| C | C4 autosave + resume | ◐ | autosave verified on disk; resume button never pressed |
-| C | C5 copy and paste | ☐ | |
+| B | B7 Trigger Control in Rhino | ◐ verified 09-06/07 | page half measured headlessly: rail button tinted while armed, rows carry counts + captions, discard warning only with a recorder armed, and every send is `armtrigger?id=<guid>` — no name crosses the bridge. The UI in Rhino not |
+| C | C1 everything harness round-trip | ✅ verified 09-07 | 27 components: guids preserved and — the documented hazard — **no param-order drift, no wire moved, no value changed**. Router's outputs came back named `declare`/`ask_human`/`state`; Regex flag, Budget caps, For Each items, port nicknames all restored; **all five triggers `off`**, including two armed before saving |
+| C | C2 preset placed twice | ◐ verified 09-07 | stated assertions PASS — different four-word names, and each Delegate linked to its **own** worker. But ids inside the **nested** harness were not re-issued: two placements gave two Timers sharing one `InstanceGuid`. **Fixed** (`MutateAll` now descends); re-run after a Rhino restart |
+| C | C3 `.phy` round trip | ☐ | Core half already pinned (`PhyPackageTests`, incl. future-format refusal); the import-twice path is not |
+| C | C4 autosave + resume | ◐ | autosave verified on disk; the three ALSO-TEST edges are already pinned by the Core suite (`ANewerFormatIsRefused_NotGuessedAt`, `AMissingImageFileLosesTheBlockAndKeepsTheTurn`, `AHalfWrittenLastLineCostsOneRecord_NotTheFile`) — only the resume BUTTON is untested |
+| C | C5 copy and paste | ◐ verified 09-07 | the arming half is settled: nothing in the trigger tier overrides `Write`/`Read` **at all**, so arming cannot serialize, and C1 confirmed it live. The paste path itself is untested — `GH_DocumentIO.Copy`/`Paste` return true and do nothing from a script |
 | D | D regression sweep | ☐ | |
 | D | D1 Undo Last Placement | ☐ | |
 | E | E1 Declare | ☐ | |
@@ -472,16 +474,45 @@ The case the whole trigger tier exists for, and the one with a bill attached.
 | — | icons for 29 components | ☐ | **ship blocker**; counted against the built `.gha`, not estimated |
 | — | Mac decision | ☐ | Windows-only, or schedule the port |
 
+### What the 09-06/07 pass found
+
+Two defects, both fixed on `final-pass`, and both worth recording because of *how* they were found.
+
+1. **`StateStore.All()` duplicated a key on a case-variant re-set.** `Board.Values` is keyed
+   `OrdinalIgnoreCase`; `Board.Order` was a plain `List<string>` whose `Remove` is case-SENSITIVE. So
+   `set stage` then `set STAGE` left ONE board entry and put TWO items on the `Keys`/`Values`
+   outputs, both carrying the newest value — which shifts anything downstream matching by index.
+   Reproduced live on the shipped `.gha` (§A6). `Clear` had the same mismatch, masked, because
+   `All()` filters the order log through `Values` and so hid the orphaned name rather than showing
+   it. **A masked copy of a bug is the one that survives a test pass; look for it every time.**
+2. **`DocumentIds.MutateAll` did not descend into a nested harness.** A preset placed twice
+   re-issued ids for the document it was handed and for the nested harness COMPONENT, but never for
+   that harness's own `InnerDocument` — so two placements gave two Timers sharing one
+   `InstanceGuid`, which is exactly what Trigger Control's guid addressing exists to prevent. Not a
+   corner case: a Delegate links to a worker harness, so every delegation preset is that shape.
+   **C2's stated assertions all PASSED** — the names differed, `RemapLinks` sent each Delegate to its
+   own worker — so the rig as written would have been ticked. It was caught only by also asserting
+   "no duplicate `InstanceGuid`s **anywhere**", which meant walking two levels down.
+
+Neither was reachable from `Physalia.Core`, which stayed at 964/964 green throughout. That is now
+the third time this document's premise has held.
+
 ### Blocking for a release
 
-1. **B0** — if a trigger cannot wake a harness the user has left, the entire trigger tier is inert in
-   the only configuration that matters.
+1. ~~**B0**~~ — **verified 09-07**, including the `PipelineWake` re-enable that had never been
+   exercised and the host-solver-lock case.
 2. **F3** — an unattended run that overspends its budget is worse than no trigger tier at all.
-3. **C1/C2** — a save/load or preset defect ships broken pipelines to other people.
-4. **Icons.**
+   Still the open blocker.
+3. ~~**C1**~~ — **verified 09-07**, clean round trip with no param or wire drift. **C2** passed its
+   own assertions but exposed the nested-id defect above; re-run it against the fix.
+4. **Icons** (29 components).
 
 ### Not blocking, but decide before shipping
 
 - Whether `Budget Guard` should say on the node that a token cap is meaningless on a CLI provider.
 - Whether `Data Changed` should ship at all, or ship behind a warning, given its cycle hazard.
 - Whether the Watch-and-Repeat preset should be a `.phy` so it carries its own opening text.
+- Whether a trigger's fire count should **reset when it is re-armed** (noticed in §B1). It does not
+  today, so a re-armed Timer immediately reads `every 10s · 14` and looks as though it fired on
+  arming — which is the one thing B1 exists to check. Cosmetic for a user, actively misleading for a
+  tester, so the test note matters more than the change: **check a FRESH trigger**.

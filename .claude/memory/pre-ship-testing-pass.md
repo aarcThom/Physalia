@@ -37,6 +37,44 @@ before trusting one.
    `Physalia.GH.Resources.<TypeName>.png` names. The `Param_*` types are exempt — `PhyParam` sets
    `GH_Exposure.hidden`, so they never appear in the ribbon.
 
+## 2026-09-07 — the in-Rhino pass, driven through the Rhino MCP's `run_python`
+
+Rhino open with the branch `.gha` loaded. **B0, B1, B2, B3, C1 and A6 all PASS**; C2 passes its
+stated assertions and turned up a NEW defect.
+
+**B0 (blocker #1) is good, and the mechanism that had never been exercised now has been.** Forcing
+`inner.Enabled = False` on the harness sub-document while the canvas sat on the host, the Timer went
+on firing 4 → 8 and the flag came back True: `PipelineWake.Ready` really does re-enable it. Then with
+`host.Enabled = False` (the user's own solver lock) it fired 9 → 14 and the host flag **stayed
+False** — the lock is not overridden. Both ALSO-TEST cases covered.
+
+**C1 (blocker #3) round-trips clean.** 27 components, guids preserved, and — the documented hazard —
+**no param-order drift, no wire moved, no value changed**. Router's variable outputs came back still
+named `declare`/`ask_human`/`state`; the Regex flag, Budget caps, `For Each` items, harness port
+nicknames all restored; **all five triggers came back `off`**, including the two armed before saving.
+
+**NEW DEFECT — `DocumentIds.MutateAll` does not recurse into a nested harness.** Placing a preset
+twice re-issues ids for the document it is given (and the nested harness COMPONENT), but never for
+that harness's own `InnerDocument`. Demonstrated: two placements, two distinct Timer components
+inside the nested workers **sharing one `InstanceGuid`**, so a guid-addressed UI finds two. Confirmed
+in the source — it walks `document.Objects` only. This is reachable by design, not a corner: a
+Delegate links to a nested worker harness, so any delegation preset placed twice hits it. Wires and
+within-harness links still work (nothing inside changed, so they stay self-consistent); what breaks
+is anything keyed by `InstanceGuid` across the file — **Trigger Control addresses triggers by guid
+precisely to avoid ambiguity**, and MemoryTool falls back to the guid for its local folder. Fix is to
+recurse per harness with its own replacement dictionary.
+
+**Rig-driving notes worth keeping.** `Instances.ActiveCanvas.Document` is read-only to Python but
+`c.set_Document(d)` works (the property setter reached as a method), and `GH_DocumentServer` needs
+`AddNewDocument()` — `AddDocument(GH_Document)` and `GH_Document.DisplayName` both refuse.
+**`GH_DocumentIO.Copy`/`Paste` report True and do nothing from a script** (no canvas/undo context),
+so C5's paste path is not scriptable — its substance is covered anyway, since arming cannot
+serialize. Compare documents by `DocumentID`, never `is`: Python.NET hands out different proxy
+objects for one .NET document, which read as a false negative. A **Panel's `UserText` is only the
+user-typed field** — read `VolatileData` to see what arrived on the wire. And
+`RhinoDoc.Objects.Count` keeps counting deleted objects held for undo, so it reads 501 after a
+successful purge; iterate the table or ask `get_context` instead.
+
 **Already pinned by the Core suite, so do not re-run them by hand in Rhino** — C4's three "ALSO
 TEST" edges (`ANewerFormatIsRefused_NotGuessedAt`, `AMissingImageFileLosesTheBlockAndKeepsTheTurn`,
 `AHalfWrittenLastLineCostsOneRecord_NotTheFile`), C3's `.phy` round trip and future-format refusal,

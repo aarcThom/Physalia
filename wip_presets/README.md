@@ -71,12 +71,15 @@ preset that has it.
 | S10 | A Take-off That Keeps Itself Up To Date | Quantities that re-count when the model changes, onto a wire rather than into a chat | Codex |
 | S11 | Explain the Definition Nobody Documented | Inherit a file and get back what it does, which sliders matter and where it breaks — read-only | Codex |
 | S12 | From a Sketch to a Massing | Photograph the sketch, draw on it, get the massing built — then it looks at its own result | Codex |
+| S13 | Run the Options Overnight | A list of options in, a comparison in the morning — For Each, strictly one at a time | Codex |
+| S14 | Can This Actually Be Made? | Draft, wall thickness, undercuts, radii, sheet sizes — checked against rules you write | Codex |
 
-S08 to S12 are the ones nobody asked for. They are here because the question this set has to
+S08 to S14 are the ones nobody asked for. They are here because the question this set has to
 answer for a working architect or designer is not "what can it do to my Grasshopper canvas" but
 "what does it save me on Thursday", and the best answers to that have nothing to do with
 generating node graphs: read a document against the model, get the site context in, keep the
-quantities honest, understand the file you inherited, and get the sketch off the desk.
+quantities honest, understand the file you inherited, get the sketch off the desk, run the options
+while you sleep, and find out whether the thing can be made before the quote says no.
 
 Three of them are structurally unlike anything in the numbered set and are worth reading for that
 alone: **S06 puts two Conversation Logs in one harness** (the join is one wire — the writer's
@@ -170,6 +173,9 @@ overlapping annotation, and checked by all three standing checks (`audit`, `chec
 - **S07** — both Delegate grip links resolve to their nested harnesses after reload, and both inner
   documents come back whole (27 and 24 objects).
 - **S10** — the Pipeline State tool dispatches. It did not at first: see the note below.
+- **S13** — For Each's `Next` has exactly one source, and it is the END of the per-item work. That
+  wire is the whole component: wire it earlier and you get twelve half-finished options tangled
+  together, and nothing would report it.
 
 Live in Rhino:
 
@@ -210,6 +216,17 @@ the numbered presets, so this is a condition of the session rather than a Physal
 but it is worth knowing that **a broken PATH inside Rhino looks exactly like a broken Codex
 install**, and the way to tell them apart is to run `codex --version` from a normal shell.
 
+### One more rule the set enforces on itself
+
+**A Button cannot drive a Signal input.** S13 tried to start For Each from a Button and got two hard
+errors — `"Start" accepts only Signals` and a Boolean-to-Signal conversion failure. That is the rule
+working: a bare boolean has no payload, so Construct Signal's dedicated Trigger input is the one
+sanctioned place a Button drives a pipeline. (Its input is called `Trigger`, not `Boolean Trigger`.)
+
+**And an unwired optional input needs prose, not a placeholder.** S12 put a `blank_input` text panel
+on Take Snapshot's `Current Location`, which is a Point param, and got a conversion error for it.
+Leave it unwired and say so in the annotation.
+
 ### The bug S10 found
 
 Building S10 I wired Pipeline State to Router output index 2 when `router_slots(router, 1)` had
@@ -218,7 +235,7 @@ the feedback path: it was never dispatched and never advertised, and the model w
 been told the tool does not exist. Nothing errors, no sweep can see it, and the canvas looks right.
 
 `check_pairs.py` now walks every Router's last output in every preset and reports anything but a
-Feedback sender on it. All 50 tool slots across the 26 presets are clean.
+Feedback sender on it. All 57 tool slots across the 28 presets are clean.
 
 ## Building them
 
@@ -255,8 +272,8 @@ To rebuild and verify the lot:
 python tools/presets/audit.py
 ```
 
-Last whole-set check across all 26: audit clean, 73 Feedback pairs resolved, 7 grip links resolved,
-50 Router tool slots correctly routed, 0 problems.
+Last whole-set check across all 28: audit clean, 80 Feedback pairs resolved, 7 grip links resolved,
+57 Router tool slots correctly routed, 0 problems.
 
 All three are worth re-running after any change, because every failure they look for is silent: a
 preset carrying somebody else's endpoint name; a Feedback whose collector guid no longer resolves,

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Physalia Contributors
+﻿// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -299,6 +299,25 @@ public class ComponentTransmitter : TransmitterComponentBase
             },
             _placementOffset.HasValue);
 
+        // The safety net that decides whether anyone will let a model touch a canvas they care
+        // about. Everything it needs was already here: the last placement's guids are tracked so a
+        // re-placement can replace itself, and removing them is the same operation.
+        //
+        // It removes what was ADDED and says so, because that is all it honestly can: a ghpatch also
+        // MODIFIES existing components, and nothing here recorded what they looked like before. A
+        // full-graph placement is therefore undone completely; a patch is undone as far as its
+        // additions go.
+        Menu_AppendItem(
+            menu,
+            _placedGuids.Count switch
+            {
+                0 => "Undo Last Placement",
+                1 => "Undo Last Placement (1 component)",
+                _ => $"Undo Last Placement ({_placedGuids.Count} components)",
+            },
+            (_, _) => UndoLastPlacement(),
+            _placedGuids.Count > 0);
+
         ToolStripMenuItem lenient = Menu_AppendItem(
             menu,
             "Apply patches on base mismatch (lenient)",
@@ -430,6 +449,28 @@ public class ComponentTransmitter : TransmitterComponentBase
     /// Removes the components placed by the previous run, so each run replaces rather than
     /// stacks. Removing an object drops its wires automatically.
     /// </summary>
+    // Deferred to idle for the reason placement is: it mutates the user's document and triggers its
+    // own solution, neither of which may happen from inside one.
+    private void UndoLastPlacement()
+    {
+        Rhino.RhinoApp.Idle += OnIdleUndo;
+    }
+
+    private void OnIdleUndo(object? sender, EventArgs e)
+    {
+        Rhino.RhinoApp.Idle -= OnIdleUndo;
+
+        int removed = _placedGuids.Count;
+        RemovePreviouslyPlaced();
+
+        GH_Document? host = PhyDocuments.Host(this);
+        host?.NewSolution(false);
+        Grasshopper.Instances.RedrawCanvas();
+
+        Rhino.RhinoApp.WriteLine(
+            $"[Physalia] Removed {removed} placed component{(removed == 1 ? string.Empty : "s")} from the canvas.");
+    }
+
     private void RemovePreviouslyPlaced()
     {
         // Placed objects live on the user's canvas, not in the harness this transmitter runs in.

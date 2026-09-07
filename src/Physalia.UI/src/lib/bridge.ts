@@ -166,6 +166,18 @@ export interface UiState {
 	 *  "Chat window opening text" field on the harness panel. Null on Home, and whenever the harness
 	 *  has none, in which case the composer keeps its own wording. */
 	chatText?: string | null;
+	/** How many turns are in the transcript saved in this pipeline's project folder, when one is
+	 *  there AND this conversation is still empty. Null otherwise — including once anything has been
+	 *  said, since resuming into a conversation under way would interleave two histories.
+	 *
+	 *  Offered rather than loaded: a pipeline shared across a firm would otherwise arrive with its
+	 *  author's conversation already in it, paid for on the very next call. */
+	resumeTurns?: number | null;
+	/** True when a Trigger Control human tool is wired (shows the trigger button). */
+	triggerControlWired?: boolean;
+	/** Every trigger in this pipeline, armed or not, in canvas order. Null when no Trigger Control
+	 *  tool is wired — the window offers nothing it was not built with. */
+	triggers?: UiTrigger[] | null;
 }
 
 /** One attached PDF, as the composer draws it. */
@@ -464,6 +476,50 @@ export interface UiApproval {
 	harness: string;
 }
 
+/** One trigger in the pipeline, for the Trigger Control page. Read live off the canvas each tick —
+ *  arming changes no data and runs no solution, so there is nothing to push from. */
+export interface UiTrigger {
+	/** Instance id. The address for switching it; never the name, since two can share a nickname. */
+	id: string;
+	/** What kind of trigger it is — "Timer", "Folder Watcher", "Watch Modelling". */
+	kind: string;
+	/** Its nickname on the canvas, which is what the user renamed it to if they did. */
+	name: string;
+	armed: boolean;
+	/** The caption the node itself is showing: "every 30s", "recording · 4", "off". Shown verbatim so
+	 *  the page says the same thing the canvas does. */
+	caption: string;
+	/** True when switching this OFF hands its batch over — a recorder. The row has to say so:
+	 *  discovering afterwards that a demonstration went nowhere cannot be undone. */
+	handsOver: boolean;
+}
+
+/** What sort of answer an Ask Human card is waiting for. */
+export type UiQuestionKind = 'text' | 'choice' | 'rhino-selection';
+
+/** A question the model is putting to the person, raised by an Ask Human tool.
+ *
+ *  The tool call is BLOCKED while the card is up, like an approval — but unlike an approval there is
+ *  no safe answer to invent, so an unanswered question comes back to the model as "nobody answered"
+ *  rather than as a no. Skipping is its own act for the same reason: refusing to answer and answering
+ *  with nothing are different facts. */
+export interface UiQuestion {
+	/** Identifies this card back to the host. Opaque. */
+	id: string;
+	/** Which tool is asking — the card's heading. */
+	title: string;
+	/** The question, in the model's own words. Shown verbatim. */
+	prompt: string;
+	/** What sort of answer is expected. */
+	kind: UiQuestionKind;
+	/** Options to offer as buttons, for a 'choice' question. Typing something else is still allowed:
+	 *  a list of options is the model's guess at the answer space, and being unable to say "none of
+	 *  those" is how a wrong guess becomes a wrong answer. */
+	choices: string[];
+	/** Which harness is asking. The window may be showing a different Chat. Empty if none. */
+	harness: string;
+}
+
 /** A file a download could not fetch, offered as a button because a browser can.
  *
  *  Raised when a host answers a programmatic request with a bot challenge — a door that opens for a
@@ -506,6 +562,8 @@ export interface PhysaliaHost {
 	setApprovals(approvals: UiApproval[]): void;
 	/** Files a download could not fetch, offered for a browser to fetch instead. Empty clears them. */
 	setFetchOffers(offers: UiFetchOffer[]): void;
+	/** Questions an Ask Human tool is waiting on, oldest first. Empty clears them. */
+	setQuestions(questions: UiQuestion[]): void;
 	/** A viewport snapshot captured by the geometry button in attach mode (the Geometry Snapshot
 	 *  tool's default message switched off): lands in the composer's attachment strip like a pasted
 	 *  image and leaves on the user's own turn. */
@@ -579,6 +637,59 @@ export function openExternalLink(url: string): void {
 export function answerApproval(id: string, allow: boolean): void {
 	window.location.href =
 		`${BRIDGE_SCHEME}://approve?id=${encodeURIComponent(id)}&allow=${allow ? '1' : '0'}`;
+}
+
+/** Arms or disarms one trigger, by instance id.
+ *
+ *  This is the same act as the node's own right-click menu, which means switching a recorder OFF
+ *  SENDS what it recorded. Switching everything off is a different verb on purpose — see
+ *  armAllTriggers. */
+export function armTrigger(id: string, on: boolean): void {
+	window.location.href =
+		`${BRIDGE_SCHEME}://armtrigger?id=${encodeURIComponent(id)}&on=${on ? '1' : '0'}`;
+}
+
+/** Arms every trigger in the pipeline, or switches every one off.
+ *
+ *  Switching all off DISCARDS what a recorder had accumulated — the kill-switch contract, matching
+ *  the harness panel's own button. Somebody stopping everything is not asking for a round to start. */
+export function armAllTriggers(on: boolean): void {
+	window.location.href = `${BRIDGE_SCHEME}://armtriggers?on=${on ? '1' : '0'}`;
+}
+
+/** Loads the transcript saved in the project folder into the Conversation Log. */
+export function resumeConversation(): void {
+	window.location.href = `${BRIDGE_SCHEME}://resume`;
+}
+
+/** Answers one Ask Human card, or skips it.
+ *
+ *  Goes over the SUBMIT channel rather than a custom-URI query, because a typed answer can be a
+ *  pasted paragraph and a URL is not the place for that — the same reason an image-bearing message
+ *  takes that path. `readSelection` asks the host to read what is selected in Rhino at this moment,
+ *  which is the point of a select-in-Rhino question: the person selects it after reading the card. */
+export function answerQuestion(
+	id: string,
+	text: string,
+	options?: { skip?: boolean; readSelection?: boolean }
+): void {
+	const json = JSON.stringify({
+		kind: 'human-answer',
+		id,
+		text,
+		skip: options?.skip === true,
+		readSelection: options?.readSelection === true
+	});
+
+	const webview = (window as unknown as { chrome?: { webview?: { postMessage?: (m: string) => void } } })
+		.chrome?.webview;
+	if (webview?.postMessage) {
+		webview.postMessage(json);
+		return;
+	}
+
+	window.__physaliaPending = json;
+	window.location.href = `${BRIDGE_SCHEME}://submit?images=1`;
 }
 
 /** Opens the browser window for an offered file, or drops the offer. Anything but an explicit open

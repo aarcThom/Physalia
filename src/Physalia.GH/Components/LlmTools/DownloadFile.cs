@@ -339,6 +339,12 @@ public class DownloadFile : LlmToolComponentBase
         this._downloaded.Clear();
         this._downloaded.Add(outcome.Path);
 
+        // A Folder Watcher armed on this folder must not report this file back as news: the model
+        // asked for it and the result below tells it the path. Announcing it again is how one fetch
+        // becomes a fetch-everything loop, and no round or stall limit catches that, because every
+        // round is genuinely different. See PipelineFileWrites.
+        PipelineFileWrites.Record(outcome.Path);
+
         var report = new StringBuilder();
         report.Append(outcome.AlreadyPresent
             ? "\"" + outcome.FileName + "\" was already in the project folder at the same size, so it was not fetched again."
@@ -399,6 +405,13 @@ public class DownloadFile : LlmToolComponentBase
         }
 
         this._downloaded.AddRange(summary.Files);
+
+        // Unpacking writes a whole directory tree, so every file in it would otherwise wake a
+        // watcher — the same suppression as the download itself, for the same reason.
+        foreach (string file in summary.Files)
+        {
+            PipelineFileWrites.Record(file);
+        }
 
         report.Append("\nUnpacked ").Append(summary.Files.Count)
             .Append(summary.Files.Count == 1 ? " file" : " files")

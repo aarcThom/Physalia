@@ -180,6 +180,11 @@ public class Chat : StatefulComponentBase
             // one is denied. Failing closed here is what stops a tool call hanging for its full
             // five-minute timeout against a window that is no longer on screen.
             ToolApprovalBroker.DenyAll();
+
+            // And the same for any Ask Human card. Not "denied" — there is no such thing as a denied
+            // question — but left unanswered, which is what the model is told: the alternative is a
+            // tool call waiting ten minutes for a window that has gone.
+            HumanQuestionBroker.AbandonAll();
         };
         window.Show();
     }

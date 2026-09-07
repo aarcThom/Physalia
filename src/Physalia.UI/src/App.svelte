@@ -12,12 +12,14 @@
 	import Composer from '$lib/chat/Composer.svelte';
 	import ApprovalCard from '$lib/chat/ApprovalCard.svelte';
 	import FetchOfferCard from '$lib/chat/FetchOfferCard.svelte';
+	import QuestionCard from '$lib/chat/QuestionCard.svelte';
 	import ImageEditor from '$lib/chat/ImageEditor.svelte';
 	import Setup from '$lib/chat/Setup.svelte';
 	import Preset from '$lib/chat/Preset.svelte';
 	import Grounding from '$lib/chat/Grounding.svelte';
 	import ConnectOptions from '$lib/chat/ConnectOptions.svelte';
 	import McpServers from '$lib/chat/McpServers.svelte';
+	import TriggerControl from '$lib/chat/TriggerControl.svelte';
 	import ApiEndpoints from '$lib/chat/ApiEndpoints.svelte';
 	import {
 		DropdownMenu,
@@ -38,8 +40,16 @@
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
 	import OctagonIcon from '@lucide/svelte/icons/octagon';
 	import HouseIcon from '@lucide/svelte/icons/house';
+	import HistoryIcon from '@lucide/svelte/icons/history';
+	import ZapIcon from '@lucide/svelte/icons/zap';
 	import { cn } from '$lib/utils';
-	import { BRIDGE_SCHEME, openExternalLink } from '$lib/bridge';
+	import {
+		BRIDGE_SCHEME,
+		openExternalLink,
+		resumeConversation,
+		armTrigger,
+		armAllTriggers
+	} from '$lib/bridge';
 	import type {
 		ClusterInfo,
 		ClusterSelectionPayload,
@@ -61,6 +71,8 @@
 		ToolsSelectionPayload,
 		UiApproval,
 		UiFetchOffer,
+		UiQuestion,
+		UiTrigger,
 		UiChat,
 		UiMessage,
 		UiPdf,
@@ -143,6 +155,10 @@
 	// writes this conversation to a .txt transcript, and a door onto the session's signal trace.
 	let exportToolWired = $state(false);
 	let signalTraceToolWired = $state(false);
+	// Trigger Control: the button, and the live list behind it. Read off the canvas on the host's own
+	// tick — arming changes no data and runs no solution, so there is nothing to push from.
+	let triggerControlWired = $state(false);
+	let triggers = $state<UiTrigger[]>([]);
 
 	// The Image Mark Up tool adds no button of its own — it puts the image editor in front of every
 	// image the human sends. `markUp` is that editor's whole state: the image being drawn on plus where
@@ -153,12 +169,17 @@
 	// Set by the harness this Chat lives in, so a pipeline shared across a firm opens with its
 	// author's instructions rather than a generic invitation to type.
 	let chatText = $state<string | null>(null);
+	// A transcript saved in the project folder, offered while this conversation is still empty.
+	let resumeTurns = $state<number | null>(null);
 	// Tool approval questions waiting for an answer. A tool call is blocked while one is up, so these
 	// are pushed the moment the model asks rather than on the window's own tick.
 	let approvals = $state<UiApproval[]>([]);
 	// Files a download could not fetch. Unlike an approval these block nothing — the call already
 	// failed — so they simply sit there until taken or dismissed.
 	let fetchOffers = $state<UiFetchOffer[]>([]);
+	// Questions an Ask Human tool is waiting on. These block a call like an approval does, but they
+	// have no safe default at all, so an unanswered one is reported as unanswered rather than refused.
+	let questions = $state<UiQuestion[]>([]);
 	let tokenCountToolWired = $state(false);
 	let markUp = $state<{
 		base64: string;
@@ -211,7 +232,7 @@
 
 	// Other full-screen pages opened from the header menu (mutually exclusive with the chat view
 	// and with setup). null = none open.
-	let panel = $state<'preset' | 'grounding' | 'mcp' | 'api' | null>(null);
+	let panel = $state<'preset' | 'grounding' | 'mcp' | 'api' | 'triggers' | null>(null);
 
 	// MCP config state, pushed by the host whenever the server store changes — from this page,
 	// from another window, or from the user editing the file by hand.
@@ -281,10 +302,13 @@
 				imageToolWired = next.imageToolWired ?? false;
 				exportToolWired = next.exportToolWired ?? false;
 				signalTraceToolWired = next.signalTraceToolWired ?? false;
+				triggerControlWired = next.triggerControlWired ?? false;
+				triggers = next.triggers ?? [];
 				markUpToolWired = next.markUpToolWired ?? false;
 				pdfToolWired = next.pdfToolWired ?? false;
 				pendingPdfs = next.pendingPdfs ?? [];
 				chatText = next.chatText ?? null;
+				resumeTurns = next.resumeTurns ?? null;
 				tokenCountToolWired = next.tokenCountToolWired ?? false;
 			},
 			setSetupResult: (result) => {
@@ -316,6 +340,9 @@
 			},
 			setFetchOffers: (next) => {
 				fetchOffers = next ?? [];
+			},
+			setQuestions: (next) => {
+				questions = next ?? [];
 			},
 			attachSnapshot: (image) => {
 				// Attach mode: the host captured a snapshot and hands it here instead of sending it —
@@ -989,6 +1016,24 @@
 				<ActivityIcon class="size-4" />
 			</Button>
 		{/if}
+
+		{#if triggerControlWired}
+			<!-- Trigger button: appears while a Trigger Control human tool is wired, and opens the list
+			     of every trigger in the pipeline. Stays live while the pipeline is busy — switching a
+			     runaway trigger off mid-round is exactly when you want it — and it is tinted while
+			     anything is armed, so the one state worth noticing is visible without opening the page. -->
+			<Button
+				variant="outline"
+				size="icon-lg"
+				class={triggers.some((t) => t.armed) ? 'text-[var(--neu-accent)]' : ''}
+				onclick={() => (panel = 'triggers')}
+				title={triggers.some((t) => t.armed)
+					? `${triggers.filter((t) => t.armed).length} trigger(s) armed - open the trigger list`
+					: 'Open the trigger list'}
+			>
+				<ZapIcon class="size-4" />
+			</Button>
+		{/if}
 	</header>
 
 	<!-- flex-1 + min-h-0 lets this region size to the space left by the composer and
@@ -1046,6 +1091,13 @@
 					ondelete={deleteApiEndpoint}
 					onforgetkey={forgetApiKey}
 					ontest={testApiEndpoint}
+					onclose={closePanel}
+				/>
+			{:else if panel === 'triggers'}
+				<TriggerControl
+					{triggers}
+					onarm={armTrigger}
+					onarmall={armAllTriggers}
 					onclose={closePanel}
 				/>
 			{:else if panel === 'grounding'}
@@ -1118,6 +1170,21 @@
 					{:else}
 						<p class="text-sm font-medium">Physalia chat</p>
 						<p class="text-xs">Send a message to start the conversation.</p>
+					{/if}
+
+					<!-- Offered, never loaded automatically: a pipeline shared across a firm would
+					     otherwise open with its author's conversation already in it and pay for it on
+					     the next call. Only shown while nothing has been said, which is also the only
+					     time resuming has an unambiguous meaning. -->
+					{#if resumeTurns}
+						<button
+							type="button"
+							class="neu-btn mt-3 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-[var(--neu-accent)]"
+							onclick={() => resumeConversation()}
+						>
+							<HistoryIcon class="size-3.5" />
+							Resume saved conversation ({resumeTurns} turns)
+						</button>
 					{/if}
 				</div>
 			{/if}
@@ -1201,10 +1268,11 @@
 	     vertical line (see the .chat-scroll note in app.css); a card with a plain mx-3 spanned it and
 	     ran 44px past the conversation, clipping its own Allow button. Deriving the inset from the
 	     same three numbers the composer uses is what keeps the two aligned if any of them changes. -->
-	{#if approvals.length > 0 || fetchOffers.length > 0}
+	{#if approvals.length > 0 || fetchOffers.length > 0 || questions.length > 0}
 		<div class="flex shrink-0 items-stretch gap-2 px-3">
 			<div class="flex min-w-0 flex-1 flex-col">
 				<ApprovalCard {approvals} />
+				<QuestionCard {questions} />
 				<FetchOfferCard offers={fetchOffers} />
 			</div>
 			<div class="w-9 shrink-0"></div>

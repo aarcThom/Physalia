@@ -149,14 +149,14 @@ panel(D, 1860, 640,
 
 # --------------------------------------------------------------------------- 7 the router
 
-title(D, 2140, TITLE_Y, "7 - THE ROUTER", w=250, h=44)
+title(D, 2190, TITLE_Y, "7 - THE ROUTER", w=240, h=44)
 router = place(D, "Router", 2300, SPINE, nick="Router")
 wire(router, "Tool Calls", call, "Tool Calls")
 router_slots(router, 1)
-panel(D, 2140, 570,
+panel(D, 2190, 570,
       "Two tools, so two outputs plus Feedback. As in preset 03, the names you see are the tool "
       "names the Router adopted once the wires were finished.",
-      w=250, h=200)
+      w=240, h=210)
 
 # --------------------------------------------------------------------- 8 data from your canvas
 

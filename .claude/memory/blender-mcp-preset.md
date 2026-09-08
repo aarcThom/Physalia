@@ -64,11 +64,19 @@ empty value as unset**, and because `McpSession` applies env as `startInfo.Envir
 `env` is part of `McpServerDefinition.Identity`, so editing it correctly drops the warm session.
 **Expect this for any stdio MCP server that is a Python program** — it is not Blender-specific.
 
-**Blender itself was running in WSL, and the server still belongs on WINDOWS.** Blender listens on
-WSL's own `127.0.0.1:9876`; WSL2 localhost forwarding makes that reachable from Windows (verified),
-so plain `uvx blender-mcp` on the Windows side drives it. **Do not route stdio through `wsl.exe`** —
-`wsl.exe -e /bin/cat` lands in an interactive `bash` instead of running `cat`, and PowerShell's
-`WriteLine` leaks a `\r` into Linux. Both were measured; the Windows-side server has neither problem.
+**Blender itself was running in WSL, and the server still belongs on WINDOWS** — for *this* server.
+Blender listens on WSL's own `127.0.0.1:9876`; WSL2 localhost forwarding makes that reachable from
+Windows (verified), so plain `uvx blender-mcp` on the Windows side drives it, and everything the tool
+touches is a Windows path.
+
+**CORRECTION (2026-09-07, same day): `wsl.exe` IS a usable stdio transport.** This note first said it
+was not. That conclusion came from a probe using PowerShell's `WriteLine`, which appends CRLF — bash
+received `HELLO-RELAY\r` and the relay looked broken. Writing `"\n"` explicitly, a full MCP
+handshake relays through `wsl.exe -- <cmd>` perfectly, and **Physalia's own `McpSession.WriteLineAsync`
+(CRLF on Windows) also works through it** — verified live with a WSL server reporting 39 tools inside
+Rhino. Two things a WSL entry does need: `--` before the command, and an explicit `PATH`, because
+`wsl.exe --` runs no login shell (see [[comfy-render-preset]], where that decided the architecture).
+So the rule is not "never wsl.exe"; it is "put the server where the things it drives live".
 
 ## The Picker trap — an unwired input grows a Picker on every LOAD, not just on placement
 

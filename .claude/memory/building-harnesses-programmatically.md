@@ -225,3 +225,16 @@ Grasshopper window MINIMIZED first, since GH steals the keystrokes — which is 
 appears to work once and then silently stops. And the archive route's freedom from dialogs is now
 confirmed: `GH_DocumentIO.Open` pops a missing-plug-in prompt plus a per-object **Grasshopper Font
 Mapper** that ignores `{ENTER}`, while `GH_Archive` + `ExtractObject` raised none.
+
+## 2026-09-07 — resolving components by NAME needs the ribbon section too
+
+Scanning `ComponentServer.ObjectProxies` by `proxy.Desc.Name` beats a hard-coded guid table (which
+goes stale), but name alone is ambiguous: **four Physalia names are claimed by two components each.**
+`Read PDF` is both the `read_pdf` LLM tool and the PDF-intake human tool — and the human-tool half
+has NO parameters, so a build that grabs it dies on `no input Signal on Read PDF`. `Component
+Catalog`, `Model API` and `Token Estimator` each also collide with a hidden `Params` proxy of the
+same name (hidden from the ribbon, present in `ObjectProxies`). Match `Desc.SubCategory` as well, and
+check the emitted object has the inputs you are about to wire. Full table in
+[[harness-builder-preset]], which also confirms the entire build recipe runs unchanged in
+`run_rhino_script`'s CPython 3.9 — a different engine from the IronPython that `-RunPythonScript`
+gives you.

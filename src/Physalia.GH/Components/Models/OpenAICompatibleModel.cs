@@ -79,10 +79,7 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
     public override void AddedToDocument(GH_Document document)
     {
         base.AddedToDocument(document);
-        if (GhJsonBridge.IsImporting) return;
-        if (Params.Input[1].SourceCount > 0) return;
-
-        ComponentHelpers.PickerAdd(this, document, 1);
+        AutoPlacePicker(document, 1);
     }
 
     /// <inheritdoc/>

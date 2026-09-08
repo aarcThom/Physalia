@@ -36,3 +36,21 @@ The design point: **a parameter set is language-neutral, the prose about it is n
 One real behavioural difference: `AllowsPartialInterface` (virtual, true on the base). Python may declare a SUBSET of the locked params — unmentioned variables are simply unused. C# may NOT: the RunScript signature is the component's second declaration of its interface, and a param the signature omits has nothing to bind to. CsTransmitter overrides it false, and the lock check then reports "locked inputs you left out" as well as unknown names. When locked, the two C# checks compose: lock pins declared==target, signature pins code==declared.
 
 **NOT yet run in Rhino.** The open live question is whether pushing params via `UpdateInput/OutputParameters` and letting the engine auto-declare from the signature agree in practice, or whether the auto-declare pass makes the explicit push redundant. Related: [[harness-subdocument]], [[system-prompt-preambles]], [[script-io-grounder]].
+
+## RUN LIVE 2026-09-07 (first time)
+
+Exercised end to end in Rhino while building teaching preset S05. A real Rhino 8 C# Script component
+on the host canvas, the transmitter linked to it, the model asked for a sum; Schema Validator, C#
+Transmitter and Runtime Health Check all Success, and `GhPythonBridge.GetScript` read back working
+code whose `RunScript(double x, double y, ref object a)` matches the target's actual parameters —
+which is the signature check doing its job rather than being bypassed.
+
+`IsLinkTarget` accepted the Rhino 8 `CSharpComponent` (`b6ba1144-02d6-4a2d-b53c-ec62e290eeb7`) and
+REFUSED the obsolete `Component_CSNET_Script` (`a9a8ebd2-fff5-4c44-a8f5-739736d129ba`). Both are
+called "C# Script" and both live under Maths / Script, so the `LanguageSpec` test is the only thing
+separating them — exactly the case it was written for.
+
+Also confirmed: **Set Script I/O reads its target THROUGH the transmitter's link**, so a preset can
+pre-link those two and leave the user only the link that must be made on their own canvas.
+
+See [[teaching-presets]].

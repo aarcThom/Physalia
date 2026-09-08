@@ -114,3 +114,51 @@ there the pin wins where beside the `.gha` it cannot. It speaks MCP over stdio
 back to Physalia. `url:` entries in the YAML spawn the bridge transparently; the user pastes the same
 standard config either way. OAuth's browser redirect and loopback listener then live outside Rhino,
 which is where they belong anyway.
+
+## 2026-09-07 — RUN INSIDE RHINO at last, and the OAuth flow driven to the consent gate
+
+Both gaps CLAUDE.md flagged ("Not yet run inside Rhino", "the OAuth flow is unverified") are now
+closed as far as they can be without a human pressing Allow.
+
+**The bridge works inside Rhino.** `McpServer.BridgeExecutable()` resolved to
+`bin/.../Bridge/Physalia.McpBridge.exe`, and a `url:` entry against a local
+`@modelcontextprotocol/server-everything streamableHttp` (port 3001, path `/mcp`) reported
+**`connected, 13 tools`**, namespaced `everything-http__*`, sitting on the same canvas as the stdio
+`blender` node with 28. A `tools/call` round trip came back (`Echo: physalia bridge round trip`), and
+the control — an unknown tool — returned `MCP error -32602: Tool no-such-tool not found`, so errors
+propagate rather than being swallowed. Two bridge processes ran side by side, one per remote entry.
+
+**OAuth reaches the browser and the whole handshake is visible in the node's Status.** Against
+`https://mcp.notion.com/mcp` the status output spelled out the chain:
+
+```
+bridge: GET https://mcp.notion.com/mcp answered 401, so the standalone stream is off for this session.
+bridge connected to https://mcp.notion.com/mcp (auth: OAuth, standalone GET stream: no)
+bridge: opening a browser to sign in - https://mcp.notion.com/authorize?client_id=<issued>&
+  redirect_uri=http://127.0.0.1:60289/callback&response_type=code&code_challenge=<...>&
+  code_challenge_method=S256&state=<...>&resource=https://mcp.notion.com/mcp&scope=default
+```
+
+Everything worth checking is in that URL: **dynamic client registration SUCCEEDED** (the `client_id`
+was issued at runtime and configured nowhere), **PKCE S256**, a **loopback callback**, the **RFC 8707
+`resource` indicator** MCP requires, and `scope=default` matching what
+`/.well-known/oauth-protected-resource` advertises. A Chrome window titled "Notion - Log in" opened.
+
+**Still unverified, and only a human can close it:** the code→token exchange, the `FileTokenCache`
+write (DPAPI-encrypted, filename = sha256 of endpoint+scope, so a directory listing does not leak
+which services are connected), and the refresh-token cold start that the whole cache exists for.
+`%LOCALAPPDATA%/Physalia/mcp-auth/` is created but stays EMPTY until consent completes — which is
+itself the right behaviour to expect.
+
+**The un-consented failure is legible, which matters more than it sounds.** The node warns
+`MCP request 'initialize' to 'notion' did not complete` and then quotes the bridge's own stderr,
+including the authorize URL. So a user who missed the browser window, or closed it, can see exactly
+what was waiting for them instead of a bare timeout.
+
+**Also confirmed:** `--header` (static bearer) and `--scope` narrowing were NOT exercised; blank is
+the normal case and that is what ran.
+
+**Environment trap:** `npx`/`npm` are NOT on the PATH a Windows process inherits when launched from
+WSL, so a bare `npx.cmd` fails with "not recognized" — write a `.cmd` that sets
+`PATH=C:\Program Files\nodejs;%PATH%` and launch that. Note the asymmetry: `uvx` WAS on the PATH
+Rhino itself had, which is why the Blender server resolved from a bare `uvx` while this did not.

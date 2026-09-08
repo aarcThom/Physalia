@@ -1,0 +1,11 @@
+{
+  "4":  {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"}},
+  "10": {"class_type": "LoadImage", "inputs": {"image": "REPLACE_WITH_UPLOADED_FILENAME.png"}},
+  "11": {"class_type": "ImageScale", "inputs": {"upscale_method": "lanczos", "width": 1024, "height": 1024, "crop": "disabled", "image": ["10", 0]}},
+  "12": {"class_type": "VAEEncode", "inputs": {"pixels": ["11", 0], "vae": ["4", 2]}},
+  "6":  {"class_type": "CLIPTextEncode", "inputs": {"text": "REPLACE_WITH_STYLE_PROMPT", "clip": ["4", 1]}},
+  "7":  {"class_type": "CLIPTextEncode", "inputs": {"text": "blurry, low quality, watermark, text, distorted geometry", "clip": ["4", 1]}},
+  "3":  {"class_type": "KSampler", "inputs": {"seed": 12345, "steps": 20, "cfg": 7.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 0.6, "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["12", 0]}},
+  "8":  {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
+  "9":  {"class_type": "SaveImage", "inputs": {"filename_prefix": "physalia", "images": ["8", 0]}}
+}

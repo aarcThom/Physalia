@@ -13,6 +13,8 @@ with the Grasshopper object model) and **Ask Human** (a harness spec has require
 no safe value to invent for any of them). Live: Router outputs renamed to
 `['run_rhino_script', 'ask_human', 'Feedback']`.
 
+The general checklist this follows is [[preset-conventions]].
+
 **Its preamble IS the deliverable.** `Harness Builder.txt` (~10.5k chars) encodes the whole scripted-
 build contract: name+section resolution, the forward wiring, the wireless backward hops, the Picker
 discipline, the Router variable-output recipe, `SetPersistentData` clearing and wrapping, runtime

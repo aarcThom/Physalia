@@ -9,6 +9,8 @@ metadata:
 Built 2026-09-07. `Files/PRESETS/User/Codex - Blender.gh` — a harness that lets a person type
 modelling commands in the chat and have them run in a live **Blender**, through the `blender` MCP
 server (`uvx blender-mcp`, 28 tools). 19 objects, verified live: connected, **28 tools advertised**,
+
+The general checklist this follows is [[preset-conventions]].
 Router output renamed to `Blender`, and a real cube created in Blender through the pipeline (driven
 with Construct Tool Call, so no model quota was spent proving dispatch).
 

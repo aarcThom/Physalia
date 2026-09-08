@@ -13,6 +13,8 @@ nodes** (no model, driven by Construct Tool Call + reflection): capture 288 KB �
 `isError=False` → `run_workflow` `status: completed` in ~19 s on the 4060 Ti → `fetch_outputs` with
 **`attachments=1`**, i.e. the render arriving as an image block.
 
+The general checklist this follows is [[preset-conventions]].
+
 Same conventions as [[blender-mcp-preset]] — Codex Model, stored source on every auto-placed Picker,
 blank Panel on Schema — plus two structural firsts:
 - **TWO tool nodes, so the Router grows a second output.** `CreateParameter` /

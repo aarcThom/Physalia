@@ -12,6 +12,10 @@ metadata:
 driving the Rhino MCP's `run_python` tool. Useful for testing a new component without hand-wiring a
 canvas, and the wiring lessons apply to authoring presets by hand too.
 
+**See also:** [[preset-conventions]] for what makes a PRESET correct (naming, placement, the
+verification), and [[driving-rhino-from-wsl]] for the script channel itself and the two Python
+engines a script may land in.
+
 ## The mechanism
 
 The Rhino MCP's `g1_*` tools operate on the ACTIVE Grasshopper canvas, so they cannot reach inside a

@@ -19,8 +19,10 @@ namespace Physalia.GH.Components;
 /// Grasshopper component that configures inference through the locally-installed OpenAI Codex CLI.
 /// It uses the user's <c>codex login</c> session, so it takes no API key. Both inputs are exposed
 /// to a Picker via <see cref="IPickableValuesSource"/>: the model list is fetched from the CLI
-/// itself (which models an account may use is plan-dependent), the reasoning efforts are the
-/// standard set.
+/// itself (which models an account may use is plan-dependent, and a model id the installed CLI has
+/// never heard of is a hard 400), while the reasoning efforts are the fixed union in
+/// <see cref="CodexConfig.KnownReasoningEfforts"/> — an effort the chosen model does not offer is
+/// ignored rather than refused, so the two lists do not need the same treatment.
 /// </summary>
 public class CodexModel : PhyBase, IPickableValuesSource
 {
@@ -107,7 +109,7 @@ public class CodexModel : PhyBase, IPickableValuesSource
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
         pManager.AddTextParameter("Model", "M", "Which model to use. The Picker placed alongside is filled by asking the CLI itself. Leave it empty to take whatever the CLI would choose.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("Effort", "E", "How hard to think: low, medium, high or xhigh. The Picker placed alongside lists them. Leave it empty for the model's own default.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Effort", "E", "How hard to think: low, medium, high, xhigh, max or ultra. The Picker placed alongside lists them all; a level the chosen model does not offer is ignored, not rejected. Leave it empty for the model's own default.", GH_ParamAccess.item, string.Empty);
         pManager[1].Optional = true;
     }
 

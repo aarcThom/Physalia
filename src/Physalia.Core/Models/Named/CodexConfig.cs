@@ -15,7 +15,7 @@ namespace Physalia.Core.Models.Named;
 /// control it does expose is <see cref="ReasoningEffort"/>.
 /// </remarks>
 /// <param name="ModelId">
-/// The Codex model to use, e.g. <c>gpt-5.5</c>. Empty means "whatever the installed CLI defaults
+/// The Codex model to use, e.g. <c>gpt-6-astra</c>. Empty means "whatever the installed CLI defaults
 /// to" — the robust choice, since the CLI resolves its own current default and the model list is
 /// account-dependent (see <see cref="KnownModels"/>).
 /// </param>
@@ -43,8 +43,22 @@ public record CodexConfig(string ModelId = "", int MaxTokens = 8192)
     /// The reasoning-effort levels offered by the Codex Model component's Picker. The protocol
     /// takes an arbitrary string (each model advertises its own set), so any other value the
     /// installed CLI recognises is passed through unchanged.
+    ///
+    /// <para>This is the UNION of what the current generation offers, not one model's set: the
+    /// live <c>model/list</c> answer carries a <c>supportedReasoningEfforts</c> array per model,
+    /// and they differ — <c>gpt-6-astra</c> and the <c>gpt-5.6</c> pair take all six, while
+    /// <c>gpt-5.6-luna</c> stops at <c>max</c>. A union is safe because an effort the chosen model
+    /// does not support is IGNORED rather than rejected (measured on codex-cli 0.153.4: <c>ultra</c>
+    /// against <c>gpt-5.6-luna</c> completes the turn normally), which is the opposite of a
+    /// too-new MODEL id — that one is a hard 400. So the model list is asked for live and this one
+    /// is not.</para>
+    ///
+    /// <para><c>max</c> and <c>ultra</c> arrived with the GPT-6 generation; both were verified
+    /// accepted on <c>gpt-6-astra</c>, and both produce reasoning summaries where the model's own
+    /// default effort (<c>low</c> on Astra) produces none.</para>
     /// </summary>
-    public static readonly IReadOnlyList<string> KnownReasoningEfforts = new[] { "low", "medium", "high", "xhigh" };
+    public static readonly IReadOnlyList<string> KnownReasoningEfforts =
+        new[] { "low", "medium", "high", "xhigh", "max", "ultra" };
 
     /// <summary>
     /// Gets the reasoning effort to request per turn, or null to leave the model's own default in

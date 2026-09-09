@@ -33,6 +33,14 @@ wiring rules: [[building-harnesses-programmatically]]. This file is the operatio
 (`<ROOT>/wip_presets`) and `SCRATCH` (system temp + `/claude`), so a build script hardcodes nothing
 but its own `ROOT` default.
 
+> **2026-09-09: `PRESETS` is no longer where presets SHIP.** The 28 built harnesses moved into
+> `Files/PRESETS/Physalia/AI/` (numbered `01`–`28`, the `SNN` set becoming `15`–`28`) and
+> `wip_presets/` was deleted from the repo. `phybuild.py` and `audit.py` still point at
+> `<ROOT>/wip_presets`, so a regenerated preset recreates that folder, lands there, and must be
+> copied into the shipped folder under its NEW number. Repointing them is an open decision — staging
+> folder you promote from, or write straight into `Physalia/AI`. See [[teaching-presets]] and
+> [[preset-conventions]].
+
 **Placing and wiring**
 - `place(doc, name, x, y, nick=None, category="Physalia", sub=None)` — `sub` is the RIBBON SECTION
   and is REQUIRED where names collide (`"Read PDF"` exists in both `LLM Tools` and `Human Tools`).

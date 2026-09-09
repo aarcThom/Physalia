@@ -219,6 +219,38 @@ or over a canvas nobody was looking at.
 
 ---
 
+### The library's fourth folder — `AI`, and the Experimental section (built 2026-09-09)
+
+The 30 model-written harnesses sitting in `Files/PRESETS/Physalia/AI/` appeared nowhere: `Enumerate`
+lists files directly inside a library folder and does not recurse, so a folder nested inside one is
+invisible. `AI` is now a fourth entry in `PresetLibrary.Folders`, listed LAST, and
+`DirectoryFor("AI")` resolves it to `Physalia/AI` — inside the shipped folder rather than beside it.
+
+- **It is shipped, so it goes with the shipped root**, replaced wholesale by a package update like
+  everything else in `Files/`. `IsShipped` is now the one predicate deciding both which root a folder
+  resolves under and whether we create it, replacing two hand-written comparisons against
+  `PhysaliaFolder`.
+- **The nesting is load-bearing in the other direction too.** Because `Enumerate` does not recurse, a
+  folder dropped inside a library folder is hidden until someone adds it to `Folders` — which is
+  exactly the property that let 30 presets sit in the tree, committed and shipped, without being
+  advertised. Keep it: it is the cheapest possible staging area.
+- The wire value is `AI/<file>`, and `Resolve` still MATCHES against the enumerated library rather
+  than composing the string into a path, so nothing about the extra level widens what a hostile wire
+  value can reach. Nothing else in the codebase branches on a preset's folder.
+
+The chat window does not put them in the gallery. They sit behind one pink **Experimental** button at
+the bottom of the preset page, carrying a warning that everything inside is AI generated pending
+human-written replacements, and while it is shut **those rows are not on the page at all** — a
+warning you can scroll past is not a warning, and an opt-in that renders its contents anyway is not
+an opt-in. It re-shuts on every visit. The pink is the existing `--neu-feedback` hue the auto-
+generated feedback turns wear, at real chroma rather than a 12.5% tint, because here the colour is a
+label to be read rather than a background wash.
+
+Cover is `tools/uitest/test_preset_experimental.py`, which asserts the absent rows, the warning
+verbatim, and the button's colour as PAINTED — `getComputedStyle` returns `lab()` for these oklch
+tokens, so a regex over `rgb()` reports every colour as null and looks exactly like the
+class-never-compiled bug it is there to catch.
+
 ## Where the user's files live (moved 2026-09-09)
 
 **The problem, in one sentence: Rhino 8 installs each version of a package in a directory of its own
@@ -290,10 +322,6 @@ changelog nobody wrote must not cost the user the notice) but a test compares th
 against the file, so a bump that forgets the section fails at the bump rather than a release later.
 
 ### What is still worth doing
-- **`Files/PRESETS/Physalia/AI/` is one level too deep for `PresetLibrary.Enumerate`**, which lists
-  files directly inside the three library folders only. The 30 presets sitting there do not appear in
-  the chat window's gallery. Nested listing is a change to the wire value (`Physalia/AI/01 - ….phy`)
-  and to `Resolve`, so it is its own piece of work.
 - There is **no yak manifest in the repo yet**, and packaging must carry the `runtimes/**/native/`
   SkiaSharp and PDFtoImage binaries — the `.gha` stopped being self-contained on 2026-08-25, and a
   package missing them fails only inside Rhino, with a `DllNotFoundException` from a build that is

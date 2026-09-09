@@ -62,9 +62,10 @@ into `bin` — memories, project folders, saved presets.
   folder with a download into the package `Files/`, restart, and confirm all three arrive and the
   harness still finds its folder — then rebuild and confirm `CopyLibraryFiles` can no longer destroy
   any of it. Also worth doing once: uninstall the package and confirm the data folder survives.
-- **`Files/PRESETS/Physalia/AI/` is one level deeper than `PresetLibrary.Enumerate` looks**, so the
-  30 presets sitting there do not appear in the gallery at all. Pre-existing, untouched — nested
-  listing changes the wire value and `Resolve`, so it is its own job.
+- ~~`Files/PRESETS/Physalia/AI/` is one level deeper than `PresetLibrary.Enumerate` looks~~ **DONE
+  2026-09-09.** `AI` is now a fourth library folder resolving to `Physalia/AI`, shown behind a pink
+  **Experimental** toggle in the gallery; the wire value is `AI/<file>` and `Resolve` still matches
+  against the enumerated library rather than composing a path. See [[preset-conventions]].
 - **No yak manifest in the repo yet**, and packaging must carry `runtimes/**/native/` (SkiaSharp,
   PDFtoImage) or PDF rendering fails in Rhino only. See [[pdf-natives-verified]].
 

@@ -13,27 +13,49 @@ themselves are the worked examples ([[blender-mcp-preset]], [[comfy-render-prese
 
 ## Naming and placement
 
-- **`<Model> - <Target>.gh`** — `Codex - Blender.gh`, `Codex - Rhino to ComfyUI.gh`,
-  `Claude Code - Python 3.gh`. All eight pre-existing presets are plain `.gh`; `.phy` is the newer
-  format and is read too, but matching the folder is the convention.
-- **`Files/PRESETS/User/`, not `Physalia/`**, for anything that depends on machine-specific setup — an
-  MCP server, a running external service, a CLI. `Physalia/` means "ships with the plug-in", and a
-  shipped preset that cannot work out of the box is a broken default. `Watch and Repeat.gh` is the
-  precedent for a repo-committed User preset.
+- **`<Model> - <Target>.gh`** was the convention while the shipped set was eight hand-built `.gh`
+  files (`Codex - Blender.gh`, `Claude Code - Python 3.gh`). **Superseded 2026-09-09**: those were
+  deleted and the shipped set is now the 28 numbered teaching `.phy` harnesses plus two `.gh`
+  survivors, all in `Physalia/AI/` and numbered `NN - Title` ([[teaching-presets]]). A new
+  hand-built preset should be `.phy` — it is the format that carries a description, chat text and
+  project files.
+- **A preset that depends on machine-specific setup does not belong in `Physalia/`** — an MCP server,
+  a running external service, a CLI. `Physalia/` means "ships with the plug-in", and a shipped preset
+  that cannot work out of the box is a broken default. There is no longer a repo-committed `User/`
+  preset to reach for either (see the two roots below); park such a thing in `Physalia/AI/`, where
+  the Experimental warning already sets expectations, or hand it to the user as a file.
 - A preset **MUST contain a Chat** or the loader refuses it.
 
 ## Where preset files actually live — and the trap
 
-`PresetLibrary.RootDir` is `<assembly dir>/Files/PRESETS`, i.e. **`bin/Debug/net7.0-windows/Files`,
-not the repo.** So:
+**There is no `PresetLibrary.RootDir` any more. The library has TWO roots** (2026-09-09, see
+[[data-folder-and-update-notice]]), and `PresetLibrary.DirectoryFor(folder)` is the only thing that
+knows which:
 
-- The **repo** `Files/**` is the source of truth; `CopyLibraryFiles` syncs it into `bin` on every build.
-- Writing only to the repo means the running Rhino **does not list your preset**. Writing only to
-  `bin` means it is **not version-controlled** and the next `RemoveDir` in `CopyLibraryFiles` wipes it.
-- So while iterating: write the repo copy, then **`cp` into `bin`** — preset, preamble, and any
-  `PROJECT_FILES` payload. Data-only changes need no rebuild.
-- Anything a harness GENERATES at runtime lands beside the plug-in and is therefore **not in git**.
-  Say so when handing such a file to the user.
+- **`Physalia` and `AI` are SHIPPED** — `<assembly dir>/Files/PRESETS/...`, i.e.
+  `bin/Debug/net7.0-windows/Files`, **not the repo**. `AI` is deliberately nested at `Physalia/AI`,
+  and `Enumerate` is non-recursive, which is what keeps a folder placed there out of the main listing
+  until it is added to `Folders`.
+- **`User` and `Community` are the user's** — `%LOCALAPPDATA%/Physalia/PRESETS/...`, so a silent
+  package update cannot throw away what they saved. **Neither is in the repo**, which is why a
+  repo-committed `User` preset is no longer a thing.
+- For a shipped preset the **repo** `Files/**` is the source of truth; `CopyLibraryFiles` syncs it
+  into `bin` on every build. Writing only to the repo means the running Rhino **does not list your
+  preset**; writing only to `bin` means it is **not version-controlled** and the next `RemoveDir` in
+  `CopyLibraryFiles` wipes it. So while iterating: write the repo copy, then **`cp` into `bin`** —
+  preset, preamble, and any `PROJECT_FILES` payload. Data-only changes need no rebuild.
+- `tools/presets/` still writes to **`<ROOT>/wip_presets`** ([[preset-build-runbook]]), which is now
+  neither of those roots: a regenerated preset lands there and must be moved into
+  `Files/PRESETS/Physalia/AI/` by hand.
+- Anything a harness GENERATES at runtime lands in the DATA folder, not beside the plug-in, and is
+  therefore **not in git**. Say so when handing such a file to the user.
+
+**The gallery shows `AI` differently.** It is folded behind one pink **Experimental** button at the
+bottom of the list, carrying a warning that everything inside is AI generated pending human-written
+replacements. While it is shut those rows are not on the page at all — the section is opt-in on every
+visit. So a preset dropped in `AI/` is shipped but not advertised; anything meant to be found on
+first look belongs in `Physalia/`. Cover for the section is
+`tools/uitest/test_preset_experimental.py` ([[headless-chat-ui-testing]]).
 
 ## The model node
 
@@ -43,8 +65,10 @@ not the repo.** So:
   pipeline solves perfectly green. This is the single most expensive mistake available here; see
   [[blender-mcp-preset]].
 - **Codex Model is the current default** for these presets: local CLI, no API key, tools-capable.
-  Store `gpt-5.6-luna` on its `Model` picker — read out of the shipped `Codex - Python 3.gh` rather
-  than invented — and leave `Effort` UNWIRED (no picker is auto-placed there; empty means the
+  Store `gpt-5.6-luna` on its `Model` picker — read out of a shipped preset rather than invented; the
+  `Codex - Python 3.gh` it originally came from was deleted 2026-09-09, so read one of the
+  `Physalia/AI` harnesses (or `git show 6984bf7~1:"Files/PRESETS/Physalia/Codex - Python 3.gh"`) —
+  and leave `Effort` UNWIRED (no picker is auto-placed there; empty means the
   model's own default).
 - Codex needs the `codex` CLI installed and signed in, not a key. On this machine it is **not
   installed**, so every Codex preset shows exactly one warning saying so.

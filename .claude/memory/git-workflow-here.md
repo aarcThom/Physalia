@@ -1,6 +1,6 @@
 ---
 name: git-workflow-here
-description: "Committing safely in this checkout: the whole worktree is CRLF while HEAD is LF, so `git add -A` writes a ~770-file line-ending commit. Also the missing git identity, why push needs the Windows git, and the branch-not-main decision."
+description: "Committing safely in this checkout: the whole worktree is CRLF while HEAD is LF, so `git add -A` writes a ~770-file line-ending commit. Also that .claude/memory is tracked IN this repo, the missing git identity, why push needs the Windows git, and that work goes straight to main."
 metadata:
   node_type: memory
   type: project
@@ -52,6 +52,18 @@ The first commit failed outright: `fatal: empty ident name`. The repo's own rece
 not `--global`** — to match history. Deliberately NOT the work address in the session context, since
 this repo's history uses the personal one.
 
+## `.claude/memory` is INSIDE the repo and tracked
+
+`~/.claude/projects/C--Users-rober-repos-Physalia/memory` is a **junction** pointing at
+`C:\Users\rober\repos\Physalia\.claude\memory`. So every memory note written this session is a change
+to a **version-controlled file** — it shows up in `git status`, and it will ride along in any commit
+that stages it. Discovered 2026-09-08 by a `git checkout` printing
+`M .claude/memory/gh-custom-attribute-traps.md` after I thought I had written outside the repo.
+
+Two consequences: never assume a memory write is invisible to git, and the "two commits per batch"
+habit below is not a style choice — the `docs(memory):` commit is what keeps notes out of the code
+commit's diff.
+
 ## Push needs the Windows git
 
 WSL's git cannot run the credential helper: the configured `git-credential-manager.exe` path is
@@ -63,9 +75,11 @@ anything. Fetch/commit/diff all work fine with WSL git.
 
 ## Standing decisions
 
-- **Branch, never `main`.** `main` is the default branch and the repo's history is PR merges
-  (`Merge pull request #18 from aarcThom/final-pass`), so pushing straight to it would bypass the
-  user's own workflow. Push a branch and hand over the `pull/new/<branch>` link.
+- **Commit straight to `main`. Superseded 2026-09-08, by the user, in these words: "we're only
+  working on main until I say otherwise."** They said it after I branched a one-commit fix off `main`
+  and had to fast-forward it back. Do NOT branch again until they say otherwise — the PR-merge history
+  (`Merge pull request #18 from aarcThom/final-pass`) is what made branching look required, and it
+  isn't. If a push to `main` is ever refused by a branch rule, THEN branch and say why.
 - **Commit and push only on explicit instruction.** [[commit-and-pr-messages-output-only]] says
   messages are output-only and push is off by default; on 2026-09-07 the user explicitly said
   "commit and push" four times, which overrides it for those batches. The default has not changed —

@@ -7,7 +7,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - Record progress in MEMORY.md + topic files whenever meaningful progress is made; don't wait to be asked.
 - Make code changes only when explicitly prompted ("make this change", "edit this", "fix this"). Otherwise advice only.
 - [Commit/PR messages output-only](commit-and-pr-messages-output-only.md) — print in chat; `git commit` only on explicit instruction, never `push`/`gh`. Covers THAT batch, not the session.
-- [Git workflow here](git-workflow-here.md) — **the worktree is CRLF while HEAD is LF, so ~770 files show modified with no real change: NEVER `git add -A`.** Find the real set by diffing content with `\r` stripped, stage explicit paths, normalise files you edited to LF. Identity is unset in WSL; push with the WINDOWS git; branch, never `main`.
+- [Git workflow here](git-workflow-here.md) — **the worktree is CRLF while HEAD is LF, so ~770 files show modified with no real change: NEVER `git add -A`.** Find the real set by diffing content with `\r` stripped, stage explicit paths, normalise files you edited to LF. Identity is unset in WSL; push with the WINDOWS git; commit to `main` (2026-09-08: "only working on main until I say otherwise"); **`.claude/memory` is tracked IN this repo.**
 - [Never `git checkout` a file to undo your own edit](git-checkout-discards-session-work.md) — it reverts to HEAD and destroys the session's work on that file.
 - [Design fork, then build through](design-fork-then-build-through.md) — investigate the whole path, ask the ONE question the code can't settle, then finish the vertical slice (Core→GH→UI, tests, docs) and say what hasn't run live.
 

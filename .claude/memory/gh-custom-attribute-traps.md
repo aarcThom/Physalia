@@ -154,3 +154,22 @@ browser-fetch offer falls back to its standalone window instead.
 Eto detail worth keeping: `Visible = false` on a Form maps to WPF `Window.Hide()`
 (`Eto.Wpf.Forms.WpfWindow`), so the HWND — and any Win32 ownership set on it — survives, and
 `Show()` on an already-loaded Eto form is just `Visible = true` and reloads nothing.
+
+**2026-09-08 — a panel bound on `canvas.DocumentChanged` sees the identity a step too early.**
+`HarnessPanelHost` refreshes the harness panel from the canvas's `DocumentChanged`, which is the only
+hook that fires for every route into a harness. But the LOAD path re-points the canvas *before* it
+adopts the loaded identity: `LoadFromFile` runs `Replace(contents)` (→ `OpenInCanvas` → `canvas.Document = inner`
+→ `DocumentChanged` → `Bind`) and only THEN `ApplyPackage`, which is where the manifest's name,
+description and chat text land. So the panel kept showing the pipeline that had just been discarded —
+and because its description/chat boxes write back on `TextChanged`, the first keystroke put that stale
+text back over what was loaded. Fixed by re-pointing at the tail of `ApplyPackage`.
+
+The general shape: **an event that fires on the SWAP cannot see anything applied after the swap.** If a
+load has an identity phase separate from its content phase, the UI has to be told at the end of the
+identity phase, not by listening to the content one.
+
+Same pass closed the half-sync the `NickName` note above predicted: the panel wrote through the
+setter, but an F2 on the proxy, a properties-panel edit or an undo reached nothing. The refresh rides
+`OnIdleFolderSync` — already where a rename is picked up, and the only UI-safe point, since the setter
+itself fires during layout, paste and archive reads. `RefreshName` guarding on `_name.Focused` is what
+keeps that from fighting a user mid-type. Built and compiling; **not run in Rhino.**

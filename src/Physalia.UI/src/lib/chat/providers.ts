@@ -264,7 +264,9 @@ export const PROVIDERS: Provider[] = [
 		steps: [
 			'Download a prebuilt llama.cpp release for your OS (a CUDA or Vulkan build for GPU, or the plain CPU build) and unzip it.',
 			'Get a model in GGUF format (for example from Hugging Face).',
-			'Start the server on port 8080 with a command below, then press Detect local server.'
+			'Start the server on port 8080 with a command below, then press Detect local server.',
+			'On the canvas, place a LlamaCpp API component and wire it into an OpenAI Compatible Model — that pair replaces the Model API component, which only lists providers with a key. There is nothing to type: the address defaults to http://127.0.0.1:8080/v1, and you only fill in its Base URL input if you started the server on another port or on another machine.',
+			"The Model picker beside the OpenAI Compatible Model fills itself from the running server, which loads one model and reports that. Wire the model into an LLM Call as usual."
 		],
 		commands: [
 			{ label: 'Run a local GGUF file', code: 'llama-server -m model.gguf -c 4096 --port 8080' },
@@ -278,7 +280,7 @@ export const PROVIDERS: Provider[] = [
 			{ label: 'Run GGUF models with llama.cpp', url: 'https://huggingface.co/docs/hub/gguf-llamacpp' },
 			{ label: 'GGUF models on Hugging Face', url: 'https://huggingface.co/models?library=gguf' }
 		],
-		note: 'Nothing is stored — Physalia just checks whether a server answers at http://127.0.0.1:8080.'
+		note: 'Nothing is stored — Physalia just checks whether a server answers at http://127.0.0.1:8080. The address itself lives on the LlamaCpp API component, so it travels with your definition.'
 	},
 	{
 		id: 'other',

@@ -64,7 +64,7 @@ internal static class ProviderAvailability
                 continue;
             }
 
-            bool present = string.Equals(info.Id, "local-llm", StringComparison.OrdinalIgnoreCase)
+            bool present = string.Equals(info.Id, ProviderCatalog.LocalLlm, StringComparison.OrdinalIgnoreCase)
                 ? await HasLlamaServerAsync(client, ct).ConfigureAwait(false)
                 : IsDetected(info.Id);
 
@@ -102,7 +102,7 @@ internal static class ProviderAvailability
     /// <returns>True when the provider answered.</returns>
     public static async Task<bool> DetectAsync(string providerId, HttpClient client, CancellationToken ct)
     {
-        if (string.Equals(providerId, "local-llm", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(providerId, ProviderCatalog.LocalLlm, StringComparison.OrdinalIgnoreCase))
         {
             return await HasLlamaServerAsync(client, ct).ConfigureAwait(false);
         }
@@ -163,8 +163,9 @@ internal static class ProviderAvailability
     {
         try
         {
+            var config = new OpenAICompatibleConfig(BaseUrl: ProviderCatalog.LocalLlmEndpoint);
             Result<LlamaCppServerProps, LlmError> result =
-                await LlamaCppServerQuery.GetPropsAsync(new LlamaCppConfig(), client, ct).ConfigureAwait(false);
+                await LlamaCppServerQuery.GetPropsAsync(config, client, ct).ConfigureAwait(false);
             return result is Result<LlamaCppServerProps, LlmError>.Ok;
         }
         catch

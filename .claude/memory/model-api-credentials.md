@@ -1,11 +1,11 @@
 ---
 name: model-api-credentials
-description: "2026-09-04/09-06 — credentials in an encrypted per-user store, providers set up (and now edited or switched off) in the chat window, endpoint+key on one GH_ModelApi wire."
+description: "2026-09-04/09-06/09-09 — credentials in an encrypted per-user store, providers set up (and now edited or switched off) in the chat window, endpoint+key on one GH_ModelApi wire; a local llama-server stores nothing, so it gets its own keyless LlamaCpp API node."
 metadata: 
   node_type: memory
   type: project
   originSessionId: 5a14cfb4-98bd-4bf8-94b0-58f4ef00f6af
-  modified: 2026-09-04T23:35:42.066Z
+  modified: 2026-09-09T00:00:00.000Z
 ---
 
 **BUILT 2026-09-04, not yet run in Rhino.** Plan + build record: `planning/model-api-credentials.md`.
@@ -120,3 +120,40 @@ Verified headless (`tools/uitest/test_provider_edit.py`, see [[headless-chat-ui-
 buttons, the URL box prefills the moved endpoint, the key box is blank with a keep-it placeholder,
 the install guide is gone, Disconnect opens a confirm for a stored key and Claude Code's page offers
 Disconnect with no form at all. Five Core tests cover the new status fields. **Not run in Rhino.**
+
+## The gap a local server left — LlamaCpp API (2026-09-09, BUILT, not run in Rhino)
+
+`local-llm` is `ProviderAuth.Detected`: **nothing is stored for it**, so `ModelApiResolver` has no
+`ModelApi` to hand back and the Model API component's Picker — which lists `Credentialed()` only —
+could never offer it. The chat window's Detect/Connect flow existed, and the canvas had no way to
+reach the server it found.
+
+**Fix: `LlamaCppApi` (`Components/Models/LlamaCppApi.cs`, "LlamaCpp API" / `LCppAPI`)** — the Model
+API component's counterpart, emitting `new ModelApi(ProviderCatalog.LocalLlm, url, "")` into an OpenAI Compatible
+Model. What settled the shape:
+- **An address is not a secret.** It belongs on the canvas, where it travels with the `.gh` and
+  inside a preset — the same argument as [[settings-ownership]]. So: one optional Base URL input,
+  defaulting to `ProviderCatalog`'s `local-llm` endpoint, and the node is otherwise input-free.
+- **No activation gate**, matching `ClaudeCodeModel`/`CodexModel`, which don't check it either. The
+  "availability is not consent" rule is about credentials *found lying around*; a URL the user typed
+  on the canvas is the consent. The chat window still wants Detect + Connect before it stops showing
+  first-run setup — that's the window's gate, not the node's.
+- **No model picker, and none is needed.** llama-server loads one model and ignores the id in the
+  request body; the picker beside OpenAI Compatible Model fills itself from `/v1/models` regardless.
+- **Key is always empty.** A server started with `--api-key` is an ordinary credentialed endpoint —
+  configure it as "Other (OpenAI-compatible)" and use Model API.
+- Icon: `IconPath` borrows `LlamaCppModelInfo.png` (first use of that hook) rather than fall back to
+  the brain — see [[component-icon-generation]] for a real one.
+
+`providers.ts`'s `local-llm` guide gained the two canvas steps, so the setup page now ends somewhere.
+
+**`LlamaCppProvider` and `LlamaCppConfig` are DELETED in the same pass** — a local server is a
+base-URL swap and nothing more. The provider was empty and unreachable (the factory mapped the
+config onto `OpenAICompatibleProvider`); the config's last job was carrying the default
+`http://127.0.0.1:8080/v1`, which `ProviderCatalog` already owned. That literal now lives once as
+**`ProviderCatalog.LocalLlmEndpoint`** — the one `DefaultBaseUrl` that is CALLED rather than
+prefilled into a form — read by the Detect probe and by the node; `ProviderCatalog.LocalLlm` retires
+the `"local-llm"` string literals in `ProviderAvailability` and `ChatWindow`. `LlamaCppServerQuery`
+stays: asking a server what context it was started with really is llama.cpp-specific, and it takes
+any `OpenAIProtocolConfig`. Rationale in `planning/core-architecture.md` — **do not re-add a named
+class for llama.cpp.** 1014 Core tests pass.

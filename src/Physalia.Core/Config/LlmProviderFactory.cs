@@ -33,7 +33,6 @@ public static class LlmProviderFactory
         AnthropicConfig             => _anthropic,
         GeminiProtocolConfig        => _gemini,
         OpenAICompatibleConfig      => _openAICompatible,
-        LlamaCppConfig              => _openAICompatible,
         ClaudeCodeConfig            => _claudeCode,
         CodexConfig                 => _codex,
         _                           => null,

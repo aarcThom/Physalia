@@ -17,10 +17,10 @@ Physalia.Core/
                        Conversation, ConversationHelpers, Instructions
     Models/          ← ModelConfig (abstract), ModelEntry, ModelList
         Protocol/    ← OpenAIProtocolConfig, AnthropicProtocolConfig, GeminiProtocolConfig (abstract records)
-        Named/       ← OpenAICompatibleConfig, AnthropicConfig, GeminiConfig, LlamaCppConfig
+        Named/       ← OpenAICompatibleConfig, AnthropicConfig, GeminiConfig
     Providers/       ← ILlmProvider, ProtocolProviderBase (HttpClient + shared request/stream helpers)
         OpenAiProtocol/, Anthropic/, Gemini/  ← protocol providers (per-provider wire-format parsing)
-        Named/       ← OpenAICompatibleProvider, AnthropicProvider, GeminiProvider, LlamaCppProvider
+        Named/       ← OpenAICompatibleProvider, AnthropicProvider, GeminiProvider
     Signals/         ← PhySignal, SignalOutcome, SignalSequencer
     Tokens/          ← ITokenEstimator + estimators, AsyncTokenEstimation, TokenEstimationHelpers
     Validation/      ← SchemaValidator, ValidationError, JsonExtractor
@@ -48,12 +48,13 @@ public record Instructions(string SystemPrompt, Conversation Conversation);
 Abstract classes (not interfaces) — share `HttpClient` state via `ProtocolProviderBase`.
 ```
 ProtocolProviderBase
-    OpenAIProtocolProvider    → OpenAICompatibleProvider, LlamaCppProvider
+    OpenAIProtocolProvider    → OpenAICompatibleProvider
     AnthropicProtocolProvider → AnthropicProvider
     GeminiProtocolProvider    → GeminiProvider
 ```
 - `ProtocolProviderBase` owns HttpClient, `TryGetConfig<T>`, `SendStreamingRequestAsync`, `SendForStringAsync`, `ReadStreamLineAsync`, `ParseModelIdsFromDataArray`. **Wire-format/SSE parsing stays per-protocol provider** — do not merge it.
 - `ModelConfig` hierarchy mirrors the provider hierarchy. DeepSeek/Ollama/OpenRouter/Groq etc. ride `OpenAICompatibleProvider` via base-URL swap, not separate classes.
+- **A local llama.cpp server is one of those base-URL swaps, and nothing more** — 2026-09-09. It had a `LlamaCppProvider` and a `LlamaCppConfig` for a while; both are DELETED. The provider was empty (its own doc comment said "no overrides are needed") and never reached the factory, which mapped `LlamaCppConfig` onto `OpenAICompatibleProvider` anyway. The config's only remaining job was carrying the default `http://127.0.0.1:8080/v1`, which `ProviderCatalog` already owned — so that literal now lives once, as `ProviderCatalog.LocalLlmEndpoint`, read by the setup page's Detect probe and by the LlamaCpp API component. **Do not re-add a named class for llama.cpp**: what a local server needs is an address, not a wire format. `LlamaCppServerQuery` (Tokens) stays — asking a server how much context it was started with is genuinely llama.cpp-specific, and it takes any `OpenAIProtocolConfig`.
 - `HttpErrorMapper.MapStatusCode` is the single HTTP-status → `LlmErrorKind` source.
 
 ### Provider Interface

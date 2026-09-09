@@ -1240,8 +1240,8 @@ public class ChatWindow : Form
 
         if (!found)
         {
-            PushSetupResult(provider, false, info.Id == "local-llm"
-                ? "No local server answered at http://127.0.0.1:8080. Start llama-server and try again."
+            PushSetupResult(provider, false, info.Id == ProviderCatalog.LocalLlm
+                ? $"No local server answered at {ProviderCatalog.LocalLlmEndpoint}. Start llama-server and try again."
                 : $"{info.Label} was not found on your PATH. Finish the install above, open a NEW terminal to pick up the change, then try again.");
             return;
         }

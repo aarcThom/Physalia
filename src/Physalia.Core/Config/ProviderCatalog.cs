@@ -90,6 +90,11 @@ public record ProviderInfo(
 /// </remarks>
 public static class ProviderCatalog
 {
+    /// <summary>
+    /// The id of the local llama-server entry, which several call sites test for by name.
+    /// </summary>
+    public const string LocalLlm = "local-llm";
+
     private static readonly ProviderInfo[] Entries =
     {
         // ---- Detected: nothing stored, probed live. ---------------------------------------------
@@ -97,7 +102,7 @@ public static class ProviderCatalog
             string.Empty, Array.Empty<string>()),
         new("codex", "Codex (subscription)", ProviderKind.Llm, ProviderAuth.Detected,
             string.Empty, Array.Empty<string>()),
-        new("local-llm", "Local LLM", ProviderKind.Llm, ProviderAuth.Detected,
+        new(LocalLlm, "Local LLM", ProviderKind.Llm, ProviderAuth.Detected,
             "http://127.0.0.1:8080/v1", Array.Empty<string>()),
 
         // ---- Credentialed chat providers. -------------------------------------------------------
@@ -146,6 +151,19 @@ public static class ProviderCatalog
     /// Gets every known provider, in setup-screen order.
     /// </summary>
     public static IReadOnlyList<ProviderInfo> All => Entries;
+
+    /// <summary>
+    /// Gets the endpoint a local llama-server is assumed to be listening on.
+    /// </summary>
+    /// <remarks>
+    /// Every other <see cref="ProviderInfo.DefaultBaseUrl"/> is only prefilled into a form for the
+    /// user to confirm or change. This one is CALLED — by the setup page's Detect probe and by the
+    /// LlamaCpp API component, neither of which asks anyone for an address first — so it is named
+    /// here rather than restated at each site. A <c>LlamaCppConfig</c> record whose only job was to
+    /// carry this literal was deleted in its favour.
+    /// </remarks>
+    public static string LocalLlmEndpoint =>
+        Find(LocalLlm)?.DefaultBaseUrl is { Length: > 0 } url ? url : "http://127.0.0.1:8080/v1";
 
     /// <summary>
     /// Finds a provider by id.

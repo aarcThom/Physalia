@@ -143,3 +143,9 @@ existing floor is `ComponentResolver` at 46.
 
 PowerShell, again: **variable names are case-insensitive**, so `$S` (a directory) and `$s` (a loop
 variable) are one variable. It surfaces as a nonsense path, not an error.
+
+**One component now borrows a sibling's icon (2026-09-09).** `LlamaCppApi` ("LlamaCpp API") sets
+`PhyBase.IconPath` to `Physalia.GH.Resources.LlamaCppModelInfo.png` — the FIRST use of that hook,
+which had existed unused. So the "0 brain fallbacks" state still holds, but it is 109 components
+against 108 icons: the next additive pass should draw one for it, and `IconPath` is the pattern to
+follow (and then delete) rather than shipping the generic brain while a sheet is pending.

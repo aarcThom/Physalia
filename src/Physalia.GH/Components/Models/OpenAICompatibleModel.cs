@@ -85,7 +85,7 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddParameter(new Param_ModelApi(), "Model API", "API", "Which endpoint to talk to and the key for it. Wire a Model API component; set the provider up in the chat window.", GH_ParamAccess.item);
+        pManager.AddParameter(new Param_ModelApi(), "Model API", "API", "Which endpoint to talk to and the key for it. Wire a Model API component and set the provider up in the chat window, or a LlamaCpp API component for a local llama-server, which needs no key.", GH_ParamAccess.item);
         pManager[0].Optional = true;
         pManager.AddTextParameter("Model", "M", "Which model to use — gpt-4o, or a prefixed name like anthropic/claude-sonnet-4-6 on OpenRouter. The Picker placed alongside lists what this endpoint offers.", GH_ParamAccess.item, string.Empty);
         pManager.AddIntegerParameter("Max Tokens", "T", "The ceiling on one reply. Raise it if answers come back cut off mid-sentence.", GH_ParamAccess.item, 4096);
@@ -118,7 +118,7 @@ public class OpenAICompatibleModel : PhyBase, IPickableValuesSource
 
         if (api is null)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Wire a Model API component to say which endpoint to talk to.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Wire a Model API component to say which endpoint to talk to — or a LlamaCpp API component for a local server.");
             return;
         }
 

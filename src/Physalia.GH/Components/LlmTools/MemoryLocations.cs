@@ -4,17 +4,17 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
+using Physalia.Core.Config;
 using Physalia.Core.Memory;
 
 namespace Physalia.GH.Components;
 
 /// <summary>
 /// Resolves the physical directories the <see cref="MemoryTool"/> reads and writes, under
-/// <c>Files/MEMORIES</c> beside the plug-in (the same <c>Files</c> tree the rest of Physalia keeps
-/// user-alterable content in). The global memory is a single shared folder; the local memory lives in
-/// a folder the user NAMES, on the Memory tool's own Memory Folder input.
+/// <c>MEMORIES</c> in the user's data folder (see <see cref="PhyData"/>). The global memory is a
+/// single shared folder; the local memory lives in a folder the user NAMES, on the Memory tool's own
+/// Memory Folder input.
 ///
 /// <para><b>Why it is named and not derived.</b> Two derivations were tried and both failed the same
 /// way — silently, by defaulting. Keying on the .gh file meant memory followed the document rather
@@ -70,15 +70,10 @@ internal static class MemoryLocations
         return key.Length == 0 ? UnnamedKey : key;
     }
 
-    // Files/MEMORIES beside the executing assembly. Falls back to a "MEMORIES" folder in the current
-    // directory if the assembly location is unknown (should not happen in a loaded plug-in).
-    private static string MemoriesRoot()
-    {
-        string? assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        return assemblyDir is null
-            ? "MEMORIES"
-            : Path.Combine(assemblyDir, "Files", "MEMORIES");
-    }
+    // MEMORIES in the user's data folder. It was Files/MEMORIES beside the plug-in until 2026-09-09,
+    // which meant a package update — or, for a developer, any rebuild — silently left every note the
+    // model had written in a directory nothing reads any more.
+    private static string MemoriesRoot() => PhyData.MemoriesRoot;
 
     // Anything that cannot be in a Windows file name — the path separators included, which is what
     // makes this a containment guard as well as a tidy-up — becomes a dash. Dots survive in the

@@ -5,8 +5,8 @@
 
 using System;
 using System.IO;
-using System.Reflection;
 using Grasshopper.Kernel;
+using Physalia.Core.Config;
 using Physalia.Core.Naming;
 
 namespace Physalia.GH.Harness;
@@ -15,22 +15,24 @@ namespace Physalia.GH.Harness;
 /// Where a pipeline's own files live: downloads, site data, reference PDFs, anything the work needs
 /// that is not in the definition.
 ///
-/// <para>One folder per harness, named after the harness, under <c>Files/PROJECT_FILES</c>. Everything
+/// <para>One folder per harness, named after the harness, under <c>PROJECT_FILES</c> in the user's
+/// data folder — NOT beside the plug-in, where a silent package update would leave it behind. Everything
 /// that reads or writes project files goes through here — the Project Folder grounder, the download
 /// tool, the file reader, and Read PDF, whose own library folder was folded into this one. Having a
 /// single resolver is what lets a harness's whole working set be packaged into a <c>.phy</c> and
 /// handed to somebody else.</para>
 ///
 /// <para>The path rules themselves are pure and live in <see cref="ProjectPaths"/>; this supplies the
-/// two roots it cannot know — where the plug-in is installed, and where the user's document is saved
+/// two roots it cannot know — the user's data folder, and where the user's document is saved
 /// — and owns the one side effect, which is moving the folder when a harness is renamed.</para>
 /// </summary>
 internal static class ProjectFolder
 {
     /// <summary>
-    /// The folder under <c>Files</c> holding every harness's project folder.
+    /// The folder holding every harness's project folder. Kept here as well as on
+    /// <see cref="PhyData"/> because it is the name a user sees on disk and in a resolved path.
     /// </summary>
-    internal const string RootFolderName = "PROJECT_FILES";
+    internal const string RootFolderName = PhyData.ProjectFiles;
 
     /// <summary>
     /// Resolves the project folder for a harness, honouring a typed override.
@@ -176,16 +178,16 @@ internal static class ProjectFolder
     }
 
     /// <summary>
-    /// <c>Files/PROJECT_FILES</c> beside the executing assembly.
+    /// <c>PROJECT_FILES</c> in the user's data folder.
     /// </summary>
     /// <returns>The project-files root.</returns>
-    internal static string Root()
-    {
-        string? assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        return assemblyDir is null
-            ? RootFolderName
-            : Path.Combine(assemblyDir, "Files", RootFolderName);
-    }
+    /// <remarks>
+    /// It used to be <c>Files/PROJECT_FILES</c> beside the plug-in, which put a pipeline's downloads,
+    /// autosaved transcript and run log inside the install directory — thrown away by the next silent
+    /// package update, and by every developer rebuild. See <see cref="PhyData"/>; the files already
+    /// there are carried over once by <see cref="Physalia.Core.Config.DataMigration"/>.
+    /// </remarks>
+    internal static string Root() => PhyData.ProjectFilesRoot;
 
     // The folder the user's document is saved in, or null when it has never been saved. Deliberately
     // the HOST document: a harness sub-document has no file path, so asking it would make every

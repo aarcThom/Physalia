@@ -8,13 +8,16 @@ using System.Linq;
 using System.Reflection;
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Physalia.Core.Config;
 using Physalia.Core.Packaging;
 
 namespace Physalia.GH.Harness;
 
 /// <summary>
-/// The preset library on disk: <c>Files/PRESETS</c> beside the plug-in, divided by where each preset
-/// came from.
+/// The preset library on disk, divided by where each preset came from — and, since 2026-09-09, split
+/// across two roots by the same division: what we ship stays in the package, what the user saves goes
+/// in their data folder where a silent package update cannot take it away. See
+/// <see cref="DirectoryFor"/>.
 ///
 /// <para>A preset is a <c>.phy</c> package: one harness's pipeline, its name, its description, the
 /// text its chat window opens with, and the project files it works on. Loading one adds a NEW harness
@@ -48,33 +51,57 @@ internal static class PresetLibrary
     private static readonly string[] Folders = { PhysaliaFolder, UserFolder, CommunityFolder };
 
     /// <summary>
-    /// Gets the preset root, <c>Files/PRESETS</c> beside the assembly. Falls back to a relative path
-    /// when the assembly location is unavailable (single-file publish), matching how the other
-    /// <c>Files</c> lookups in the plug-in degrade.
+    /// Resolves one of the three library folders to a directory on disk.
     /// </summary>
-    internal static string RootDir
+    /// <param name="folder">
+    /// <see cref="PhysaliaFolder"/>, <see cref="UserFolder"/> or <see cref="CommunityFolder"/>.
+    /// </param>
+    /// <returns>
+    /// The absolute directory, or an empty string for the shipped folder when the assembly has no
+    /// location on disk. Not created.
+    /// </returns>
+    /// <remarks>
+    /// <para><b>The library has two roots, and which one a folder lives in follows from who writes
+    /// it.</b> The shipped pipelines are part of the package: they are replaced wholesale by an
+    /// update, and putting them in the user's data folder would freeze whoever migrated on the set
+    /// that happened to be installed that day. The user's own saved harnesses are the opposite case —
+    /// they lived beside the plug-in until 2026-09-09, where a silent package update threw them
+    /// away.</para>
+    /// <para>Community is grouped with the user's own: nothing populates it yet, but what lands there
+    /// will have been downloaded rather than shipped.</para>
+    /// </remarks>
+    internal static string DirectoryFor(string folder)
     {
-        get
+        if (string.Equals(folder, PhysaliaFolder, StringComparison.OrdinalIgnoreCase))
         {
-            string? assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            return assemblyDir is null
-                ? "PRESETS"
-                : Path.Combine(assemblyDir, "Files", "PRESETS");
+            string? shipped = PhyData.PackageFolder(Assembly.GetExecutingAssembly(), PhyData.Presets);
+            return shipped is null ? string.Empty : Path.Combine(shipped, folder);
         }
+
+        return Path.Combine(PhyData.PresetsRoot, folder);
     }
 
     /// <summary>
-    /// Creates the three preset folders if they are missing, so they are there to be browsed (and
-    /// dropped into) before anything has been saved. Called once at plug-in load; failures are
-    /// ignored, since a read-only install is not a reason to refuse to run.
+    /// Creates the preset folders the user writes to, so they are there to be browsed (and dropped
+    /// into) before anything has been saved. Called once at plug-in load; failures are ignored, since
+    /// a read-only install is not a reason to refuse to run.
     /// </summary>
+    /// <remarks>
+    /// The shipped folder is not created: it is either in the package already or the package has no
+    /// presets, and making an empty one inside an install directory achieves nothing.
+    /// </remarks>
     internal static void EnsureFolders()
     {
         foreach (string folder in Folders)
         {
+            if (string.Equals(folder, PhysaliaFolder, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             try
             {
-                Directory.CreateDirectory(Path.Combine(RootDir, folder));
+                Directory.CreateDirectory(DirectoryFor(folder));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -91,12 +118,11 @@ internal static class PresetLibrary
     internal static IReadOnlyList<PresetEntry> Enumerate()
     {
         var result = new List<PresetEntry>();
-        string root = RootDir;
 
         foreach (string folder in Folders)
         {
-            string dir = Path.Combine(root, folder);
-            if (!Directory.Exists(dir))
+            string dir = DirectoryFor(folder);
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
             {
                 continue;
             }
@@ -132,8 +158,10 @@ internal static class PresetLibrary
                 }
 
                 // Forward slash regardless of platform: this is a wire value the chat UI hands back
-                // verbatim, not a path to be composed with.
-                result.Add(new PresetEntry($"{folder}/{name}", folder, name, ticks));
+                // verbatim, not a path to be composed with. The real path rides alongside it, because
+                // the two library folders no longer share a root and recomposing one from the wire
+                // value would have to guess which.
+                result.Add(new PresetEntry($"{folder}/{name}", folder, name, ticks, path));
             }
         }
 
@@ -159,7 +187,7 @@ internal static class PresetLibrary
         PresetEntry? match = Enumerate()
             .FirstOrDefault(e => string.Equals(e.RelativePath, relativePath, StringComparison.OrdinalIgnoreCase));
 
-        return match is null ? null : Path.Combine(RootDir, match.Folder, match.FileName);
+        return match?.FullPath;
     }
 
     /// <summary>
@@ -230,7 +258,7 @@ internal static class PresetLibrary
             return false;
         }
 
-        string dir = Path.Combine(RootDir, UserFolder);
+        string dir = DirectoryFor(UserFolder);
         try
         {
             Directory.CreateDirectory(dir);
@@ -333,4 +361,10 @@ internal static class PresetLibrary
 /// <param name="Folder">Which of the three library folders it came from.</param>
 /// <param name="FileName">The file name with extension.</param>
 /// <param name="WriteTicks">Last-write time, used to notice edits without re-reading the files.</param>
-internal sealed record PresetEntry(string RelativePath, string Folder, string FileName, long WriteTicks);
+/// <param name="FullPath">Where it actually is — the library's two roots make this worth carrying.</param>
+internal sealed record PresetEntry(
+    string RelativePath,
+    string Folder,
+    string FileName,
+    long WriteTicks,
+    string FullPath);

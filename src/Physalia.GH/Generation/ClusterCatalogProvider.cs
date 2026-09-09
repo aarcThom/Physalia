@@ -12,12 +12,13 @@ using System.Text;
 using System.Text.Json;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Special;
+using Physalia.Core.Config;
 using Physalia.Core.Grounding.Clusters;
 
 namespace Physalia.GH.Generation;
 
 /// <summary>
-/// Reads the user's <c>Files/CLUSTERS</c> folder and builds a <see cref="ClusterCatalog"/>: one
+/// Reads the <c>CLUSTERS</c> folders and builds a <see cref="ClusterCatalog"/>: one
 /// entry per cluster file, each carrying the optional human description from <c>clusters.json</c>
 /// and the input/output parameter signature introspected from the cluster file itself. This is the
 /// single source of truth for cluster grounding (the producer), the chat-window selection UI, the
@@ -36,29 +37,30 @@ public static class ClusterCatalogProvider
     private static string? _cacheSignature;
 
     /// <summary>
-    /// Gets the absolute path to the <c>Files/CLUSTERS</c> folder beside the assembly, or an empty
-    /// string when the assembly location is unknown.
+    /// Gets the <c>CLUSTERS</c> folders, in precedence order: the user's own, then the one shipped
+    /// with the plug-in.
     /// </summary>
-    public static string ClustersFolder
-    {
-        get
-        {
-            string? assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            return assemblyDir is null ? string.Empty : Path.Combine(assemblyDir, "Files", "CLUSTERS");
-        }
-    }
+    /// <remarks>
+    /// The user's data folder OVERLAYS the shipped clusters — a cluster file of the same name
+    /// shadows a shipped one, and a <c>clusters.json</c> entry of the same file name shadows its
+    /// description — so the shipped set keeps arriving with updates while the user's own survive
+    /// them. Before 2026-09-09 there was one folder, inside the install directory, which a silent
+    /// package update replaced wholesale.
+    /// </remarks>
+    public static IReadOnlyList<string> ClusterFolders =>
+        PhyData.SearchPath(Assembly.GetExecutingAssembly(), PhyData.Clusters);
 
     /// <summary>
-    /// Builds (or returns a cached) catalog of the clusters in <see cref="ClustersFolder"/>. The
+    /// Builds (or returns a cached) catalog of the clusters in <see cref="ClusterFolders"/>. The
     /// cache is invalidated automatically when a cluster file or the manifest is added, removed, or
     /// edited; pass <paramref name="forceRefresh"/> to rebuild unconditionally.
     /// </summary>
     /// <param name="forceRefresh">True to ignore the cache and rebuild.</param>
-    /// <returns>The cluster catalog (empty when the folder is missing or has no cluster files).</returns>
+    /// <returns>The cluster catalog (empty when no folder exists or none holds a cluster file).</returns>
     public static ClusterCatalog GetCatalog(bool forceRefresh = false)
     {
-        string folder = ClustersFolder;
-        string signature = ComputeSignature(folder);
+        IReadOnlyList<string> folders = ClusterFolders;
+        string signature = string.Join("|", folders.Select(ComputeSignature));
 
         lock (Gate)
         {
@@ -67,7 +69,7 @@ public static class ClusterCatalogProvider
                 return _cache;
             }
 
-            ClusterCatalog catalog = Build(folder);
+            ClusterCatalog catalog = Build(folders);
             _cache = catalog;
             _cacheSignature = signature;
             return catalog;
@@ -110,34 +112,57 @@ public static class ClusterCatalogProvider
         }
     }
 
-    private static ClusterCatalog Build(string folder)
+    private static ClusterCatalog Build(IReadOnlyList<string> folders)
     {
-        if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+        // Manifests are read in REVERSE precedence order so a higher-precedence entry overwrites a
+        // lower one: one merged map, the user's description winning for a file name they both carry.
+        var descriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string folder in folders.Reverse())
         {
-            return new ClusterCatalog(Array.Empty<ClusterEntry>());
+            foreach (KeyValuePair<string, string> pair in ReadManifest(folder))
+            {
+                descriptions[pair.Key] = pair.Value;
+            }
         }
 
-        Dictionary<string, string> descriptions = ReadManifest(folder);
         var entries = new List<ClusterEntry>();
+        var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (string path in EnumerateClusterFiles(folder).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+        foreach (string folder in folders)
         {
-            // The cluster's identity is its file name (without extension): predictable, user-renameable,
-            // and exactly what the user types after "/c/". The cluster's internal display name is ignored.
-            string name = Path.GetFileNameWithoutExtension(path);
-            if (string.IsNullOrWhiteSpace(name))
+            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
             {
                 continue;
             }
 
-            string fileName = Path.GetFileName(path);
-            descriptions.TryGetValue(fileName, out string? description);
+            foreach (string path in EnumerateClusterFiles(folder).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+            {
+                // The cluster's identity is its file name (without extension): predictable, user-renameable,
+                // and exactly what the user types after "/c/". The cluster's internal display name is ignored.
+                string name = Path.GetFileNameWithoutExtension(path);
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
 
-            (IReadOnlyList<ClusterPort> inputs, IReadOnlyList<ClusterPort> outputs) = Introspect(path);
-            entries.Add(new ClusterEntry(name, path, description ?? string.Empty, inputs, outputs));
+                // A name already taken by a higher-precedence folder is shadowed, not duplicated:
+                // the user's copy of a shipped cluster is the one they meant.
+                if (!claimed.Add(name))
+                {
+                    continue;
+                }
+
+                string fileName = Path.GetFileName(path);
+                descriptions.TryGetValue(fileName, out string? description);
+
+                (IReadOnlyList<ClusterPort> inputs, IReadOnlyList<ClusterPort> outputs) = Introspect(path);
+                entries.Add(new ClusterEntry(name, path, description ?? string.Empty, inputs, outputs));
+            }
         }
 
-        return new ClusterCatalog(entries);
+        // Sorted by name rather than left folder-by-folder, so which root a cluster came from is
+        // invisible to every consumer — the selection UI, the "/c/" autocomplete and the grounding.
+        return new ClusterCatalog(entries.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToList());
     }
 
     private static IEnumerable<string> EnumerateClusterFiles(string folder) => Directory
@@ -149,6 +174,13 @@ public static class ClusterCatalogProvider
     private static Dictionary<string, string> ReadManifest(string folder)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(folder))
+        {
+            // Guarded because an empty root would compose a RELATIVE "clusters.json", which resolves
+            // against Rhino's working directory — a folder that has nothing to do with us.
+            return map;
+        }
+
         string manifest = Path.Combine(folder, ManifestFileName);
         if (!File.Exists(manifest))
         {

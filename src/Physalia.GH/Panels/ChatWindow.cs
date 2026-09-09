@@ -2076,8 +2076,7 @@ public class ChatWindow : Form
 
                 // Read out of the package manifest without loading the pipeline. A legacy .gh
                 // preset carries no description, and shows as having none.
-                description = Harness.PresetLibrary.ReadDescription(
-                    Path.Combine(Harness.PresetLibrary.RootDir, e.Folder, e.FileName)),
+                description = Harness.PresetLibrary.ReadDescription(e.FullPath),
             })
             .ToList();
 

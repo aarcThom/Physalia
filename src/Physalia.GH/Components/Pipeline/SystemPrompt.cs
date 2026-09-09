@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using Grasshopper.Kernel;
+using Physalia.Core.Config;
 using Physalia.GH.Generation;
 
 namespace Physalia.GH.Components;
@@ -14,8 +15,9 @@ namespace Physalia.GH.Components;
 /// <summary>
 /// Assembles a system prompt from a preamble and a JSON schema, plus optional free text
 /// appended at the end.
-/// Each section can be supplied as a filename resolved from the Files/SYSTEM_PROMPTS folder,
-/// or as inline text wired directly. The additional prompt is always taken verbatim.
+/// Each section can be supplied as a filename resolved from the SYSTEM_PROMPTS folder — the user's
+/// own copy first, then the one shipped with the plug-in — or as inline text wired directly. The
+/// additional prompt is always taken verbatim.
 /// </summary>
 public class SystemPrompt : PhyBase, IPickableValuesSource
 {
@@ -66,8 +68,8 @@ public class SystemPrompt : PhyBase, IPickableValuesSource
     /// <inheritdoc/>
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddTextParameter("Preamble", "P", "The instructions themselves — who the model is and how it should work. Either the name of a file in Files/SYSTEM_PROMPTS/PREAMBLE (the Picker placed alongside lists them) or the text typed straight in.", GH_ParamAccess.item, string.Empty);
-        pManager.AddTextParameter("Schema", "S", "The JSON shape answers must follow, so a Schema Validator can check them. Either the name of a file in Files/SYSTEM_PROMPTS/SCHEMA (the Picker placed alongside lists them) or the schema typed straight in.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Preamble", "P", "The instructions themselves — who the model is and how it should work. Either the name of a file in SYSTEM_PROMPTS/PREAMBLE (the Picker placed alongside lists them) or the text typed straight in.", GH_ParamAccess.item, string.Empty);
+        pManager.AddTextParameter("Schema", "S", "The JSON shape answers must follow, so a Schema Validator can check them. Either the name of a file in SYSTEM_PROMPTS/SCHEMA (the Picker placed alongside lists them) or the schema typed straight in.", GH_ParamAccess.item, string.Empty);
         pManager.AddTextParameter("Additional Prompt", "AP", "Anything extra you want to say, added at the end word for word. Always treated as text, never as a filename — this is the place for wording specific to this definition.", GH_ParamAccess.item, string.Empty);
         pManager[2].Optional = true;
     }
@@ -117,36 +119,49 @@ public class SystemPrompt : PhyBase, IPickableValuesSource
     }
 
     /// <summary>
-    /// Returns the absolute path to <c>Files/SYSTEM_PROMPTS/{subfolder}/</c> beside the assembly.
+    /// Returns the <c>SYSTEM_PROMPTS/{subfolder}/</c> directories to look in, in precedence order.
     /// </summary>
     /// <param name="subfolder">The subfolder name (PREAMBLE, SCHEMA, or TOOLS).</param>
-    /// <returns>Absolute directory path, or empty string if the assembly location is unknown.</returns>
-    private string GetSubfolderPath(string subfolder)
-    {
-        string? assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        if (assemblyDir is null) return string.Empty;
-        return Path.Combine(assemblyDir, "Files", "SYSTEM_PROMPTS", subfolder);
-    }
+    /// <returns>One or two absolute directory paths, the user's own first. Neither need exist.</returns>
+    /// <remarks>
+    /// The user's data folder OVERLAYS the shipped prompts rather than replacing them: a file the
+    /// user writes shadows a shipped file of the same name, and everything they have not touched
+    /// keeps coming from the package — so a fix to a shipped preamble still reaches them on the next
+    /// update. Copying the shipped set into the data folder instead would have forced a choice
+    /// between overwriting their edits and never delivering that fix.
+    /// </remarks>
+    private static IReadOnlyList<string> GetSubfolderPaths(string subfolder) =>
+        PhyData.SearchPath(Assembly.GetExecutingAssembly(), PhyData.SystemPrompts)
+            .Select(root => Path.Combine(root, subfolder))
+            .ToList();
 
     /// <summary>
-    /// Returns comma-joined sorted filenames for all text files in the subfolder.
-    /// Returns an empty string if the directory does not exist.
+    /// Returns comma-joined sorted filenames for all text files in the subfolder, the user's own
+    /// shadowing a shipped file of the same name so each name is listed once.
+    /// Returns an empty string if no directory exists.
     /// </summary>
     /// <param name="subfolder">The subfolder name.</param>
     /// <returns>Comma-separated sorted filenames.</returns>
     private string GetFileList(string subfolder)
     {
-        string dir = GetSubfolderPath(subfolder);
-        if (!Directory.Exists(dir)) return string.Empty;
+        var names = new List<string>();
 
-        IEnumerable<string> names = Directory
-            .GetFiles(dir)
-            .Where(IsTextFile)
-            .Select(f => Path.GetFileName(f) ?? string.Empty)
-            .Where(n => n.Length > 0)
-            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+        foreach (string dir in GetSubfolderPaths(subfolder))
+        {
+            if (!Directory.Exists(dir)) continue;
 
-        return string.Join(",", names);
+            names.AddRange(Directory
+                .GetFiles(dir)
+                .Where(IsTextFile)
+                .Select(f => Path.GetFileName(f) ?? string.Empty)
+                .Where(n => n.Length > 0));
+        }
+
+        return string.Join(
+            ",",
+            names
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -160,12 +175,16 @@ public class SystemPrompt : PhyBase, IPickableValuesSource
     {
         if (string.IsNullOrWhiteSpace(input)) return string.Empty;
 
-        string dir = GetSubfolderPath(subfolder);
-        if (!Directory.Exists(dir)) return input;
+        // First hit wins, and the user's own folder is searched first — that is what makes an edited
+        // copy of a shipped preamble take effect.
+        foreach (string dir in GetSubfolderPaths(subfolder))
+        {
+            if (!Directory.Exists(dir)) continue;
 
-        string candidate = Path.Combine(dir, input);
-        if (File.Exists(candidate) && IsTextFile(candidate))
-            return File.ReadAllText(candidate);
+            string candidate = Path.Combine(dir, input);
+            if (File.Exists(candidate) && IsTextFile(candidate))
+                return File.ReadAllText(candidate);
+        }
 
         return input;
     }

@@ -3,6 +3,19 @@
 Drop Grasshopper cluster files (`.ghcluster`, also `.gh`/`.ghx`) into this folder to make them
 available to the model through the **Cluster Grounding** component.
 
+**Two folders are read, and yours wins.** This one ships with the plug-in and is replaced whenever
+Rhino updates the package — silently, at startup — so put your own clusters in
+
+```
+%LOCALAPPDATA%\Physalia\CLUSTERS\        (Windows)
+~/.local/share/Physalia/CLUSTERS/        (elsewhere)
+```
+
+where an update cannot reach them. A cluster of yours with the same name as a shipped one shadows it,
+and a `clusters.json` entry there overrides the shipped description for the same file name. Nothing
+is copied between the two: what we ship keeps arriving with updates, and what you write survives
+them.
+
 ## `clusters.json`
 
 An optional manifest that adds a human-written description to each cluster. It is an array of

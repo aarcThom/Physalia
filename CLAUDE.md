@@ -159,7 +159,8 @@ canvas is legal. **`OnPingDocument()` inside a harness returns the SUB-document*
 `PhyDocuments.Host(this)`/`ActiveHost()` for anything meaning "the user's canvas" (grounding, placement,
 reports, memory scope) and keep `ScheduleSolution`/`NewSolution` local. Inlets bind by `InstanceGuid`
 **never by position** (a param is a real object other wires point at); outlets, being arrows we paint, may
-be rebuilt freely. Presets are stock `.gh` files under `Files/PRESETS`; reading one re-issues every instance
+be rebuilt freely. Presets are stock `.gh` files under `PRESETS` (ours in the package, the user's in
+the data folder — `PresetLibrary.DirectoryFor`); reading one re-issues every instance
 id (`DocumentIds.MutateAll`), so any component storing another object's guid must implement
 `IGuidLinked.RemapLinks`.
 
@@ -204,7 +205,7 @@ and `CreateProcess` does not apply PATHEXT.
 
 ### Project files and `.phy` (`planning/project-files-and-phy.md`)
 A harness is named `curious-cake-soap-fun` — four words **derived** from its `InstanceGuid`, never randomised
-or stored — and owns `Files/PROJECT_FILES/<name>/`. `ProjectFolderInput` is the single resolver every node
+or stored — and owns `PROJECT_FILES/<name>/` in the data folder. `ProjectFolderInput` is the single resolver every node
 calls (blank = the harness's own; no separator = a name under `PROJECT_FILES`; a separator = relative to the
 saved `.gh`; rooted = verbatim). A rename MOVES the folder, and `_folderKey` is stored WITH its owning guid
 so a paste cannot steal the original's downloads. A `.phy` is an ordinary zip (`manifest.json` +
@@ -379,21 +380,46 @@ Other: `Colour`
             ghjson-implementation.md
     /planning                      ← the subsystem docs this file maps to, plus the older
                                      authoritative specs (data-marshalling, primitives, …)
-    /Files                       ← user-alterable runtime content ONLY; every folder here is read by code
-        (no key file — credentials live encrypted in %LOCALAPPDATA%/Physalia/credentials.dat;
-         no MCP file — servers live in %LOCALAPPDATA%/Physalia/mcp-servers.json;
-         no API file — endpoints live in %LOCALAPPDATA%/Physalia/api-endpoints.json.
-         All three are written only by the chat window's setup pages.)
+    /Files                       ← SHIPPED runtime content, read-only in practice: a package update
+                                   replaces this whole directory. Nothing the user or the pipeline
+                                   WRITES may live here — see the data folder below.
+        CHANGELOG.md      ← read by the update notice; one `## <version>` per release, newest first
         /SYSTEM_PROMPTS   ← /PREAMBLE + /SCHEMA, resolved by name from the System Prompt component
         /CLUSTERS         ← .ghcluster files + clusters.json manifest (Cluster Grounding)
-        /PRESETS          ← preset harnesses (.phy — a zip of manifest + harness.gh + files/;
-                             plain .gh still read)
-            /Physalia     ← shipped with the plug-in
-            /User         ← written by "Save Harness as Preset…"
-            /Community    ← reserved, not populated yet
+        /PRESETS/Physalia ← preset harnesses shipped with the plug-in (.phy — a zip of manifest +
+                             harness.gh + files/; plain .gh still read)
+        /MEMORIES, /PROJECT_FILES, /PRESETS/{User,Community}
+                          ← EMPTY, and kept only to explain where they went (a README in each)
+```
+
+**The data folder — `%LOCALAPPDATA%/Physalia` (`~/.local/share/Physalia` elsewhere).** Everything the
+user or the pipeline writes, because **Rhino 8 updates package-manager plug-ins silently at startup
+and installs each version in a directory of its own**: anything beside the assembly is one update
+away from being stranded, and `CopyLibraryFiles` wipes `$(TargetDir)Files` on every developer build
+as well. `Physalia.Core/Config/PhyData` is the ONE place the user-or-package decision is made; never
+compose `Files/<X>` beside the assembly again.
+```
+    %LOCALAPPDATA%/Physalia/
+        credentials.dat   ← DPAPI-encrypted keys      } written only by the chat window's
+        providers.json    ← the opt-in provider list  } setup pages
+        mcp-servers.json  ← MCP servers               }
+        api-endpoints.json← HTTP APIs                 }
+        install.json      ← which build ran here last, for the silent-update notice (InstallStamp)
         /MEMORIES         ← memory tool: /GLOBAL and /LOCAL/<Memory Folder input, or the node's id>
         /PROJECT_FILES    ← one folder per harness, named after it: downloads, site data, /PDF,
                              conversation.json + /conversation-images (autosaved transcript),
                              runs.jsonl (one line per inference call)
                              (Files/PDFS is GONE — PDFs are project material, inside the project)
+        /PRESETS/User     ← written by "Save Harness as Preset…"
+        /PRESETS/Community← reserved, not populated yet
+        /SYSTEM_PROMPTS   ← optional; OVERLAYS the shipped set, file by file
+        /CLUSTERS         ← optional; OVERLAYS the shipped set, file by file
 ```
+- **Overlay, not copy.** Where both roots hold a folder the user's is searched FIRST and shadows the
+  shipped file of the same name, so their edits survive an update AND a fix to a shipped preamble
+  still reaches them. `DataMigration` carries older builds' leftovers once, per entry, never merging.
+- **The version is load-bearing in three places** (`Physalia.GH.csproj` `<Version>`): auto-update
+  compares it, `Physalia_GHInfo` reports it, and a CHANGE between runs raises the update notice. Keep
+  it plain semver — a pre-release tag opts every user out of automatic updates — and add a
+  `## <version>` section to `Files/CHANGELOG.md` when bumping it, or a test fails.
+- Full reasoning, and the five failures each rule prevents: `planning/project-files-and-phy.md`.

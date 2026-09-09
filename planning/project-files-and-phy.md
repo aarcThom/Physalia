@@ -23,7 +23,9 @@ other's downloads.
   from and no longer matches its own, which is exactly the case that has to be caught.
 
 ### The project folder (`ProjectPaths` in Core, `ProjectFolder` in GH)
-`Files/PROJECT_FILES/<harness name>/`. Four spellings on every `Project Folder` input, told apart by
+`PROJECT_FILES/<harness name>/` **in the user's data folder** — `%LOCALAPPDATA%/Physalia` on Windows.
+It was `Files/PROJECT_FILES/` beside the plug-in until 2026-09-09; see "Where the user's files live"
+at the end of this document for why it moved and what moving it cost. Four spellings on every `Project Folder` input, told apart by
 shape: **blank** = the harness's own; **no separator** = a NAME under `PROJECT_FILES`; **a separator**
 = relative to the SAVED `.gh` file's folder (`PhyDocuments.Host()`, since a sub-document has no path);
 **rooted** = verbatim. An unsaved document cannot resolve a relative path and is TOLD so rather than
@@ -213,3 +215,86 @@ or over a canvas nobody was looking at.
 - Answers travel back as `phbridge://approve?id=…&allow=1|0`; anything but `allow=1` is a No on the
   host side too, so a lost or truncated navigation denies rather than permits.
 
+
+
+---
+
+## Where the user's files live (moved 2026-09-09)
+
+**The problem, in one sentence: Rhino 8 installs each version of a package in a directory of its own
+and updates installed packages silently at startup, so anything Physalia wrote beside its own
+assembly was one update away from being stranded** — present on disk, in a folder nothing reads any
+more, indistinguishable from data loss. The developer loop had the same bug and it had been biting
+for months without being named: `CopyLibraryFiles` does `RemoveDir $(TargetDir)Files` before staging,
+so every rebuild deleted whatever the last run had written into `bin`.
+
+### The split
+`Physalia.Core/Config/PhyData` is **the one place the user-or-package decision is made**. Nothing may
+compose `Files/<X>` beside the assembly again; the five resolvers that each did (`ProjectFolder`,
+`MemoryLocations`, `PresetLibrary`, `SystemPrompt`, `ClusterCatalogProvider`) all ask it now.
+
+- **User-written → `%LOCALAPPDATA%/Physalia/`** (`~/.local/share/Physalia` elsewhere, the same root
+  the credential store already used): `PROJECT_FILES`, `MEMORIES`, `PRESETS/User`,
+  `PRESETS/Community`, plus `install.json`.
+- **Shipped → the package's `Files/`**, read-only in practice: `SYSTEM_PROMPTS`, `CLUSTERS`,
+  `PRESETS/Physalia`, `CHANGELOG.md`.
+
+### Why an OVERLAY and not a copy-on-first-run
+Where both roots hold the same folder, the user's is searched first and a file of the same name
+shadows the shipped one (`PhyData.SearchPath`). The alternative — copy the shipped set into the data
+folder on first run and read only from there — forces a choice with no right answer: refresh a
+shipped preamble on update and you destroy the user's edit to it; never refresh and your own fix
+never reaches them. The overlay has no such fork, and it costs one name-resolution order plus a union
+listing in the two readers that enumerate. `ClusterCatalogProvider` merges the two `clusters.json`
+manifests in REVERSE precedence order so the user's description wins per file name, and sorts the
+merged catalog by name so which root a cluster came from is invisible downstream.
+
+### `DataMigration` — the rules, each of which exists to avoid destroying something
+- **Per ENTRY, not per folder.** A harness's project folder, one memory folder, one saved preset.
+  A destination that already exists blocks that entry alone.
+- **Never merge, never overwrite.** A blocked entry is reported and left exactly where it is.
+- **Nothing is ever deleted**, even after everything around it moved: the package directory is not
+  ours to tidy and the next update replaces it anyway.
+- **Sibling package-version directories are scanned too**, newest first. This is the case that
+  rescues somebody who updated BEFORE the migration shipped — their data is one directory over
+  (`…/packages/8.0/Physalia/<other version>/Files`), somewhere the running install has never looked.
+- **Claimed destinations are tracked while PLANNING**, not just read off disk: two legacy roots can
+  hold the same harness's folder, and the second would otherwise be planned as a move onto a
+  destination the first step has not created yet.
+- **A failed entry does not stop the others**, and a cross-volume move falls back to copy-then-delete
+  with the copy verified first — the plug-in installs on Rhino's drive while `%LOCALAPPDATA%` follows
+  the user profile, and on plenty of workstations those are different drives.
+- **`.gitkeep` and `README.md` are not user data.** They are copied into every build, so migrating
+  one would move a file the next update puts back, and then report it as blocked forever.
+- **Silence is the steady state.** `DataMigrationReport.Any` is false when only blocked entries were
+  found, because a package that ships a demo project folder blocks it on every update, and saying so
+  each time trains the user to ignore the line that matters.
+- It runs from `PhyStartup`, **its own `GH_AssemblyPriority`** — deliberately not a line in
+  `ChatWidgetPriority`, which is compiled `#if WINDOWS` and would have skipped a Mac user's memories.
+
+### Telling the user an update happened (`InstallStamp`, `ReleaseNotes`, `UpdateNotice.svelte`)
+`install.json` records the full four-part version that last ran here. Only ONE of the four cases is
+news: **no stamp** is a first install (a "you have been updated" dialog at somebody's first launch is
+simply a lie), **a higher stamp** is a downgrade or two Rhinos sharing the data folder, **an equal
+one** is an ordinary restart, and **a lower one** is the update that notifies.
+
+**The notice is cleared by ACKNOWLEDGEMENT, not by delivery.** Rhino often starts with no chat window
+open, so a stamp written the moment the notice was computed would swallow the one notice the user was
+owed. It waits in `PhyStartup.PendingNotice` for whichever window opens first; the dialog's dismissal
+comes back as `phbridge://update-seen`, and `again=0` is the separate opt-out — a different decision
+from "I have read this one", so a different message. Only then is `AcknowledgedVersion` written.
+
+The dialog carries the release's own section of `Files/CHANGELOG.md` when it has one, because two
+version numbers say THAT something changed and nothing about what. It is optional by design (a
+changelog nobody wrote must not cost the user the notice) but a test compares the csproj `<Version>`
+against the file, so a bump that forgets the section fails at the bump rather than a release later.
+
+### What is still worth doing
+- **`Files/PRESETS/Physalia/AI/` is one level too deep for `PresetLibrary.Enumerate`**, which lists
+  files directly inside the three library folders only. The 30 presets sitting there do not appear in
+  the chat window's gallery. Nested listing is a change to the wire value (`Physalia/AI/01 - ….phy`)
+  and to `Resolve`, so it is its own piece of work.
+- There is **no yak manifest in the repo yet**, and packaging must carry the `runtimes/**/native/`
+  SkiaSharp and PDFtoImage binaries — the `.gha` stopped being self-contained on 2026-08-25, and a
+  package missing them fails only inside Rhino, with a `DllNotFoundException` from a build that is
+  healthy on the command line.

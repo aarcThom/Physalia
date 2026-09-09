@@ -1,19 +1,25 @@
 # Physalia memories
 
-This folder backs the model-invoked **Memory** tool. Files here are the model's persistent memory —
-they survive across conversations.
+**The model's memories are no longer here.** They live in
 
-Layout:
+```
+%LOCALAPPDATA%\Physalia\MEMORIES\        (Windows)
+~/.local/share/Physalia/MEMORIES/        (elsewhere)
+```
 
-- `GLOBAL/` — memories shared across **every** Grasshopper document.
-- `LOCAL/<document-key>/` — memories specific to a single Grasshopper document. The `<document-key>`
-  is derived from the document's file (name + a short hash of its path), so each `.gh` file gets its
-  own memory folder. Unsaved documents use a shared `untitled` folder for the session.
+and this folder is left empty on purpose: Rhino replaces a plug-in's install directory wholesale
+when it updates the package, silently, at startup — so notes kept in here did not survive an update.
+Anything an older build left behind is carried across the first time the new one runs.
 
-The model addresses these through a virtual `/memories` path: `/memories/global/...` and
-`/memories/local/...`. That virtual scheme is the model-facing API and stays lower-case — it is
-matched case-insensitively, so it is unaffected by what these folders are named on disk. Memories are
-plain Markdown (`.md`) files.
+Layout, unchanged:
 
-The Memory tool only informs the model that this memory exists when a **Memory Grounding** component is
-wired into the Conversation Log. Without that grounding, the model is told nothing about memory.
+- `GLOBAL/` — memories shared by every pipeline on this machine.
+- `LOCAL/<name>/` — memories belonging to one pipeline. The `<name>` is whatever you type on the
+  Memory tool's **Memory Folder** input; leave it blank and the tool uses its own component id,
+  which is unique but not a name. It is typed rather than derived because both derivations tried
+  before it failed silently by defaulting — keying on the `.gh` file meant memory followed the
+  document rather than the pipeline, and keying on the harness's name meant every unrenamed pipeline
+  quietly shared one folder.
+
+The model addresses these through a virtual `/memories/global` and `/memories/local`, so what the
+folders are called on disk is invisible to it.

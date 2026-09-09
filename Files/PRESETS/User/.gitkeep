@@ -1,10 +1,19 @@
-# Harnesses you save yourself land here.
+# Harnesses you save yourself no longer land here — they go to
+#
+#     %LOCALAPPDATA%\Physalia\PRESETS\User\        (Windows)
+#     ~/.local/share/Physalia/PRESETS/User/        (elsewhere)
+#
+# because Rhino replaces a plug-in's install directory wholesale when it updates the package, and it
+# does that silently at startup. A harness you saved would have gone with it. Anything already in
+# here is carried across the first time the new build runs.
+#
+# The presets in the "Physalia" folder beside this one are still read from the package: they are ours
+# rather than yours, and they are meant to be replaced by an update.
 #
 # Use "Save Harness as Preset…" — on a Harness component's right-click menu, or on the "Harness"
-# widget at the top-left of the canvas while you are inside one. Anything here shows up in the chat
-# window's "Add preset" gallery under "User".
+# widget at the top-left of the canvas while you are inside one. Anything saved shows up in the chat
+# window's "Add preset" gallery under "User". You can also drop a .gh or .phy into that folder by
+# hand: a preset is an ordinary Grasshopper file holding one harness's worth of pipeline, and it must
+# contain a Chat component or it cannot be loaded back.
 #
-# You can also drop a .gh in by hand: a preset is an ordinary Grasshopper file holding one harness's
-# worth of pipeline, and it must contain a Chat component or it cannot be loaded back.
-#
-# This file only exists to keep the folder in git. It is ignored by the gallery, which lists .gh only.
+# This file only exists to keep the folder in git.

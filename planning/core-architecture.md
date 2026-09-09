@@ -84,7 +84,10 @@ OpenAI-compatible at *different* hosts, so a key on its own identifies nothing.
 
 **Providers are configured in the chat window**, which writes them to
 `%LOCALAPPDATA%/Physalia/credentials.dat` — DPAPI-encrypted for the current user, beside the MCP
-token cache. That is affordable **only because the UI owns authoring**: nobody hand-edits the store,
+token cache. As of 2026-09-09 that folder holds far more than secrets: `SecretStores.DataFolder()`'s
+reasoning ("it sits in the install directory where a plug-in update can overwrite it") turned out to
+apply to everything the user writes, so project folders, memories and saved presets moved there too
+behind `PhyData` — see `planning/project-files-and-phy.md`. That is affordable **only because the UI owns authoring**: nobody hand-edits the store,
 so nothing is lost by making it opaque. The inverse is the reason a plain-text config file could
 never have been encrypted instead — being openable in a text editor was its entire purpose, which is
 also why it had to go rather than be hardened.

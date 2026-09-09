@@ -12,6 +12,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Design fork, then build through](design-fork-then-build-through.md) — investigate the whole path, ask the ONE question the code can't settle, then finish the vertical slice (Core→GH→UI, tests, docs) and say what hasn't run live.
 
 ## Latest
+- [Yak publishing](yak-publishing.md) — 2026-09-09, researched not pushed: yak commands/tags, the name is FREE, and `runtimes/` is **294MB of 321MB** — prune to win-x64. Plan: `planning/yak-publishing.md`.
 - **[Data folder + update notice](data-folder-and-update-notice.md)** — 2026-09-09, built not run: user files → `%LOCALAPPDATA%/Physalia`, shipped content OVERLAID; version line + dialog when Rhino updates silently. **Read before yak packaging.**
 - [Project Prompts component](system-prompt-preambles.md) — 2026-09-08, built not run: System Prompt assembly reading the HARNESS PROJECT folder, so a brief ships with the work. No Project Folder input; `.txt`/`.md` only.
 - **[Preset build RUNBOOK](preset-build-runbook.md) — READ THIS FIRST when asked to "build these presets: ..."**. The `tools/presets/` toolkit and its helpers, the exact build → verify → audit → commit loop, the house style for an annotated preset, and the five failures that are SILENT (chiefly: a tool wired past the last Router slot). Machine-portable — set `ROOT` if the repo is not at the default path.

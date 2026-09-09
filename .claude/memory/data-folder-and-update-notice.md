@@ -8,7 +8,7 @@ metadata:
   modified: 2026-09-09T07:46:39.521Z
 ---
 
-2026-09-09, built and headless-verified, **not yet run in Rhino**. Preparing Physalia for Rhino's
+2026-09-09, built, headless-verified and committed (7 commits on `main`), **not yet run in Rhino**. Preparing Physalia for Rhino's
 package manager forced this: **Rhino 8 updates installed plug-ins silently at startup and installs
 each version in a directory of its own**, so everything Physalia wrote beside its assembly was one
 update away from being stranded. Confirmed against McNeel's docs and forum: auto-update is on by
@@ -27,6 +27,11 @@ into `bin` — memories, project folders, saved presets.
   the user's is searched FIRST and shadows the shipped file of the same name. Seeding the data folder
   instead forces a choice with no right answer: refresh a shipped preamble and you destroy the user's
   edit; never refresh and your own fix never reaches them.
+- **Notice copy is short and positive on purpose** (asked for, second pass): title "Physalia
+  updated!", one sentence with the version pair, then the ONE reassurance worth giving — where the
+  user's own work is kept, with the data-folder path pushed from the host so it is named rather than
+  described. The "Rhino's Package Manager does this on its own" explanation was cut; the changelog
+  section already says what changed. The rig asserts the paragraph stays under 200 characters.
 - **The notice is cleared by ACKNOWLEDGEMENT, not delivery.** Rhino often starts with no chat window
   open, so stamping when the notice is computed swallows the one notice owed. It waits in
   `PhyStartup.PendingNotice`; the dialog answers over `phbridge://update-seen`, `again=0` being the

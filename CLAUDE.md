@@ -29,6 +29,7 @@ before changing that subsystem**; the summaries here are not sufficient to work 
 | Project folders, `.phy` packages, harness names, harness panel, tool approval | `planning/project-files-and-phy.md` |
 | Full component inventory — what every node is and why | `planning/component-inventory.md` |
 | Provider integration (defaults registry, CLI providers, Codex tools) | `planning/provider-integration.md` |
+| Publishing to Rhino's package manager (yak) | `planning/yak-publishing.md` |
 | Original wording of the sections condensed here rather than moved | `planning/claude-md-condensed-sections.md` |
 
 Older authoritative docs, unchanged: `planning/data-marshalling.md` (signals + component lifecycle),

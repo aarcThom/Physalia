@@ -30,10 +30,15 @@ namespace Physalia.GH.Harness;
 /// <item><description><b>User</b> — harnesses the user saved themselves.</description></item>
 /// <item><description><b>Community</b> — shared pipelines; the folder exists so the shape is settled,
 /// but nothing populates it yet.</description></item>
+/// <item><description><b>AI</b> — the experimental set: harnesses written by a model rather than by
+/// hand. Shipped, and physically a SUBFOLDER of Physalia, because that is what they are — shipped
+/// Physalia content. <see cref="Enumerate"/> is non-recursive, so nesting them there is also what
+/// keeps them out of the main listing while they are still being replaced by written ones.
+/// </description></item>
 /// </list>
 ///
-/// <para>Nothing outside these three folders is listed — a stray <c>.gh</c> dropped in the PRESETS
-/// root is ignored.</para>
+/// <para>Nothing outside these four folders is listed — a stray <c>.gh</c> dropped in the PRESETS
+/// root is ignored, and so is one dropped in any other subfolder.</para>
 /// </summary>
 internal static class PresetLibrary
 {
@@ -46,15 +51,26 @@ internal static class PresetLibrary
     /// <summary>Folder reserved for shared pipelines. Not populated yet.</summary>
     internal const string CommunityFolder = "Community";
 
-    // Listing order: what we ship first, then the user's own, then the community. Also the order the
-    // three folders are created in.
-    private static readonly string[] Folders = { PhysaliaFolder, UserFolder, CommunityFolder };
+    /// <summary>
+    /// Folder holding the experimental, model-written harnesses — a subfolder of
+    /// <see cref="PhysaliaFolder"/>, shown behind its own toggle in the chat window.
+    /// </summary>
+    internal const string ExperimentalFolder = "AI";
+
+    // Listing order: what we ship first, then the user's own, then the community, and the
+    // experimental set LAST — the page renders it collapsed behind one button, so it belongs at the
+    // bottom rather than between two galleries of finished pipelines.
+    private static readonly string[] Folders =
+    {
+        PhysaliaFolder, UserFolder, CommunityFolder, ExperimentalFolder,
+    };
 
     /// <summary>
-    /// Resolves one of the three library folders to a directory on disk.
+    /// Resolves one of the four library folders to a directory on disk.
     /// </summary>
     /// <param name="folder">
-    /// <see cref="PhysaliaFolder"/>, <see cref="UserFolder"/> or <see cref="CommunityFolder"/>.
+    /// <see cref="PhysaliaFolder"/>, <see cref="UserFolder"/>, <see cref="CommunityFolder"/> or
+    /// <see cref="ExperimentalFolder"/>.
     /// </param>
     /// <returns>
     /// The absolute directory, or an empty string for the shipped folder when the assembly has no
@@ -69,17 +85,37 @@ internal static class PresetLibrary
     /// away.</para>
     /// <para>Community is grouped with the user's own: nothing populates it yet, but what lands there
     /// will have been downloaded rather than shipped.</para>
+    /// <para>The experimental set goes with the shipped side, and one level deeper: it lives at
+    /// <c>Physalia/AI</c>, because it is shipped content and an update should replace it wholesale
+    /// like the rest.</para>
     /// </remarks>
     internal static string DirectoryFor(string folder)
     {
-        if (string.Equals(folder, PhysaliaFolder, StringComparison.OrdinalIgnoreCase))
+        if (!IsShipped(folder))
         {
-            string? shipped = PhyData.PackageFolder(Assembly.GetExecutingAssembly(), PhyData.Presets);
-            return shipped is null ? string.Empty : Path.Combine(shipped, folder);
+            return Path.Combine(PhyData.PresetsRoot, folder);
         }
 
-        return Path.Combine(PhyData.PresetsRoot, folder);
+        string? shipped = PhyData.PackageFolder(Assembly.GetExecutingAssembly(), PhyData.Presets);
+        if (shipped is null)
+        {
+            return string.Empty;
+        }
+
+        return string.Equals(folder, ExperimentalFolder, StringComparison.OrdinalIgnoreCase)
+            ? Path.Combine(shipped, PhysaliaFolder, ExperimentalFolder)
+            : Path.Combine(shipped, folder);
     }
+
+    /// <summary>
+    /// Whether a library folder is part of the package rather than the user's data folder — which
+    /// decides both which root it resolves under and whether we create it.
+    /// </summary>
+    /// <param name="folder">One of the library folder names.</param>
+    /// <returns>True for the shipped folders.</returns>
+    private static bool IsShipped(string folder) =>
+        string.Equals(folder, PhysaliaFolder, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(folder, ExperimentalFolder, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Creates the preset folders the user writes to, so they are there to be browsed (and dropped
@@ -87,14 +123,14 @@ internal static class PresetLibrary
     /// a read-only install is not a reason to refuse to run.
     /// </summary>
     /// <remarks>
-    /// The shipped folder is not created: it is either in the package already or the package has no
-    /// presets, and making an empty one inside an install directory achieves nothing.
+    /// The shipped folders are not created: they are either in the package already or the package has
+    /// no presets, and making an empty one inside an install directory achieves nothing.
     /// </remarks>
     internal static void EnsureFolders()
     {
         foreach (string folder in Folders)
         {
-            if (string.Equals(folder, PhysaliaFolder, StringComparison.OrdinalIgnoreCase))
+            if (IsShipped(folder))
             {
                 continue;
             }
@@ -358,7 +394,7 @@ internal static class PresetLibrary
 /// One preset in the library.
 /// </summary>
 /// <param name="RelativePath">Wire value handed to (and back from) the chat UI: <c>folder/name.gh</c>.</param>
-/// <param name="Folder">Which of the three library folders it came from.</param>
+/// <param name="Folder">Which of the four library folders it came from.</param>
 /// <param name="FileName">The file name with extension.</param>
 /// <param name="WriteTicks">Last-write time, used to notice edits without re-reading the files.</param>
 /// <param name="FullPath">Where it actually is — the library's two roots make this worth carrying.</param>

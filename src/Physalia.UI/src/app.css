@@ -97,6 +97,18 @@
 	/* The collapsed feedback turn's header is pressable, so it lightens on hover like everything
 	   else — within its own pink, not towards the page's blue-white. */
 	--neu-feedback-hover: color-mix(in srgb, white 50%, var(--neu-feedback));
+	/* The experimental preset section (AI-written harnesses) is pink — the same "nobody typed this"
+	   hue as a feedback turn, but at real chroma rather than a 12.5% tint, because here the colour is
+	   a label the user is meant to read as a warning rather than a background wash. Lightens on
+	   hover like every other pressable surface, within its own hue. */
+	--neu-experimental: oklch(0.86 0.1 357);
+	--neu-experimental-hover: color-mix(in srgb, white 30%, var(--neu-experimental));
+	--neu-experimental-text: oklch(0.42 0.16 357);
+	/* The warning panel under the button: the same pink washed back far enough to sit behind text
+	   without competing with the button above it, but not so far that it reads as white and comes
+	   loose from the section it belongs to. */
+	--neu-experimental-soft: color-mix(in srgb, white 62%, var(--neu-experimental));
+
 	/* The one accent: the primary call-to-action (Send) reads as a raised blue chip. */
 	--neu-accent: oklch(0.62 0.13 250);
 

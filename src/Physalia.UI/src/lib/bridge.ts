@@ -479,7 +479,9 @@ export interface UiPreset {
 	/** Library-relative path, e.g. "Physalia/claude_code_incremental.gh". The wire value when loading:
 	 *  handed back verbatim and matched against the library host-side, never composed into a path. */
 	file: string;
-	/** Which library folder it came from — "Physalia", "User" or "Community". Groups the gallery. */
+	/** Which library folder it came from — "Physalia", "User", "Community", or "AI" for the
+	 *  experimental, model-written set the gallery keeps folded away behind one button. Groups the
+	 *  gallery. */
 	folder: string;
 	/** Display label: the file name without its folder or extension. */
 	name: string;

@@ -34,6 +34,16 @@ Recipe (working scripts: `tools/uitest/` — `build_preview.py` builds the stubb
 - **Do not measure the DOM in the same tick as the click that changes it.** Svelte has not flushed;
   an overlay that did close still reads as present. Put the assertion in a later `setTimeout`.
 
+**Reading a COLOUR back needs a canvas, not a regex.** The neumorphic tokens are authored in
+`oklch`, so `getComputedStyle` returns `lab(30.6592 51.1996 -2.47287)` or `color(srgb 1.02 0.79
+0.87)` — never `rgb()`. A `rgba?\(...\)` regex matches nothing and every colour reports as null,
+which is indistinguishable from the real bug being hunted (an arbitrary-value Tailwind class that
+never compiled, leaving correct-looking markup and a grey element). Assign the computed value to a
+1x1 canvas `fillStyle`, `fillRect`, and read the pixel: that resolves anything the browser can
+paint into sRGB bytes. Set a marker colour first — a value the canvas cannot parse leaves
+`fillStyle` untouched, so an unreadable colour reports itself instead of arriving as a plausible
+number. `tools/uitest/test_preset_experimental.py` does this.
+
 Also: `.fixed.inset-0.z-50` is not a unique selector — the link-safety prompt (`LinkPrompt.svelte`,
 see [[chat-link-prompt]]) is a fixed overlay too. Select the editor by "the fixed overlay containing
 a canvas", and the link prompt by its `[role="dialog"]`.

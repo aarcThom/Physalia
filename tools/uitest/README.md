@@ -14,6 +14,7 @@ python tools/uitest/test_page_chrome.py out.html shot.png    # drives itself ove
 python tools/uitest/test_link_prompt.py out.html shot.png    # clicks a link in an answer
 python tools/uitest/test_provider_edit.py out.html           # then --dump-dom for data-diag-*
 python tools/uitest/test_update_notice.py                    # drives itself over CDP
+python tools/uitest/test_preset_experimental.py out.html shot.png   # drives itself over CDP
 ```
 
 `test_static_surface_layout.py` and `test_page_chrome.py` measure the window's chrome AROUND a
@@ -42,6 +43,20 @@ of its assertions can only be made from outside the page: dismissing the dialog 
 that merely hid it would show it again on every restart — and "Don't tell me about updates" must
 send something different (`again=0`), being a different decision from "I have read this one". The
 version line is checked geometrically, which is what caught it overlapping the mark by 8px.
+
+`test_preset_experimental.py` opens the preset gallery and drives the pink **Experimental** toggle
+that hides the AI-written harnesses. What it is really for is the two claims a DOM check cannot
+make: that the section is genuinely opt-in (the AI rows must be ABSENT while it is shut — "they are
+in the DOM" is exactly the bug), and that the button is actually pink, read back as a painted
+colour rather than as a class name, because an arbitrary-value Tailwind class that never compiled
+leaves the markup looking correct and the button grey. It also compares the warning text against a
+copy held in the test, so the page and the test drifting apart is a failure rather than a shared
+typo — emoji included, which is what proves the escape survived the trip into `dist/index.html`.
+
+Reading a colour back has one trap of its own: the neumorphic tokens are authored in `oklch`, so
+`getComputedStyle` hands back `lab(...)` or `color(srgb ...)`, never `rgb()`. A regex over `rgba?()`
+matches nothing and reports every colour as null — which looks exactly like a class that failed to
+compile. Push the value through a 1x1 canvas and read the pixel instead.
 
 `cdp.py` is a minimal Chrome DevTools Protocol client (hand-rolled WebSocket frames — there is no
 websocket library installed here) used to inject **trusted** input. That matters: a synthetic

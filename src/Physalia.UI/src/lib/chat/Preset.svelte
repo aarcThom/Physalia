@@ -6,8 +6,16 @@
 	// The library is divided by where a preset came from — Physalia (shipped), User (saved from a
 	// harness), Community (not populated yet) — and the host pushes them already grouped and sorted, so
 	// the headings below are just a run-length pass over that order. Empty folders never appear.
+	//
+	// The fourth folder, AI, is the exception: those harnesses were written by a model rather than by
+	// hand, so they are folded away behind one pink Experimental button, with a warning above them,
+	// instead of sitting in the gallery as though they had been finished. Same rows, same
+	// descriptions, same load path — the only difference is that you have to ask for them.
 	import { Button } from '$lib/components/ui/button/index.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import FlaskConicalIcon from '@lucide/svelte/icons/flask-conical';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import HappyFace from '$lib/chat/HappyFace.svelte';
 	import type { UiPreset } from '$lib/bridge';
@@ -99,11 +107,32 @@
 		Community: 'Community'
 	};
 
+	/** The library folder holding the model-written harnesses. Matches PresetLibrary.ExperimentalFolder. */
+	const EXPERIMENTAL_FOLDER = 'AI';
+
+	// In the author's own voice, and unhedged: the point is that these are a stopgap and the user
+	// should know it before opening one. The emoji is written as an escape rather than pasted, so the
+	// text survives however this bundle is embedded and extracted on the way to the WebView.
+	const SLOP_WARNING =
+		'WELCOME TO THE SLOP ZONE! All harnesses here are AI generated. ' +
+		"I'll be working through human written replacements after I get back from vacation " +
+		'\u{1F3DD}\u{FE0F}. They are worth going through if a specific topic interests you. ' +
+		'I asked Claude to demonstrate ALL components. Happy tinkering!';
+
+	/** Whether the experimental section is open. Closed on arrival — it is asked for each visit. */
+	let showExperimental = $state(false);
+
+	let experimental = $derived(presets.filter((p) => p.folder === EXPERIMENTAL_FOLDER));
+
 	// The host's order is already folder-by-folder, so grouping is a single pass — no sorting here, or
-	// the page and the library would disagree about precedence.
+	// the page and the library would disagree about precedence. The experimental folder is skipped:
+	// it gets its own section below rather than a heading in this run.
 	let groups = $derived.by(() => {
 		const out: { folder: string; label: string; items: UiPreset[] }[] = [];
 		for (const preset of presets) {
+			if (preset.folder === EXPERIMENTAL_FOLDER) {
+				continue;
+			}
 			const last = out[out.length - 1];
 			if (last && last.folder === preset.folder) {
 				last.items.push(preset);
@@ -133,36 +162,80 @@
 		canvas, ready to use — whatever is already there keeps running.
 	</p>
 
-	{#if groups.length > 0}
-		{#each groups as group (group.folder)}
-			<h3 class="text-muted-foreground mt-5 text-xs font-semibold tracking-wide uppercase">
-				{group.label}
-			</h3>
+	<!-- One preset row, shared by the gallery and the experimental section — they differ in what is
+	     said ABOVE them, not in what a row is or does. -->
+	{#snippet row(preset: UiPreset)}
+		<!-- The row is only the description's ANCHOR; the panel itself is rendered once, below,
+		     in fixed coordinates. Focus reveals it too, so the keyboard reaches it. -->
+		<div
+			role="presentation"
+			onmouseenter={(event) => show(event, preset)}
+			onmouseleave={hide}
+			onfocusin={(event) => show(event, preset)}
+			onfocusout={hide}
+		>
+			<Button
+				variant="outline"
+				class="h-auto w-full justify-start gap-2 py-2.5 text-left"
+				onclick={() => onplace(preset.file)}
+			>
+				<PlusIcon class="size-4 shrink-0" />
+				{preset.name}
+			</Button>
+		</div>
+	{/snippet}
 
-			<div class="mt-2 flex flex-col gap-2">
-				{#each group.items as preset (preset.file)}
-					<!-- The row is only the description's ANCHOR; the panel itself is rendered once, below,
-					     in fixed coordinates. Focus reveals it too, so the keyboard reaches it. -->
-					<div
-						role="presentation"
-						onmouseenter={(event) => show(event, preset)}
-						onmouseleave={hide}
-						onfocusin={(event) => show(event, preset)}
-						onfocusout={hide}
-					>
-						<Button
-							variant="outline"
-							class="h-auto w-full justify-start gap-2 py-2.5 text-left"
-							onclick={() => onplace(preset.file)}
-						>
-							<PlusIcon class="size-4 shrink-0" />
-							{preset.name}
-						</Button>
-					</div>
+	{#each groups as group (group.folder)}
+		<h3 class="text-muted-foreground mt-5 text-xs font-semibold tracking-wide uppercase">
+			{group.label}
+		</h3>
+
+		<div class="mt-2 flex flex-col gap-2">
+			{#each group.items as preset (preset.file)}
+				{@render row(preset)}
+			{/each}
+		</div>
+	{/each}
+
+	{#if experimental.length > 0}
+		<!-- Pink, and last. The button carries its own colour rather than a variant, because this is
+		     the only place in the window that wears it: the Experimental pink is a label on these
+		     harnesses, not a new button kind. aria-expanded both tells a screen reader what the button
+		     does and gives .neu-btn its pressed-in look while the section is open. -->
+		<div class="mt-6 flex flex-col gap-2">
+			<Button
+				variant="outline"
+				class="h-auto w-full justify-start gap-2 bg-[var(--neu-experimental)] py-2.5 text-left text-[var(--neu-experimental-text)] hover:bg-[var(--neu-experimental-hover)]"
+				aria-expanded={showExperimental}
+				onclick={() => (showExperimental = !showExperimental)}
+			>
+				<FlaskConicalIcon class="size-4 shrink-0" />
+				Experimental
+				<span class="ml-auto flex items-center gap-1 text-xs font-normal opacity-80">
+					{experimental.length}
+					{#if showExperimental}
+						<ChevronDownIcon class="size-4 shrink-0" />
+					{:else}
+						<ChevronRightIcon class="size-4 shrink-0" />
+					{/if}
+				</span>
+			</Button>
+
+			{#if showExperimental}
+				<p
+					class="rounded-lg bg-[var(--neu-experimental-soft)] px-3 py-2 text-xs text-[var(--neu-experimental-text)]"
+				>
+					{SLOP_WARNING}
+				</p>
+
+				{#each experimental as preset (preset.file)}
+					{@render row(preset)}
 				{/each}
-			</div>
-		{/each}
-	{:else}
+			{/if}
+		</div>
+	{/if}
+
+	{#if groups.length === 0 && experimental.length === 0}
 		<div class="mt-6 flex flex-col items-center gap-4">
 			<HappyFace />
 			<p class="text-muted-foreground text-center text-sm">

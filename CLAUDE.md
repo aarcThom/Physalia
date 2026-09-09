@@ -56,11 +56,11 @@ Physalia.Core/
                        Conversation, ConversationHelpers, Instructions
     Models/          ← ModelConfig (abstract), ModelEntry, ModelList
         Protocol/    ← OpenAIProtocolConfig, AnthropicProtocolConfig, GeminiProtocolConfig
-        Named/       ← OpenAICompatibleConfig, AnthropicConfig, GeminiConfig, LlamaCppConfig
+        Named/       ← OpenAICompatibleConfig, AnthropicConfig, GeminiConfig
         Defaults/    ← the ONLY place a model name may be branched on
     Providers/       ← ILlmProvider, ProtocolProviderBase (HttpClient + shared request/stream helpers)
         OpenAiProtocol/, Anthropic/, Gemini/  ← per-provider wire-format parsing
-        Named/       ← OpenAICompatibleProvider, AnthropicProvider, GeminiProvider, LlamaCppProvider
+        Named/       ← OpenAICompatibleProvider, AnthropicProvider, GeminiProvider
         ClaudeCode/, Codex/  ← local-CLI providers (warm process, no API key)
     Signals/         ← PhySignal, SignalOutcome, SignalSequencer, SignalAggregation
     Tokens/          ← ITokenEstimator + estimators, AsyncTokenEstimation, TokenEstimationHelpers
@@ -247,7 +247,7 @@ and **inside a preset**.
 
 ---
 
-## GH Component Inventory — 108 components
+## GH Component Inventory — 109 components
 
 Names only; **what each one is and why is in `planning/component-inventory.md`.** Ribbon section and code
 folder are 1:1 apart from spelling; every folder is under `src/Physalia.GH/Components/` except the Harness
@@ -260,7 +260,7 @@ proxy (`src/Physalia.GH/Harness/`).
 | **Grounding** | Cluster, Python, Canvas State, Component Catalog, Document Units, Rhino Document, Image Sources, Tools Present, Project Folder, Set Script I/O |
 | **LLM Tools** | Router, WebSearch, ReadUrl, Memory, Create/Ref. Rhino Geometry, Drive Rhino (`run_rhino_script`), ComponentSearch, RhinoCommonSearch, Take Snapshot, Move In Space, Read PDF, MCP Server, API Call, Download File, Read File, Declare, Ask Human, Delegate, Pipeline State |
 | **Human Tools** | Geometry Snapshot, View Snapshot, Add Image, Export Conversation, Signal Trace, Image Mark Up, Token Count, Trigger Control, Read PDF (`AddPdf`) |
-| **Models** | Anthropic / Gemini / OpenAICompatible Model + Tweaker, ModelInformation, LlamaCppModelInfo, Model API, ClaudeCodeModel, CodexModel |
+| **Models** | Anthropic / Gemini / OpenAICompatible Model + Tweaker, ModelInformation, LlamaCppModelInfo, LlamaCpp API, Model API, ClaudeCodeModel, CodexModel |
 | **Control Flow** | Feedback, Feedback Collector, Detect JSON, Build Plan, Signal Limiter, Merge Signal, Stall Guard, Signal Gate, Hold Signal, Signal Switch, Signal Throttle, For Each, Budget Guard |
 | **Triggers** | Timer, Folder Watcher, Rhino Changed, Data Changed, Watch Modelling |
 | **Signals** | Construct Signal, Construct Tool Call, Deconstruct Signal, Conversation/Message/Instructions Compositors + Decompositors |
@@ -389,6 +389,10 @@ Other: `Colour`
         /CLUSTERS         ← .ghcluster files + clusters.json manifest (Cluster Grounding)
         /PRESETS/Physalia ← preset harnesses shipped with the plug-in (.phy — a zip of manifest +
                              harness.gh + files/; plain .gh still read)
+            /AI           ← the model-written set: a FOURTH library folder despite being nested here
+                             (Enumerate is non-recursive, which is what keeps it out of the main
+                             listing). Shown behind the chat window's pink Experimental toggle, so it
+                             ships without being advertised — see planning/project-files-and-phy.md
         /MEMORIES, /PROJECT_FILES, /PRESETS/{User,Community}
                           ← EMPTY, and kept only to explain where they went (a README in each)
 ```

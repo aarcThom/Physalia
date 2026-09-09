@@ -32,8 +32,10 @@ OUT = os.path.join(HERE, 'preview_update_notice.html')
 
 NOTES = '- Your work moved to %LOCALAPPDATA%.\n- The entry screen shows the build.'
 
+FOLDER = r'C:\Users\me\AppData\Local\Physalia'
+
 VERSION = {'display': '1.1', 'full': '1.1.0.0',
-           'update': {'from': '1.0', 'to': '1.1', 'notes': NOTES}}
+           'update': {'from': '1.0', 'to': '1.1', 'notes': NOTES, 'folder': FOLDER}}
 
 # Home, configured, nothing wired: the ConnectOptions entry screen, which is one of the two places
 # the version line lives.
@@ -70,6 +72,9 @@ PROBE = """(function () {
   };
   if (dialog) {
     out.text = dialog.textContent.replace(/\\s+/g, ' ').trim();
+    // The explanation on its own, so "keep it short" is something the rig can actually hold to.
+    var para = dialog.querySelector('p');
+    out.paragraph = para ? para.textContent.replace(/\\s+/g, ' ').trim() : '';
     out.notesRendered = !!dialog.querySelector('ul li');
     out.buttons = Array.prototype.map.call(dialog.querySelectorAll('button'),
       function (b) { return b.textContent.trim(); });
@@ -169,8 +174,9 @@ def main():
             'dialog appears on an update': shown['dialog'],
             'it names both versions':
                 '1.0' in shown.get('text', '') and '1.1' in shown.get('text', ''),
-            'it says Rhino did this by itself':
-                'Package Manager' in shown.get('text', ''),
+            'it says where the user\'s own work is kept':
+                FOLDER in shown.get('text', ''),
+            'it stays short': len(shown.get('paragraph', '')) < 200,
             'the changelog section is rendered as markdown': shown.get('notesRendered') is True,
             'it is drawn above the page': shown.get('dialogIsOnTop') is True,
             'it offers both actions': len(shown.get('buttons', [])) >= 2,

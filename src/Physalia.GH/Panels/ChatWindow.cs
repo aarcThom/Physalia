@@ -2087,7 +2087,7 @@ public class ChatWindow : Form
                 full = version.Full,
                 update = notice is null
                     ? null
-                    : new { from = notice.From, to = notice.To, notes = notice.Notes },
+                    : new { from = notice.From, to = notice.To, notes = notice.Notes, folder = notice.Folder },
             },
             WriteOpts);
 

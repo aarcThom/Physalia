@@ -12,15 +12,9 @@ else.
 
 ## 1.0.0
 
-- Your own work — a harness's project folder with its downloads, autosaved transcript and run
-  log, the model's memories, and any harness you saved as a preset — now lives in
-  `%LOCALAPPDATA%/Physalia` rather than beside the plug-in. A package update replaces the
-  install directory wholesale, so anything kept there was one silent update away from being
-  stranded. Whatever an older build left behind is moved across the first time this version
-  runs; nothing is overwritten, and anything it could not move is named on the Rhino command
-  line.
+- Your own work — project folders and their downloads, autosaved transcripts, run logs, the model's
+  memories, and any harness you saved as a preset — now lives in `%LOCALAPPDATA%\Physalia`, where a
+  plug-in update cannot reach it. Anything an older build left behind is moved across on first run.
 - System prompts, clusters and the shipped presets still come from the plug-in, so they keep
-  arriving with updates. A file of your own with the same name takes precedence over the
-  shipped one.
-- The chat window's entry screen shows which build you are running, and says so when a silent
-  update has changed it.
+  arriving with updates. A file of your own with the same name wins.
+- The entry screen shows which build you are running, and says so when an update changes it.

@@ -469,6 +469,9 @@ export interface UiUpdateNotice {
 	to: string;
 	/** This release's section of the shipped changelog, as markdown. Null when it has none. */
 	notes?: string | null;
+	/** Where the user's own work is kept, spelled for their platform — the one reassurance worth
+	 *  giving after an update replaced the plug-in's directory. Null if the host did not send it. */
+	folder?: string | null;
 }
 
 /** A preset harness (.gh under Files/PRESETS) offered on the Add-preset page. */

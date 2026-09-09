@@ -65,12 +65,20 @@
 			aria-modal="true"
 			aria-labelledby="update-notice-title"
 		>
-			<h2 id="update-notice-title" class="text-sm font-medium">Physalia was updated</h2>
+			<h2 id="update-notice-title" class="text-sm font-medium">Physalia updated!</h2>
 
+			<!-- Short and positive, by request. The version pair is the whole announcement; the only
+			     other thing worth a sentence is where the user's own work is, because an update
+			     replaces the plug-in's directory and "my harness is gone" is the fear it causes. The
+			     WHAT is left to the changelog section below, which says it per release. -->
 			<p class="text-muted-foreground text-xs leading-relaxed">
-				You were on <span class="tabular-nums">{notice.from}</span>; this is
-				<span class="tabular-nums">{notice.to}</span>. Rhino's Package Manager installs plug-in
-				updates on its own when it starts, so this one was not something you asked for.
+				You're on <span class="tabular-nums">{notice.to}</span>, up from
+				<span class="tabular-nums">{notice.from}</span>.
+				{#if notice.folder}
+					Your harnesses, presets, prompts and memories are kept in
+					<span class="text-foreground break-all select-all">{notice.folder}</span> — an update
+					never touches them.
+				{/if}
 			</p>
 
 			{#if notice.notes}

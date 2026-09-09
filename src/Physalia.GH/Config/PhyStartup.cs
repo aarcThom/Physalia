@@ -108,7 +108,7 @@ public sealed class PhyStartup : GH_AssemblyPriority
             InstallStamp stamp = InstallStamp.Load(PhyData.Root);
 
             PendingNotice = stamp.NoticeFor(Version) is UpdateNotice notice
-                ? notice with { Notes = ReadReleaseNotes() }
+                ? notice with { Notes = ReadReleaseNotes(), Folder = PhyData.Root }
                 : null;
 
             InstallStamp updated = stamp.WithVersion(Version);

@@ -208,4 +208,9 @@ public sealed record InstallStamp(
 /// version numbers say THAT something changed and nothing about what, but a missing changelog must
 /// not cost the user the notice itself.
 /// </param>
-public sealed record UpdateNotice(string From, string To, string? Notes = null);
+/// <param name="Folder">
+/// Where the user's own work is kept, spelled for the platform it is on. The one genuinely useful
+/// thing to say after an update the user did not ask for: their harnesses, presets and memories are
+/// not in the directory that was just replaced.
+/// </param>
+public sealed record UpdateNotice(string From, string To, string? Notes = null, string? Folder = null);

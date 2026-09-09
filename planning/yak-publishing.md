@@ -184,6 +184,9 @@ start. Check, in this order, because each one has a known way of failing only he
    with `version: 1.0.0.0`.
 7. **Then fake an update**: edit that file's version down to `0.9.0.0`, restart Rhino, and the notice
    should appear once, name 0.9 → 1.0, carry the changelog section, and not come back after "Got it".
+   *(Confirmed working in Rhino on 2026-09-09, against the Debug build. Re-run it against the
+   INSTALLED package, since that is the path where `Files/CHANGELOG.md` comes from the package
+   directory rather than from `bin`.)*
 8. **Nothing of the user's is in the install directory** — `Files/MEMORIES`,
    `Files/PROJECT_FILES` and `Files/PRESETS/User` hold only their READMEs, and a memory written by
    the model lands in `%LOCALAPPDATA%\Physalia\MEMORIES` instead.

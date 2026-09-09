@@ -8,7 +8,10 @@ metadata:
   modified: 2026-09-09T07:46:39.521Z
 ---
 
-2026-09-09, built, headless-verified and committed (7 commits on `main`), **not yet run in Rhino**. Preparing Physalia for Rhino's
+2026-09-09, committed (9 commits on `main`). **The update notice is RUN LIVE in Rhino** — stamping
+`install.json`'s version down and restarting raised the dialog, so `InstallStamp` → `PhyStartup` →
+the one-shot push → the Eto WebView all work in the host. The data-folder MOVE and the shipped/user
+OVERLAY are still headless-only. Preparing Physalia for Rhino's
 package manager forced this: **Rhino 8 updates installed plug-ins silently at startup and installs
 each version in a directory of its own**, so everything Physalia wrote beside its assembly was one
 update away from being stranded. Confirmed against McNeel's docs and forum: auto-update is on by
@@ -55,9 +58,10 @@ into `bin` — memories, project folders, saved presets.
   blocks on every update forever, and saying so each time trains the user to ignore the real line.
 
 ## Still to do
-- **Verify in Rhino.** Nothing here has run in Rhino: stamp the version down by hand and check the
-  dialog appears once, put a memory/preset/project folder in the package `Files/` and check they
-  arrive, then rebuild and confirm nothing is destroyed any more.
+- **Verify the MIGRATION in Rhino** (the notice is done): put a memory, a user preset and a project
+  folder with a download into the package `Files/`, restart, and confirm all three arrive and the
+  harness still finds its folder — then rebuild and confirm `CopyLibraryFiles` can no longer destroy
+  any of it. Also worth doing once: uninstall the package and confirm the data folder survives.
 - **`Files/PRESETS/Physalia/AI/` is one level deeper than `PresetLibrary.Enumerate` looks**, so the
   30 presets sitting there do not appear in the gallery at all. Pre-existing, untouched — nested
   listing changes the wire value and `Resolve`, so it is its own job.

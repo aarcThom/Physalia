@@ -1,6 +1,6 @@
 ---
 name: teaching-presets
-description: "The annotated .phy teaching presets in wip_presets/, how they are generated from tools/presets/, and the provider and Grasshopper facts that building them uncovered."
+description: "The annotated .phy teaching presets, now shipped in Files/PRESETS/Physalia/AI, how they are generated from tools/presets/, and the provider and Grasshopper facts that building them uncovered."
 metadata: 
   node_type: memory
   type: project
@@ -8,7 +8,7 @@ metadata:
   modified: 2026-09-07T10:39:06.954Z
 ---
 
-2026-09-07. Built FOURTEEN annotated teaching harnesses in `wip_presets/`, on branch
+2026-09-07. Built FOURTEEN annotated teaching harnesses (twenty-eight by the end), on branch
 `presets/demo-harnesses`. Each is a `.phy` a new user drops on a canvas and READS: numbered stages,
 a blue heading and a yellow plain-English note per stage, laid out strictly left to right (only the
 wireless return paths run backwards, and they are the ones that cannot be wires).
@@ -17,7 +17,17 @@ They are generated, not hand-wired. `tools/presets/` holds `phybuild.py` (the sh
 `build_NN_*.py` (one per preset — re-run to regenerate its `.phy`), `verify.py` (reads a written
 `.phy` back the way the loader does), `shoot.py` (renders a harness canvas to a PNG so a layout can
 be LOOKED at), `liverun.py` (places a `.phy` and drives one real round with no chat window), and two
-headless behaviour tests. Read `wip_presets/README.md` for the set and what each live run proved.
+headless behaviour tests. The `wip_presets/README.md` that listed the set and what each live run
+proved was deleted with the folder — recover it from history (`git show 4175095~1:wip_presets/README.md`)
+if the per-preset live-run notes are wanted.
+
+**2026-09-09: they SHIP now, and they moved.** All 28 live in `Files/PRESETS/Physalia/AI/` as
+`01`–`28` (the `SNN` scenario ones renumbered `15`–`28`), joined by two older `.gh` harnesses as
+`29`–`30`. `wip_presets/` is gone. The chat window folds that folder behind a pink **Experimental**
+button carrying a warning that everything inside is AI generated, pending human-written
+replacements — see [[preset-conventions]] and `PresetLibrary.ExperimentalFolder`. Note that
+`tools/presets/phybuild.py` and `audit.py` still write to and read from `<ROOT>/wip_presets`: a
+regenerated preset lands there, NOT in the shipped folder, and has to be moved.
 
 ## Provider facts, all measured here
 

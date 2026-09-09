@@ -601,6 +601,9 @@ public class ChatWindow : Form
             case "approve":
                 HandleApprove(uri);
                 break;
+            case "update-seen":
+                HandleUpdateSeen(uri);
+                break;
             case "fetch":
                 HandleFetchOffer(uri);
                 break;
@@ -2060,6 +2063,11 @@ public class ChatWindow : Form
     // way to see which Physalia they are running, and it is the first thing any bug report needs.
     // The flag is cleared by MarkPageReady, like the other one-shot pushes, or a reload would leave
     // the line blank for the life of the window.
+    //
+    // The same push carries the update notice, when this is the first run after the version changed.
+    // It rides along rather than having a channel of its own because the two are one fact — which
+    // build this is — and because the notice must reach whichever window opens first, however long
+    // after startup that is.
     private void MaybePushVersion()
     {
         if (_versionPushed)
@@ -2069,9 +2077,18 @@ public class ChatWindow : Form
 
         _versionPushed = true;
 
-        PhyVersionInfo version = PhyVersion.Of(Assembly.GetExecutingAssembly());
+        PhyVersionInfo version = PhyStartup.Version;
+        UpdateNotice? notice = PhyStartup.PendingNotice;
+
         string json = JsonSerializer.Serialize(
-            new { display = version.Display, full = version.Full },
+            new
+            {
+                display = version.Display,
+                full = version.Full,
+                update = notice is null
+                    ? null
+                    : new { from = notice.From, to = notice.To, notes = notice.Notes },
+            },
             WriteOpts);
 
         Exec($"window.physalia&&window.physalia.setVersion&&window.physalia.setVersion({json});");
@@ -3212,6 +3229,17 @@ public class ChatWindow : Form
         ToolApprovalBroker.Answer(
             GetQueryValue(uri.Query, "id"),
             GetQueryValue(uri.Query, "allow") == "1");
+    }
+
+    // The user has read the update notice. Only now is the acknowledgement written: a notice pushed
+    // to a page nobody was looking at is not a notice delivered, which is why this is a round trip
+    // rather than a stamp written the moment the notice was computed.
+    //
+    // "again=0" is the dialog's second action — stop telling me about updates at all.
+    private void HandleUpdateSeen(Uri uri)
+    {
+        PhyStartup.AcknowledgeNotice(GetQueryValue(uri.Query, "again") != "0");
+        _versionPushed = false;
     }
 
     // Every Chat in the file, grouped by harness and ordered left-to-right then top-to-bottom, for a

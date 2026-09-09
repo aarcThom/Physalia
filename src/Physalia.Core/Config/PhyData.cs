@@ -111,6 +111,36 @@ public static class PhyData
     }
 
     /// <summary>
+    /// Resolves the SHIPPED content folder beside an assembly — the <c>Files/</c> tree itself.
+    /// </summary>
+    /// <param name="assembly">The plug-in's own assembly.</param>
+    /// <returns>The absolute path, or null when the assembly has no location on disk.</returns>
+    public static string? PackageRoot(Assembly assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+
+        string? assemblyDir = Path.GetDirectoryName(assembly.Location);
+        return string.IsNullOrEmpty(assemblyDir)
+            ? null
+            : Path.Combine(assemblyDir, PackageFolderName);
+    }
+
+    /// <summary>
+    /// Resolves a file shipped in the package's <c>Files/</c> root, such as the changelog.
+    /// </summary>
+    /// <param name="assembly">The plug-in's own assembly.</param>
+    /// <param name="fileName">The file's name.</param>
+    /// <returns>The absolute path, or null when the assembly has no location on disk.</returns>
+    public static string? PackageFile(Assembly assembly, string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            throw new ArgumentException("A file name is required.", nameof(fileName));
+
+        string? root = PackageRoot(assembly);
+        return root is null ? null : Path.Combine(root, fileName);
+    }
+
+    /// <summary>
     /// Resolves a named folder in the SHIPPED content beside an assembly.
     /// </summary>
     /// <param name="assembly">
@@ -124,15 +154,11 @@ public static class PhyData
     /// </returns>
     public static string? PackageFolder(Assembly assembly, string folder)
     {
-        ArgumentNullException.ThrowIfNull(assembly);
-
         if (string.IsNullOrWhiteSpace(folder))
             throw new ArgumentException("A folder name is required.", nameof(folder));
 
-        string? assemblyDir = Path.GetDirectoryName(assembly.Location);
-        return string.IsNullOrEmpty(assemblyDir)
-            ? null
-            : Path.Combine(assemblyDir, PackageFolderName, folder);
+        string? root = PackageRoot(assembly);
+        return root is null ? null : Path.Combine(root, folder);
     }
 
     /// <summary>

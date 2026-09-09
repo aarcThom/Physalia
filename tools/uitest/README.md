@@ -13,6 +13,7 @@ python tools/uitest/test_static_surface_layout.py out.html   # then --dump-dom f
 python tools/uitest/test_page_chrome.py out.html shot.png    # drives itself over CDP
 python tools/uitest/test_link_prompt.py out.html shot.png    # clicks a link in an answer
 python tools/uitest/test_provider_edit.py out.html           # then --dump-dom for data-diag-*
+python tools/uitest/test_update_notice.py                    # drives itself over CDP
 ```
 
 `test_static_surface_layout.py` and `test_page_chrome.py` measure the window's chrome AROUND a
@@ -34,6 +35,13 @@ confirmation that comes up: that its overlay is fixed and covers the window, tha
 opaque and that `elementFromPoint` at the card's centre lands inside the card. The bug it covers
 rendered that dialog with none of its styling, so its text lay over the conversation and both were
 unreadable — "the dialog is in the DOM" was true throughout.
+
+`test_update_notice.py` drives the silent-update notice and the version line under the critter. Two
+of its assertions can only be made from outside the page: dismissing the dialog must SEND
+`phbridge://update-seen`, because the HOST's record is what stops the notice returning and a page
+that merely hid it would show it again on every restart — and "Don't tell me about updates" must
+send something different (`again=0`), being a different decision from "I have read this one". The
+version line is checked geometrically, which is what caught it overlapping the mark by 8px.
 
 `cdp.py` is a minimal Chrome DevTools Protocol client (hand-rolled WebSocket frames — there is no
 websocket library installed here) used to inject **trusted** input. That matters: a synthetic

@@ -22,7 +22,7 @@
 
 {#if version}
 	<p
-		class="text-muted-foreground -mt-2 text-[11px] tabular-nums select-none"
+		class="text-muted-foreground text-[11px] tabular-nums select-none"
 		title="Physalia {version.full}"
 	>
 		v{version.display}

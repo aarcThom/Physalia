@@ -14,6 +14,7 @@
 	import FetchOfferCard from '$lib/chat/FetchOfferCard.svelte';
 	import QuestionCard from '$lib/chat/QuestionCard.svelte';
 	import ImageEditor from '$lib/chat/ImageEditor.svelte';
+	import UpdateNoticeDialog from '$lib/chat/UpdateNotice.svelte';
 	import Setup from '$lib/chat/Setup.svelte';
 	import Preset from '$lib/chat/Preset.svelte';
 	import Grounding from '$lib/chat/Grounding.svelte';
@@ -252,6 +253,12 @@
 	// Which build this is. Null until the host pushes it (once per page load), which is why the
 	// version line renders only when it has arrived rather than showing a placeholder.
 	let version = $state<UiVersion | null>(null);
+
+	// The update notice, dismissed locally the moment the user closes it — the host is told
+	// separately, and it is the HOST's record that stops the notice coming back. Kept apart from
+	// `version` so dismissing the dialog does not disturb the version line under the logo.
+	let updateNotice = $derived(updateDismissed ? null : (version?.update ?? null));
+	let updateDismissed = $state(false);
 	// Every Chat on the canvas (the bottom switcher row), pushed by the host.
 	let chats = $state<UiChat[]>([]);
 
@@ -327,6 +334,9 @@
 			},
 			setVersion: (next) => {
 				version = next ?? null;
+				// A fresh push carrying a notice is a notice not yet acknowledged — the host only ever
+				// sends one it still wants shown, so a previous dismissal must not suppress it.
+				updateDismissed = false;
 			},
 			setMcpServers: (next: McpConfig) => {
 				mcpServers = next?.servers ?? [];
@@ -1414,6 +1424,11 @@
 		</div>
 	{/if}
 </main>
+
+<!-- Physalia was updated behind the user's back (Rhino updates packages silently at startup). Outside
+     <main>, above everything, because it is the one thing that should be read before a pipeline that
+     costs money is run against a build nobody chose to install. -->
+<UpdateNoticeDialog notice={updateNotice} onclose={() => (updateDismissed = true)} />
 
 <!-- The image editor sits OUTSIDE <main>, above everything, and only while an image is actually being
      marked up. Keyed on the image so re-opening the editor on a second picture starts a fresh mark-up

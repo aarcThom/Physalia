@@ -451,6 +451,24 @@ export interface UiVersion {
 	display: string;
 	/** The full four-part assembly version, e.g. "1.2.3.0". The exact build, for a bug report. */
 	full: string;
+	/** Set only on the first run after the version changed — see UiUpdateNotice. Null otherwise. */
+	update?: UiUpdateNotice | null;
+}
+
+/** An update that happened without the user asking for it.
+ *
+ *  Rhino 8's Package Manager updates installed plug-ins silently at startup: no prompt, no
+ *  notification. The host compares the running build against the one recorded on this machine and
+ *  hands this over when they differ, so the first a user learns of a new version is not their
+ *  pipeline behaving differently. Dismissing it tells the HOST (phbridge://update-seen), which is
+ *  what stops it coming back — a notice this page merely received is not one the user has read. */
+export interface UiUpdateNotice {
+	/** The version that ran here last, trimmed for reading. */
+	from: string;
+	/** The version running now, trimmed for reading. */
+	to: string;
+	/** This release's section of the shipped changelog, as markdown. Null when it has none. */
+	notes?: string | null;
 }
 
 /** A preset harness (.gh under Files/PRESETS) offered on the Add-preset page. */
@@ -642,6 +660,13 @@ export const BRIDGE_SCHEME = 'phbridge';
  *  through the host instead. */
 export function openExternalLink(url: string): void {
 	window.location.href = `${BRIDGE_SCHEME}://open?url=${encodeURIComponent(url)}`;
+}
+
+/** Dismisses the update notice, which is what records it as seen: until this arrives the host keeps
+ *  offering it, because Rhino can start with no chat window open and a notice nobody saw must not
+ *  count as delivered. `again: false` is the dialog's second action — stop reporting updates. */
+export function acknowledgeUpdate(again = true): void {
+	window.location.href = `${BRIDGE_SCHEME}://update-seen?again=${again ? '1' : '0'}`;
 }
 
 /** Answers one tool approval card. Anything but an explicit allow is a No on the host side too, so a

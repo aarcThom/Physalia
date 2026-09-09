@@ -65,3 +65,37 @@ cancellation, no orphaned processes).
 **Known duplication:** `CodexProvider` is ~120 lines that mirror `ClaudeCodeProvider` almost exactly
 (pool, reaper, seed-vs-delta, error wrapping). A shared `CliSessionProviderBase` is the obvious
 follow-up; deliberately not done here, since it would touch the already-working Claude Code path.
+
+## GPT-6 Astra (2026-09-08, measured on codex-cli 0.153.4)
+
+**`gpt-6-astra` needed no protocol work.** The model list is fetched live from `model/list`, so
+Astra appeared in the Model Picker the moment the CLI was upgraded — and it is `isDefault: true`,
+so an EMPTY Model input already resolves to it. A real turn through Physalia's exact
+`thread/start` + `turn/start` shape (baseInstructions / ephemeral / read-only / approvalPolicy
+never / `summary: "auto"`) completed normally. That is the payoff of the live fetch: a new
+generation costs a CLI upgrade, not a rebuild.
+
+**What DID need changing: the reasoning-effort list.** The GPT-6 generation added `max` and
+`ultra` (`ultra` = "maximum reasoning with automatic task delegation"), and
+`CodexConfig.KnownReasoningEfforts` was a flat `low/medium/high/xhigh`, so the Effort Picker could
+not offer Astra's top two. Both verified accepted, and both produce reasoning summaries where
+Astra's own default effort (`low`) produces none at all.
+
+**The asymmetry that decides which list is live and which is hard-coded:** a too-new MODEL id is a
+hard 400, but an unsupported EFFORT is silently ignored — `ultra` against `gpt-5.6-luna` (whose
+`supportedReasoningEfforts` stops at `max`) completes the turn as normal. So the effort list can
+safely stay a hard-coded union of the generation, while the model list must be asked for.
+
+`model/list` also carries per-model `supportedReasoningEfforts`, `defaultReasoningEffort`,
+`inputModalities` and `serviceTiers`. Driving the Effort Picker off the SELECTED model would be
+exact rather than a union — deliberately not done: it makes one Picker's list depend on another
+input's value, which re-opens the `PickableInput.IsSettled` trap ([[picker-ghjson-serialization]]).
+
+`OpenAIModelDefaults` still has no `gpt-6` row — its `PrefixModels` stops at `gpt-5`. Irrelevant
+while Astra is Codex-only (that path never touches the table), but the day a `gpt-6*` id appears on
+the HTTP API it falls to `Fallback` and gets `max_tokens` + sampling, which the GPT-5 generation
+already rejects.
+
+`KnownModels` deliberately left at `gpt-5.5 / gpt-5.4 / gpt-5.4-mini`: it is only the pre-fetch
+seed, and seeding a model an older CLI would 400 on is the failure the comment there warns about.
+

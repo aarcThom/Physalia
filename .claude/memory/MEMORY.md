@@ -59,7 +59,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Feedback turn attribution](feedback-turn-attribution.md) — 2026-08-17: needed `PhySignal.Origins` **provenance**, because every aggregator re-mints under its own identity.
 - [Merge Signal join](merge-signal-join.md) — 2026-08-17: every aggregator must use `SignalAggregation.Combine` — a signal's `ContentBlocks` are the WHOLE turn. It is a JOIN, not a passthrough.
 - [Codex dynamic tools](codex-dynamic-tools.md) — 2026-08-16: Codex calls Physalia's tools with zero canvas changes; the call is DEFERRED back to the Router. Drop all text after a tool call.
-- [Codex provider](codex-provider.md) — 2026-08-16: `codex app-server --stdio` JSON-RPC (NOT `codex exec`). Reasoning needs `summary:"auto"`; a server-initiated request must be ANSWERED. Not run in Rhino.
+- [Codex provider](codex-provider.md) — 2026-08-16/09-08: `codex app-server --stdio` JSON-RPC. **gpt-6-astra needed no protocol work — the model list is live**; only `max`/`ultra` efforts were missing. A too-new MODEL 400s, an unsupported EFFORT is ignored.
 - [C# Transmitter](csharp-transmitter.md) — 2026-08-11: C# declares params TWICE, so the push is gated on a signature check; every script transmitter must test `LanguageSpec`. Not run in Rhino.
 - **2026-08-08: the HARNESS is the plug-in's base unit** — a real owned GH sub-document; presets are stock `.gh` files. `PhyDocuments` splits *local* from *host*. See [[harness-subdocument]].
 - **2026-08-04: phy_critter is the project's ONLY logo** — `Resources/critter.png` + inlined in `HappyFace.svelte`; the jellyfish is DELETED. See [[chat-widget]].

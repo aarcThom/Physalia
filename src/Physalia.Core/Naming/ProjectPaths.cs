@@ -16,8 +16,8 @@ namespace Physalia.Core.Naming;
 /// <para>Four spellings, told apart by shape rather than by a setting, because a setting for this
 /// would be one more thing to get wrong:</para>
 /// <code>
-/// (blank)                   Files/PROJECT_FILES/&lt;the harness's name&gt;
-/// site-survey               Files/PROJECT_FILES/site-survey       — no separator, so it is a NAME
+/// (blank)                   PROJECT_FILES/&lt;the harness's name&gt;
+/// site-survey               PROJECT_FILES/site-survey       — no separator, so it is a NAME
 /// ./data  ../shared/las     relative to the folder the .gh file is saved in
 /// D:\Projects\x  \\share\y  used verbatim
 /// </code>
@@ -62,7 +62,7 @@ public static class ProjectPaths
     /// The folder name to use when nothing was typed — the harness's name, already a legal folder
     /// name when it is a generated four-word key.
     /// </param>
-    /// <param name="projectFilesRoot">The <c>Files/PROJECT_FILES</c> directory.</param>
+    /// <param name="projectFilesRoot">The <c>PROJECT_FILES</c> directory.</param>
     /// <param name="documentFolder">
     /// The folder the host <c>.gh</c> file is saved in, or null when it has never been saved. Only
     /// consulted for a relative path.
@@ -220,7 +220,7 @@ public enum ProjectPathKind
     /// <summary>Nothing was typed: the harness's own project folder.</summary>
     Default,
 
-    /// <summary>A plain name: a folder under <c>Files/PROJECT_FILES</c>.</summary>
+    /// <summary>A plain name: a folder under <c>PROJECT_FILES</c>.</summary>
     Named,
 
     /// <summary>A relative path: resolved against the saved Grasshopper file's folder.</summary>

@@ -139,7 +139,7 @@ public class ReadPdf : LlmToolComponentBase
         pManager.AddTextParameter(
             "Reference Folder",
             "RF",
-            "An additional, SHARED set of PDFs read on top of the project's own — an office spec library on a network share, the same for every job. A full path, or a plain name for a folder under Files/PROJECT_FILES. The project folder is per-pipeline and travels inside a .phy; this one is per-machine and deliberately does not.",
+            "An additional, SHARED set of PDFs read on top of the project's own — an office spec library on a network share, the same for every job. A full path, or a plain name for a folder under PROJECT_FILES. The project folder is per-pipeline and travels inside a .phy; this one is per-machine and deliberately does not.",
             GH_ParamAccess.item);
         pManager[InReferenceFolder].Optional = true;
     }

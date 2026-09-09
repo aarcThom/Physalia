@@ -25,8 +25,8 @@ internal static class ProjectFolderInput
     /// </summary>
     internal const string InputDescription =
         "Where this pipeline's files live. Leave blank for the harness's own folder (named after the "
-        + "harness, under Files/PROJECT_FILES) — which is what a Project Folder grounder hands over "
-        + "when you wire one in. A plain name is a folder under Files/PROJECT_FILES; anything with a "
+        + "harness, under PROJECT_FILES) — which is what a Project Folder grounder hands over "
+        + "when you wire one in. A plain name is a folder under PROJECT_FILES in Physalia's data folder; anything with a "
         + "slash in it is relative to the saved Grasshopper file; a full path is used as it stands.";
 
     /// <summary>

@@ -15,7 +15,7 @@ namespace Physalia.GH.Components;
 /// tool (view, create, str_replace, insert, delete, rename) — a well-worn file-editing shape every
 /// frontier model handles, so the identical schema works on OpenAI and Gemini too. When the model
 /// calls it, the dispatched signal arrives from a Router, the node runs the command against
-/// <c>Files/MEMORIES</c> (a GLOBAL folder shared by every pipeline, plus a LOCAL folder belonging to
+/// <c>MEMORIES</c> (a GLOBAL folder shared by every pipeline, plus a LOCAL folder belonging to
 /// this pipeline alone), and it emits the result as a tool result (wire its Result output through a
 /// Feedback component into a Feedback Collector and back to the Router's Results input).
 ///
@@ -68,7 +68,7 @@ public class MemoryTool : LlmToolComponentBase
     /// Initializes a new instance of the <see cref="MemoryTool"/> class.
     /// </summary>
     public MemoryTool()
-        : base("Memory", "Memory", "Gives the model somewhere to keep notes between sessions: one set shared by every pipeline, one belonging to this pipeline and travelling with it. Name that second set on the Memory Folder input. Files live under Files/MEMORIES.")
+        : base("Memory", "Memory", "Gives the model somewhere to keep notes between sessions: one set shared by every pipeline, one belonging to this pipeline and travelling with it. Name that second set on the Memory Folder input. Files live in MEMORIES, in Physalia's own data folder, so a plug-in update cannot take them away.")
     {
     }
 
@@ -115,7 +115,7 @@ public class MemoryTool : LlmToolComponentBase
         pManager.AddTextParameter(
             "Memory Folder",
             "MF",
-            "Names the folder this pipeline's local memories are kept in, under Files/MEMORIES/LOCAL. "
+            "Names the folder this pipeline's local memories are kept in, under MEMORIES/LOCAL in Physalia's data folder. "
             + "Type a name and it is saved with the node, so the notes travel with the pipeline into "
             + "another file or out inside a preset — and two Memory tools given the same name share "
             + "one set of notes, which is how a rebuilt pipeline picks up where the last one left off. "

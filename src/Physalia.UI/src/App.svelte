@@ -78,6 +78,7 @@
 		UiPdf,
 		UiPreset,
 		UiState,
+		UiVersion,
 		UnitsOverridePayload,
 		ApiConfig,
 		ApiEndpointPayload,
@@ -247,6 +248,10 @@
 
 	// Bundled preset harnesses (from Files/PRESETS), pushed by the host.
 	let presets = $state<UiPreset[]>([]);
+
+	// Which build this is. Null until the host pushes it (once per page load), which is why the
+	// version line renders only when it has arrived rather than showing a placeholder.
+	let version = $state<UiVersion | null>(null);
 	// Every Chat on the canvas (the bottom switcher row), pushed by the host.
 	let chats = $state<UiChat[]>([]);
 
@@ -319,6 +324,9 @@
 			},
 			setPresets: (next) => {
 				presets = next ?? [];
+			},
+			setVersion: (next) => {
+				version = next ?? null;
 			},
 			setMcpServers: (next: McpConfig) => {
 				mcpServers = next?.servers ?? [];
@@ -1061,6 +1069,7 @@
 					{canClose}
 					{configuredProviders}
 					{providerStatuses}
+					{version}
 					onselect={selectProvider}
 					onopenlink={openLink}
 					onclose={closeSetup}
@@ -1148,6 +1157,7 @@
 						onconfiguremcp={() => openPanel('mcp')}
 						onconfigureapi={() => openPanel('api')}
 						{home}
+						{version}
 					/>
 			{/if}
 			</div>

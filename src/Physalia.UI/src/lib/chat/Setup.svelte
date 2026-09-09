@@ -28,7 +28,8 @@
 	import { PROVIDERS, getProvider } from '$lib/chat/providers';
 	import HappyFace from '$lib/chat/HappyFace.svelte';
 	import Pill from '$lib/chat/Pill.svelte';
-	import type { ProviderStatus, SetupResult } from '$lib/bridge';
+	import VersionLine from '$lib/chat/VersionLine.svelte';
+	import type { ProviderStatus, SetupResult, UiVersion } from '$lib/bridge';
 
 	interface Props {
 		/** Currently opened provider guide, or null for the picker grid. */
@@ -41,6 +42,8 @@
 		configuredProviders: string[];
 		/** Per-provider availability + opt-in, from the host. */
 		providerStatuses: ProviderStatus[];
+		/** The running build, shown under the mark. Null until the host pushes it. */
+		version: UiVersion | null;
 		onselect: (id: string | null) => void;
 		onopenlink: (url: string) => void;
 		onclose: () => void;
@@ -61,6 +64,7 @@
 		canClose,
 		configuredProviders,
 		providerStatuses,
+		version,
 		onselect,
 		onopenlink,
 		onclose,
@@ -452,10 +456,14 @@
 			     welcome text and every provider button below the fold — and a first-run screen you
 			     have to scroll to find reads as an empty one. It shrinks in a short window and goes
 			     entirely when there is no room for it at all. -->
+			<!-- The version line lives INSIDE this wrapper so it disappears with the mark it belongs
+			     to: on a window too short for the critter, a lone build number floating above the
+			     welcome text would be the least useful thing on the screen. -->
 			<div
-				class="[&>svg]:size-[120px] [@media(max-height:760px)]:[&>svg]:size-[72px] [@media(max-height:560px)]:hidden"
+				class="flex flex-col items-center [&>svg]:size-[120px] [@media(max-height:760px)]:[&>svg]:size-[72px] [@media(max-height:560px)]:hidden"
 			>
 				<HappyFace />
+				<VersionLine {version} />
 			</div>
 
 			{#if configured.length > 0}

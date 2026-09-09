@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Physalia Contributors
+// Copyright (c) 2026 Physalia Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System;
@@ -166,6 +166,10 @@ public class ChatWindow : Form
     private string? _lastStatus;
     private string? _lastConfigured;
     private string? _lastPresetSignature;
+
+    // One-shot pushes, cleared by MarkPageReady rather than by change detection: the running build
+    // cannot change while Rhino is up, so there is no later change to make good a swallowed push.
+    private bool _versionPushed;
 
     // Last seen (write time, length) of MCP_SERVERS.YAML, so the MCP page refreshes when the file
     // changes — from this window, from another one, or from the user editing it by hand — without
@@ -2020,6 +2024,10 @@ public class ChatWindow : Form
         // The forced post-switch push (above) is done; subsequent ticks resume change-detection.
         _forcePush = false;
 
+        // Which build this is, for the line under the logo. Once per page load — it cannot change
+        // while Rhino is running, so it has no business in the state object's change detection.
+        MaybePushVersion();
+
         // Bundled presets for the "Add preset" page — pushed once and whenever the set changes.
         MaybePushPresets();
 
@@ -2044,6 +2052,29 @@ public class ChatWindow : Form
         // Files a download could not fetch, offered as a button. Same deal: pushed off the broker's
         // event the moment one is raised, with the tick as the safety net.
         MaybePushFetchOffers();
+    }
+
+    // Pushes the running build to the page, once per page load.
+    //
+    // Worth showing at all because a Rhino 8 package update is SILENT: without this the user has no
+    // way to see which Physalia they are running, and it is the first thing any bug report needs.
+    // The flag is cleared by MarkPageReady, like the other one-shot pushes, or a reload would leave
+    // the line blank for the life of the window.
+    private void MaybePushVersion()
+    {
+        if (_versionPushed)
+        {
+            return;
+        }
+
+        _versionPushed = true;
+
+        PhyVersionInfo version = PhyVersion.Of(Assembly.GetExecutingAssembly());
+        string json = JsonSerializer.Serialize(
+            new { display = version.Display, full = version.Full },
+            WriteOpts);
+
+        Exec($"window.physalia&&window.physalia.setVersion&&window.physalia.setVersion({json});");
     }
 
     // Pushes the preset library to the page, but only when the set actually changes — a cheap
@@ -3438,6 +3469,7 @@ public class ChatWindow : Form
         ResetPushedState();
         _lastPresetSignature = null;
         _lastChats = null;
+        _versionPushed = false;
     }
 
     // Drops the per-component last-pushed caches so a freshly viewed Chat re-pushes its full

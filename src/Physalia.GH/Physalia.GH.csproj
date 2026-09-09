@@ -46,11 +46,22 @@
   </PropertyGroup>
   
   <PropertyGroup>
-    <!-- Specifies information for Assembly and Yak -->
-    <Version>1.0</Version>
-    <Title>Physalia.GH</Title>
-    <Company>Physalia.GH Authors</Company>
-    <Description>Description of Physalia.GH</Description>
+    <!-- Assembly AND package metadata: yak reads these straight off the built assembly, so what is
+         here is what the Rhino Package Manager shows in its listing. They were still the project
+         template's defaults ("Description of Physalia.GH") until 2026-09-09.
+
+         VERSION IS LOAD-BEARING, in three places at once:
+           * the package manager compares it to decide whether to auto-update an installed copy;
+           * Physalia_GHInfo.AssemblyVersion reports it to Grasshopper;
+           * the chat window shows it under the logo and, when it CHANGES between runs, tells the
+             user an update happened (InstallStamp) — a Rhino 8 package update is silent otherwise.
+         Keep it plain semver. A pre-release tag (1.0.0-rc1) hides the package behind the manager's
+         "Include pre-releases" checkbox, which also opts every user out of automatic updates. -->
+    <Version>1.0.0</Version>
+    <Title>Physalia</Title>
+    <Authors>Thomas Gaudin</Authors>
+    <Company>Physalia Contributors</Company>
+    <Description>An open-source LLM powered Grasshopper library.</Description>
   </PropertyGroup>
   
   <ItemGroup>

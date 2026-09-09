@@ -15,6 +15,8 @@
 	// what tells them to wire a Conversation Log.
 	import HappyFace from '$lib/chat/HappyFace.svelte';
 	import Pill from '$lib/chat/Pill.svelte';
+	import VersionLine from '$lib/chat/VersionLine.svelte';
+	import type { UiVersion } from '$lib/bridge';
 
 	interface Props {
 		/** Opens the predefined-harness gallery (same destination as the header menu's "Add preset"). */
@@ -29,13 +31,19 @@
 		onconfigureapi: () => void;
 		/** True on the Home screen, which is the only place the options are offered. */
 		home: boolean;
+		/** The running build, shown under the mark. Null until the host pushes it. */
+		version: UiVersion | null;
 	}
 
-	let { onpreset, onemptyharness, onconfigure, onconfiguremcp, onconfigureapi, home }: Props = $props();
+	let { onpreset, onemptyharness, onconfigure, onconfiguremcp, onconfigureapi, home, version }: Props =
+		$props();
 </script>
 
 <div class="mx-auto flex w-full max-w-xl flex-col items-center gap-6 px-4 py-6">
-	<HappyFace />
+	<div class="flex flex-col items-center">
+		<HappyFace />
+		<VersionLine {version} />
+	</div>
 
 	{#if home}
 		<div class="flex w-full flex-col gap-4">

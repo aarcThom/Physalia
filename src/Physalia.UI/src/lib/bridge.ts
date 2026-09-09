@@ -443,6 +443,16 @@ export interface UiChat {
 	home: boolean;
 }
 
+/** Which build of Physalia this is. Pushed once per page load — it cannot change while the window
+ *  is open, so it is deliberately NOT part of UiState, which is serialized twice a tick for change
+ *  detection. */
+export interface UiVersion {
+	/** Trimmed for reading, e.g. "1.0" or "1.2.3". Shown under the logo on the entry screen. */
+	display: string;
+	/** The full four-part assembly version, e.g. "1.2.3.0". The exact build, for a bug report. */
+	full: string;
+}
+
 /** A preset harness (.gh under Files/PRESETS) offered on the Add-preset page. */
 export interface UiPreset {
 	/** Library-relative path, e.g. "Physalia/claude_code_incremental.gh". The wire value when loading:
@@ -548,6 +558,8 @@ export interface PhysaliaHost {
 	setTokenCount(count: number | null): void;
 	/** Bundled preset harnesses (from Files/PRESETS) for the Add-preset page. */
 	setPresets(presets: UiPreset[]): void;
+	/** Which build this is, for the line under the logo. Pushed once per page load. */
+	setVersion(version: UiVersion): void;
 	/** The configured MCP servers, for the Configure-MCP page. Pushed when the store changes. */
 	setMcpServers(config: McpConfig): void;
 	/** Outcome of the last MCP save/delete, or null to clear it. */

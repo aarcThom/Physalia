@@ -1290,6 +1290,13 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
         }
 
         ExpireProxyLayout();
+
+        // The harness panel binds when the canvas enters the harness, which on the load path is
+        // BEFORE this runs — Replace re-points the canvas, the panel reads the name, description and
+        // chat text off us, and only then does the manifest arrive. Re-point it now or the panel
+        // keeps showing the pipeline that was just discarded, and its first keystroke writes that
+        // stale text back over what was loaded.
+        Widgets.HarnessPanelHost.Refresh(null);
     }
 
     private void RequestFolderSync()
@@ -1316,6 +1323,12 @@ public sealed class HarnessComponent : PhyBase, IGH_VariableParameterComponent
     {
         UnhookFolderSync();
         SyncProjectFolder();
+
+        // The name is editable at both ends, so the sync has to be two-way: the panel writes through
+        // the NickName setter, but an F2 on the proxy, a properties-panel edit or an undo reaches no
+        // handler the panel can hear. This idle pass is already where a rename is picked up, and it
+        // is the only UI-safe point — the setter itself fires during layout, paste and archive reads.
+        Widgets.HarnessPanelHost.Refresh(null);
     }
 
     /// <summary>

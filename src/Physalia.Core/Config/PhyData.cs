@@ -61,15 +61,21 @@ public static class PhyData
     /// </summary>
     public const string PackageFolderName = "Files";
 
+    private static string? _root;
+
     /// <summary>
     /// Gets Physalia's per-user data folder — <c>%LOCALAPPDATA%/Physalia</c> on Windows — creating it
     /// if needed.
     /// </summary>
     /// <remarks>
-    /// The same root as the credential store, on purpose: one folder to back up, one folder to clear,
-    /// and one folder a support question can ask about.
+    /// <para>The same root as the credential store, on purpose: one folder to back up, one folder to
+    /// clear, and one folder a support question can ask about.</para>
+    /// <para>Resolved once. It is asked for inside solves now — a project folder is resolved every
+    /// time a node that reads or writes one solves — and the underlying call creates the directory,
+    /// which is not something to do several times a second. Every writer still creates its own
+    /// target, so a folder deleted mid-session is remade by whatever next writes to it.</para>
     /// </remarks>
-    public static string Root => SecretStores.DataFolder();
+    public static string Root => _root ??= SecretStores.DataFolder();
 
     /// <summary>
     /// Gets the user's project-files root.

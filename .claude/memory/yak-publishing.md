@@ -1,53 +1,76 @@
 ---
 name: yak-publishing
-description: Facts verified about publishing Physalia to Rhino's package manager — yak commands and tags, the name being free, and the 294MB of native runtimes a Windows package must not carry.
+description: Physalia 1.0.0 is PUBLISHED on Rhino's package manager — what shipped, the rh8_0 tag we could not fix and why, the packaging toolkit, and the verification trap that makes an installed-package test meaningless.
 metadata:
   type: reference
 ---
 
-2026-09-09, **researched and measured, nothing pushed**. The plan is
-`planning/yak-publishing.md`; this is what was verified rather than assumed.
+**Published 2026-09-09: `physalia 1.0.0`, `rh8_0-win`, 19.7 MB, on `https://yak.rhino3d.com/`,
+owned by the personal account `thomas@aarc.io`.** A version can never be deleted or overwritten;
+`yak yank` only unlists it. Plan: `planning/yak-publishing.md`. Toolkit: `tools/packaging/`.
 
-## The tool, on this machine
-- `C:\Program Files\Rhino 8\System\Yak.exe` — **Yak 0.15.2**, Rhino **8.34** installed. (Mac:
-  `/Applications/Rhino 8.app/Contents/Resources/bin/yak`.)
-- `yak spec` writes a starter `manifest.yml` from the ASSEMBLY attributes — which is why
-  `Physalia.GH.csproj`'s `Title`/`Authors`/`Company`/`Description`/`Version` were worth fixing.
-- `yak build [--platform win|mac|any] [--version X]`, `yak login` (browser, token good ~30 days),
-  `yak push [--source https://test.yak.rhino3d.com] <file>.yak`, `yak search [--prerelease]`,
-  `yak yank`.
-- **`yak search physalia` returns nothing, released or pre-release — the name is FREE**, and the
-  first account to push 1.0.0 owns it. Worth claiming early on the real server.
-- **A version can never be deleted or overwritten.** `yank` only unlists. The test server
-  (`--source https://test.yak.rhino3d.com`) is wiped nightly and is where mistakes belong.
+## The toolkit
+`tools/packaging/` holds `manifest.yml`, `icon.png` (64x64, rendered from `Images/phy_critter.svg`
+with headless Chrome — see [[svg-rasterization-headless-chrome]]) and `Stage-YakPackage.ps1`, which
+copies `bin/Release/net7.0-windows`, prunes, asserts, and optionally runs `yak build`.
+**322 MB in, 19.7 MB out.** The prune is in the SCRIPT, not the csproj: narrowing
+`RuntimeIdentifiers` on a library changes restore and output layout for every dev build and would
+fight the deferred mac port, while deleting from a staged copy is reversible.
 
-## Package shape
-- A `.yak` is a zip: `manifest.yml` at the ROOT, the `.gha`/`.rhp` at the root too (or inside a
-  framework folder — `net48/`, `net7.0/` — for a multi-targeted package). Other subfolders are
-  allowed, which is what lets `Files/`, `Bridge/` and `runtimes/` ride along.
-- Distribution tag is `<app>_<major>_<minor>-<platform>`, e.g. `rh8_24-win`; the rh part comes from
-  the referenced RhinoCommon (ours pins Grasshopper/RhinoCommon **8.24.25281.15001**), the platform
-  from `--platform`.
-- Manifest name may only hold letters, numbers, dashes, underscores; version is semver 2.0.0 or
-  four-digit; `icon` is a small PNG/JPEG **inside the package** (`icon_url` is obsolete). Keywords
-  should include the Grasshopper plug-in GUID so Grasshopper's package restore can find it —
-  `862C53A2-69A1-4B56-A133-26E0BCEDE789` (`Physalia_GHInfo.Id`).
+Its checks are all "healthy on disk, broken once installed" cases: the `runtimes/<rid>/native/`
+paths `PdfNativeLibrary` probes, `Bridge/` and the net8.0 exe's `deps.json` + `runtimeconfig.json`
+(only its `.pdb` goes), a manifest version matching the assembly, and a `## <version>` changelog
+section. It walks EVERY `runtimes/` folder — the bridge carries its own.
 
-## The measurement that changes the packaging
-`bin/Debug/net7.0-windows` is **321 MB, of which `runtimes/` is 294 MB** — SkiaSharp natives for 21
-RIDs, including every Linux musl/arm variant. A Windows package needs **win-x64 only** (18.6 MB;
-win-arm64 and win-x86 are another 33 MB and Rhino 8 Windows is x64). `Bridge/` is 3.3 MB, `Files/`
-0.7 MB, and there are 7 loose DLLs beside the `.gha` (the JSON stack and the two P/Invoke shims,
-both deliberately denylisted from ILRepack). **Prune the RIDs, then re-verify a PDF page renders in
-Rhino from the INSTALLED package** — `PdfNativeLibrary` probes `runtimes/<os>-<arch>/native/`, and
-the failure mode is a `DllNotFoundException` in Rhino only. See [[pdf-natives-verified]].
+## The rh tag we could not fix
+**`yak build` derives the distribution tag from the LOWEST RhinoCommon reference in the merged
+`.gha`**, and `GhJSON.Grasshopper 1.1.1` has `RhinoCommon 8.0.23304.9001` compiled into it.
+`GhJSON.Core` is clean and `Physalia.Core` emits no Rhino reference at all, so **no csproj pin
+reaches it** — a direct 8.24 `PackageReference` in Core was tried and reverted as inert. The only
+lever is `<RepackDenyList Include="GhJSON.Grasshopper" />`, shipping it loose beside the `.gha` the
+way the JSON stack and PDFtoImage already do. Deferred to 1.0.1.
 
-## Two things that are ship blockers, not packaging details
-- **F3, the unattended overnight run**, is still the only outstanding item in
-  `planning/pre-ship-testing.md` — an armed pipeline that overspends its budget is worse than no
-  trigger tier at all. Drive it with `tools/overnight/Watch-OvernightRun.ps1`.
-- **The 30 presets in `Files/PRESETS/Physalia/AI/` do not appear in the gallery**, because
-  `PresetLibrary.Enumerate` lists files directly inside the three library folders only. Shipping a
-  package whose whole teaching library is invisible is worse than shipping without it.
+So 1.0.0 advertises a Rhino **8.0** minimum for a plug-in whose GH half compiles against 8.24.
+Related, and worse in principle: `Rhino.Runtime.Code` and `RhinoCodePlatform.GH` are `HintPath`s
+into `C:\Program Files\Rhino 8\System`, so the real floor for `run_rhino_script` **follows whatever
+Rhino the build machine has** (8.34 here). Yak ignores them. Pin them deliberately some day.
 
-Related: [[data-folder-and-update-notice]], [[preset-conventions]], [[pre-ship-testing-pass]].
+## The trap that makes verification meaningless
+`%APPDATA%\Grasshopper\grasshopper_kernel.xml` has `Assemblies:Folders` pointing at
+`bin\Debug\net7.0-windows`. **The installed package supplies a second `.gha` with the same plug-in
+GUID**, so unless that folder is cleared (`_GrasshopperDeveloperSettings`, with Rhino CLOSED — GH
+rewrites the file on exit) you restart Rhino, see everything work, and have tested the DEV BUILD.
+Always confirm the loaded location first:
+`AppDomain.CurrentDomain.GetAssemblies()` → `Physalia.GH` → `.Location` must be under
+`%APPDATA%\McNeel\Rhinoceros\packages\8.0\physalia\<version>\`.
+
+## Verified live from the INSTALLED package (2026-09-09)
+Library GUID `862c53a2-…` matching the manifest keyword; **124 proxies, 0 missing icons**;
+`PdfPageRenderer.TryRender` producing a real 937x625 PNG (the RID prune's only true test — the
+natives resolved); the bridge starting far enough to print its own usage and exit 2 (proving the
+net8.0 runtime and `deps.json` survived); **39 presets enumerated, 30 in AI**; `PhyVersion.Display`
+→ `1.0`; and nothing of the user's in the install directory.
+
+**NOT verified, and now shipped:** the update notice read from the package directory, uninstall
+leaving `%LOCALAPPDATA%\Physalia` standing, and **F3** (the unattended overnight run — still the
+open item in `planning/pre-ship-testing.md`, shipped by an explicit decision).
+
+## Preset 29 nearly shipped broken
+A `.gh` preset cannot carry a payload the way a `.phy` carries `files/`, so the ComfyUI preset's
+SDXL graph ships at `Files/PROJECT_FILES/comfy-render/img2img-sdxl.json` and **`DataMigration`
+delivers it** into `%LOCALAPPDATA%\Physalia\PROJECT_FILES\`, where the preset's Project Folder input
+(`comfy-render`, no separator) resolves it. The first staging script pruned it as stray user content.
+It is now an explicit `$shipped` exception WITH an assertion, so a future prune change fails the
+stage instead of silently breaking that preset. Confirmed delivered on this machine.
+
+## Mechanics worth not relearning
+- `yak login` opens a browser, stores `%APPDATA%\McNeel\yak.yml`, lasts ~30 days — no release script
+  can do it unattended. From Claude Code's `!` prefix it is BASH, so `& "C:\…"` is a syntax error.
+- Test server (`--source https://test.yak.rhino3d.com`) is wiped nightly; install FROM it, which is
+  what proves the package rather than the file.
+- `yak build` takes only `--platform` and `--version`. **There is no tag override.**
+- Yak adds its own normalised `guid:<lowercase>` keyword beside ours; both are in the listing.
+- `[warn] Content version doesn't match manifest: '1.0.0.0' != '1.0.0'` is cosmetic and accepted.
+
+Related: [[data-folder-and-update-notice]], [[pdf-natives-verified]], [[preset-conventions]],
+[[pre-ship-testing-pass]], [[comfy-render-preset]], [[ilrepack-release-double-merge]].

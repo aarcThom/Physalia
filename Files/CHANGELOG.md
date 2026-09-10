@@ -10,6 +10,12 @@ first, and nothing but the release's own notes underneath it. A date or a name a
 is fine (`## 1.1.0 — 2026-10-01`); a missing section costs the notice its detail and nothing
 else.
 
+## 1.0.1
+
+- The **Claude Code - Node Based** preset shipped with a Codex model node wired in, pinned to a
+  model id that no longer exists. It now carries a Claude Code model, as its name always promised,
+  and says on the canvas that Claude Code cannot make tool calls inside Physalia.
+
 ## 1.0.0
 
 - Your own work — project folders and their downloads, autosaved transcripts, run logs, the model's

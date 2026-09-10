@@ -1,12 +1,11 @@
 ---
 name: yak-publishing
-description: Physalia 1.0.1 is PUBLISHED on Rhino's package manager — what shipped, the rh8_0 tag we could not fix and why, the packaging toolkit, and the verification trap that makes an installed-package test meaningless.
+description: Physalia 1.0.2 is PUBLISHED on Rhino's package manager — what shipped, the rh8_0 tag we could not fix and why, the packaging toolkit, and the verification trap that makes an installed-package test meaningless.
 metadata:
   type: reference
 ---
 
-**Published 2026-09-09: `physalia 1.0.0`, then `1.0.1` the same night — both `rh8_0-win`,
-19.7 MB, on `https://yak.rhino3d.com/`, owned by the personal account `thomas@aarc.io`.** A version
+**Published 2026-09-09/10: `physalia 1.0.0`, `1.0.1`, `1.0.2` — all `rh8_0-win`, 19.7 MB, on `https://yak.rhino3d.com/`, owned by the personal account `thomas@aarc.io`.** A version
 can never be deleted or overwritten; `yak yank` only unlists it. Plan: `planning/yak-publishing.md`.
 Toolkit: `tools/packaging/`.
 
@@ -36,8 +35,31 @@ a `.yak` is a zip, so read the changed file straight out of it and hash it again
 (the 1.0.1 check confirmed the preset was byte-identical, carried `Claude Code Model`, and had no
 `Codex Model` or `gpt-5.5` left in the inflated `harness.gh`).
 
-**Still `rh8_0` in 1.0.1.** The GhJSON.Grasshopper fix was "deferred to 1.0.1" and did NOT happen —
-1.0.1 was a preset fix and denylisting a merged assembly is not a change to smuggle into one.
+## 1.0.2, and the leak that rode inside five presets
+A `.phy`'s `files/` IS the harness's PROJECT FOLDER, so **saving a preset from a harness that has
+actually been run sweeps in whatever the pipeline left there** — `conversation.json` (the autosaved
+transcript) and `runs.jsonl` (one line per inference call, with model ids, token counts and
+timings). 1.0.0 and 1.0.1 shipped `Codex - Drive Rhino` that way without anyone noticing; by 1.0.2
+the same 4-turn transcript had been copied into FIVE presets, and in four of them it was a
+**different harness's** data (every run line said `Codex - Drive Rhino`, inside the Local LLM and
+Claude Code presets). On load it restores into the new user's project folder, so it is a visible
+bug, not only hygiene. The AI 01–30 set was clean — they were never run before saving.
+
+Stripping is safe and needs no Rhino: a `.phy` is a zip, so rewrite it without those two entries and
+**assert `harness.gh` hashes the same before and after**. `Stage-YakPackage.ps1` now FAILS on
+`files/conversation.json` or `files/runs.jsonl` in any shipped `.phy`. Only those two names — a
+preset is allowed real payload.
+
+**Prove a new guard fires before trusting its clean verdict.** The 1.0.2 guard was tested by
+injecting `files/runs.jsonl` into a staged preset and confirming the stage exited 1 — the same
+lesson `audit.py`'s `self_test` exists for. In the same session a byte-level Feedback-collector
+check was written that reported every preset broken, including ones known good: GH stores
+`InstanceGuid`s as BINARY, so an ASCII guid regex finds nothing anywhere. **A scanner that cannot
+succeed and a scanner that cannot fail are equally worthless.** Collector pairing is checked by
+`check_pairs.py` INSIDE Rhino; there is no bytes-only substitute.
+
+**Still `rh8_0` through 1.0.2.** The GhJSON.Grasshopper fix was "deferred to 1.0.1" and did NOT happen —
+1.0.1 and 1.0.2 were preset fixes, and denylisting a merged assembly is not a change to smuggle into one.
 Still open.
 
 ## The toolkit
@@ -104,7 +126,7 @@ stage instead of silently breaking that preset. Confirmed delivered on this mach
   what proves the package rather than the file.
 - `yak build` takes only `--platform` and `--version`. **There is no tag override.**
 - Yak adds its own normalised `guid:<lowercase>` keyword beside ours; both are in the listing.
-- `[warn] Content version doesn't match manifest: '1.0.1.0' != '1.0.1'` is cosmetic and accepted.
+- `[warn] Content version doesn't match manifest: '1.0.2.0' != '1.0.2'` is cosmetic and accepted.
 
 Related: [[data-folder-and-update-notice]], [[pdf-natives-verified]], [[preset-conventions]],
 [[pre-ship-testing-pass]], [[comfy-render-preset]], [[ilrepack-release-double-merge]].

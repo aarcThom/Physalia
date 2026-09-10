@@ -18,7 +18,7 @@
 # the source that URL serves must be the source that built the binary.
 
 name: physalia
-version: 1.0.1
+version: 1.0.2
 authors:
   - Thomas Gaudin
 description: >

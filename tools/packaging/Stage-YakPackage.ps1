@@ -228,6 +228,33 @@ $presetCount = @(Get-ChildItem $presetDir -File -ErrorAction SilentlyContinue).C
 $aiCount = @(Get-ChildItem (Join-Path $presetDir 'AI') -File -ErrorAction SilentlyContinue).Count
 if ($presetCount -eq 0) { $problems.Add('Files/PRESETS/Physalia holds no presets.') }
 
+# A .phy is a zip of manifest.json + harness.gh + files/, and files/ is the preset's PROJECT FOLDER.
+# Saving a harness that has actually been run therefore sweeps in whatever the pipeline left in that
+# folder - the autosaved transcript and the per-call run log - and ships the author's test session to
+# everybody. 1.0.0 and 1.0.1 shipped one that way before anyone noticed, and by 1.0.2 the same
+# transcript had been copied into five presets, four of them belonging to a DIFFERENT harness.
+#
+# Nothing else in files/ is presumed guilty: a preset is allowed to carry real payload (see the
+# $shipped note above for the .gh equivalent). Only these two names are session residue by
+# definition, so only these two fail the stage.
+
+$residue = @('files/conversation.json', 'files/runs.jsonl')
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+foreach ($phy in @(Get-ChildItem $presetDir -Recurse -File -Filter '*.phy')) {
+    $zip = $null
+    try {
+        $zip = [IO.Compression.ZipFile]::OpenRead($phy.FullName)
+        foreach ($entry in $zip.Entries) {
+            if ($residue -contains $entry.FullName.Replace('\', '/').ToLowerInvariant()) {
+                $shown = $phy.FullName.Substring($stage.Length + 1)
+                $problems.Add("$shown carries $($entry.FullName) - that is the author's own transcript or run log, swept in from the project folder when the harness was saved after being run. Strip it from the .phy in the repo.")
+            }
+        }
+    }
+    catch { $problems.Add("$($phy.Name) could not be opened as a zip: $($_.Exception.Message)") }
+    finally { if ($zip) { $zip.Dispose() } }
+}
+
 # ----------------------------------------------------------------------------------------- report
 
 $after = Get-SizeMb $stage

@@ -12,7 +12,7 @@ Grasshopper AI plugin for Rhino. Role, working dir, architecture, conventions: *
 - [Design fork, then build through](design-fork-then-build-through.md) — investigate the whole path, ask the ONE question the code cannot settle, then finish the vertical slice; say what has not run.
 
 ## Latest
-- **[Yak publishing](yak-publishing.md) — 2026-09-09, `physalia 1.0.0` IS PUBLISHED** (rh8_0-win, 19.7MB, personal account). The rh tag comes from GhJSON's baked 8.0 ref; clearing the GH developer folder is what makes verification real.
+- **[Yak publishing](yak-publishing.md) — 2026-09-09, `physalia 1.0.0` then `1.0.1` ARE PUBLISHED** (rh8_0-win, 19.7MB). **Read before any release**: the five-step run, commit-before-build, and verifying the `.yak` before a permanent push.
 - **[Data folder + update notice](data-folder-and-update-notice.md)** — 2026-09-09, dialog RUN LIVE: user files → `%LOCALAPPDATA%/Physalia`, shipped content OVERLAID. **Read before yak packaging.**
 - [Project Prompts component](system-prompt-preambles.md) — 2026-09-08, built not run: System Prompt reads the HARNESS PROJECT folder, so a brief ships with the work. `.txt`/`.md` only.
 - **[Preset build RUNBOOK](preset-build-runbook.md) — READ FIRST when asked to "build these presets"**: the `tools/presets/` toolkit, the build → verify → audit loop, and the five SILENT failures.

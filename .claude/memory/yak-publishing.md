@@ -1,17 +1,51 @@
 ---
 name: yak-publishing
-description: Physalia 1.0.0 is PUBLISHED on Rhino's package manager — what shipped, the rh8_0 tag we could not fix and why, the packaging toolkit, and the verification trap that makes an installed-package test meaningless.
+description: Physalia 1.0.1 is PUBLISHED on Rhino's package manager — what shipped, the rh8_0 tag we could not fix and why, the packaging toolkit, and the verification trap that makes an installed-package test meaningless.
 metadata:
   type: reference
 ---
 
-**Published 2026-09-09: `physalia 1.0.0`, `rh8_0-win`, 19.7 MB, on `https://yak.rhino3d.com/`,
-owned by the personal account `thomas@aarc.io`.** A version can never be deleted or overwritten;
-`yak yank` only unlists it. Plan: `planning/yak-publishing.md`. Toolkit: `tools/packaging/`.
+**Published 2026-09-09: `physalia 1.0.0`, then `1.0.1` the same night — both `rh8_0-win`,
+19.7 MB, on `https://yak.rhino3d.com/`, owned by the personal account `thomas@aarc.io`.** A version
+can never be deleted or overwritten; `yak yank` only unlists it. Plan: `planning/yak-publishing.md`.
+Toolkit: `tools/packaging/`.
+
+## The 1.0.1 release, and the shape a point release takes
+1.0.0 shipped `Claude Code - Node Based.phy` with a **Codex** model node wired in, pinned to
+`gpt-5.5` — a preset whose name promised one provider and delivered another, on a dead model id.
+The fix was the user's (`a7aa195`); 1.0.1 is the release that carried it. The whole run, in order,
+and it is worth repeating verbatim:
+
+1. Bump **both** `<Version>` in `src/Physalia.GH/Physalia.GH.csproj` and `version:` in
+   `tools/packaging/manifest.yml` — the stage script throws on drift. They are the ONLY two places.
+2. Add the `## <version>` section to `Files/CHANGELOG.md`, or the stage script fails.
+3. **Commit BEFORE the build you ship.** The assembly stamps `SourceRevisionId` into
+   `ProductVersion` (`1.0.1+4bccbf1…`), so a package built from a dirty tree advertises a commit
+   that is not the source it came from — exactly what manifest.yml's AGPL note warns against.
+   Build, check `[FileVersionInfo]::GetVersionInfo(gha).ProductVersion`, then stage.
+4. `./tools/packaging/Stage-YakPackage.ps1 -YakBuild`, then `Yak.exe push <file>.yak`.
+5. Tag `vX.Y.Z` annotated, `git push origin main` + the tag, then `gh release create` with the
+   `.yak` attached — there is a GitHub Release per version and the newest becomes **Latest**, so
+   skipping it leaves GitHub advertising the previous release while yak serves the new one.
+
+**A Release build succeeds with Rhino open.** The lock is on the *Debug* `.gha` the GH developer
+folder points at; `bin/Release` is untouched. Do not close Rhino for a release build.
+
+**Verify the artifact before pushing, not after** — a version is permanent. Cheap and sufficient:
+a `.yak` is a zip, so read the changed file straight out of it and hash it against the repo copy
+(the 1.0.1 check confirmed the preset was byte-identical, carried `Claude Code Model`, and had no
+`Codex Model` or `gpt-5.5` left in the inflated `harness.gh`).
+
+**Still `rh8_0` in 1.0.1.** The GhJSON.Grasshopper fix was "deferred to 1.0.1" and did NOT happen —
+1.0.1 was a preset fix and denylisting a merged assembly is not a change to smuggle into one.
+Still open.
 
 ## The toolkit
-`tools/packaging/` holds `manifest.yml`, `icon.png` (64x64, rendered from `Images/phy_critter.svg`
-with headless Chrome — see [[svg-rasterization-headless-chrome]]) and `Stage-YakPackage.ps1`, which
+`tools/packaging/` holds `manifest.yml`, `icon.png` (64x64 — 1.0.0's was rendered from
+`Images/phy_critter.svg` with headless Chrome, [[svg-rasterization-headless-chrome]]; 1.0.1's is
+`Images/phy_food_for_rhino.png` downscaled from 1000x1000 with System.Drawing
+`HighQualityBicubic` in PowerShell, which is the simpler route for PNG→PNG) and
+`Stage-YakPackage.ps1`, which
 copies `bin/Release/net7.0-windows`, prunes, asserts, and optionally runs `yak build`.
 **322 MB in, 19.7 MB out.** The prune is in the SCRIPT, not the csproj: narrowing
 `RuntimeIdentifiers` on a library changes restore and output layout for every dev build and would
@@ -28,7 +62,7 @@ section. It walks EVERY `runtimes/` folder — the bridge carries its own.
 `GhJSON.Core` is clean and `Physalia.Core` emits no Rhino reference at all, so **no csproj pin
 reaches it** — a direct 8.24 `PackageReference` in Core was tried and reverted as inert. The only
 lever is `<RepackDenyList Include="GhJSON.Grasshopper" />`, shipping it loose beside the `.gha` the
-way the JSON stack and PDFtoImage already do. Deferred to 1.0.1.
+way the JSON stack and PDFtoImage already do. Deferred past 1.0.1 — still not done.
 
 So 1.0.0 advertises a Rhino **8.0** minimum for a plug-in whose GH half compiles against 8.24.
 Related, and worse in principle: `Rhino.Runtime.Code` and `RhinoCodePlatform.GH` are `HintPath`s
@@ -70,7 +104,7 @@ stage instead of silently breaking that preset. Confirmed delivered on this mach
   what proves the package rather than the file.
 - `yak build` takes only `--platform` and `--version`. **There is no tag override.**
 - Yak adds its own normalised `guid:<lowercase>` keyword beside ours; both are in the listing.
-- `[warn] Content version doesn't match manifest: '1.0.0.0' != '1.0.0'` is cosmetic and accepted.
+- `[warn] Content version doesn't match manifest: '1.0.1.0' != '1.0.1'` is cosmetic and accepted.
 
 Related: [[data-folder-and-update-notice]], [[pdf-natives-verified]], [[preset-conventions]],
 [[pre-ship-testing-pass]], [[comfy-render-preset]], [[ilrepack-release-double-merge]].
